@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Python `>=3.13`. Package name `daikonstudio`. Dependency manager `uv`.
-- Ports, offset from the siblings so all three run side by side: backend **8002**, Postgres **5434**, Valkey **6381**.
+- Ports, verified free on the dev machine 2026-07-25: backend **8002**, Postgres **5435**, Valkey **6381**. (5434 was the original choice but is held by `daikon-gen3-postgres-1`; 3002 is also occupied, so the frontend plan must pick 3003 or later. Verify with `lsof -nP -iTCP:<port> -sTCP:LISTEN` before assuming.)
 - Import-linter contracts must pass in CI: layer order `interface > infrastructure > application > domain`; domain purity (domain imports none of fastapi, sqlalchemy, asyncpg, redis, lagom, arq, httpx, structlog, polars, rdkit, sklearn, xgboost, fsspec); bounded-context independence at the DOMAIN layer (`domain.catalog`, `domain.data`, `domain.execution` may not import each other — only `domain.shared`). Application-layer orchestration across contexts is expected and allowed; that is where Task 14 lives.
 - Use cases return `Result[T, DomainError]` from `returns`. Never raise for expected failures. Guards are the first lines of every use case.
 - `workspace_id` comes from `auth.workspace_id`, never from a request body or URL. Every table carries it.
@@ -106,7 +106,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="STUDIO_", env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://studio:studio@localhost:5434/studio"
+    database_url: str = "postgresql+asyncpg://studio:studio@localhost:5435/studio"
     redis_url: str = "redis://localhost:6381"
     blob_base_url: str = "file:///data/blobs"
     cors_origins: list[str] = ["http://localhost:3002"]
@@ -142,7 +142,7 @@ services:
   postgres:
     image: postgres:16-alpine
     environment: {POSTGRES_USER: studio, POSTGRES_PASSWORD: studio, POSTGRES_DB: studio}
-    ports: ["127.0.0.1:5434:5432"]
+    ports: ["127.0.0.1:5435:5432"]
     volumes: ["studio_pgdata:/var/lib/postgresql/data"]
   valkey:
     image: valkey/valkey:8-alpine
@@ -2525,7 +2525,7 @@ Expected: all pass, all four import-linter contracts KEPT.
 
 - [ ] **Step 5: Write the README**
 
-Document `make install`, `make up`, `make dev-be`, `make dev-worker`, `make migrate`, `make test`, the port table (8002/5434/6381), and the `STUDIO_INLINE_JOBS=1` escape hatch for running without Valkey.
+Document `make install`, `make up`, `make dev-be`, `make dev-worker`, `make migrate`, `make test`, the port table (8002/5435/6381), and the `STUDIO_INLINE_JOBS=1` escape hatch for running without Valkey.
 
 - [ ] **Step 6: Generate the OpenAPI snapshot for the UI plan**
 

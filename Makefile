@@ -30,10 +30,10 @@ help: ## Show this help
 
 up: ## Start Postgres + Valkey, wait for readiness, run migrations
 	$(COMPOSE) up -d postgres valkey
-	@echo "Waiting for Postgres on :5434..."
+	@echo "Waiting for Postgres on :5435..."
 	@until $(COMPOSE) exec -T postgres pg_isready -U daikonstudio -q 2>/dev/null; do sleep 1; done
 	@$(MAKE) --no-print-directory migrate
-	@echo "Infra ready: Postgres :5434, Valkey :6381."
+	@echo "Infra ready: Postgres :5435, Valkey :6381."
 
 down: ## Stop containers (keep data)
 	$(COMPOSE) stop

@@ -158,7 +158,7 @@ Copied from prot-cellar, the lighter of the two siblings.
 - **Frontend:** Next.js 16, React 19, TS, Tailwind v4, radix/shadcn locally,
   `@structflo/daikon-design-tokens`, TanStack Query v5, Zustand, AG Grid, `@rdkit/rdkit` WASM
   for structure rendering, orval against a committed `openapi.json` snapshot.
-- **Ports:** backend 8002, frontend 3002, Postgres 5434, Valkey 6381 — offset from cellar
+- **Ports:** backend 8002, frontend 3002, Postgres 5435, Valkey 6381 — offset from cellar
   (8000/3000/5432/6379) and prot-cellar (8001/3001/5433/6380) so all three run side by side.
 
 Polars rather than pandas for dataset materialization: it is substantially faster on the
