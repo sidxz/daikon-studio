@@ -9,15 +9,16 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from fastapi import Depends
+from pydantic import ValidationError
 
+from daikonstudio.application.auth import AuthContext
 from daikonstudio.domain.shared.errors import ServiceUnavailableError
-from daikonstudio.infrastructure.sentinel.auth import build_sentinel
-from daikonstudio.settings import Settings
+from daikonstudio.infrastructure.sentinel.auth import get_sentinel
 
 __all__ = ["AuthDep", "get_auth"]
 
 
-async def _sentinel_not_configured() -> None:
+async def _sentinel_not_configured() -> AuthContext:
     """Reject every request when Sentinel is not configured. Never a bypass."""
     raise ServiceUnavailableError(
         "Sentinel auth is not configured",
@@ -25,19 +26,22 @@ async def _sentinel_not_configured() -> None:
     )
 
 
-# Sentinel is "configured" only when the service key is explicitly set — the
-# pydantic-settings default ("") is a missing-config signal, not a usable key.
-_settings = Settings()
-_get_request_auth: Any = (
-    build_sentinel(_settings).get_auth
-    if _settings.sentinel_service_key
-    else _sentinel_not_configured
-)
+# get_sentinel() is the one process-wide Sentinel instance shared with
+# interface/app.py, and raises ValueError when required settings (service key,
+# IdP audience) are missing — deliberately loud there, since create_app() must
+# fail at boot rather than serve traffic unprotected. Here we're defensive
+# instead: this module can be imported independently of create_app() (e.g. by a
+# route module under test), so a missing/malformed config falls back to the
+# reject-all stub rather than propagating the crash — but never to a bypass.
+try:
+    _get_request_auth: Any = get_sentinel().get_auth
+except (ValueError, ValidationError):
+    _get_request_auth = _sentinel_not_configured
 
 
-async def get_auth(auth: Annotated[Any, Depends(_get_request_auth)]) -> Any:
+async def get_auth(auth: Annotated[AuthContext, Depends(_get_request_auth)]) -> AuthContext:
     """Stable auth dependency wrapper — overridable via dependency_overrides in tests."""
     return auth
 
 
-AuthDep = Annotated[Any, Depends(get_auth)]
+AuthDep = Annotated[AuthContext, Depends(get_auth)]

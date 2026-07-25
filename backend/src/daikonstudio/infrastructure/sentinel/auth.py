@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from functools import lru_cache
 from typing import TYPE_CHECKING
 
 from sentinel_auth import Sentinel
@@ -60,6 +61,31 @@ def build_sentinel(settings: Settings) -> Sentinel:
         idp_issuer=settings.idp_issuer,
         cache_ttl=120,
     )
+
+
+@lru_cache(maxsize=1)
+def get_sentinel() -> Sentinel:
+    """Process-wide singleton — app.py and interface/dependencies/_core.py must
+    share exactly one Sentinel instance, never build one each.
+
+    The SDK's `fetch_whoami()` (run once, in whichever instance's lifespan
+    actually executes) re-points *that instance's* already-created
+    PermissionClient/RoleClient at the shared realm scope by mutating them in
+    place — sentinel.py's own docstring: "The get_auth dependency factory
+    captures these instances by reference, so mutating .service_name in place
+    updates that path too." A second, independently-built Sentinel would
+    register service actions under the realm slug while every
+    RequestAuth.check_action()/can() from *that* instance's get_auth still posts
+    service_name="daikon-studio": registered under one scope, checked under
+    another. It also leaks that second instance's httpx clients, since the SDK's
+    lifespan only closes the instance it was given.
+
+    Raises ValueError (from Sentinel.__init__) if the service key or IdP
+    audience is missing. Deliberately loud: create_app() calls this
+    unconditionally, and a service that can't authenticate should fail at boot,
+    not serve traffic unprotected.
+    """
+    return build_sentinel(Settings())
 
 
 async def register_service_actions(sentinel: Sentinel) -> bool:

@@ -1,5 +1,17 @@
 import asyncio
+import os
 from collections.abc import AsyncIterator
+
+# Set fake Sentinel env before any daikonstudio import: get_sentinel() (a
+# process-wide @lru_cache singleton, shared by interface/app.py and
+# interface/dependencies/_core.py) constructs a real Sentinel() on first call,
+# which raises ValueError without a service key and IdP audience. create_app()
+# calls it unconditionally and deliberately fails loud on a real misconfigured
+# deploy — but the test suite isn't a real deploy, so it needs values here, not
+# a bypass. Must not rely on a .env file (there isn't one, and this must hold
+# regardless).
+os.environ["STUDIO_SENTINEL_SERVICE_KEY"] = "test-key-for-api-tests"
+os.environ["STUDIO_IDP_AUDIENCE"] = "test-audience.apps.googleusercontent.com"
 
 import pytest_asyncio
 from alembic import command

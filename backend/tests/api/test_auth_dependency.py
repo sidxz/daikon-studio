@@ -1,21 +1,12 @@
 import pytest
-from fastapi import FastAPI
-from fastapi.testclient import TestClient
 
 from daikonstudio.domain.shared.errors import ServiceUnavailableError
-from daikonstudio.interface.dependencies._core import AuthDep
+from daikonstudio.interface.dependencies._core import _sentinel_not_configured
 
 
-def test_get_auth_rejects_when_sentinel_not_configured():
-    """No STUDIO_SENTINEL_SERVICE_KEY in the test env: the wired-in dependency
-    must be the reject-all stub, never a silent bypass for an unauthenticated caller.
+async def test_sentinel_not_configured_stub_rejects_never_bypasses():
+    """The dependency wired in when Sentinel is unconfigured/misconfigured (see
+    _core.py) must reject every request — never let one through unauthenticated.
     """
-    app = FastAPI()
-
-    @app.get("/_probe")
-    async def probe(auth: AuthDep) -> dict[str, str]:
-        return {"ok": "true"}
-
-    client = TestClient(app, raise_server_exceptions=True)
     with pytest.raises(ServiceUnavailableError):
-        client.get("/_probe")
+        await _sentinel_not_configured()
