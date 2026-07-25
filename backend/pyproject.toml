@@ -55,6 +55,13 @@ packages = ["src/daikonstudio"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+filterwarnings = [
+    # ponytail: fastapi.testclient.TestClient (the standard FastAPI test tool) wraps
+    # httpx's sync API, which starlette flags as deprecated pending a hypothetical
+    # "httpx2" that doesn't exist yet. Suppress only this exact warning so real
+    # deprecations in test output still surface. Revisit once httpx2 ships.
+    "ignore:Using `httpx` with `starlette.testclient` is deprecated.*:starlette.exceptions.StarletteDeprecationWarning",
+]
 
 [tool.importlinter]
 root_packages = ["daikonstudio"]

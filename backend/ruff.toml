@@ -1,0 +1,19 @@
+target-version = "py313"
+line-length = 99
+src = ["src"]
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.File",
+    "fastapi.Body",
+    "fastapi.Path",
+    "fastapi.Header",
+]
+
+[format]
+quote-style = "double"
