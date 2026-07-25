@@ -25,7 +25,14 @@ def create_app() -> FastAPI:
         # sentinel.lifespan fetches the JWKS signing key — fatal if it fails,
         # since auth cannot work at all without it. Action registration is
         # best-effort and must never block boot (see register_service_actions).
-        async with sentinel.lifespan(app):
+        #
+        # Ignore comment below: the SDK's `lifespan` property is annotated as
+        # returning Callable[[FastAPI], AsyncIterator[None]] — the undecorated
+        # inner function's own signature — without accounting for the
+        # @asynccontextmanager decorator that actually wraps it into something
+        # `async with`-able. Confirmed against the installed sentinel_auth 0.17.2
+        # source: a type-annotation bug in the SDK, not a real incompatibility.
+        async with sentinel.lifespan(app):  # type: ignore[attr-defined]
             await register_service_actions(sentinel)
             yield
 

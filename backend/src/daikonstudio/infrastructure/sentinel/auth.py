@@ -3,12 +3,34 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
 from sentinel_auth import Sentinel
 
 from daikonstudio.settings import Settings
 
+if TYPE_CHECKING:
+    from sentinel_auth import RequestAuth
+
+    from daikonstudio.application.auth import AuthContext
+
 logger = logging.getLogger(__name__)
+
+
+if TYPE_CHECKING:
+
+    def _static_check_request_auth_satisfies_auth_context(auth: RequestAuth) -> AuthContext:
+        """mypy-only proof that RequestAuth still structurally matches AuthContext.
+
+        Never executed — only exists for `mypy src` (run by `make lint`) to
+        type-check the `return auth` below. If a future sentinel-auth-sdk bump
+        renames/removes user_id/workspace_id/workspace_role, or turns one of them
+        from a read-only @property into something incompatible, this assignment
+        stops type-checking and `make lint` fails here — not as an AttributeError
+        deep inside a route dependency in a later task.
+        """
+        return auth
+
 
 # Service actions registered with Sentinel on startup — RBAC permissions that can
 # be granted to workspace roles. No `studio:register_engine`: third-party engines

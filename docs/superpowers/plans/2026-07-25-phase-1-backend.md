@@ -356,7 +356,7 @@ git commit -m "feat(infra): SQLAlchemy base mixins, session factory and Alembic 
 
 **Interfaces:**
 - Consumes: `DomainError` subclasses (Task 2).
-- Produces: `AuthContext` Protocol with `user_id: UUID`, `workspace_id: UUID`, `workspace_role: str`, `actions: frozenset[str]`; guards `require_authenticated(auth)`, `require_editor(auth)`, `require_admin(auth)`, `require_same_workspace(auth, workspace_id)`; FastAPI dependency `get_auth`; `FakeAuth` test double.
+- Produces: `AuthContext` Protocol with read-only properties `user_id: UUID`, `workspace_id: UUID`, `workspace_role: str`; guards `require_authenticated(auth)`, `require_editor(auth)`, `require_admin(auth)`, `require_same_workspace(auth, workspace_id)`; FastAPI dependency `get_auth`; `FakeAuth` test double.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -426,10 +426,25 @@ _ROLE_RANK = {"viewer": 0, "editor": 1, "admin": 2, "owner": 3}
 
 @runtime_checkable
 class AuthContext(Protocol):
-    user_id: uuid.UUID
-    workspace_id: uuid.UUID
-    workspace_role: str
-    actions: frozenset[str]
+    """Structural match for the SDK's RequestAuth without importing it.
+
+    Members are declared as read-only properties, not plain variables: RequestAuth
+    implements them as @property, and mypy treats a plain variable in a Protocol as
+    read-write, so a read-only property would not satisfy it.
+
+    There is deliberately no `actions` member. RequestAuth has no such attribute —
+    action checks go through its async `check_action()`, a different shape entirely.
+    No guard here needs it.
+    """
+
+    @property
+    def user_id(self) -> uuid.UUID: ...
+
+    @property
+    def workspace_id(self) -> uuid.UUID: ...
+
+    @property
+    def workspace_role(self) -> str: ...
 
 
 def require_authenticated(auth: AuthContext | None) -> None:
@@ -472,10 +487,11 @@ from dataclasses import dataclass, field
 
 @dataclass
 class FakeAuth:
+    """Plain attributes satisfy the read-only-property Protocol; that direction is fine."""
+
     user_id: uuid.UUID = field(default_factory=uuid.uuid4)
     workspace_id: uuid.UUID = field(default_factory=uuid.uuid4)
     workspace_role: str = "editor"
-    actions: frozenset[str] = frozenset({"studio:read", "studio:write", "studio:train"})
 ```
 
 - [ ] **Step 5: Wire Sentinel**

@@ -12,12 +12,25 @@ _ROLE_RANK = {"viewer": 0, "editor": 1, "admin": 2, "owner": 3}
 
 @runtime_checkable
 class AuthContext(Protocol):
-    """Auth context available to use cases. Satisfied by Sentinel's RequestAuth."""
+    """Structural match for the SDK's RequestAuth without importing it.
 
-    user_id: uuid.UUID
-    workspace_id: uuid.UUID
-    workspace_role: str
-    actions: frozenset[str]
+    Members are declared as read-only properties, not plain variables: RequestAuth
+    implements them as @property, and mypy treats a plain variable in a Protocol as
+    read-write, so a read-only property would not satisfy it.
+
+    There is deliberately no `actions` member. RequestAuth has no such attribute —
+    action checks go through its async `check_action()`, a different shape entirely.
+    No guard here needs it.
+    """
+
+    @property
+    def user_id(self) -> uuid.UUID: ...
+
+    @property
+    def workspace_id(self) -> uuid.UUID: ...
+
+    @property
+    def workspace_role(self) -> str: ...
 
 
 def require_authenticated(auth: AuthContext | None) -> None:
