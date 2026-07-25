@@ -1,8 +1,8 @@
-from rdkit import Chem, RDLogger
+from rdkit import Chem
 
-# Invalid input is expected and reported via the return value, not logged.
-# ignore[attr-defined]: installed rdkit-stubs omit DisableLog; RDKit itself has it.
-RDLogger.DisableLog("rdApp.*")  # type: ignore[attr-defined]
+# RDLogger.DisableLog("rdApp.*") lives in the chem package's __init__.py, not here, so
+# it applies to every submodule (featurize, scaffold, similarity) regardless of which
+# one is imported first.
 
 
 def canonicalize(smiles: str) -> str | None:
