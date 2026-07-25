@@ -49,10 +49,43 @@ class EngineManifest:
     is_baseline: bool = False
 
 
+def _coerce(key: str, condition_type: ConditionType, value: object) -> object:
+    """Coerce `value` to the Python type `condition_type` declares.
+
+    Values arrive over JSON from a form, where a numeric field can legitimately show
+    up as a string (e.g. "500"), so numeric strings are accepted and converted rather
+    than rejected. `bool` is excluded from INTEGER/NUMBER explicitly: `isinstance(True,
+    int)` is `True` in Python, so without this check a stray boolean would silently
+    pass as a number.
+    """
+    if condition_type in (ConditionType.INTEGER, ConditionType.NUMBER):
+        if isinstance(value, bool):
+            raise ValueError(f"{key} must be a {condition_type.value}, got {value!r}")
+        if isinstance(value, int | float):
+            if condition_type is ConditionType.NUMBER:
+                return float(value)
+            if isinstance(value, float) and not value.is_integer():
+                raise ValueError(f"{key} must be an integer, got {value!r}")
+            return int(value)
+        if isinstance(value, str):
+            try:
+                return int(value) if condition_type is ConditionType.INTEGER else float(value)
+            except ValueError as exc:
+                raise ValueError(f"{key} must be a {condition_type.value}, got {value!r}") from exc
+        raise ValueError(f"{key} must be a {condition_type.value}, got {value!r}")
+    if condition_type in (ConditionType.STRING, ConditionType.ENUM):
+        if isinstance(value, str):
+            return value
+        raise ValueError(f"{key} must be a string, got {value!r}")
+    if isinstance(value, bool):
+        return value
+    raise ValueError(f"{key} must be a boolean, got {value!r}")
+
+
 def validate_conditions(
     manifest: EngineManifest, supplied: dict[str, object]
 ) -> dict[str, object]:
-    """Fill defaults, reject unknown keys and out-of-range values."""
+    """Fill defaults, reject unknown keys, coerce to the declared type, enforce bounds."""
     known = {c.key: c for c in manifest.conditions}
     unknown = set(supplied) - set(known)
     if unknown:
@@ -69,14 +102,14 @@ def validate_conditions(
         else:
             continue
 
+        value = _coerce(key, spec.type, value)
+
         if spec.minimum is not None or spec.maximum is not None:
-            try:
-                numeric_value = float(value)  # type: ignore[arg-type]
-            except (TypeError, ValueError) as exc:
-                raise ValueError(f"{key} must be numeric, got {value!r}") from exc
-            if spec.minimum is not None and numeric_value < spec.minimum:
+            if not isinstance(value, int | float) or isinstance(value, bool):
+                raise ValueError(f"{key} must be numeric to enforce bounds, got {value!r}")
+            if spec.minimum is not None and value < spec.minimum:
                 raise ValueError(f"{key} below minimum {spec.minimum}")
-            if spec.maximum is not None and numeric_value > spec.maximum:
+            if spec.maximum is not None and value > spec.maximum:
                 raise ValueError(f"{key} above maximum {spec.maximum}")
         if spec.options and value not in spec.options:
             raise ValueError(f"{key} must be one of {spec.options}")

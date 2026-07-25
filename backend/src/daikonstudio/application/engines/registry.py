@@ -22,7 +22,10 @@ class EngineRegistry:
         return [engine.manifest() for engine in self._engines.values()]
 
     def baseline(self) -> Engine:
-        for engine in self._engines.values():
-            if engine.manifest().is_baseline:
-                return engine
-        raise UnknownEngineError("no baseline engine registered")
+        baselines = [e for e in self._engines.values() if e.manifest().is_baseline]
+        if not baselines:
+            raise UnknownEngineError("no baseline engine registered")
+        if len(baselines) > 1:
+            ids = sorted(e.manifest().id for e in baselines)
+            raise UnknownEngineError(f"multiple baseline engines registered: {ids}")
+        return baselines[0]
