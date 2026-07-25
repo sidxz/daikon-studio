@@ -1,0 +1,11 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: {POSTGRES_USER: studio, POSTGRES_PASSWORD: studio, POSTGRES_DB: studio}
+    ports: ["127.0.0.1:5434:5432"]
+    volumes: ["studio_pgdata:/var/lib/postgresql/data"]
+  valkey:
+    image: valkey/valkey:8-alpine
+    ports: ["127.0.0.1:6381:6379"]
+volumes:
+  studio_pgdata:

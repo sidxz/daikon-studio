@@ -1,0 +1,103 @@
+[project]
+name = "daikonstudio"
+version = "0.1.0"
+description = "In-silico protocol studio (ML sibling of cellar)"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.34.0",
+    "python-multipart>=0.0.20",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "lagom>=2.7.0",
+    "returns>=0.23.0",
+    "sentinel-auth-sdk>=0.17.0",
+    "pyjwt[crypto]>=2.10.0",
+    "httpx>=0.28.0",
+    "redis>=5.2.0",
+    "arq>=0.26",
+    "structlog>=24.4.0",
+    "polars>=1.17",
+    "pyarrow>=18.0",
+    "rdkit>=2024.09",
+    "scikit-learn>=1.6",
+    "xgboost>=2.1",
+    "fsspec>=2024.10",
+    "joblib>=1.4",
+    "openpyxl>=3.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "testcontainers[postgres]>=4.0.0",
+    "factory-boy>=3.3.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "pre-commit>=4.0.0",
+    "import-linter>=2.11",
+    "respx>=0.23.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/daikonstudio"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.importlinter]
+root_packages = ["daikonstudio"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Clean Architecture layers"
+type = "layers"
+layers = [
+    "daikonstudio.interface",
+    "daikonstudio.infrastructure",
+    "daikonstudio.application",
+    "daikonstudio.domain",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain purity"
+type = "forbidden"
+source_modules = ["daikonstudio.domain"]
+forbidden_modules = [
+    "daikonstudio.application",
+    "daikonstudio.infrastructure",
+    "daikonstudio.interface",
+    "fastapi",
+    "sqlalchemy",
+    "asyncpg",
+    "redis",
+    "lagom",
+    "arq",
+    "httpx",
+    "structlog",
+    "polars",
+    "rdkit",
+    "sklearn",
+    "xgboost",
+    "fsspec",
+]
+
+[[tool.importlinter.contracts]]
+name = "Bounded context independence"
+type = "independence"
+modules = [
+    "daikonstudio.domain.catalog",
+    "daikonstudio.domain.data",
+    "daikonstudio.domain.execution",
+]
