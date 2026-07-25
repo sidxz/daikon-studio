@@ -14,7 +14,7 @@
 
 - Python `>=3.13`. Package name `daikonstudio`. Dependency manager `uv`.
 - Ports, offset from the siblings so all three run side by side: backend **8002**, Postgres **5434**, Valkey **6381**.
-- Import-linter contracts must pass in CI: layer order `interface > infrastructure > application > domain`; domain purity (domain imports none of fastapi, sqlalchemy, asyncpg, redis, lagom, arq, httpx, structlog, polars, rdkit, sklearn, xgboost, fsspec); bounded-context independence (`catalog`, `data`, `execution` may not import each other — only `shared`).
+- Import-linter contracts must pass in CI: layer order `interface > infrastructure > application > domain`; domain purity (domain imports none of fastapi, sqlalchemy, asyncpg, redis, lagom, arq, httpx, structlog, polars, rdkit, sklearn, xgboost, fsspec); bounded-context independence at the DOMAIN layer (`domain.catalog`, `domain.data`, `domain.execution` may not import each other — only `domain.shared`). Application-layer orchestration across contexts is expected and allowed; that is where Task 14 lives.
 - Use cases return `Result[T, DomainError]` from `returns`. Never raise for expected failures. Guards are the first lines of every use case.
 - `workspace_id` comes from `auth.workspace_id`, never from a request body or URL. Every table carries it.
 - Every aggregate uses optimistic concurrency: `UPDATE ... WHERE id=? AND version=?`, 0 rows → `ConcurrencyConflictError`.
@@ -806,7 +806,7 @@ git commit -m "feat(chem): canonicalization, ECFP4, Murcko scaffolds and Tanimot
   - `ConditionType` StrEnum: `STRING`, `INTEGER`, `NUMBER`, `ENUM`, `BOOL`
   - `ConditionSpec(key, label, type, required=False, default=None, minimum=None, maximum=None, options=(), help=None)`
   - `EngineManifest(id, version, name, description, tasks, conditions=(), is_baseline=False)`
-  - `TrainContext(frame, target, conditions, seed)`, `TrainResult(artifact, metrics)`
+  - `TrainContext(frame, task, structure_column, target_column, conditions, seed)`, `TrainResult(artifact, metrics)`
   - `PredictContext(frame, artifact, conditions)`
   - `Engine` Protocol: `manifest() -> EngineManifest` (staticmethod), `train(ctx) -> TrainResult`, `predict(ctx) -> pl.DataFrame`
   - `EngineRegistry.get(engine_id) -> Engine`, `.manifests() -> list[EngineManifest]`, `.baseline() -> Engine`
@@ -984,12 +984,21 @@ from dataclasses import dataclass
 
 import polars as pl
 
+from daikonstudio.application.engines.manifest import TaskType
+
 
 @dataclass(frozen=True, kw_only=True)
 class TrainContext:
-    """`frame` carries the dataset columns plus a `split` column of train/validation/test."""
+    """`frame` carries the dataset columns plus a `split` column of train/validation/test.
+
+    `task` is passed explicitly and is authoritative. An engine must NEVER infer
+    regression-vs-classification from the target values: a regression target whose
+    values happen to all be 0.0 or 1.0 would silently train a classifier. The
+    Dataset's TargetSpec is the only source of truth for what is being predicted.
+    """
 
     frame: pl.DataFrame
+    task: TaskType
     structure_column: str
     target_column: str
     conditions: dict[str, object]
@@ -1104,6 +1113,7 @@ import polars as pl
 import pytest
 
 from daikonstudio.application.engines.context import PredictContext, TrainContext
+from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.infrastructure.engines.ecfp4_randomforest import Ecfp4RandomForest
 from daikonstudio.infrastructure.engines.ecfp4_xgboost import Ecfp4XGBoost
 
@@ -1120,8 +1130,8 @@ def frame() -> pl.DataFrame:
 @pytest.mark.parametrize("engine", [Ecfp4XGBoost(), Ecfp4RandomForest()])
 def test_train_returns_artifact_and_metrics(engine):
     ctx = TrainContext(
-        frame=frame(), structure_column="smiles", target_column="y",
-        conditions={}, seed=42,
+        frame=frame(), task=TaskType.REGRESSION, structure_column="smiles",
+        target_column="y", conditions={}, seed=42,
     )
     result = engine.train(ctx)
     assert isinstance(result.artifact, bytes) and len(result.artifact) > 0
@@ -1131,8 +1141,8 @@ def test_train_returns_artifact_and_metrics(engine):
 @pytest.mark.parametrize("engine", [Ecfp4XGBoost(), Ecfp4RandomForest()])
 def test_predict_returns_one_row_per_input(engine):
     ctx = TrainContext(
-        frame=frame(), structure_column="smiles", target_column="y",
-        conditions={}, seed=42,
+        frame=frame(), task=TaskType.REGRESSION, structure_column="smiles",
+        target_column="y", conditions={}, seed=42,
     )
     artifact = engine.train(ctx).artifact
     predictions = engine.predict(
@@ -1147,12 +1157,24 @@ def test_predict_returns_one_row_per_input(engine):
 
 def test_training_is_reproducible_from_the_seed():
     ctx = TrainContext(
-        frame=frame(), structure_column="smiles", target_column="y",
-        conditions={}, seed=42,
+        frame=frame(), task=TaskType.REGRESSION, structure_column="smiles",
+        target_column="y", conditions={}, seed=42,
     )
     first = Ecfp4RandomForest().train(ctx).metrics["rmse"]
     second = Ecfp4RandomForest().train(ctx).metrics["rmse"]
     assert first == second
+
+
+def test_a_regression_target_of_only_zeros_and_ones_still_trains_a_regressor():
+    """Guards the sniffing bug: task comes from TargetSpec, never from the values."""
+    binary_looking = pl.DataFrame({
+        "smiles": SMILES, "y": [0.0, 1.0] * 6, "split": SPLIT,
+    })
+    ctx = TrainContext(
+        frame=binary_looking, task=TaskType.REGRESSION, structure_column="smiles",
+        target_column="y", conditions={}, seed=42,
+    )
+    assert "rmse" in Ecfp4RandomForest().train(ctx).metrics
 
 
 def test_random_forest_is_flagged_as_the_baseline():
@@ -1223,7 +1245,7 @@ class Ecfp4RandomForest:
 
         x_train = ecfp4(train_rows[ctx.structure_column].to_list())
         y_train = train_rows[ctx.target_column].to_numpy()
-        is_classification = set(np.unique(y_train)).issubset({0, 1})
+        is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
 
         model_class = RandomForestClassifier if is_classification else RandomForestRegressor
         model = model_class(
@@ -1987,7 +2009,10 @@ The handler for `RunKind.TRAINING`, in order:
 1. Guards, then load the Dataset and verify `require_same_workspace`.
 2. `validate_conditions(manifest, command.conditions)` — a failure here fails the run with the message, before any compute.
 3. Read the snapshot Parquet from the blob store into polars.
-4. Train the chosen engine via `asyncio.to_thread`. Report progress `0.33`, phase `"training <engine>"`.
+4. Derive the task from the Dataset, never from the values:
+   `task = TaskType.BINARY_CLASSIFICATION if dataset.target.kind is TargetKind.BINARY else TaskType.REGRESSION`,
+   and pass it on every `TrainContext` built below. Train the chosen engine via
+   `asyncio.to_thread`. Report progress `0.33`, phase `"training <engine>"`.
 5. Train the baseline engine on the identical frame and split. Progress `0.66`, phase `"training baseline"`.
 6. If `dataset.split.strategy is SplitStrategy.SCAFFOLD`, re-assign a random split with the same seed and train the chosen engine once more for the optimism gap. Progress `0.9`.
 7. Persist the chosen engine's artifact to `{workspace_id}/protocols/{protocol_id}/artifact/model.joblib`, create the `InSilicoProtocol` in DRAFT with `derive_readouts(dataset.target, task)`, and store the Scorecard.
