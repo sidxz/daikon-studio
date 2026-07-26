@@ -76,6 +76,16 @@ layers = [
     "daikonstudio.application",
     "daikonstudio.domain",
 ]
+# canonicalize/has_multiple_components are pure, stateless RDKit wrappers with no I/O
+# or state of their own -- shaped like a domain service, not an adapter. Domain purity
+# (below) forbids rdkit in domain, so Task 6 placed them under infrastructure.chem
+# instead. prepare_frame (application) needs them to canonicalize structures before
+# grouping; re-implementing the two-line RDKit calls here would duplicate them and
+# skip the RDLogger suppression that lives in chem's __init__.py, reintroducing noisy
+# warnings for invalid SMILES. Narrowly exempted rather than loosening the layer rule.
+ignore_imports = [
+    "daikonstudio.application.data.prepare_frame -> daikonstudio.infrastructure.chem.canonicalize",
+]
 
 [[tool.importlinter.contracts]]
 name = "Domain purity"
