@@ -9,6 +9,7 @@ from daikonstudio.infrastructure.sentinel.auth import get_sentinel, register_ser
 from daikonstudio.interface.error_handlers import register_error_handlers
 from daikonstudio.interface.routes.datasets import router as datasets_router
 from daikonstudio.interface.routes.protocols import router as protocols_router
+from daikonstudio.interface.routes.runs import router as runs_router
 from daikonstudio.settings import Settings
 
 
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
 
     app.include_router(datasets_router)
     app.include_router(protocols_router)
+    app.include_router(runs_router)
 
     return app
 

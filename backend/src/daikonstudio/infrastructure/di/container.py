@@ -20,6 +20,12 @@ from daikonstudio.application.data.get_dataset import GetDataset
 from daikonstudio.application.data.list_datasets import ListDatasets
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.enqueue import JobEnqueuer
+from daikonstudio.application.execution.predict_with_protocol import (
+    CancelRun,
+    GetPredictionResults,
+    GetRun,
+    PredictWithProtocol,
+)
 from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
@@ -120,5 +126,16 @@ def create_container(settings: Settings | None = None) -> Container:
     )
     container.define(ListProtocols, lambda c: ListProtocols(_protocols(c)))
     container.define(GetProtocol, lambda c: GetProtocol(_protocols(c)))
+
+    container.define(
+        PredictWithProtocol,
+        lambda c: PredictWithProtocol(_protocols(c), _runs(c), c[BlobStore], c[JobEnqueuer]),
+    )
+    container.define(GetRun, lambda c: GetRun(_runs(c)))
+    container.define(CancelRun, lambda c: CancelRun(_runs(c)))
+    container.define(
+        GetPredictionResults,
+        lambda c: GetPredictionResults(_runs(c), _protocols(c), c[BlobStore]),
+    )
 
     return container

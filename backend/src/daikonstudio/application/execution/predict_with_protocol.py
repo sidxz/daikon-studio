@@ -1,0 +1,470 @@
+"""Prediction runs: the other half of publishing.
+
+Training produces a Protocol only its author has ever touched; this module is
+what makes a *published* one a shared asset -- a colleague uploads their own
+compounds and runs someone else's Protocol against them, without ever seeing
+the training Dataset or the fitted weights directly. `PredictWithProtocol`
+creates the Run (or hands back an already-computed one); `RunPrediction` is
+the `RunKind.PREDICTION` worker handler that actually scores the compounds,
+mirroring `train_protocol.py`'s `TrainProtocol`/`RunTraining` split -- request
+handling and worker execution live together because they are the only two
+places that know a prediction Run's `params` shape.
+
+Three decisions, made deliberately:
+
+1. **Uncertainty.** XGBoost has no ensemble spread to report (see
+   `_predict_with_tree_ensemble`'s own docstring) and returns `None`. That
+   `None` is carried straight through to `PredictionRow.uncertainty` rather
+   than being coerced to `0.0` -- a fabricated number would be read by a
+   triage grid as "the model is confident here", which is worse than an
+   admitted "not available".
+2. **Applicability.** A continuous nearest-neighbour Tanimoto similarity to
+   the Protocol's own training set (`PredictionRow.applicability`), not a
+   boolean and not a fixed in/out-of-domain flag. It is the exact metric and
+   threshold (0.3) `build_scorecard.py`'s `applicability_coverage` already
+   uses, sourced from the same `ScorecardInputs.train_structures` a Protocol's
+   training run wrote -- so a compound this screen calls out-of-domain and one
+   the Scorecard's coverage number excludes are always the same compound. A
+   raw number, not a pre-thresholded flag, is what lets a triage grid filter
+   at 0.3 or at any other cut without a second call.
+3. **Cancellation and caching.** `find_by_cache_key` returns the newest Run
+   for a `(workspace_id, cache_key)` pair regardless of status -- a FAILED or
+   CANCELLED Run shares its cache_key with every future identical request.
+   Neither is a result to serve: a stored failure replayed as data is worse
+   than paying for a fresh run, and a cancelled request was never allowed to
+   finish in the first place. Both fall through to a brand-new Run by the
+   same mechanism -- `PredictWithProtocol` only ever treats a `READY` hit as
+   reusable.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import hashlib
+import io
+import uuid
+from dataclasses import dataclass, field
+from typing import Any
+
+import polars as pl
+from returns.result import Failure, Result, Success
+
+from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
+from daikonstudio.application.data.create_dataset import upload_key
+from daikonstudio.application.engines.context import PredictContext
+from daikonstudio.application.engines.registry import EngineRegistry
+from daikonstudio.application.execution.enqueue import JobEnqueuer
+from daikonstudio.application.execution.train_protocol import (
+    ScorecardInputs,
+    artifact_key,
+    scorecard_inputs_key,
+)
+from daikonstudio.application.pagination import PageResult, clamp_limit
+from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.protocol_repository import ProtocolRepository
+from daikonstudio.application.ports.run_repository import RunRepository
+from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
+from daikonstudio.domain.shared.errors import (
+    ConflictError,
+    DomainError,
+    NotFoundError,
+    ValidationError,
+)
+
+
+def predictions_key(workspace_id: uuid.UUID, run_id: uuid.UUID) -> str:
+    """Where one prediction Run's per-row results live.
+
+    Addressed by *run*, not by protocol, unlike `scorecard_inputs_key`: a
+    Scorecard is one honest answer per Protocol, but a published Protocol can
+    be run against any number of different compound sets, and each run's rows
+    belong to the Run that produced them.
+    """
+    return f"{workspace_id}/runs/{run_id}/predictions.parquet"
+
+
+@dataclass(frozen=True, kw_only=True)
+class PredictWithProtocolCommand:
+    protocol_id: uuid.UUID
+    upload_ref: str
+    structure_column: str
+    conditions: dict[str, Any] = field(default_factory=dict)
+
+    def to_params(self) -> dict[str, Any]:
+        return {
+            "protocol_id": str(self.protocol_id),
+            "upload_ref": self.upload_ref,
+            "structure_column": self.structure_column,
+            "conditions": self.conditions,
+        }
+
+    @classmethod
+    def from_params(cls, params: dict[str, Any]) -> PredictWithProtocolCommand:
+        # Explicit field-by-field, not `cls(**params)`: a frozen dataclass built
+        # that way (see `ScorecardInputs.from_json`) raises `TypeError` the day a
+        # new field is added and an old Run's stored params don't have it yet.
+        # `.get()` with a default is what keeps this read path forward-compatible.
+        return cls(
+            protocol_id=uuid.UUID(params["protocol_id"]),
+            upload_ref=params["upload_ref"],
+            structure_column=params["structure_column"],
+            conditions=params.get("conditions", {}),
+        )
+
+
+class PredictWithProtocol:
+    """Creates a prediction Run, or hands back a cached one -- the enqueuing
+    half. `RunPrediction`, below, is the worker's other half.
+
+    Only a *published* Protocol may be run: a draft is the author's own work
+    in progress, and a model nobody else can run is not the shared asset
+    publishing exists to create. Checked here, synchronously, alongside the
+    Protocol's existence -- both are registry-membership-shaped questions with
+    exactly one possible answer, the same reasoning `TrainProtocol` uses for
+    rejecting an unknown engine before a Run is ever created. Whether the
+    uploaded compounds parse, and whether `structure_column` is actually a
+    column in them, is deferred to the worker instead: that mirrors how
+    `TrainProtocol` defers condition validation, and it means a cache hit
+    never pays for CSV parsing it doesn't need.
+    """
+
+    def __init__(
+        self,
+        protocols: ProtocolRepository,
+        runs: RunRepository,
+        store: BlobStore,
+        enqueuer: JobEnqueuer,
+    ) -> None:
+        self._protocols = protocols
+        self._runs = runs
+        self._store = store
+        self._enqueuer = enqueuer
+
+    async def __call__(
+        self, command: PredictWithProtocolCommand, auth: AuthContext | None = None
+    ) -> Result[Run, DomainError]:
+        require_authenticated(auth)
+        require_editor(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+
+        # Workspace-scoped exactly like every other Protocol read (Task 16): a
+        # Protocol from another workspace does not exist as far as this call is
+        # concerned. "Colleague" means another user of the *same* workspace --
+        # publishing shares a Protocol across the people in it, not across tenants.
+        protocol = await self._protocols.get(auth.workspace_id, command.protocol_id)
+        if protocol is None:
+            return Failure(NotFoundError("Protocol", str(command.protocol_id)))
+        if not protocol.is_locked:
+            return Failure(
+                ConflictError(
+                    f"Protocol '{protocol.id}' is not published; only a published "
+                    "Protocol can be run"
+                )
+            )
+
+        try:
+            upload_ref = uuid.UUID(command.upload_ref)
+        except ValueError:
+            return Failure(ValidationError("upload_ref is not a valid upload reference"))
+        key = upload_key(auth.workspace_id, upload_ref)
+        if not self._store.exists(key):
+            return Failure(NotFoundError("Upload", str(upload_ref)))
+
+        # The content itself, not just its ref: two different uploads could
+        # collide on a ref only across workspaces (refs are per-workspace
+        # UUIDs), which cache_key's own workspace scoping already prevents --
+        # this hash is what makes the SAME bytes uploaded under a fresh ref
+        # still count as identical work.
+        input_hash = hashlib.sha256(self._store.get_bytes(key)).hexdigest()
+        cache_key = compute_cache_key(
+            kind="prediction",
+            protocol_id=str(protocol.id),
+            protocol_version=protocol.protocol_version,
+            input_hash=input_hash,
+            # Which column is read as structures changes what gets predicted just
+            # as much as the bytes or the conditions do -- two requests against
+            # the identical upload that name different columns are different work
+            # and must not collide on the same cache_key.
+            structure_column=command.structure_column,
+            conditions=command.conditions,
+        )
+
+        # Only a READY hit is reusable. `find_by_cache_key` does not filter by
+        # status -- a FAILED or CANCELLED Run sharing this cache_key must fall
+        # through to a fresh Run below, never be handed back as though it held
+        # a result (see this module's docstring, Decision 3).
+        existing = await self._runs.find_by_cache_key(auth.workspace_id, cache_key)
+        if existing is not None and existing.status is RunStatus.READY:
+            return Success(existing)
+
+        run = Run(
+            kind=RunKind.PREDICTION,
+            workspace_id=auth.workspace_id,
+            requested_by=auth.user_id,
+            cache_key=cache_key,
+            params=command.to_params(),
+        )
+        await self._runs.add(run)
+        await self._enqueuer.enqueue(run.id)
+        return Success(run)
+
+
+class RunPrediction:
+    """The `RunKind.PREDICTION` handler: score a colleague's own compounds
+    against a published Protocol's frozen artifact.
+
+    Deliberately does not depend on `DatasetRepository`: which column holds
+    the structures comes from the request (`structure_column`), not from the
+    training Dataset, so a prediction never has to reach back into training
+    data that may since have been reused, renamed or is simply in a different
+    workspace's history than the Protocol's current runner.
+    """
+
+    def __init__(
+        self,
+        protocols: ProtocolRepository,
+        store: BlobStore,
+        engines: EngineRegistry,
+        normalizer: StructureNormalizer,
+    ) -> None:
+        self._protocols = protocols
+        self._store = store
+        self._engines = engines
+        self._normalizer = normalizer
+
+    async def __call__(self, run: Run) -> str:
+        command = PredictWithProtocolCommand.from_params(run.params)
+        protocol = await self._protocols.get(run.workspace_id, command.protocol_id)
+        if protocol is None:
+            raise NotFoundError("Protocol", str(command.protocol_id))
+
+        raw = self._store.get_bytes(upload_key(run.workspace_id, uuid.UUID(command.upload_ref)))
+        try:
+            frame = pl.read_csv(io.BytesIO(raw))
+        except pl.exceptions.PolarsError as error:
+            raise ValidationError(f"The uploaded file is not readable as CSV: {error}") from error
+        if command.structure_column not in frame.columns:
+            raise ValidationError(
+                f"Column '{command.structure_column}' not present in the uploaded file: "
+                f"available columns: {', '.join(frame.columns)}"
+            )
+
+        raw_structures = [str(value) for value in frame[command.structure_column].to_list()]
+        canonical = [self._normalizer.canonicalize(smiles) for smiles in raw_structures]
+        is_valid = pl.Series([smiles is not None for smiles in canonical])
+        valid_frame = frame.filter(is_valid).with_columns(
+            pl.Series(command.structure_column, [s for s in canonical if s is not None])
+        )
+        if valid_frame.height == 0:
+            raise ValidationError("No valid structures in the uploaded file")
+
+        engine = self._engines.get(protocol.engine_id)
+        artifact = self._store.get_bytes(artifact_key(run.workspace_id, protocol.id))
+        predictions = await asyncio.to_thread(
+            engine.predict,
+            PredictContext(
+                frame=valid_frame,
+                structure_column=command.structure_column,
+                artifact=artifact,
+                conditions=command.conditions,
+            ),
+        )
+
+        structures = valid_frame[command.structure_column].to_list()
+        # The Protocol's own training set, from the same blob its Scorecard
+        # reads (Task 15/16) -- the single definition of "what this model was
+        # trained on", so applicability here and the Scorecard's coverage
+        # number can never disagree about which compounds are in-domain.
+        inputs = ScorecardInputs.from_json(
+            self._store.get_bytes(scorecard_inputs_key(run.workspace_id, protocol.id))
+        )
+        similarities: list[float | None]
+        if structures and inputs.train_structures:
+            similarities = list(
+                self._normalizer.nearest_neighbour_tanimoto(structures, inputs.train_structures)
+            )
+        else:
+            # Never a fabricated 0.0: an empty training set means "unmeasurable",
+            # not "confirmed far from everything" (same reasoning as
+            # `build_scorecard.py`'s own guard).
+            similarities = [None] * len(structures)
+
+        values = predictions["value"].to_list()
+        columns: dict[str, pl.Series] = {"structure": pl.Series(structures)}
+        if len(protocol.readouts) == 1:
+            columns[protocol.readouts[0].name] = pl.Series(values, dtype=pl.Float64)
+        else:
+            # Classification: `derive_readouts` always orders these
+            # (probability, class). `value` is P(class=1); the hard label is
+            # the standard 0.5 decision threshold over it -- the engine's own
+            # `predict()` only ever returns the probability (see
+            # `_scoring.py`), so this is the one place a class label exists.
+            probability_readout, class_readout = protocol.readouts
+            columns[probability_readout.name] = pl.Series(values, dtype=pl.Float64)
+            columns[class_readout.name] = pl.Series(
+                [1.0 if v >= 0.5 else 0.0 for v in values], dtype=pl.Float64
+            )
+        columns["uncertainty"] = predictions["uncertainty"]
+        columns["applicability"] = pl.Series(similarities, dtype=pl.Float64)
+
+        buffer = io.BytesIO()
+        pl.DataFrame(columns).write_parquet(buffer)
+        return self._store.put_bytes(predictions_key(run.workspace_id, run.id), buffer.getvalue())
+
+
+@dataclass(frozen=True, kw_only=True)
+class GetRunQuery:
+    run_id: uuid.UUID
+
+
+class GetRun:
+    """Read a Run by id, scoped to the caller's workspace -- the poll endpoint
+    every kind of Run (training or prediction) shares."""
+
+    def __init__(self, runs: RunRepository) -> None:
+        self._runs = runs
+
+    async def __call__(
+        self, query: GetRunQuery, auth: AuthContext | None = None
+    ) -> Result[Run, DomainError]:
+        require_authenticated(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+        run = await self._runs.get(auth.workspace_id, query.run_id)
+        if run is None:
+            return Failure(NotFoundError("Run", str(query.run_id)))
+        return Success(run)
+
+
+@dataclass(frozen=True, kw_only=True)
+class CancelRunCommand:
+    run_id: uuid.UUID
+
+
+class CancelRun:
+    """Cancel a pending or running Run. `Run.cancel()` owns the actual rule
+    (only `pending`/`running` -> `cancelled`; a terminal Run raises
+    `ConflictError`) -- this use case's only job is loading the right row and
+    persisting the transition."""
+
+    def __init__(self, runs: RunRepository) -> None:
+        self._runs = runs
+
+    async def __call__(
+        self, command: CancelRunCommand, auth: AuthContext | None = None
+    ) -> Result[Run, DomainError]:
+        require_authenticated(auth)
+        require_editor(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+
+        run = await self._runs.get(auth.workspace_id, command.run_id)
+        if run is None:
+            return Failure(NotFoundError("Run", str(command.run_id)))
+        try:
+            run.cancel()
+        except DomainError as error:
+            return Failure(error)
+        await self._runs.update(run)
+        return Success(run)
+
+
+@dataclass(frozen=True, kw_only=True)
+class PredictionRow:
+    """One scored compound -- everything a triage grid needs to render and
+    filter a row without a second call. See this module's docstring for why
+    `uncertainty` and `applicability` are shaped the way they are."""
+
+    structure: str
+    readouts: dict[str, float]
+    uncertainty: float | None
+    applicability: float | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class GetPredictionResultsQuery:
+    run_id: uuid.UUID
+    cursor: str | None = None
+    limit: int | None = None
+
+
+class GetPredictionResults:
+    """Read one page of a prediction Run's scored compounds back from Parquet.
+
+    Offset-based, not the keyset cursor `application/pagination.py` uses for
+    Protocol/Dataset listings: those paginate a live table that rows are
+    concurrently inserted into, where OFFSET silently skips or repeats a row
+    that moves mid-scroll. A Run's results file is written once, by the
+    worker, and never changes again -- there is nothing for a plain integer
+    offset to race, so the simpler mechanism is the honest one here.
+    """
+
+    def __init__(
+        self, runs: RunRepository, protocols: ProtocolRepository, store: BlobStore
+    ) -> None:
+        self._runs = runs
+        self._protocols = protocols
+        self._store = store
+
+    async def __call__(
+        self, query: GetPredictionResultsQuery, auth: AuthContext | None = None
+    ) -> Result[PageResult[PredictionRow], DomainError]:
+        require_authenticated(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+
+        run = await self._runs.get(auth.workspace_id, query.run_id)
+        if run is None:
+            return Failure(NotFoundError("Run", str(query.run_id)))
+        if run.kind is not RunKind.PREDICTION:
+            return Failure(NotFoundError("Prediction results", str(query.run_id)))
+        if run.status is not RunStatus.READY:
+            detail = run.error_message if run.status is RunStatus.FAILED else None
+            return Failure(
+                ConflictError(
+                    f"Run '{run.id}' has no results yet (status: '{run.status.value}')",
+                    detail=detail,
+                )
+            )
+
+        protocol_id = uuid.UUID(run.params["protocol_id"])
+        protocol = await self._protocols.get(auth.workspace_id, protocol_id)
+        if protocol is None:
+            return Failure(NotFoundError("Protocol", str(protocol_id)))
+
+        try:
+            offset = int(query.cursor) if query.cursor else 0
+            if offset < 0:
+                raise ValueError("negative offset")
+        except ValueError:
+            return Failure(
+                ValidationError(
+                    "Invalid pagination cursor",
+                    detail="Pass back the `next_cursor` from the previous page unmodified.",
+                )
+            )
+        limit = clamp_limit(query.limit)
+
+        try:
+            raw = self._store.get_bytes(predictions_key(run.workspace_id, run.id))
+        except FileNotFoundError:
+            return Failure(NotFoundError("Prediction results", str(run.id)))
+        frame = pl.read_parquet(io.BytesIO(raw))
+
+        # Fetch one more row than asked for: its presence is what says there is
+        # another page, cheaper and more honest than a second COUNT query.
+        page = frame.slice(offset, limit + 1).to_dicts()
+        next_cursor = None
+        if len(page) > limit:
+            page = page[:limit]
+            next_cursor = str(offset + limit)
+
+        readout_names = [readout.name for readout in protocol.readouts]
+        items = [
+            PredictionRow(
+                structure=row["structure"],
+                readouts={name: row[name] for name in readout_names},
+                uncertainty=row["uncertainty"],
+                applicability=row["applicability"],
+            )
+            for row in page
+        ]
+        return Success(PageResult(items=items, next_cursor=next_cursor))

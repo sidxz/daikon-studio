@@ -42,12 +42,12 @@ from daikonstudio.application.catalog.publish_protocol import (
 from daikonstudio.application.execution.train_protocol import TrainProtocol, TrainProtocolCommand
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.catalog.readout import Readout
-from daikonstudio.domain.execution.run import Run
 from daikonstudio.domain.execution.scorecard import Scorecard, WorstRow
 from daikonstudio.interface.dependencies._container import use_case
 from daikonstudio.interface.dependencies._core import AuthDep
 from daikonstudio.interface.error_handlers import result_to_response
 from daikonstudio.interface.pagination import PaginatedResponse
+from daikonstudio.interface.routes.runs import RunResponse
 
 router = APIRouter(prefix="/api/v1/protocols", tags=["protocols"])
 
@@ -75,32 +75,6 @@ def _readout_to_dict(readout: Readout) -> dict[str, Any]:
         "direction": readout.direction,
         "description": readout.description,
     }
-
-
-class RunResponse(BaseModel):
-    id: uuid.UUID
-    workspace_id: uuid.UUID
-    kind: str
-    status: str
-    progress: float
-    phase: str | None
-    result_uri: str | None
-    error_message: str | None
-    created_at: datetime
-
-    @classmethod
-    def from_domain(cls, run: Run) -> RunResponse:
-        return cls(
-            id=run.id,
-            workspace_id=run.workspace_id,
-            kind=run.kind.value,
-            status=run.status.value,
-            progress=run.progress,
-            phase=run.phase,
-            result_uri=run.result_uri,
-            error_message=run.error_message,
-            created_at=run.created_at,
-        )
 
 
 class ProtocolResponse(BaseModel):

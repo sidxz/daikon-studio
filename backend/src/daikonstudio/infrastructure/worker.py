@@ -7,10 +7,10 @@ Entrypoint for arq::
 
 `_HANDLERS` is the seam Tasks 14 (training) and 17 (prediction) fill in:
 `_HANDLERS[RunKind.TRAINING]` / `_HANDLERS[RunKind.PREDICTION]` are each a
-`JobHandler` that does the real work and returns a result URI. `TRAINING` is
-wired; `PREDICTION` is still empty. A real job hitting the empty slot fails
-with `KeyError`, caught by the same `except (Exception, SystemExit)` as any
-other handler failure and recorded on the Run rather than crashing the worker.
+`JobHandler` that does the real work and returns a result URI. Both kinds are
+wired now. A future `RunKind` hitting an unfilled slot would fail with
+`KeyError`, caught by the same `except (Exception, SystemExit)` as any other
+handler failure and recorded on the Run rather than crashing the worker.
 
 This module is also the worker's composition root. Handlers are application-
 layer objects with no idea where their collaborators come from, so the small
@@ -37,6 +37,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from daikonstudio.application.execution.predict_with_protocol import RunPrediction
 from daikonstudio.application.execution.train_protocol import RunTraining
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.domain.execution.run import Run, RunKind
@@ -69,7 +70,17 @@ async def _train(ctx: dict[str, Any], run: Run) -> str:
     )(run)
 
 
-_HANDLERS: dict[RunKind, JobHandler] = {RunKind.TRAINING: _train}
+async def _predict(ctx: dict[str, Any], run: Run) -> str:
+    sessions = ctx["sessions"]
+    return await RunPrediction(
+        SqlAlchemyProtocolRepository(sessions),
+        ctx["store"],
+        default_registry(),
+        RdkitStructureNormalizer(),
+    )(run)
+
+
+_HANDLERS: dict[RunKind, JobHandler] = {RunKind.TRAINING: _train, RunKind.PREDICTION: _predict}
 
 
 async def _load(ctx: dict[str, Any], run_id: uuid.UUID) -> Run:
