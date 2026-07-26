@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
@@ -21,6 +22,9 @@ from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
 from daikonstudio.domain.shared.errors import ConcurrencyConflictError
+from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import (
+    InSilicoProtocolModel,
+)
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
 )
@@ -56,6 +60,10 @@ def _draft(**overrides: object) -> InSilicoProtocol:
 
 
 async def test_add_then_get_round_trips_readouts_conditions_and_status(session_factory):
+    """`protocol.conditions` is a read-only `MappingProxyType`, not a plain dict --
+    this also checks that the repository unwraps it to something JSONB can actually
+    store, and that what comes back out of the database is a plain `dict` again, not
+    a proxy, a JSON string, or anything else the domain layer wouldn't accept."""
     repository = SqlAlchemyProtocolRepository(session_factory)
     protocol = _draft()
 
@@ -68,6 +76,15 @@ async def test_add_then_get_round_trips_readouts_conditions_and_status(session_f
     assert fetched.readouts == protocol.readouts
     assert fetched.conditions == protocol.conditions
     assert fetched.artifact_uri == protocol.artifact_uri
+
+    async with session_factory() as session:
+        row = (
+            await session.execute(
+                select(InSilicoProtocolModel).where(InSilicoProtocolModel.id == protocol.id)
+            )
+        ).scalar_one()
+    assert type(row.conditions) is dict
+    assert row.conditions == {"n_estimators": 200}
 
 
 async def test_publish_persists_through_update(session_factory):

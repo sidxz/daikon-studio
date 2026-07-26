@@ -104,14 +104,19 @@ def test_a_new_version_can_itself_be_published_and_chained_again():
 
 
 def test_mutating_a_childs_conditions_leaves_the_published_parent_unchanged():
+    """`new_version()` hands the parent's conditions to the child; before the
+    read-only view, that meant a live shared dict, and mutating the child's copy
+    silently rewrote the already-published parent's. Now the write itself is
+    rejected -- and either way, the parent must come out untouched."""
     parent = _draft(conditions={"n_estimators": 200})
     parent.publish()
     child = parent.new_version(artifact_uri="s3://x/2")
 
-    child.conditions["n_estimators"] = 999
+    with pytest.raises(TypeError):
+        child.conditions["n_estimators"] = 999
 
     assert parent.conditions == {"n_estimators": 200}
-    assert child.conditions == {"n_estimators": 999}
+    assert child.conditions == {"n_estimators": 200}
 
 
 def test_mutating_the_dict_passed_into_the_constructor_does_not_reach_the_aggregate():
@@ -121,6 +126,21 @@ def test_mutating_the_dict_passed_into_the_constructor_does_not_reach_the_aggreg
     original["n_estimators"] = 999
 
     assert protocol.conditions == {"n_estimators": 200}
+
+
+def test_conditions_cannot_be_mutated_in_place_once_published():
+    """The direct attack: reach into a published, supposedly-immutable Protocol's
+    `.conditions` and write through it. Must raise, not silently succeed and not
+    silently vanish -- a `MappingProxyType` view over a copy-on-read property,
+    because the latter would let the write appear to work."""
+    protocol = _draft(conditions={"n_estimators": 200})
+    protocol.publish()
+
+    with pytest.raises(TypeError):
+        protocol.conditions["n_estimators"] = 12345
+
+    assert protocol.conditions == {"n_estimators": 200}
+    assert protocol.is_locked is True
 
 
 def test_new_version_on_an_unpublished_draft_is_rejected():

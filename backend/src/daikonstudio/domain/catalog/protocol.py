@@ -14,8 +14,10 @@ just returns a fresh DRAFT pointing back at the protocol it superseded.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
+from types import MappingProxyType
 from typing import Any
 
 from daikonstudio.domain.catalog.readout import Readout
@@ -38,7 +40,7 @@ class InSilicoProtocol(AggregateRoot):
         engine_id: str,
         artifact_uri: str,
         readouts: tuple[Readout, ...],
-        conditions: dict[str, Any],
+        conditions: Mapping[str, Any],
         status: ProtocolStatus = ProtocolStatus.DRAFT,
         published_at: datetime | None = None,
         parent_protocol_id: uuid.UUID | None = None,
@@ -59,12 +61,23 @@ class InSilicoProtocol(AggregateRoot):
         # tuple of frozen dataclasses, but a raw dict is not. Without this copy, either
         # the caller mutating their own dict after construction, or `new_version()`
         # handing this same dict to a child, would silently reach back into an
-        # already-published, supposedly-immutable Protocol.
-        self.conditions = dict(conditions)
+        # already-published, supposedly-immutable Protocol. Stored privately and
+        # exposed only through the `conditions` property's read-only view: a copy
+        # alone stops aliasing between two *objects*, but a caller holding this
+        # object itself could still write straight through a plain dict attribute.
+        self._conditions: dict[str, Any] = dict(conditions)
         self.status = status
         self.published_at = published_at
         self.parent_protocol_id = parent_protocol_id
         self.protocol_version = protocol_version
+
+    @property
+    def conditions(self) -> Mapping[str, Any]:
+        """A read-only view, not a copy: an in-place write (`protocol.conditions["x"]
+        = 1`) raises `TypeError` at the point of the mistake. A copy-on-read property
+        would let that same write appear to succeed and then silently vanish, which
+        is a worse failure mode than a loud one for something citable."""
+        return MappingProxyType(self._conditions)
 
     @property
     def is_locked(self) -> bool:

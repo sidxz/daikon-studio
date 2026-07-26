@@ -76,7 +76,10 @@ def _to_model(protocol: InSilicoProtocol) -> InSilicoProtocolModel:
         engine_id=protocol.engine_id,
         artifact_uri=protocol.artifact_uri,
         readouts=[_readout_to_dict(r) for r in protocol.readouts],
-        conditions=protocol.conditions,
+        # `protocol.conditions` is a read-only `MappingProxyType`, not a plain dict --
+        # JSONB serialisation (and the psycopg/asyncpg JSON codec under it) only knows
+        # how to encode an actual `dict`, so unwrap it here rather than at every caller.
+        conditions=dict(protocol.conditions),
         status=protocol.status.value,
         published_at=protocol.published_at,
         parent_protocol_id=protocol.parent_protocol_id,
