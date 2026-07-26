@@ -61,9 +61,37 @@ async def run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
     Catches `(Exception, SystemExit)` -- deliberately not `asyncio.CancelledError`
     or `KeyboardInterrupt`, which must propagate uncaught so arq's own shutdown
     handling still works. A caught failure is recorded on the Run (`fail()`,
-    persisted) and then re-raised so arq still logs it as a failed job.
+    persisted) before the exception is re-raised.
+
+    ponytail: for a plain `Exception` that re-raise lets arq log the failure
+    and move on to the next job in the same process. For `SystemExit` it does
+    not -- CPython's `asyncio/tasks.py` special-cases `SystemExit` (and
+    `KeyboardInterrupt`) by propagating them past every application-level
+    handler, including arq's own, all the way out of the event loop. So a
+    `SystemExit` raised inside a handler (plausible once Tasks 14/17 wrap a
+    training/prediction library that calls `sys.exit()` internally) still
+    kills the whole worker process here, taking any other jobs running
+    concurrently in it down too. Catching it doesn't prevent that -- nothing
+    can, short of not letting it happen in the first place -- but it does
+    guarantee the row is persisted as `FAILED` before the process dies, which
+    is strictly better than the alternative (see the note on `run.start()`
+    below for what "not catching it" would leave behind instead). Upgrade
+    path if this bites: one job per worker process (arq's `max_jobs=1` or a
+    process-per-job deployment), or a supervisor that restarts the worker on
+    exit.
     """
     run = await _load(ctx, run_id)
+    # ponytail: if a previous attempt at this same run_id crashed the worker
+    # process after start() but before finishing (including the SystemExit
+    # case above), arq's at-least-once delivery redelivers the job to a fresh
+    # process. That redelivery lands here with the row already RUNNING, not
+    # PENDING -- start() raises ConflictError, that raise is outside the
+    # try/except below, fail() never runs, and the row is stuck at RUNNING
+    # forever with no worker left executing it. Upgrade path: a reaper that
+    # fails Runs stuck in RUNNING past some staleness window, or relaxing
+    # start() to allow a RUNNING -> RUNNING restart specifically for
+    # redelivery (distinguishable from a genuine double-start by a jobs table
+    # arq itself doesn't expose here).
     run.start()
     await _save(ctx, run)
     try:
@@ -73,7 +101,7 @@ async def run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
     except (Exception, SystemExit) as exc:
         run.fail(repr(exc))
         await _save(ctx, run)
-        raise  # re-raise so arq logs it
+        raise  # re-raise: FAILED is persisted above regardless of what happens next
     await _save(ctx, run)
 
 
