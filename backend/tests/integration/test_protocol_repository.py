@@ -12,6 +12,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 
+import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
@@ -19,6 +20,7 @@ from daikonstudio.application.catalog.derive_readouts import derive_readouts
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
+from daikonstudio.domain.shared.errors import ConcurrencyConflictError
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
 )
@@ -96,6 +98,31 @@ async def test_a_new_versions_parent_id_round_trips(session_factory):
     assert fetched_child is not None
     assert fetched_child.parent_protocol_id == parent.id
     assert fetched_child.protocol_version == parent.protocol_version + 1
+
+
+async def test_two_stale_writers_produce_one_success_and_one_conflict(session_factory):
+    """Two in-memory copies loaded before either was written back -- the second
+    writer's `version` is stale the moment the first one's `update()` commits, and
+    the repository must catch that rather than silently overwrite the first write."""
+    repository = SqlAlchemyProtocolRepository(session_factory)
+    protocol = _draft()
+    await repository.add(protocol)
+
+    first = await repository.get(protocol.workspace_id, protocol.id)
+    second = await repository.get(protocol.workspace_id, protocol.id)
+    assert first is not None and second is not None
+
+    first.publish()
+    await repository.update(first)  # succeeds: version 1 -> 2
+
+    second.publish()
+    with pytest.raises(ConcurrencyConflictError):
+        await repository.update(second)  # still holds the stale version 1
+
+    fetched = await repository.get(protocol.workspace_id, protocol.id)
+    assert fetched is not None
+    assert fetched.version == 2
+    assert fetched.status == ProtocolStatus.PUBLISHED
 
 
 async def test_list_excludes_other_workspaces(session_factory):

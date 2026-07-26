@@ -15,11 +15,13 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, select, tuple_
+from sqlalchemy import CursorResult, Select, select, tuple_
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
+from daikonstudio.domain.shared.errors import ConcurrencyConflictError
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import (
     InSilicoProtocolModel,
 )
@@ -99,9 +101,48 @@ class SqlAlchemyProtocolRepository:
             await session.commit()
 
     async def update(self, protocol: InSilicoProtocol) -> None:
+        """Optimistic concurrency: the UPDATE only lands if the row's `version`
+        still matches what this in-memory copy was loaded with, and bumps it by
+        one when it does. Zero rows affected means someone else's write (e.g. a
+        concurrent `publish()`) already moved the row on -- raise rather than
+        silently last-writer-wins overwriting it.
+        """
+        model = _to_model(protocol)
+        expected_version = protocol.version
         async with self._sessions() as session:
-            await session.merge(_to_model(protocol))
+            result = await session.execute(
+                sa_update(InSilicoProtocolModel)
+                .where(
+                    InSilicoProtocolModel.id == protocol.id,
+                    InSilicoProtocolModel.version == expected_version,
+                )
+                .values(
+                    name=model.name,
+                    dataset_id=model.dataset_id,
+                    engine_id=model.engine_id,
+                    artifact_uri=model.artifact_uri,
+                    readouts=model.readouts,
+                    conditions=model.conditions,
+                    status=model.status,
+                    published_at=model.published_at,
+                    parent_protocol_id=model.parent_protocol_id,
+                    protocol_version=model.protocol_version,
+                    updated_at=model.updated_at,
+                    version=expected_version + 1,
+                )
+            )
+            # `Session.execute()` is typed to return the generic `Result[Any]`, but an
+            # UPDATE statement always yields the richer `CursorResult` that actually
+            # carries `rowcount` -- this assertion is the real runtime shape, not a
+            # type-checker workaround.
+            assert isinstance(result, CursorResult)
+            if result.rowcount == 0:
+                await session.rollback()
+                raise ConcurrencyConflictError("Protocol", str(protocol.id))
             await session.commit()
+        # The caller's in-memory copy now matches what was just persisted -- without
+        # this, a second `update()` on the same object would immediately self-conflict.
+        protocol.version = expected_version + 1
 
     async def get(
         self, workspace_id: uuid.UUID, protocol_id: uuid.UUID

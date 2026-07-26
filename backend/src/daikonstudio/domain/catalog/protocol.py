@@ -20,7 +20,7 @@ from typing import Any
 
 from daikonstudio.domain.catalog.readout import Readout
 from daikonstudio.domain.shared.entity import AggregateRoot
-from daikonstudio.domain.shared.errors import DataLockedError
+from daikonstudio.domain.shared.errors import ConflictError, DataLockedError
 
 
 class ProtocolStatus(StrEnum):
@@ -55,7 +55,12 @@ class InSilicoProtocol(AggregateRoot):
         self.engine_id = engine_id
         self.artifact_uri = artifact_uri
         self.readouts = readouts
-        self.conditions = conditions
+        # Copied, not aliased: `readouts` is safe to hold by reference because it's a
+        # tuple of frozen dataclasses, but a raw dict is not. Without this copy, either
+        # the caller mutating their own dict after construction, or `new_version()`
+        # handing this same dict to a child, would silently reach back into an
+        # already-published, supposedly-immutable Protocol.
+        self.conditions = dict(conditions)
         self.status = status
         self.published_at = published_at
         self.parent_protocol_id = parent_protocol_id
@@ -80,7 +85,18 @@ class InSilicoProtocol(AggregateRoot):
         """A fresh DRAFT chained to this protocol, carrying forward everything
         that describes what it predicts (readouts, conditions, dataset, engine).
         Only `artifact_uri` changes going in -- retraining produced new weights,
-        not a new contract."""
+        not a new contract.
+
+        Only a published Protocol has anything meaningful to version *from*: the
+        aggregate has no draft-editing method, so a chain that could fork off an
+        unpublished draft would let an unbounded pile of never-published "versions"
+        accumulate for no reason. Want to change a draft before it's published?
+        Make a new Protocol -- that's the only edit a draft supports anyway.
+        """
+        if not self.is_locked:
+            raise ConflictError(
+                f"Protocol '{self.id}' has not been published; there is nothing to version from"
+            )
         return InSilicoProtocol(
             workspace_id=self.workspace_id,
             name=self.name,

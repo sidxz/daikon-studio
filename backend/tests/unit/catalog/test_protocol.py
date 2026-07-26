@@ -1,4 +1,5 @@
 import uuid
+from typing import Any
 
 import pytest
 
@@ -7,10 +8,10 @@ from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.catalog.readout import ReadoutType
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
-from daikonstudio.domain.shared.errors import DataLockedError
+from daikonstudio.domain.shared.errors import ConflictError, DataLockedError
 
 
-def _draft() -> InSilicoProtocol:
+def _draft(conditions: dict[str, Any] | None = None) -> InSilicoProtocol:
     return InSilicoProtocol(
         workspace_id=uuid.uuid4(),
         name="solubility rf",
@@ -21,7 +22,7 @@ def _draft() -> InSilicoProtocol:
             TargetSpec(column="ic50", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW),
             TaskType.REGRESSION,
         ),
-        conditions={},
+        conditions={} if conditions is None else conditions,
     )
 
 
@@ -100,3 +101,29 @@ def test_a_new_version_can_itself_be_published_and_chained_again():
     grandchild = child.new_version(artifact_uri="s3://x/3")
     assert grandchild.parent_protocol_id == child.id
     assert grandchild.protocol_version == child.protocol_version + 1 == parent.protocol_version + 2
+
+
+def test_mutating_a_childs_conditions_leaves_the_published_parent_unchanged():
+    parent = _draft(conditions={"n_estimators": 200})
+    parent.publish()
+    child = parent.new_version(artifact_uri="s3://x/2")
+
+    child.conditions["n_estimators"] = 999
+
+    assert parent.conditions == {"n_estimators": 200}
+    assert child.conditions == {"n_estimators": 999}
+
+
+def test_mutating_the_dict_passed_into_the_constructor_does_not_reach_the_aggregate():
+    original = {"n_estimators": 200}
+    protocol = _draft(conditions=original)
+
+    original["n_estimators"] = 999
+
+    assert protocol.conditions == {"n_estimators": 200}
+
+
+def test_new_version_on_an_unpublished_draft_is_rejected():
+    draft = _draft()
+    with pytest.raises(ConflictError):
+        draft.new_version(artifact_uri="s3://x/2")
