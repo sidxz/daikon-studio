@@ -755,9 +755,7 @@ def ecfp4(smiles_list: list[str]) -> np.ndarray:
     for index, smiles in enumerate(smiles_list):
         mol = Chem.MolFromSmiles(smiles)
         if mol is not None:
-            rows[index] = np.frombuffer(
-                _GENERATOR.GetFingerprintAsNumPy(mol).tobytes(), dtype=np.uint8
-            )[:2048]
+            rows[index] = _GENERATOR.GetFingerprintAsNumPy(mol)
     return rows
 ```
 
@@ -1289,7 +1287,7 @@ Same structure with `XGBRegressor`/`XGBClassifier`, id `ecfp4-xgboost`, `is_base
 - [ ] **Step 5: Run tests to verify they pass**
 
 Run: `cd backend && uv run pytest tests/unit/engines/test_ecfp4_engines.py -v`
-Expected: 8 passed.
+Expected: 7 passed (2 engines x 2 parametrized tests, plus 3 unparametrized).
 
 - [ ] **Step 6: Commit**
 
@@ -1304,17 +1302,25 @@ git commit -m "feat(engines): ECFP4 XGBoost and RandomForest baseline engines"
 
 **Files:**
 - Create: `backend/src/daikonstudio/domain/data/{target,validation}.py`
+- Create: `backend/src/daikonstudio/application/ports/structure_normalizer.py`
+- Create: `backend/src/daikonstudio/infrastructure/chem/normalizer.py`
 - Create: `backend/src/daikonstudio/application/data/prepare_frame.py`
 - Test: `backend/tests/unit/data/test_validation.py`
 
 **Interfaces:**
-- Consumes: `canonicalize`, `has_multiple_components` (Task 6).
+- Consumes: `canonicalize`, `has_multiple_components` (Task 6) — **through a port, not directly.**
+  The layer contract forbids `application` importing `infrastructure`, so this task adds
+  `StructureNormalizer` (a `Protocol` in `application/ports/`, exactly like Task 5's `BlobStore`)
+  with `canonicalize(smiles) -> str | None` and `has_multiple_components(smiles) -> bool`, and
+  `RdkitStructureNormalizer` in `infrastructure/chem/normalizer.py` implementing it over Task 6's
+  functions. `prepare_frame` takes the normalizer as a parameter. Do NOT add an import-linter
+  exemption — the contract is load-bearing and Task 11's use case needs the same seam.
 - Produces:
   - `TargetKind` StrEnum: `NUMERIC`, `BINARY`; `Direction` StrEnum: `HIGH`, `LOW`
   - `TargetSpec(column, kind, unit=None, direction=None)`
   - `InvalidRow(row_number, value, reason)`, `ConflictRow(structure, values)`
   - `ValidationReport(total_rows, valid_rows, invalid, duplicates_collapsed, conflicting, salts_flagged, duplicate_spread)`
-  - `prepare_frame(frame, structure_column, target: TargetSpec) -> tuple[pl.DataFrame, ValidationReport]`
+  - `prepare_frame(frame, structure_column, target: TargetSpec, normalizer: StructureNormalizer) -> tuple[pl.DataFrame, ValidationReport]`
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1325,6 +1331,9 @@ import pytest
 
 from daikonstudio.application.data.prepare_frame import prepare_frame
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
+from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
+
+NORMALIZER = RdkitStructureNormalizer()
 
 NUMERIC = TargetSpec(column="y", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW)
 BINARY = TargetSpec(column="y", kind=TargetKind.BINARY)
@@ -1332,7 +1341,7 @@ BINARY = TargetSpec(column="y", kind=TargetKind.BINARY)
 
 def test_invalid_structures_are_reported_with_row_numbers():
     frame = pl.DataFrame({"smiles": ["CCO", "not-a-molecule"], "y": [1.0, 2.0]})
-    prepared, report = prepare_frame(frame, "smiles", NUMERIC)
+    prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert prepared.height == 1
     assert report.invalid[0].row_number == 2
     assert "invalid structure" in report.invalid[0].reason
@@ -1340,7 +1349,7 @@ def test_invalid_structures_are_reported_with_row_numbers():
 
 def test_numeric_duplicates_are_averaged_and_spread_retained():
     frame = pl.DataFrame({"smiles": ["CCO", "OCC", "c1ccccc1"], "y": [1.0, 3.0, 9.0]})
-    prepared, report = prepare_frame(frame, "smiles", NUMERIC)
+    prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert prepared.height == 2
     assert prepared.filter(pl.col("smiles") == "CCO")["y"].item() == 2.0
     assert report.duplicates_collapsed == 1
@@ -1350,14 +1359,14 @@ def test_numeric_duplicates_are_averaged_and_spread_retained():
 def test_conflicting_binary_duplicates_are_rejected_not_voted():
     """A compound labelled both active and inactive is a data problem to decide about."""
     frame = pl.DataFrame({"smiles": ["CCO", "OCC"], "y": [0, 1]})
-    prepared, report = prepare_frame(frame, "smiles", BINARY)
+    prepared, report = prepare_frame(frame, "smiles", BINARY, NORMALIZER)
     assert prepared.height == 0
     assert report.conflicting[0].values == [0, 1]
 
 
 def test_agreeing_binary_duplicates_collapse_silently():
     frame = pl.DataFrame({"smiles": ["CCO", "OCC"], "y": [1, 1]})
-    prepared, report = prepare_frame(frame, "smiles", BINARY)
+    prepared, report = prepare_frame(frame, "smiles", BINARY, NORMALIZER)
     assert prepared.height == 1
     assert report.conflicting == []
     assert report.duplicates_collapsed == 1
@@ -1365,14 +1374,14 @@ def test_agreeing_binary_duplicates_collapse_silently():
 
 def test_salts_are_flagged_but_kept():
     frame = pl.DataFrame({"smiles": ["CC(=O)O.[Na+]", "CCO"], "y": [1.0, 2.0]})
-    prepared, report = prepare_frame(frame, "smiles", NUMERIC)
+    prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert prepared.height == 2
     assert report.salts_flagged == 1
 
 
 def test_structures_are_canonicalised_so_equivalent_smiles_deduplicate():
     frame = pl.DataFrame({"smiles": ["C1=CC=CC=C1", "c1ccccc1"], "y": [1.0, 1.0]})
-    prepared, _ = prepare_frame(frame, "smiles", NUMERIC)
+    prepared, _ = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert prepared.height == 1
 ```
 
