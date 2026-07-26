@@ -3,6 +3,7 @@ import pytest
 
 from daikonstudio.application.data.assign_split import assign_split
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
+from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 
 NORMALIZER = RdkitStructureNormalizer()
@@ -71,11 +72,11 @@ def test_acyclic_molecules_are_not_forced_into_one_family():
     assert acyclic["split"].n_unique() > 1
 
 
-def test_scaffold_split_never_straddles_even_when_one_family_dominates():
-    """A single scaffold owning 90% of the rows cannot fit an 80% train target -- the
-    split must still keep the family whole rather than erroring or splitting it, even
-    though the realized fractions end up nothing like 80/10/10 as a result. Known,
-    accepted behaviour of the standard construction: see task-10-report.md."""
+def test_scaffold_split_raises_when_a_dominant_family_leaves_a_partition_empty():
+    """A single scaffold owning 90% of the rows cannot fit an 80% train target. The
+    greedy fill still never splits the family -- but it does leave `test` completely
+    empty, which is an untrainable/unevaluable result, not a lopsided-but-usable one.
+    That must fail loudly rather than come back as a normal-looking frame."""
     dominant = [
         "c1ccccc1",
         "Cc1ccccc1",
@@ -89,13 +90,58 @@ def test_scaffold_split_never_straddles_even_when_one_family_dominates():
     ]
     lopsided = pl.DataFrame({"smiles": [*dominant, "C1CCNCC1"]})
     spec = SplitSpec(strategy=SplitStrategy.SCAFFOLD, seed=7)
-    result = assign_split(lopsided, "smiles", spec, NORMALIZER)
-    benzenes = result.filter(pl.col("smiles").is_in(dominant))
-    assert benzenes["split"].n_unique() == 1
-    assert result["split"].null_count() == 0
-    counts = dict(zip(*result["split"].value_counts().to_dict().values(), strict=True))
-    assert sum(counts.values()) == 10
-    assert max(counts.values()) == 9  # the dominant family, wherever it landed, is whole
+    with pytest.raises(ValidationError) as excinfo:
+        assign_split(lopsided, "smiles", spec, NORMALIZER)
+    assert "test" in excinfo.value.message
+    assert "90%" in excinfo.value.message
+    assert "c1ccccc1" in excinfo.value.message
+    assert "RANDOM" in excinfo.value.message
+
+
+def test_scaffold_split_raises_when_one_scaffold_covers_every_row():
+    """The degenerate case: every row shares one scaffold, so no partition split is
+    possible at all without straddling it. Train ends up empty."""
+    frame_one_family = pl.DataFrame(
+        {"smiles": ["c1ccccc1", "Cc1ccccc1", "CCc1ccccc1", "CCCc1ccccc1"]}
+    )
+    spec = SplitSpec(strategy=SplitStrategy.SCAFFOLD, seed=7)
+    with pytest.raises(ValidationError) as excinfo:
+        assign_split(frame_one_family, "smiles", spec, NORMALIZER)
+    assert "train" in excinfo.value.message
+    assert "100%" in excinfo.value.message
+
+
+def test_scaffold_split_raises_on_ordinary_evenly_sized_families():
+    """Not a degenerate input: four scaffold families of five rows each (a completely
+    ordinary dataset shape) still overshoots train and skips validation entirely --
+    the greedy fill's failure mode isn't limited to extreme dominance."""
+    rings = ["c1ccccc1", "c1ccncc1", "c1ccoc1", "c1ccsc1"]
+    prefixes = ["", "C", "CC", "CCC", "CCCC"]
+    rows = [prefix + ring for ring in rings for prefix in prefixes]
+    frame_even_families = pl.DataFrame({"smiles": rows})
+    spec = SplitSpec(strategy=SplitStrategy.SCAFFOLD, seed=7)
+    with pytest.raises(ValidationError) as excinfo:
+        assign_split(frame_even_families, "smiles", spec, NORMALIZER)
+    assert "validation" in excinfo.value.message
+    assert "25%" in excinfo.value.message
+
+
+def test_scaffold_split_singleton_tie_break_depends_on_seed_not_file_order():
+    """Acyclic rows tie at group size 1; which of them is held out for validation/test
+    must come from the seed, not from wherever they happened to sit in the uploaded
+    file -- otherwise a CSV sorted by potency would leak a systematic bias into what
+    looks like a random tie-break. The realized counts (8/1/1) stay stable across
+    seeds; only which specific row lands where should change."""
+    acyclic = ["CCO", "CCCO", "CCCCO", "CCN", "CCCN"]
+    patterns = set()
+    for seed in range(1, 6):
+        spec = SplitSpec(strategy=SplitStrategy.SCAFFOLD, seed=seed)
+        result = assign_split(frame(), "smiles", spec, NORMALIZER)
+        labels = dict(zip(result["smiles"].to_list(), result["split"].to_list(), strict=True))
+        patterns.add(tuple(labels[s] for s in acyclic))
+        benzenes = result.filter(pl.col("smiles").is_in(["c1ccccc1", "Cc1ccccc1", "CCc1ccccc1"]))
+        assert benzenes["split"].n_unique() == 1
+    assert len(patterns) > 1
 
 
 def test_tiny_frame_leaves_some_partitions_empty_but_never_crashes():
