@@ -16,6 +16,9 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.catalog import (
     models as catalog_models,  # noqa: F401
 )
 from daikonstudio.infrastructure.persistence.sqlalchemy.data import models  # noqa: F401
+from daikonstudio.infrastructure.persistence.sqlalchemy.execution import (
+    models as execution_models,  # noqa: F401
+)
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

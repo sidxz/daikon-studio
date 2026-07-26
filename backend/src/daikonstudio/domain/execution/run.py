@@ -1,0 +1,146 @@
+"""The Run aggregate -- one execution: training a model or making predictions.
+
+Status is a strict one-way lattice: `pending -> running -> {ready, failed,
+cancelled}`, with `pending -> cancelled` as the only shortcut. `_TERMINAL`
+gates every mutating method uniformly, so "a terminal Run cannot change again"
+is one check reused everywhere rather than a rule re-derived per method.
+
+`cancel()` on a `running` Run is honest about its ceiling -- see the
+`ponytail:` comment on the method -- rather than pretending to interrupt a
+worker process that is already mid-flight.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import uuid
+from datetime import UTC, datetime
+from enum import StrEnum
+
+from daikonstudio.domain.shared.entity import AggregateRoot
+from daikonstudio.domain.shared.errors import ConflictError
+
+
+class RunKind(StrEnum):
+    TRAINING = "training"
+    PREDICTION = "prediction"
+
+
+class RunStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    READY = "ready"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+_TERMINAL = {RunStatus.READY, RunStatus.FAILED, RunStatus.CANCELLED}
+
+
+def compute_cache_key(**parts: object) -> str:
+    """A stable fingerprint of whatever inputs determine identical work --
+    Task 17 uses this so a repeated prediction request against the same
+    protocol and inputs returns the cached Run's result instead of
+    re-running the engine.
+
+    Deliberately not `hash()`: Python randomises string hashing per process
+    (`PYTHONHASHSEED`), so the same call in the web process and in the arq
+    worker process would produce two different keys for identical inputs.
+    `hashlib.sha256` over a JSON encoding with sorted keys is the same value
+    everywhere, forever, given the same `parts` -- which is the entire point
+    of a cache key that one process writes and another must look up.
+    """
+    canonical = json.dumps(parts, sort_keys=True, default=str)
+    return hashlib.sha256(canonical.encode()).hexdigest()
+
+
+class Run(AggregateRoot):
+    def __init__(
+        self,
+        *,
+        kind: RunKind,
+        workspace_id: uuid.UUID,
+        requested_by: uuid.UUID,
+        cache_key: str,
+        status: RunStatus = RunStatus.PENDING,
+        progress: float = 0.0,
+        phase: str | None = None,
+        result_uri: str | None = None,
+        error_message: str | None = None,
+        id: uuid.UUID | None = None,
+        created_at: datetime | None = None,
+        updated_at: datetime | None = None,
+        version: int = 1,
+    ) -> None:
+        super().__init__(id=id, created_at=created_at, updated_at=updated_at, version=version)
+        self.kind = kind
+        self.workspace_id = workspace_id
+        self.requested_by = requested_by
+        self.cache_key = cache_key
+        self.status = status
+        self.progress = progress
+        self.phase = phase
+        self.result_uri = result_uri
+        self.error_message = error_message
+
+    def _touch(self) -> None:
+        self.updated_at = datetime.now(UTC)
+
+    def start(self) -> None:
+        """Only a freshly created Run can start -- a second `start()` (on a
+        `running` Run, or on any terminal one) is a bug in the caller, not a
+        no-op to swallow."""
+        if self.status is not RunStatus.PENDING:
+            raise ConflictError(f"Cannot start run '{self.id}' in status '{self.status}'")
+        self.status = RunStatus.RUNNING
+        self._touch()
+
+    def report_progress(self, fraction: float, *, phase: str) -> None:
+        if self.status is not RunStatus.RUNNING:
+            raise ConflictError(
+                f"Cannot report progress on run '{self.id}' in status '{self.status}'"
+            )
+        self.progress = fraction
+        self.phase = phase
+        self._touch()
+
+    def succeed(self, result_uri: str) -> None:
+        if self.status is not RunStatus.RUNNING:
+            raise ConflictError(f"Cannot succeed run '{self.id}' in status '{self.status}'")
+        self.status = RunStatus.READY
+        self.result_uri = result_uri
+        self.progress = 1.0
+        self._touch()
+
+    def fail(self, message: str) -> None:
+        """Allowed from `pending` as well as `running`: an enqueue that never
+        even reaches the worker (e.g. Redis unreachable) is a failure of the
+        Run just as much as a crash mid-execution, and both must be reachable
+        from whatever status the Run was in when it broke."""
+        if self.status in _TERMINAL:
+            raise ConflictError(f"Cannot fail run '{self.id}' in terminal status '{self.status}'")
+        self.status = RunStatus.FAILED
+        self.error_message = message
+        self._touch()
+
+    def cancel(self) -> None:
+        """`pending -> cancelled` genuinely stops the work: the job never
+        runs. `running -> cancelled` cannot -- the worker is a separate
+        process already executing `handler(ctx, run)`, and this method has no
+        channel to it.
+
+        ponytail: this only flips the row's status; it does not signal the
+        worker. A cancelled-while-running Run's worker keeps running to
+        completion and will still call `succeed()`/`fail()` on this row when
+        it's done, silently overwriting `cancelled`. Real interruption needs
+        either a cooperative flag the handler polls or an arq job abort --
+        add it when a training run is slow enough that "cancel" meaning
+        "stop showing it as running" stops being good enough.
+        """
+        if self.status in _TERMINAL:
+            raise ConflictError(
+                f"Cannot cancel run '{self.id}' in terminal status '{self.status}'"
+            )
+        self.status = RunStatus.CANCELLED
+        self._touch()

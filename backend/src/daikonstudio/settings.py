@@ -10,6 +10,10 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3002"]
     service_name: str = "daikon-studio"
 
+    # Selects InlineEnqueuer over ArqEnqueuer (infrastructure/worker.py) --
+    # runs jobs in-process so tests and local dev need no Valkey at all.
+    inline_jobs: bool = False
+
     # Sentinel (authz mode) — same realm as prot-cellar, chem-cellar, daikon-gen3,
     # docu-store. `sentinel_service_key` defaults to "" as a missing-config signal,
     # not a usable key: an empty key means auth is unconfigured, and the auth
