@@ -7,11 +7,17 @@ Entrypoint for arq::
 
 `_HANDLERS` is the seam Tasks 14 (training) and 17 (prediction) fill in:
 `_HANDLERS[RunKind.TRAINING]` / `_HANDLERS[RunKind.PREDICTION]` are each a
-`JobHandler` that does the real work and returns a result URI. Left empty
-here deliberately -- this task builds the seam, not what runs through it. A
-real job hitting the empty dict fails with `KeyError`, caught by the same
-`except (Exception, SystemExit)` as any other handler failure and recorded on
-the Run rather than crashing the worker.
+`JobHandler` that does the real work and returns a result URI. `TRAINING` is
+wired; `PREDICTION` is still empty. A real job hitting the empty slot fails
+with `KeyError`, caught by the same `except (Exception, SystemExit)` as any
+other handler failure and recorded on the Run rather than crashing the worker.
+
+This module is also the worker's composition root. Handlers are application-
+layer objects with no idea where their collaborators come from, so the small
+`_train` adapter below builds them per job from `ctx`: repositories over the
+process-wide session factory, and the blob store the process was configured
+with. The engine registry and the structure normalizer are stateless and take
+no configuration, so they are constructed here rather than carried on `ctx`.
 """
 
 from __future__ import annotations
@@ -31,15 +37,39 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from daikonstudio.application.execution.train_protocol import RunTraining
+from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
+from daikonstudio.infrastructure.engines.registry import default_registry
+from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
+    SqlAlchemyProtocolRepository,
+)
+from daikonstudio.infrastructure.persistence.sqlalchemy.data.repository import (
+    SqlAlchemyDatasetRepository,
+)
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
 )
+from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
 from daikonstudio.settings import Settings
 
 JobHandler = Callable[[dict[str, Any], Run], Awaitable[str]]
 
-_HANDLERS: dict[RunKind, JobHandler] = {}
+
+async def _train(ctx: dict[str, Any], run: Run) -> str:
+    sessions = ctx["sessions"]
+    return await RunTraining(
+        SqlAlchemyDatasetRepository(sessions),
+        SqlAlchemyProtocolRepository(sessions),
+        SqlAlchemyRunRepository(sessions),
+        ctx["store"],
+        default_registry(),
+        RdkitStructureNormalizer(),
+    )(run)
+
+
+_HANDLERS: dict[RunKind, JobHandler] = {RunKind.TRAINING: _train}
 
 
 async def _load(ctx: dict[str, Any], run_id: uuid.UUID) -> Run:
@@ -117,6 +147,7 @@ async def _on_startup(ctx: dict[str, Any]) -> None:
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
     ctx["engine"] = engine
     ctx["sessions"] = async_sessionmaker(engine, expire_on_commit=False)
+    ctx["store"] = FsspecBlobStore(settings.blob_base_url)
 
 
 async def _on_shutdown(ctx: dict[str, Any]) -> None:
@@ -188,8 +219,10 @@ class InlineEnqueuer:
     catch them.
     """
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
-        self._ctx: dict[str, Any] = {"sessions": sessions}
+    def __init__(self, sessions: async_sessionmaker[AsyncSession], store: BlobStore) -> None:
+        # The same two entries `_on_startup` puts on a real worker's ctx, so a
+        # handler cannot tell which enqueuer it is running under.
+        self._ctx: dict[str, Any] = {"sessions": sessions, "store": store}
 
     async def enqueue(self, run_id: uuid.UUID) -> None:
         with contextlib.suppress(Exception, SystemExit):

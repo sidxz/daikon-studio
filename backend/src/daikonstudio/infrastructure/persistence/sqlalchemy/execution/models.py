@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from sqlalchemy import CheckConstraint, Float, Index, String, Text, Uuid
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from daikonstudio.infrastructure.persistence.sqlalchemy.base import (
@@ -22,6 +24,10 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
     requested_by: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
     # sha256 hex digest from `compute_cache_key` -- same width as Dataset.content_hash.
     cache_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The job's own inputs -- which dataset, which engine, which conditions for a
+    # training run. Free-form and per-kind, which is what JSONB is for; a column
+    # per kind would be a wide table of mostly-nulls.
+    params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     phase: Mapped[str | None] = mapped_column(String(256), nullable=True)

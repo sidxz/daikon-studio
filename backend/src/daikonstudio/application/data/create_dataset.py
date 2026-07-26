@@ -150,6 +150,7 @@ class CreateDataset:
             id=dataset_id,
             workspace_id=workspace_id,
             name=command.name,
+            structure_column=command.structure_column,
             target=command.target,
             split=command.split,
             content_hash=content_hash,

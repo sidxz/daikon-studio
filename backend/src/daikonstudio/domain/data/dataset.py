@@ -36,6 +36,7 @@ class Dataset(AggregateRoot):
         *,
         workspace_id: uuid.UUID,
         name: str,
+        structure_column: str,
         target: TargetSpec,
         split: SplitSpec,
         content_hash: str,
@@ -50,6 +51,11 @@ class Dataset(AggregateRoot):
         super().__init__(id=id, created_at=created_at, updated_at=updated_at, version=version)
         self.workspace_id = workspace_id
         self.name = name
+        # Which column of the snapshot holds the structures. Recorded rather than
+        # re-derived: the Parquet keeps the uploader's own column name, and every
+        # later consumer -- training, prediction, scaffold analysis -- must
+        # featurize exactly the column the validation pass canonicalized.
+        self.structure_column = structure_column
         self.target = target
         self.split = split
         self.content_hash = content_hash

@@ -130,7 +130,7 @@ async def test_inline_enqueuer_swallows_a_handler_failure_after_recording_it(
         raise ValueError("boom")
 
     monkeypatch.setattr(worker, "run_job", failing_run_job)
-    enqueuer = worker.InlineEnqueuer(sessions=None)  # type: ignore[arg-type]
+    enqueuer = worker.InlineEnqueuer(sessions=None, store=None)  # type: ignore[arg-type]
 
     await enqueuer.enqueue(uuid.uuid4())  # must not raise
 
@@ -142,7 +142,7 @@ async def test_inline_enqueuer_lets_cancelled_error_propagate(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(worker, "run_job", cancelled_run_job)
-    enqueuer = worker.InlineEnqueuer(sessions=None)  # type: ignore[arg-type]
+    enqueuer = worker.InlineEnqueuer(sessions=None, store=None)  # type: ignore[arg-type]
 
     with pytest.raises(asyncio.CancelledError):
         await enqueuer.enqueue(uuid.uuid4())

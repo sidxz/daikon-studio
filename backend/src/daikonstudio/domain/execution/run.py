@@ -15,8 +15,10 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
+from typing import Any
 
 from daikonstudio.domain.shared.entity import AggregateRoot
 from daikonstudio.domain.shared.errors import ConflictError
@@ -63,6 +65,7 @@ class Run(AggregateRoot):
         workspace_id: uuid.UUID,
         requested_by: uuid.UUID,
         cache_key: str,
+        params: Mapping[str, Any] | None = None,
         status: RunStatus = RunStatus.PENDING,
         progress: float = 0.0,
         phase: str | None = None,
@@ -78,6 +81,12 @@ class Run(AggregateRoot):
         self.workspace_id = workspace_id
         self.requested_by = requested_by
         self.cache_key = cache_key
+        # What this Run was asked to do, in whatever shape its kind needs (a
+        # training run: dataset, engine, conditions). arq hands the worker a bare
+        # `run_id`, so without this the handler has no way back to the request
+        # that created the row. Write-once by convention: `update()` never
+        # persists it, so a handler cannot rewrite its own instructions mid-flight.
+        self.params: dict[str, Any] = dict(params or {})
         self.status = status
         self.progress = progress
         self.phase = phase

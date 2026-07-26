@@ -86,6 +86,7 @@ class DatasetResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
     name: str
+    structure_column: str
     target: dict[str, Any]
     split: dict[str, Any]
     content_hash: str
@@ -101,6 +102,7 @@ class DatasetResponse(BaseModel):
             id=dataset.id,
             workspace_id=dataset.workspace_id,
             name=dataset.name,
+            structure_column=dataset.structure_column,
             target=target_to_dict(dataset.target),
             split=split_to_dict(dataset.split),
             content_hash=dataset.content_hash,
