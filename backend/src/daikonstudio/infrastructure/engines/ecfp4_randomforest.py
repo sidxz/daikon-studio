@@ -7,9 +7,8 @@ the first screen, so this has to be a genuinely competitive model, not a strawma
 
 from __future__ import annotations
 
-import io
+import pickle
 
-import joblib  # type: ignore[import-untyped]
 import polars as pl
 from sklearn.ensemble import (  # type: ignore[import-untyped]
     RandomForestClassifier,
@@ -71,27 +70,39 @@ class Ecfp4RandomForest:
         # union of the two here would just be a union of Any, which mypy rejects as
         # a type. Any is what falls out naturally by leaving it unannotated.
         #
-        # n_jobs=1, not -1: measured empirically that n_jobs=-1 makes RandomForest's
-        # parallel prediction-averaging non-reproducible at the float ULP level --
-        # thread completion order varies run to run, and float addition isn't
-        # associative, so the same seed can yield RMSE that differs in the 16th
-        # digit. That's enough to break exact-equality reproducibility checks.
+        # n_jobs=-1 for fitting: per-tree random states are drawn upfront, so which
+        # thread builds which tree doesn't affect the result -- fitting in parallel
+        # is bit-identical to fitting serially, and is the expensive half (measured
+        # 5.6-8x slower single-threaded on realistic assay sizes).
         if is_classification:
             model = RandomForestClassifier(
-                n_estimators=conditions["n_estimators"], random_state=ctx.seed, n_jobs=1
+                n_estimators=conditions["n_estimators"], random_state=ctx.seed, n_jobs=-1
             )
         else:
             model = RandomForestRegressor(
-                n_estimators=conditions["n_estimators"], random_state=ctx.seed, n_jobs=1
+                n_estimators=conditions["n_estimators"], random_state=ctx.seed, n_jobs=-1
             )
         model.fit(x_train, y_train)
 
-        buffer = io.BytesIO()
-        # joblib.dump pickles the fitted model; safe to write, since only our own
-        # predict() ever reads this artifact back (see _scoring.py for the load side).
-        joblib.dump({"model": model, "is_classification": is_classification}, buffer)
+        # ponytail: predict() pinned to single-threaded, forever, on this fitted
+        # model. Unlike fitting, RandomForest's predict() sums per-tree outputs
+        # under a lock in thread-completion order, which is not fixed run to run --
+        # measured a ~3e-16 relative drift between two n_jobs=-1 predict calls on
+        # identical input, enough to break exact-equality reproducibility. Must be
+        # set before scoring below AND before the artifact is pickled, so the
+        # persisted model also predicts reproducibly once loaded back in production.
+        # Ceiling: predicting a very large batch runs on one core. Upgrade path if
+        # that ever matters: parallelize per-tree predictions manually (e.g.
+        # joblib.Parallel over model.estimators_) and reduce them in a fixed
+        # tree-index order, instead of relying on RandomForest's internal reduction.
+        model.n_jobs = 1
+
+        # pickle.dumps serializes the fitted model; safe to write, since only our
+        # own predict() ever reads this artifact back (see _scoring.py for the load
+        # side, and its comment on why deserializing it is safe there).
+        artifact = pickle.dumps({"model": model, "is_classification": is_classification})
         return TrainResult(
-            artifact=buffer.getvalue(),
+            artifact=artifact,
             metrics=_score(model, test_rows, ctx, is_classification),
         )
 

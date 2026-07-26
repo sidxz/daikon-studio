@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import io
+import pickle
 
-import joblib  # type: ignore[import-untyped]
 import polars as pl
 from xgboost import XGBClassifier, XGBRegressor
 
@@ -82,12 +81,11 @@ class Ecfp4XGBoost:
             "max_depth": conditions["max_depth"],
             "learning_rate": conditions["learning_rate"],
             "random_state": ctx.seed,
-            # n_jobs=1, not -1: the RandomForest engine's parallel aggregation was
-            # measured to break bit-exact reproducibility of the same seed (see the
-            # comment in ecfp4_randomforest.py). XGBoost's histogram-based tree
-            # building carries the same class of risk from parallel reduction order,
-            # so it gets the same fix on principle rather than waiting to see it flake.
-            "n_jobs": 1,
+            # n_jobs=-1: unlike RandomForest's predict() (see ecfp4_randomforest.py),
+            # XGBoost's hist tree builder is thread-count deterministic by design --
+            # measured bit-identical metrics across five fit+predict runs at n_jobs=-1
+            # on the same seed, so there is no reproducibility tradeoff to make here.
+            "n_jobs": -1,
         }
         if is_classification:
             model = XGBClassifier(**model_kwargs)
@@ -95,12 +93,12 @@ class Ecfp4XGBoost:
             model = XGBRegressor(**model_kwargs)
         model.fit(x_train, y_train)
 
-        buffer = io.BytesIO()
-        # joblib.dump pickles the fitted model; safe to write, since only our own
-        # predict() ever reads this artifact back (see _scoring.py for the load side).
-        joblib.dump({"model": model, "is_classification": is_classification}, buffer)
+        # pickle.dumps serializes the fitted model; safe to write, since only our
+        # own predict() ever reads this artifact back (see _scoring.py for the load
+        # side, and its comment on why deserializing it is safe there).
+        artifact = pickle.dumps({"model": model, "is_classification": is_classification})
         return TrainResult(
-            artifact=buffer.getvalue(),
+            artifact=artifact,
             metrics=_score(model, test_rows, ctx, is_classification),
         )
 

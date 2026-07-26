@@ -1,3 +1,5 @@
+import math
+
 import polars as pl
 import pytest
 
@@ -103,3 +105,40 @@ def test_a_regression_target_of_only_zeros_and_ones_still_trains_a_regressor():
 def test_random_forest_is_flagged_as_the_baseline():
     assert Ecfp4RandomForest.manifest().is_baseline is True
     assert Ecfp4XGBoost.manifest().is_baseline is False
+
+
+@pytest.mark.parametrize("engine", [Ecfp4XGBoost(), Ecfp4RandomForest()])
+def test_single_class_train_split_reports_undefined_metrics_not_a_crash(engine):
+    """A single-class TRAIN split makes predict_proba return one column, not two --
+    guards the IndexError this used to raise in both _score and predict(), and
+    checks that every classification metric comes back uniformly undefined rather
+    than a mix of NaN and a misleadingly confident number."""
+    single_class_train = pl.DataFrame(
+        {
+            "smiles": SMILES[:10],
+            "y": [0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+            "split": ["train"] * 8 + ["test"] * 2,
+        }
+    )
+    ctx = TrainContext(
+        frame=single_class_train,
+        task=TaskType.BINARY_CLASSIFICATION,
+        structure_column="smiles",
+        target_column="y",
+        conditions={},
+        seed=42,
+    )
+    result = engine.train(ctx)
+    assert set(result.metrics) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
+    assert all(math.isnan(value) for value in result.metrics.values())
+    assert "accuracy" not in result.metrics
+
+    predictions = engine.predict(
+        PredictContext(
+            frame=pl.DataFrame({"smiles": SMILES[:3]}),
+            structure_column="smiles",
+            artifact=result.artifact,
+            conditions={},
+        )
+    )
+    assert predictions.height == 3

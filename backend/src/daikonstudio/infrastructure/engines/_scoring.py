@@ -8,10 +8,9 @@ never calculate it in the first place.
 
 from __future__ import annotations
 
-import io
+import pickle
 from typing import Any
 
-import joblib  # type: ignore[import-untyped]
 import numpy as np
 import polars as pl
 from sklearn.metrics import (  # type: ignore[import-untyped]
@@ -34,6 +33,22 @@ from daikonstudio.infrastructure.chem.featurize import ecfp4
 # type alias; Any is what the sklearn side already collapses to.
 
 
+def _positive_class_probability(model: Any, x: np.ndarray) -> np.ndarray:
+    """P(class=1), robust to a model that only ever saw one class while training.
+
+    sklearn's `predict_proba` returns one column per class *the model knows about*,
+    not one per class in some absolute label space -- so when training data is
+    single-class, the output is shape (n, 1), and there is no column 1 to index.
+    That column is mapped back to P(class=1) explicitly instead: it's 1 - column0
+    when the model's only known class is 0, or column0 itself when it's 1.
+    """
+    proba = model.predict_proba(x)
+    if proba.shape[1] < 2:
+        only_class = model.classes_[0]
+        return proba[:, 0] if only_class == 1 else 1.0 - proba[:, 0]  # type: ignore[no-any-return]
+    return proba[:, 1]  # type: ignore[no-any-return]
+
+
 def _score(
     model: Any, test_rows: pl.DataFrame, ctx: TrainContext, is_classification: bool
 ) -> dict[str, float]:
@@ -49,21 +64,29 @@ def _score(
             "r2": float(r2_score(y_test, predictions)),
         }
 
+    # A single-class train split (model.classes_) or test split (y_test) makes
+    # every classification metric undefined, not just AUROC/AUPRC: MCC has no
+    # defined value, and balanced accuracy silently collapses to plain accuracy
+    # when y_true has one class -- exactly the number this module exists to never
+    # report. All four are reported as undefined together, uniformly, without
+    # calling into sklearn at all -- which also means no "y_pred contains classes
+    # not in y_true" warning, since nothing here can trigger it.
+    if len(np.unique(y_test)) < 2 or len(model.classes_) < 2:
+        return {
+            "mcc": float("nan"),
+            "balanced_accuracy": float("nan"),
+            "auroc": float("nan"),
+            "auprc": float("nan"),
+        }
+
     predictions = model.predict(x_test)
-    metrics = {
+    probabilities = _positive_class_probability(model, x_test)
+    return {
         "mcc": float(matthews_corrcoef(y_test, predictions)),
         "balanced_accuracy": float(balanced_accuracy_score(y_test, predictions)),
+        "auroc": float(roc_auc_score(y_test, probabilities)),
+        "auprc": float(average_precision_score(y_test, probabilities)),
     }
-    if len(np.unique(y_test)) < 2:
-        # AUROC/AUPRC are undefined with only one class present -- a tiny test split
-        # (or an unlucky one) can land here. NaN says "undefined", not "bad model".
-        metrics["auroc"] = float("nan")
-        metrics["auprc"] = float("nan")
-    else:
-        probabilities = model.predict_proba(x_test)[:, 1]
-        metrics["auroc"] = float(roc_auc_score(y_test, probabilities))
-        metrics["auprc"] = float(average_precision_score(y_test, probabilities))
-    return metrics
 
 
 def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
@@ -73,11 +96,11 @@ def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
     wrapper does not, so that attribute is used to tell the two apart rather than
     threading an extra "which engine" flag through the artifact.
     """
-    # joblib.load deserializes a pickle, which can execute arbitrary code for a
-    # crafted payload. Safe here: `ctx.artifact` is never user-supplied bytes -- it
-    # is produced exclusively by this engine's own `train()` and round-tripped
-    # through our own blob storage, never accepted from an external upload.
-    bundle: dict[str, Any] = joblib.load(io.BytesIO(ctx.artifact))
+    # pickle.loads executes arbitrary code for a crafted payload. Safe here:
+    # `ctx.artifact` is never user-supplied bytes -- it is produced exclusively by
+    # this engine's own `train()` and round-tripped through our own blob storage,
+    # never accepted from an external upload.
+    bundle: dict[str, Any] = pickle.loads(ctx.artifact)
     model: Any = bundle["model"]
     is_classification: bool = bundle["is_classification"]
 
@@ -87,7 +110,7 @@ def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
     uncertainty: list[float | None]
 
     if is_classification:
-        value = model.predict_proba(x)[:, 1]
+        value = _positive_class_probability(model, x)
         if has_ensemble_spread:
             # Distance from the decision boundary: 0.5 (a coin flip) is maximally
             # uncertain, 0.0/1.0 is maximally certain.

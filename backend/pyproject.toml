@@ -61,11 +61,6 @@ filterwarnings = [
     # "httpx2" that doesn't exist yet. Suppress only this exact warning so real
     # deprecations in test output still surface. Revisit once httpx2 ships.
     "ignore:Using `httpx` with `starlette.testclient` is deprecated.*:starlette.exceptions.StarletteDeprecationWarning",
-    # ponytail: joblib 1.5.3 still mutates `array.shape` in place when unpickling a
-    # numpy array, which numpy 2.5 deprecated. This fires on every joblib.load of a
-    # model artifact (the engines' predict path) regardless of what we do on our
-    # side. Revisit once joblib ships a fix for numpy 2.5+.
-    "ignore:Setting the shape on a NumPy array has been deprecated.*:DeprecationWarning",
 ]
 
 [tool.importlinter]
