@@ -25,6 +25,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
     GetPredictionResultsQuery,
     GetRun,
     GetRunQuery,
+    PredictedReadout,
     PredictionRow,
     PredictWithProtocol,
     PredictWithProtocolCommand,
@@ -61,10 +62,18 @@ class RunResponse(BaseModel):
     phase: str | None
     result_uri: str | None
     error_message: str | None
+    # `None` for a training Run: `params` there holds `dataset_id`/`engine_id`,
+    # not a protocol (the Protocol doesn't exist until training finishes). Set
+    # for a prediction Run, where it is known at enqueue time -- without it a
+    # client holding only a run id has no way to fetch the Protocol's readout
+    # metadata (unit, direction) that makes a prediction comparable to a
+    # measurement (Task 17 review, Important 5).
+    protocol_id: uuid.UUID | None
     created_at: datetime
 
     @classmethod
     def from_domain(cls, run: Run) -> RunResponse:
+        protocol_id = run.params.get("protocol_id")
         return cls(
             id=run.id,
             workspace_id=run.workspace_id,
@@ -74,18 +83,31 @@ class RunResponse(BaseModel):
             phase=run.phase,
             result_uri=run.result_uri,
             error_message=run.error_message,
+            protocol_id=uuid.UUID(protocol_id) if protocol_id else None,
             created_at=run.created_at,
         )
+
+
+class PredictedReadoutResponse(BaseModel):
+    value: float
+    unit: str | None
+    direction: str | None
+
+    @classmethod
+    def from_domain(cls, readout: PredictedReadout) -> PredictedReadoutResponse:
+        return cls(value=readout.value, unit=readout.unit, direction=readout.direction)
 
 
 class PredictionResponse(BaseModel):
     """One scored compound. `readouts` holds one entry per Readout the
     Protocol declares (a numeric value for regression; probability and class
-    for classification) -- see `PredictionRow`'s own docstring for why
-    `uncertainty` and `applicability` are shaped the way they are."""
+    for classification), each carrying its own unit and direction so a
+    prediction can be lined up against a measurement without a second call --
+    see `PredictionRow`'s own docstring for why `uncertainty` and
+    `applicability` are shaped the way they are."""
 
     structure: str
-    readouts: dict[str, float]
+    readouts: dict[str, PredictedReadoutResponse]
     uncertainty: float | None
     applicability: float | None
 
@@ -93,7 +115,10 @@ class PredictionResponse(BaseModel):
     def from_domain(cls, row: PredictionRow) -> PredictionResponse:
         return cls(
             structure=row.structure,
-            readouts=row.readouts,
+            readouts={
+                name: PredictedReadoutResponse.from_domain(readout)
+                for name, readout in row.readouts.items()
+            },
             uncertainty=row.uncertainty,
             applicability=row.applicability,
         )

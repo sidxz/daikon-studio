@@ -9,6 +9,16 @@ class FsspecBlobStore:
         self._fs, _ = fsspec.core.url_to_fs(self._base)
 
     def _path(self, key: str) -> str:
+        # `key` is sometimes actually a full URI this same store already
+        # returned from an earlier `put_bytes` -- e.g. `InSilicoProtocol.
+        # artifact_uri`, stored precisely so a consumer can read the artifact
+        # back without re-deriving its key from ids that may not match the
+        # aggregate's own (a versioned Protocol's `artifact_uri` can point at
+        # a blob written under a *different* protocol id -- Task 17 review,
+        # Important 3). Pass it through unchanged rather than prefixing
+        # `self._base` onto it a second time.
+        if key.startswith(f"{self._base}/"):
+            return key
         return f"{self._base}/{key.lstrip('/')}"
 
     def put_bytes(self, key: str, data: bytes) -> str:

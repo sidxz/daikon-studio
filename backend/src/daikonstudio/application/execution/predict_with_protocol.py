@@ -54,16 +54,13 @@ from daikonstudio.application.data.create_dataset import upload_key
 from daikonstudio.application.engines.context import PredictContext
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.enqueue import JobEnqueuer
-from daikonstudio.application.execution.train_protocol import (
-    ScorecardInputs,
-    artifact_key,
-    scorecard_inputs_key,
-)
+from daikonstudio.application.execution.train_protocol import ScorecardInputs, scorecard_inputs_key
 from daikonstudio.application.pagination import PageResult, clamp_limit
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
 from daikonstudio.domain.shared.errors import (
     ConflictError,
@@ -176,6 +173,12 @@ class PredictWithProtocol:
         # UUIDs), which cache_key's own workspace scoping already prevents --
         # this hash is what makes the SAME bytes uploaded under a fresh ref
         # still count as identical work.
+        #
+        # ponytail: reads the whole upload into memory to hash it, on every
+        # request including a cache hit. Bounded today by the datasets route's
+        # MAX_UPLOAD_BYTES ceiling (the same `/uploads` endpoint predictions
+        # reuse); upgrade path is a streaming/chunked sha256 if uploads ever
+        # get large enough for this to matter.
         input_hash = hashlib.sha256(self._store.get_bytes(key)).hexdigest()
         cache_key = compute_cache_key(
             kind="prediction",
@@ -260,7 +263,12 @@ class RunPrediction:
             raise ValidationError("No valid structures in the uploaded file")
 
         engine = self._engines.get(protocol.engine_id)
-        artifact = self._store.get_bytes(artifact_key(run.workspace_id, protocol.id))
+        # Read the artifact back from the URI the aggregate itself carries,
+        # not a key re-derived from `protocol.id`: a versioned Protocol (Task
+        # 12's `new_version()`) can have an `artifact_uri` written under its
+        # *parent's* id when no retraining has produced a new one yet. Task 17
+        # review, Important 3 -- re-deriving the key silently 404s that case.
+        artifact = self._store.get_bytes(protocol.artifact_uri)
         predictions = await asyncio.to_thread(
             engine.predict,
             PredictContext(
@@ -272,21 +280,16 @@ class RunPrediction:
         )
 
         structures = valid_frame[command.structure_column].to_list()
-        # The Protocol's own training set, from the same blob its Scorecard
-        # reads (Task 15/16) -- the single definition of "what this model was
-        # trained on", so applicability here and the Scorecard's coverage
-        # number can never disagree about which compounds are in-domain.
-        inputs = ScorecardInputs.from_json(
-            self._store.get_bytes(scorecard_inputs_key(run.workspace_id, protocol.id))
-        )
+        train_structures = self._train_structures(protocol)
         similarities: list[float | None]
-        if structures and inputs.train_structures:
+        if structures and train_structures:
             similarities = list(
-                self._normalizer.nearest_neighbour_tanimoto(structures, inputs.train_structures)
+                self._normalizer.nearest_neighbour_tanimoto(structures, train_structures)
             )
         else:
-            # Never a fabricated 0.0: an empty training set means "unmeasurable",
-            # not "confirmed far from everything" (same reasoning as
+            # Never a fabricated 0.0: an empty (or unreadable -- see
+            # `_train_structures`) training set means "unmeasurable", not
+            # "confirmed far from everything" (same reasoning as
             # `build_scorecard.py`'s own guard).
             similarities = [None] * len(structures)
 
@@ -300,6 +303,11 @@ class RunPrediction:
             # the standard 0.5 decision threshold over it -- the engine's own
             # `predict()` only ever returns the probability (see
             # `_scoring.py`), so this is the one place a class label exists.
+            #
+            # ponytail: 0.5 is fixed, not configurable -- there is nowhere for
+            # a scientist to ask for a different operating point (e.g. to
+            # trade recall for precision on an imbalanced assay). Upgrade
+            # path: accept it as a prediction condition once someone needs one.
             probability_readout, class_readout = protocol.readouts
             columns[probability_readout.name] = pl.Series(values, dtype=pl.Float64)
             columns[class_readout.name] = pl.Series(
@@ -311,6 +319,32 @@ class RunPrediction:
         buffer = io.BytesIO()
         pl.DataFrame(columns).write_parquet(buffer)
         return self._store.put_bytes(predictions_key(run.workspace_id, run.id), buffer.getvalue())
+
+    def _train_structures(self, protocol: InSilicoProtocol) -> list[str] | None:
+        """The Protocol's own training set, read from the same
+        `ScorecardInputs` blob its Scorecard reads (Task 15/16) -- the single
+        definition of "what this model was trained on", so applicability here
+        and the Scorecard's coverage number can never disagree about which
+        compounds are in-domain.
+
+        Best-effort, returning `None` on any failure rather than raising:
+        applicability is a nice-to-have column, already `None` for an empty
+        training set, and two real failure modes must degrade the same way
+        rather than take the whole prediction down with them (Task 17 review,
+        Important 3 + 4) --
+          - a versioned Protocol with no scorecard blob of its own (nothing
+            has retrained it yet, so nothing wrote one under its id), and
+          - `ScorecardInputs.from_json`'s `cls(**json.loads(...))` round trip
+            (Landmine 2) raising `TypeError`/`KeyError` against a future
+            schema change, exactly the brittleness that landmine warns against
+            deepening -- catching it here is this consumer's forward-compatible
+            read path.
+        """
+        try:
+            raw = self._store.get_bytes(scorecard_inputs_key(protocol.workspace_id, protocol.id))
+            return ScorecardInputs.from_json(raw).train_structures
+        except (FileNotFoundError, TypeError, KeyError, ValueError):
+            return None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -369,13 +403,27 @@ class CancelRun:
 
 
 @dataclass(frozen=True, kw_only=True)
+class PredictedReadout:
+    """One Readout's value on one row, carrying the unit and direction the
+    Protocol declared for it (Task 17 review, Important 5) -- without these a
+    predicted number cannot be lined up against a measurement, which is the
+    entire reason `Readout` is derived from the Dataset's TargetSpec in the
+    first place. `value` alone would make a chemist re-fetch the Protocol just
+    to know what a number means."""
+
+    value: float
+    unit: str | None
+    direction: str | None
+
+
+@dataclass(frozen=True, kw_only=True)
 class PredictionRow:
     """One scored compound -- everything a triage grid needs to render and
     filter a row without a second call. See this module's docstring for why
     `uncertainty` and `applicability` are shaped the way they are."""
 
     structure: str
-    readouts: dict[str, float]
+    readouts: dict[str, PredictedReadout]
     uncertainty: float | None
     applicability: float | None
 
@@ -447,6 +495,11 @@ class GetPredictionResults:
             raw = self._store.get_bytes(predictions_key(run.workspace_id, run.id))
         except FileNotFoundError:
             return Failure(NotFoundError("Prediction results", str(run.id)))
+        # ponytail: reads and holds the entire results Parquet in memory for
+        # every page request, not just the page asked for -- fine at today's
+        # per-run compound-set sizes. Upgrade path if a run's results grow
+        # large: polars' `scan_parquet` (lazy, pushdown-capable) instead of
+        # `read_parquet`, or a precomputed row-group index for true partial reads.
         frame = pl.read_parquet(io.BytesIO(raw))
 
         # Fetch one more row than asked for: its presence is what says there is
@@ -457,11 +510,15 @@ class GetPredictionResults:
             page = page[:limit]
             next_cursor = str(offset + limit)
 
-        readout_names = [readout.name for readout in protocol.readouts]
         items = [
             PredictionRow(
                 structure=row["structure"],
-                readouts={name: row[name] for name in readout_names},
+                readouts={
+                    readout.name: PredictedReadout(
+                        value=row[readout.name], unit=readout.unit, direction=readout.direction
+                    )
+                    for readout in protocol.readouts
+                },
                 uncertainty=row["uncertainty"],
                 applicability=row["applicability"],
             )

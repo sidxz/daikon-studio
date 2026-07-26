@@ -150,7 +150,7 @@ async def test_results_carry_structure_readouts_uncertainty_and_applicability(
     run_id = submitted.json()["id"]
 
     protocol = (await client.get(f"/api/v1/protocols/{published_protocol_id}")).json()
-    readout_name = protocol["readouts"][0]["name"]
+    readout = protocol["readouts"][0]
 
     response = await client.get(f"/api/v1/runs/{run_id}/results")
     assert response.status_code == 200, response.text
@@ -158,12 +158,76 @@ async def test_results_carry_structure_readouts_uncertainty_and_applicability(
     assert len(body["items"]) == 3  # all three query compounds canonicalize
     row = body["items"][0]
     assert "structure" in row
-    assert readout_name in row["readouts"]
+    assert readout["name"] in row["readouts"]
+    # Important 5 (Task 17 review): unit and direction travel with the value,
+    # not just a bare number -- otherwise a client can't line a prediction up
+    # against a measurement without a second call to fetch the Protocol.
+    predicted = row["readouts"][readout["name"]]
+    assert isinstance(predicted["value"], float)
+    assert predicted["unit"] == readout["unit"]
+    assert predicted["direction"] == readout["direction"]
     assert "uncertainty" in row
     # ecfp4-xgboost: no ensemble spread to report, never a fabricated number.
     assert row["uncertainty"] is None
     assert isinstance(row["applicability"], float)
     assert 0.0 <= row["applicability"] <= 1.0
+
+
+async def test_run_response_carries_the_protocol_id_for_a_prediction(
+    client, published_protocol_id, prediction_upload_ref
+):
+    """Important 5 (Task 17 review): without this, a client holding only a
+    run id has no way to construct `GET /protocols/{id}` to fetch the readout
+    metadata above."""
+    submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
+    assert submitted.json()["protocol_id"] == published_protocol_id
+
+    polled = await client.get(f"/api/v1/runs/{submitted.json()['id']}")
+    assert polled.json()["protocol_id"] == published_protocol_id
+
+
+async def test_run_response_has_no_protocol_id_for_a_training_run(client, csv_upload):
+    dataset_id = await _create_dataset(client, csv_upload)
+    response = await _train(client, dataset_id)
+    assert response.status_code == 202, response.text
+    assert response.json()["protocol_id"] is None
+
+
+async def test_a_third_identical_request_after_two_failures_does_not_500(
+    client, published_protocol_id, prediction_upload_ref
+):
+    """CRITICAL fix (Task 17 review): `find_by_cache_key` had no `.limit(1)`,
+    so the moment two rows shared a cache_key, every subsequent lookup raised
+    `MultipleResultsFound` -> a raw 500. Reachable by a user typo'ing
+    `structure_column` and retrying the *identical* (still-typo'd) request --
+    each FAILED attempt shares its cache_key with the last (a FAILED Run is
+    never a cache hit, so a retry always creates a fresh row under the same
+    key), so two retries is all it takes. Measured over HTTP by the reviewer:
+    202, 202, then (before the fix) 500 on the third identical request.
+
+    Deliberately reuses the *same* bad `structure_column` on every attempt --
+    a request with a different one has a different cache_key (Task 17's own
+    TDD caught that), so it would never collide and never reach the bug.
+    """
+    first = await _predict(
+        client, published_protocol_id, prediction_upload_ref, structure_column="does-not-exist"
+    )
+    assert first.status_code == 202, first.text
+    first_run = await client.get(f"/api/v1/runs/{first.json()['id']}")
+    assert first_run.json()["status"] == "failed"
+
+    second = await _predict(
+        client, published_protocol_id, prediction_upload_ref, structure_column="does-not-exist"
+    )
+    assert second.status_code == 202, second.text
+    second_run = await client.get(f"/api/v1/runs/{second.json()['id']}")
+    assert second_run.json()["status"] == "failed"
+    assert second.json()["id"] != first.json()["id"]  # a fresh row, same cache_key
+
+    third = await _predict(
+        client, published_protocol_id, prediction_upload_ref, structure_column="does-not-exist"
+    )
+    assert third.status_code == 202, third.text  # not 500
 
 
 async def test_running_a_draft_protocol_is_a_409(

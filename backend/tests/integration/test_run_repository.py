@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 
 import pytest
 import pytest_asyncio
@@ -127,6 +128,32 @@ async def test_find_by_cache_key_scopes_to_workspace(session_factory):
 
     assert found is not None
     assert found.id == mine.id
+
+
+async def test_find_by_cache_key_does_not_raise_when_two_rows_share_a_key(session_factory):
+    """CRITICAL fix (Task 17 review): the `(workspace_id, cache_key)` index is
+    not unique, and Task 17's own caching deliberately creates a second Run
+    under the same cache_key whenever the first one is FAILED or CANCELLED
+    (see `PredictWithProtocol`) -- so two rows sharing a key is an expected,
+    recurring state, not a corrupted one. Before `.limit(1)` was added,
+    `scalar_one_or_none()` raised `MultipleResultsFound` the moment this
+    happened, which escaped every caller as a raw 500 (not a `DomainError`).
+    """
+    repository = SqlAlchemyRunRepository(session_factory)
+    workspace_id = uuid.uuid4()
+    older = _pending(
+        cache_key="dup",
+        workspace_id=workspace_id,
+        created_at=datetime.now(UTC) - timedelta(seconds=5),
+    )
+    newer = _pending(cache_key="dup", workspace_id=workspace_id)
+    await repository.add(older)
+    await repository.add(newer)
+
+    found = await repository.find_by_cache_key(workspace_id, "dup")
+
+    assert found is not None
+    assert found.id == newer.id
 
 
 async def test_list_excludes_other_workspaces(session_factory):

@@ -124,10 +124,23 @@ class SqlAlchemyRunRepository:
         return await self._one(select(RunModel).where(RunModel.id == run_id))
 
     async def find_by_cache_key(self, workspace_id: uuid.UUID, cache_key: str) -> Run | None:
+        """The newest Run for this `(workspace_id, cache_key)` pair.
+
+        `.limit(1)` is load-bearing, not cosmetic: the index on this pair is
+        not unique (Task 17's caching deliberately falls through past a
+        FAILED or CANCELLED hit and creates a fresh Run under the *same*
+        cache_key, so two -- or more -- rows sharing a key is an expected,
+        recurring state, not an edge case). Without it, `_one`'s
+        `scalar_one_or_none()` raises `MultipleResultsFound` the moment a
+        second row exists, which is not a `DomainError` and so escapes every
+        caller as a raw 500 (CRITICAL, Task 17 review) instead of the 202 the
+        caller's next identical request is entitled to.
+        """
         return await self._one(
             select(RunModel)
             .where(RunModel.workspace_id == workspace_id, RunModel.cache_key == cache_key)
             .order_by(RunModel.created_at.desc())
+            .limit(1)
         )
 
     async def list(

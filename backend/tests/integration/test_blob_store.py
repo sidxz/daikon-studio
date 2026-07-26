@@ -15,3 +15,14 @@ def test_exists_and_delete(tmp_path):
     assert store.exists("present") is True
     store.delete("present")
     assert store.exists("present") is False
+
+
+def test_get_bytes_also_accepts_the_uri_put_bytes_returned(tmp_path):
+    """Task 17 review, Important 3: a consumer holding a stored `*_uri` field
+    (e.g. `InSilicoProtocol.artifact_uri`) must be able to read it back
+    directly, not only via a freshly recomputed key -- the two can point at
+    different ids once a Protocol is versioned."""
+    store = FsspecBlobStore(f"file://{tmp_path}")
+    uri = store.put_bytes("ws/protocols/abc/artifact/model.joblib", b"weights")
+
+    assert store.get_bytes(uri) == b"weights"

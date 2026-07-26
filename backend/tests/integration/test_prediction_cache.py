@@ -284,13 +284,41 @@ async def test_different_conditions_produce_a_different_cache_key(
     assert first.cache_key != second.cache_key
 
 
+async def test_a_different_structure_column_produces_a_different_cache_key(
+    studio: Studio, published_protocol: InSilicoProtocol, upload_ref: str
+) -> None:
+    """Which column is read as structures changes what gets predicted just as
+    much as the bytes or the conditions do -- caught during Task 17's own TDD
+    when the original cache key omitted it and two requests differing only in
+    `structure_column` collided."""
+    first = await studio.predict(published_protocol.id, upload_ref, structure_column="smiles")
+    second = await studio.predict_raw(
+        published_protocol.id, upload_ref, structure_column="does-not-exist"
+    )
+    assert first.cache_key != second.unwrap().cache_key
+
+
 async def test_a_new_protocol_version_invalidates_the_cache(
     studio: Studio, published_protocol: InSilicoProtocol, upload_ref: str
 ) -> None:
+    """The cache key differing is necessary but not sufficient: Task 17
+    review, Important 3 caught that the v2 run this produces reached `failed`
+    with `FileNotFoundError` -- `RunPrediction` was re-deriving the artifact's
+    and scorecard's storage keys from `protocol.id`, which for a versioned
+    Protocol (no retraining has happened) does not match where those blobs
+    actually live. Asserting `READY` here, not just the key inequality, is
+    what would have caught that.
+    """
     first = await studio.predict(published_protocol.id, upload_ref)
+    first = await studio.wait(first)
+    assert first.status is RunStatus.READY
+
     v2 = await studio.publish_new_version(published_protocol)
     second = await studio.predict(v2.id, upload_ref)
+    second = await studio.wait(second)
+
     assert first.cache_key != second.cache_key
+    assert second.status is RunStatus.READY, second.error_message
 
 
 async def test_running_an_unpublished_protocol_is_rejected(
@@ -304,24 +332,59 @@ async def test_a_failed_run_is_not_served_back_as_a_cache_hit(
     studio: Studio, published_protocol: InSilicoProtocol, upload_ref: str
 ) -> None:
     """Landmine 1: `find_by_cache_key` returns the most recent row for a
-    `(workspace_id, cache_key)` pair regardless of status. A prediction
-    against a nonexistent column fails the Run; the identical request must
-    then run fresh (and this time with a real column) rather than replay the
-    stored failure -- or worse, serve the failure's own `result_uri` (`None`)
-    back as though it were a result.
-    """
-    failed = await studio.predict(
-        published_protocol.id, upload_ref, structure_column="does-not-exist"
-    )
-    failed = await studio.wait(failed)
-    assert failed.status is RunStatus.FAILED
+    `(workspace_id, cache_key)` pair regardless of status. A FAILED Run under
+    the *same* cache_key a fresh identical request would compute must not be
+    served back as though it held a result.
 
-    retried = await studio.predict(published_protocol.id, upload_ref, structure_column="smiles")
+    Precomputes the exact cache_key `PredictWithProtocol` itself would derive
+    (the same technique the cancelled-run test below uses) so the planted
+    FAILED row is a genuine collision on that key, not merely a different
+    request that happens to have failed -- reusing a different
+    `structure_column` here would only prove that field is in the key
+    (already covered by `test_a_different_structure_column_produces_a_different_cache_key`),
+    not that a same-key FAILED row falls through.
+    """
+    input_hash = hashlib.sha256(
+        studio.store.get_bytes(upload_key(studio.auth.workspace_id, uuid.UUID(upload_ref)))
+    ).hexdigest()
+    cache_key = compute_cache_key(
+        kind="prediction",
+        protocol_id=str(published_protocol.id),
+        protocol_version=published_protocol.protocol_version,
+        input_hash=input_hash,
+        structure_column="smiles",
+        conditions={},
+    )
+    command = PredictWithProtocolCommand(
+        protocol_id=published_protocol.id, upload_ref=upload_ref, structure_column="smiles"
+    )
+    failed = Run(
+        kind=RunKind.PREDICTION,
+        workspace_id=studio.auth.workspace_id,
+        requested_by=studio.auth.user_id,
+        cache_key=cache_key,
+        params=command.to_params(),
+    )
+    await studio.runs.add(failed)
+    failed.start()
+    failed.fail("engine exploded")
+    await studio.runs.update(failed)
+
+    retried = await studio.predict(published_protocol.id, upload_ref)
     retried = await studio.wait(retried)
 
+    assert retried.cache_key == cache_key  # genuine collision, not a different request
     assert retried.id != failed.id
     assert retried.status is RunStatus.READY
-    assert retried.cache_key != failed.cache_key  # different structure_column -> different params
+
+    # CRITICAL fix (Task 17 review): two rows now share this cache_key (the
+    # FAILED one and the READY retry) -- `find_by_cache_key` must still
+    # resolve to exactly one (the newest) rather than raising
+    # `MultipleResultsFound`, which escaped as a raw 500 before `.limit(1)`
+    # was added to the repository query.
+    third = await studio.predict(published_protocol.id, upload_ref)
+    assert third.id == retried.id
+    assert third.status is RunStatus.READY
 
 
 async def test_a_cancelled_run_is_not_served_back_as_a_cache_hit(
