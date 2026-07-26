@@ -12,6 +12,9 @@ from alembic import context
 # A model that is never imported is invisible to autogenerate and silently
 # missing from the schema; append new ones here.
 from daikonstudio.infrastructure.persistence.sqlalchemy.base import Base
+from daikonstudio.infrastructure.persistence.sqlalchemy.catalog import (
+    models as catalog_models,  # noqa: F401
+)
 from daikonstudio.infrastructure.persistence.sqlalchemy.data import models  # noqa: F401
 
 # this is the Alembic Config object, which provides
