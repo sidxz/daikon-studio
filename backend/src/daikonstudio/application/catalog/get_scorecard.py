@@ -15,6 +15,7 @@ under a live row -- so the read is defended anyway: a missing blob is a
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
 
@@ -63,8 +64,18 @@ class GetScorecard:
             return Failure(NotFoundError("Scorecard", str(protocol.id)))
         inputs = ScorecardInputs.from_json(raw)
 
+        # ponytail: build_scorecard computes Murcko scaffolds and an O(test x
+        # train) Tanimoto matrix -- measured at 0.86s for 16k train/2k test
+        # structures, which blocks every other request on the process's event
+        # loop for the duration. `RunTraining` already offloads this same class
+        # of work (asyncio.to_thread around engine.train/predict); do the same
+        # here rather than let the most-viewed screen in the product serialize
+        # behind it. Upgrade path if this still isn't enough: cache the
+        # rendered card next to the blob (the inputs are immutable once
+        # written, so there is nothing to invalidate).
         return Success(
-            build_scorecard(
+            await asyncio.to_thread(
+                build_scorecard,
                 task=TaskType(inputs.task),
                 metrics=inputs.metrics,
                 baseline_engine_id=inputs.baseline_engine_id,
@@ -77,6 +88,7 @@ class GetScorecard:
                 normalizer=self._normalizer,
                 random_split_metrics=inputs.random_split_metrics,
                 random_split_unavailable=inputs.random_split_unavailable,
+                random_split_metrics_undefined=inputs.random_split_metrics_undefined,
                 metrics_undefined=inputs.metrics_undefined,
                 duplicate_spread=inputs.duplicate_spread,
             )

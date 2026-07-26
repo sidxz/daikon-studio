@@ -67,6 +67,15 @@ class Scorecard:
     Tanimoto of the training set. `None` when the training set was empty and
     coverage could not be computed -- never a fabricated `0.0`, which would read
     as "every compound is out of distribution" rather than "unmeasurable".
+
+    `random_split_metrics_undefined` is `metrics_undefined`'s counterpart for
+    `random_split_metrics`, scored on a different partition of the same rows.
+    The two can disagree about which metrics are undefined and why -- a class
+    that survives the Dataset's own test split can still collapse to one class
+    under the random reshuffle, or vice versa -- so a consumer must not reuse
+    `metrics_undefined` to explain a `random_split_metrics` null: that would
+    either attribute the wrong partition's reason, or (when `metrics_undefined`
+    is `None`) leave the null unexplained.
     """
 
     primary_metric: str
@@ -78,6 +87,7 @@ class Scorecard:
     baseline_is_self: bool
     random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None
+    random_split_metrics_undefined: dict[str, str] | None
     noise_floor: float | None
     worst_rows: list[WorstRow]
     applicability_coverage: float | None

@@ -18,11 +18,13 @@ from daikonstudio.application.catalog.publish_protocol import PublishProtocol
 from daikonstudio.application.data.create_dataset import CreateDataset, StoreUpload
 from daikonstudio.application.data.get_dataset import GetDataset
 from daikonstudio.application.data.list_datasets import ListDatasets
+from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
+from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.persistence.session import create_session_factory
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
@@ -54,6 +56,11 @@ def create_container(settings: Settings | None = None) -> Container:
         StructureNormalizer,  # type: ignore[type-abstract]
         Singleton(RdkitStructureNormalizer),
     )
+    # Engines hold no per-run state (infrastructure/engines/registry.py), so one
+    # shared registry is safe -- unlike async_sessionmaker, nothing here is ever
+    # overridden per test/request, so caching carries none of the JobEnqueuer
+    # risk below.
+    container.define(EngineRegistry, Singleton(default_registry))
 
     def _datasets(c: Container) -> SqlAlchemyDatasetRepository:
         return SqlAlchemyDatasetRepository(c[async_sessionmaker])
@@ -76,19 +83,35 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(GetDataset, lambda c: GetDataset(_datasets(c)))
     container.define(ListDatasets, lambda c: ListDatasets(_datasets(c)))
 
-    def _build_enqueuer(c: Container) -> JobEnqueuer:
-        # Chosen once, at container-build time, from STUDIO_INLINE_JOBS: tests and
-        # local dev run the job in-process (no Valkey needed at all), a real
-        # deployment pushes it to Redis for the arq worker to pick up. See
-        # `infrastructure/worker.py`'s module docstring for both implementations.
-        if resolved.inline_jobs:
-            return InlineEnqueuer(c[async_sessionmaker], c[BlobStore])  # type: ignore[type-abstract]
-        return ArqEnqueuer(resolved.redis_url)
+    # Only the ArqEnqueuer branch is safe to cache as a Singleton: it depends
+    # solely on `resolved.redis_url`, fixed at container-build time, so its
+    # Redis pool is genuinely process-wide and worth reusing. InlineEnqueuer
+    # depends on `c[async_sessionmaker]`, which a test container overrides per
+    # test (see tests/api/conftest.py) -- wrapping the *whole* JobEnqueuer
+    # binding in a Singleton, as an earlier version of this file did, caches
+    # whichever sessionmaker happened to resolve it first and hands that same
+    # InlineEnqueuer to every later child container's requests too, silently
+    # writing through another test's (rolled-back) session. So `JobEnqueuer`
+    # itself stays a plain factory, re-run on every resolution against
+    # whichever container is actually asking; only the Redis pool is memoized.
+    container.define(ArqEnqueuer, Singleton(lambda: ArqEnqueuer(resolved.redis_url)))
 
-    container.define(JobEnqueuer, Singleton(_build_enqueuer))  # type: ignore[type-abstract]
+    # Chosen once, at container-build time, from STUDIO_INLINE_JOBS: tests and
+    # local dev run the job in-process (no Valkey needed at all), a real
+    # deployment pushes it to Redis for the arq worker to pick up. See
+    # `infrastructure/worker.py`'s module docstring for both implementations.
+    container.define(
+        JobEnqueuer,  # type: ignore[type-abstract]
+        lambda c: (
+            InlineEnqueuer(c[async_sessionmaker], c[BlobStore])
+            if resolved.inline_jobs
+            else c[ArqEnqueuer]
+        ),
+    )
 
     container.define(
-        TrainProtocol, lambda c: TrainProtocol(_datasets(c), _runs(c), c[JobEnqueuer])
+        TrainProtocol,
+        lambda c: TrainProtocol(_datasets(c), _runs(c), c[JobEnqueuer], c[EngineRegistry]),
     )
     container.define(PublishProtocol, lambda c: PublishProtocol(_protocols(c)))
     container.define(

@@ -40,6 +40,7 @@ def build_scorecard(
     normalizer: StructureNormalizer,
     random_split_metrics: dict[str, float | None] | None = None,
     random_split_unavailable: str | None = None,
+    random_split_metrics_undefined: dict[str, str] | None = None,
     metrics_undefined: dict[str, str] | None = None,
     duplicate_spread: float | None = None,
 ) -> Scorecard:
@@ -85,6 +86,7 @@ def build_scorecard(
         baseline_is_self=baseline_is_self,
         random_split_metrics=random_split_metrics,
         random_split_unavailable=random_split_unavailable,
+        random_split_metrics_undefined=random_split_metrics_undefined,
         # Binary targets have no duplicate-spread equivalent; forced here rather
         # than trusted from the caller so a stale or mistaken `duplicate_spread`
         # can never present a meaningless floor as though it meant something.

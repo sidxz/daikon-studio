@@ -64,7 +64,7 @@ from daikonstudio.application.data.snapshot import snapshot_key
 from daikonstudio.application.engines.context import PredictContext, TrainContext, TrainResult
 from daikonstudio.application.engines.manifest import TaskType, validate_conditions
 from daikonstudio.application.engines.protocol import Engine
-from daikonstudio.application.engines.registry import EngineRegistry
+from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
@@ -127,7 +127,15 @@ class ScorecardInputs:
       metric name. Without it a Scorecard reading "your model -- versus baseline
       --" has no way to say why. It describes the Dataset's own test split, which
       `metrics` and `baseline_metrics` share; `random_split_metrics` is scored on
-      a different partition and is not covered by it.
+      a *different* partition, with its own possible reasons a metric there is
+      undefined -- `random_split_metrics_undefined` is that explanation, kept
+      separate rather than merged into `metrics_undefined` because the two
+      partitions can disagree about which metrics are undefined and why. A
+      consumer that explained a `random_split_metrics` null using
+      `metrics_undefined` would (when both happen to be undefined) attribute the
+      wrong partition's reason, and (when only the random split is undefined)
+      find no explanation there at all -- a bare, unexplained null on the exact
+      number an optimism-gap comparison exists to justify.
     """
 
     protocol_id: str
@@ -147,6 +155,7 @@ class ScorecardInputs:
     baseline_is_self: bool
     random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None
+    random_split_metrics_undefined: dict[str, str] | None
     metrics_undefined: dict[str, str] | None
     duplicate_spread: float | None
 
@@ -197,8 +206,15 @@ class TrainProtocol:
     Conditions are deliberately *not* validated here. An invalid hyperparameter
     fails the Run (visibly, on the row the client is already polling) rather
     than the request, so there is exactly one place a user looks for why a
-    training attempt did not produce a model. The same goes for an unknown
-    engine id.
+    training attempt did not produce a model -- re-validating them here could
+    even disagree with the worker, since resolving a condition's default is
+    something only the engine's own manifest can do.
+
+    `engine_id` does not share that argument: it is a registry membership
+    check against a fixed, in-process set with exactly one possible answer, so
+    there is nothing the worker could compute differently. Rejecting an
+    unknown engine here means the request fails synchronously with a 404
+    instead of returning a 202 for a Run that cannot possibly succeed.
     """
 
     def __init__(
@@ -206,10 +222,12 @@ class TrainProtocol:
         datasets: DatasetRepository,
         runs: RunRepository,
         enqueuer: JobEnqueuer,
+        engines: EngineRegistry,
     ) -> None:
         self._datasets = datasets
         self._runs = runs
         self._enqueuer = enqueuer
+        self._engines = engines
 
     async def __call__(
         self, command: TrainProtocolCommand, auth: AuthContext | None = None
@@ -217,6 +235,11 @@ class TrainProtocol:
         require_authenticated(auth)
         require_editor(auth)
         assert auth is not None  # require_authenticated has already rejected None
+
+        try:
+            self._engines.get(command.engine_id)
+        except UnknownEngineError:
+            return Failure(NotFoundError("Engine", command.engine_id))
 
         dataset = await self._datasets.get(auth.workspace_id, command.dataset_id)
         if dataset is None:
@@ -320,9 +343,11 @@ class RunTraining:
                 run, baseline, dataset, task, baseline_conditions, frame, 0.66, "training baseline"
             )
 
-        random_split_metrics, random_split_unavailable = await self._optimism_gap(
-            run, engine, dataset, task, conditions, frame
-        )
+        (
+            random_split_metrics,
+            random_split_unavailable,
+            random_split_metrics_undefined,
+        ) = await self._optimism_gap(run, engine, dataset, task, conditions, frame)
 
         train_rows = frame.filter(pl.col("split") == "train")
         test_rows = frame.filter(pl.col("split") == "test")
@@ -359,10 +384,9 @@ class RunTraining:
             baseline_engine_id=baseline_manifest.id,
             baseline_metrics=baseline_metrics,
             baseline_is_self=baseline_is_self,
-            random_split_metrics=(
-                None if random_split_metrics is None else _measured(random_split_metrics)[0]
-            ),
+            random_split_metrics=random_split_metrics,
             random_split_unavailable=random_split_unavailable,
+            random_split_metrics_undefined=random_split_metrics_undefined,
             metrics_undefined=_undefined_reasons(
                 undefined | baseline_undefined, dataset, train_rows, test_rows
             ),
@@ -417,15 +441,27 @@ class RunTraining:
         task: TaskType,
         conditions: dict[str, object],
         frame: pl.DataFrame,
-    ) -> tuple[dict[str, float] | None, str | None]:
+    ) -> tuple[dict[str, float | None] | None, str | None, dict[str, str] | None]:
         """The chosen engine re-fitted on a random split of the same rows.
 
         Only for a scaffold split: on a Dataset that is already randomly split
         there is no second number to compare against, and reporting the same
         figure twice would invent a gap of zero where none was measured.
+
+        Returns `(metrics, unavailable_reason, metrics_undefined)`. The third
+        element is this leg's own answer to the same question `metrics_undefined`
+        answers for the Dataset's own split -- computed from the *random*
+        partition, not the scaffold one, because the two can disagree about
+        which metrics are undefined and why: a class that survives the
+        scaffold split's test rows can still collapse to one class under a
+        random reshuffle, or vice versa. Reusing the scaffold split's reasons
+        here would misattribute them to a different partition; leaving this
+        undefined-but-unexplained would be a bare null on the exact number the
+        optimism gap exists to justify. Both are the failure this field
+        prevents.
         """
         if dataset.split.strategy is not SplitStrategy.SCAFFOLD:
-            return None, None
+            return None, None, None
         # Outside the try on purpose: this writes to the Run row, and a failure
         # here is a persistence problem with the run itself, not a failure of the
         # comparison. Swallowing it would leave the aggregate's in-memory version
@@ -447,7 +483,14 @@ class RunTraining:
                 self._normalizer,
             )
             result = await self._train_off_thread(engine, dataset, task, conditions, random_frame)
-            return result.metrics, None
+            metrics, undefined = _measured(result.metrics)
+            reasons = _undefined_reasons(
+                undefined,
+                dataset,
+                random_frame.filter(pl.col("split") == "train"),
+                random_frame.filter(pl.col("split") == "test"),
+            )
+            return metrics, None, reasons
         except Exception as exc:
             # Deliberately broad, and deliberately not fatal. The scaffold number
             # and the baseline are the primary result and they are already in
@@ -459,7 +502,7 @@ class RunTraining:
             # therefore degrades to a recorded reason rather than a failure.
             # Not silent: `random_split_unavailable` is what stops the Scorecard
             # showing an absent gap and a not-applicable gap identically.
-            return None, repr(exc)
+            return None, repr(exc), None
 
     async def _fit(
         self,

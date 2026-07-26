@@ -167,7 +167,12 @@ class ScorecardResponse(BaseModel):
     head-to-head that never happened); `metrics_undefined` is why a metric in
     `metrics` reads `null` instead of a number; `random_split_unavailable`
     distinguishes "not applicable" (`None`/`None`) from "could not be
-    computed" (`None`/a reason) for `random_split_metrics`.
+    computed" (`None`/a reason) for `random_split_metrics`;
+    `random_split_metrics_undefined` is `metrics_undefined`'s own counterpart
+    for `random_split_metrics` -- a *different* partition that can disagree
+    with the Dataset's own split about which metrics are undefined and why,
+    so a renderer must not reuse `metrics_undefined` to explain a
+    `random_split_metrics` null.
     """
 
     primary_metric: str
@@ -179,6 +184,7 @@ class ScorecardResponse(BaseModel):
     baseline_is_self: bool
     random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None
+    random_split_metrics_undefined: dict[str, str] | None
     noise_floor: float | None
     worst_rows: list[WorstRowResponse]
     applicability_coverage: float | None
@@ -195,6 +201,7 @@ class ScorecardResponse(BaseModel):
             baseline_is_self=card.baseline_is_self,
             random_split_metrics=card.random_split_metrics,
             random_split_unavailable=card.random_split_unavailable,
+            random_split_metrics_undefined=card.random_split_metrics_undefined,
             noise_floor=card.noise_floor,
             worst_rows=[WorstRowResponse.from_domain(row) for row in card.worst_rows],
             applicability_coverage=card.applicability_coverage,

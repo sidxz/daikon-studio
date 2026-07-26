@@ -23,6 +23,7 @@ import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 
+import polars as pl
 import pytest
 import pytest_asyncio
 from sqlalchemy import update
@@ -113,7 +114,12 @@ class Studio:
         self.runs = SqlAlchemyRunRepository(sessions)
         self._upload = StoreUpload(self.store)
         self._create = CreateDataset(self.datasets, self.store, self.normalizer)
-        self._train = TrainProtocol(self.datasets, self.runs, InlineEnqueuer(sessions, self.store))
+        self._train = TrainProtocol(
+            self.datasets,
+            self.runs,
+            InlineEnqueuer(sessions, self.store),
+            default_registry(),
+        )
 
     async def dataset(
         self,
@@ -219,6 +225,7 @@ async def test_a_scaffold_split_also_reports_the_random_split_number(studio: Stu
     scorecard = await studio.scorecard_for(run)
     assert scorecard.random_split_metrics is not None
     assert scorecard.random_split_unavailable is None
+    assert scorecard.random_split_metrics_undefined is None
     assert set(scorecard.random_split_metrics) == set(scorecard.metrics)
 
 
@@ -230,6 +237,65 @@ async def test_a_random_split_reports_no_optimism_gap(studio: Studio) -> None:
     scorecard = await studio.scorecard_for(run)
     assert scorecard.random_split_metrics is None
     assert scorecard.random_split_unavailable is None
+    assert scorecard.random_split_metrics_undefined is None
+
+
+async def test_a_metric_undefined_only_on_the_random_split_carries_its_own_reason(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """CRITICAL fix (Task 16 review): a metric can be undefined on the
+    random-split comparison for a reason that has nothing to do with the
+    Dataset's own (scaffold) split. Before the fix, that reason was computed
+    and then discarded -- the random-split nulls either had no explanation at
+    all (when the scaffold split's own metrics were defined, so
+    `metrics_undefined` was `None`), or inherited `metrics_undefined`'s
+    reason, which describes the *wrong* partition.
+
+    Rigs the random-split reshuffle to collapse its test rows onto a single
+    class, regardless of which structures land there, while the scaffold
+    split -- trained for real, unpatched -- keeps both classes on both sides
+    (seed=7's real assignment puts `CCN` and `CCCCO` in its test partition;
+    `values[1]` is set so those two disagree).
+    """
+    import daikonstudio.application.execution.train_protocol as module
+
+    real_assign_split = module.assign_split
+
+    def collapse_random_test_split_to_one_class(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        random_frame = real_assign_split(frame, structure_column, spec, normalizer)
+        if spec.strategy is not SplitStrategy.RANDOM:
+            return random_frame
+        return random_frame.with_columns(
+            pl.when(pl.col("split") == "test").then(0.0).otherwise(pl.col("y")).alias("y")
+        )
+
+    monkeypatch.setattr(module, "assign_split", collapse_random_test_split_to_one_class)
+
+    values = [float(index % 2) for index in range(len(_STRUCTURES))]
+    values[1] = 0.0  # CCN: scaffold split (seed=7) puts this in `test` -- balance it
+    dataset = await studio.dataset(
+        strategy=SplitStrategy.SCAFFOLD, kind=TargetKind.BINARY, values=tuple(values), unit=None
+    )
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-randomforest", conditions={})
+    await studio.wait(run)
+
+    scorecard = await studio.scorecard_for(run)
+    # The scaffold split's own test partition has both classes for real -- its
+    # metrics are defined, and `metrics_undefined` correctly says there is
+    # nothing to explain on that side.
+    assert scorecard.metrics_undefined is None
+    assert all(value is not None for value in scorecard.metrics.values())
+    # The random-split comparison collapsed to one class -- its metrics are
+    # undefined, and that must carry its *own* reason: not `None` (a bare,
+    # unexplained null on the number the optimism gap exists to justify), and
+    # not `metrics_undefined` (which would name the scaffold split's test set,
+    # a different partition that was never single-class here).
+    assert scorecard.random_split_metrics is not None
+    assert all(value is None for value in scorecard.random_split_metrics.values())
+    assert scorecard.random_split_unavailable is None  # it WAS computed, just undefined
+    assert scorecard.random_split_metrics_undefined is not None
+    assert set(scorecard.random_split_metrics_undefined) == set(scorecard.random_split_metrics)
+    assert "test split" in scorecard.random_split_metrics_undefined["mcc"]
 
 
 async def test_invalid_conditions_fail_the_run_with_a_useful_message(studio: Studio) -> None:
@@ -404,15 +470,28 @@ async def test_training_another_workspaces_dataset_is_a_not_found(studio: Studio
     assert result.failure().__class__.__name__ == "NotFoundError"
 
 
-async def test_an_unknown_engine_fails_the_run(studio: Studio) -> None:
+async def test_an_unknown_engine_is_rejected_before_a_run_is_ever_created(
+    studio: Studio,
+) -> None:
+    """Task 16 review (Important 3): unlike an invalid *condition* -- which can
+    only be checked once the worker resolves the engine's own manifest -- an
+    unknown `engine_id` is a registry-membership check with exactly one
+    possible answer, so `TrainProtocol` rejects it synchronously rather than
+    creating a Run that is certain to fail."""
     dataset = await studio.dataset()
-    run = await studio.train(dataset_id=dataset.id, engine_id="nope", conditions={})
-    await studio.wait(run)
 
-    failed = await studio.reload(run)
-    assert failed.status is RunStatus.FAILED
-    assert failed.error_message is not None
-    assert "nope" in failed.error_message
+    result = await studio._train(
+        TrainProtocolCommand(
+            name="doomed",
+            dataset_id=dataset.id,
+            engine_id="nope",
+            conditions={},
+        ),
+        studio.auth,
+    )
+
+    assert result.failure().__class__.__name__ == "NotFoundError"
+    assert "nope" in result.failure().message
 
 
 async def test_a_failed_scorecard_write_leaves_no_protocol_behind(studio: Studio) -> None:

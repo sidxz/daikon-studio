@@ -16,11 +16,14 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncIterator
 
+import polars as pl
+import pytest
 import pytest_asyncio
 
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
+from daikonstudio.domain.data.split import SplitStrategy
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
@@ -226,6 +229,77 @@ async def test_training_against_an_unknown_dataset_is_a_404(client):
     assert response.status_code == 404, response.text
 
 
+async def test_training_against_an_unknown_engine_is_a_404(client, dataset_id):
+    """Important (Task 16 review): `engine_id` is a registry-membership check
+    with exactly one possible answer -- unlike conditions, there is nothing
+    the worker could resolve differently, so a bad id fails synchronously
+    instead of returning 202 for a Run that provably cannot succeed."""
+    response = await _train(client, dataset_id, engine_id="does-not-exist")
+    assert response.status_code == 404, response.text
+
+
 async def test_viewer_cannot_start_training(viewer_client, dataset_id):
     response = await _train(viewer_client, dataset_id)
     assert response.status_code == 403, response.text
+
+
+async def test_scorecard_response_explains_an_optimism_gap_metric_that_is_undefined(
+    client, csv_upload, monkeypatch: pytest.MonkeyPatch
+):
+    """CRITICAL fix (Task 16 review): `train_protocol.py` used to discard the
+    reason a random-split metric was undefined, so the HTTP response either
+    left it unexplained (when the Dataset's own split was fine) or -- worse --
+    let a client attribute the wrong partition's reason to it via
+    `metrics_undefined`. Rigs the random-split reshuffle to collapse its test
+    rows onto one class while the scaffold split, trained for real, keeps
+    both -- reproducing the reviewer's exact scenario end to end through the
+    actual endpoint.
+    """
+    import daikonstudio.application.execution.train_protocol as module
+
+    real_assign_split = module.assign_split
+
+    def collapse_random_test_split_to_one_class(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        random_frame = real_assign_split(frame, structure_column, spec, normalizer)
+        if spec.strategy is not SplitStrategy.RANDOM:
+            return random_frame
+        return random_frame.with_columns(
+            pl.when(pl.col("split") == "test").then(0.0).otherwise(pl.col("y")).alias("y")
+        )
+
+    monkeypatch.setattr(module, "assign_split", collapse_random_test_split_to_one_class)
+
+    values = [float(index % 2) for index in range(len(_STRUCTURES))]
+    values[1] = 0.0  # CCN: seed=7's real scaffold split puts this in `test` -- balance it
+    pairs = zip(_STRUCTURES, values, strict=True)
+    rows = "\n".join(f"{smiles},{value}" for smiles, value in pairs)
+    upload_ref = await csv_upload(f"smiles,y\n{rows}\n".encode())
+    dataset_response = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "binary-scaffold",
+            "upload_ref": upload_ref,
+            "structure_column": "smiles",
+            "target": {"column": "y", "kind": "binary"},
+            "split": {"strategy": "scaffold", "seed": 7},
+        },
+    )
+    assert dataset_response.status_code == 201, dataset_response.text
+
+    train_response = await _train(client, dataset_response.json()["id"])
+    assert train_response.status_code == 202, train_response.text
+    protocol_id = (await client.get("/api/v1/protocols")).json()["items"][0]["id"]
+
+    card = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()
+    # The scaffold split's own test partition has both classes for real --
+    # nothing to explain on that side.
+    assert card["metrics_undefined"] is None
+    assert all(value is not None for value in card["metrics"].values())
+    # The random-split comparison collapsed to one class: undefined, and now
+    # carrying its own reason rather than a bare null or the wrong partition's.
+    assert card["random_split_metrics"] is not None
+    assert all(value is None for value in card["random_split_metrics"].values())
+    assert card["random_split_unavailable"] is None
+    assert card["random_split_metrics_undefined"] is not None
+    assert set(card["random_split_metrics_undefined"]) == set(card["random_split_metrics"])
+    assert "test split" in card["random_split_metrics_undefined"]["mcc"]
