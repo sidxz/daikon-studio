@@ -7,9 +7,14 @@ its citers is not a citation. Correcting the data means uploading a new Dataset,
 which gets a new id and a new hash, leaving the old evidence intact.
 
 `content_hash` is the sha256 of the frozen Parquet snapshot (see
-`application/data/snapshot.py`), so two Datasets holding byte-identical data hash
-identically. The unique index on `(workspace_id, content_hash)` is what turns that
-property into an enforced fact rather than a coincidence.
+`application/data/snapshot.py`), and that snapshot is taken *after* the split
+column is assigned. So the hash identifies the data **and** the split together:
+the same CSV uploaded twice under different seeds, or under scaffold instead of
+random, produces two different hashes and two separate Datasets. That is
+deliberate rather than a leak -- a Dataset is the data plus the split decision,
+and a Run's numbers are only reproducible if both are pinned. What the unique
+index on `(workspace_id, content_hash)` enforces is therefore narrower than
+"same data": it is "same data, split the same way, stored once".
 """
 
 from __future__ import annotations
@@ -54,7 +59,7 @@ class Dataset(AggregateRoot):
 
 
 class DuplicateDatasetError(ConflictError):
-    """The same frozen data is already stored in this workspace.
+    """This data, split this way, is already stored in this workspace.
 
     Carries the existing Dataset's id in the HTTP body so the common cause -- a
     scientist re-submitting after a browser refresh -- is one redirect away from
@@ -64,10 +69,11 @@ class DuplicateDatasetError(ConflictError):
     def __init__(self, existing_dataset_id: uuid.UUID) -> None:
         self.existing_dataset_id = existing_dataset_id
         super().__init__(
-            "This data is already stored in this workspace",
+            "This data, split this way, is already stored in this workspace",
             detail=(
-                "Datasets are content-addressed: identical data is one Dataset. "
-                f"Use dataset {existing_dataset_id}, or change the data to create a new one."
+                "Datasets are content-addressed over the split snapshot: the same data "
+                "under the same split is one Dataset. "
+                f"Use dataset {existing_dataset_id}, or change the data or the split."
             ),
         )
 

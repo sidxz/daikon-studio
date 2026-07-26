@@ -72,3 +72,12 @@ def create_app() -> FastAPI:
     app.include_router(datasets_router)
 
     return app
+
+
+# The ASGI entry point: `uvicorn daikonstudio.interface.app:app` (make dev) and
+# the OpenAPI snapshot (make generate-api) both import this name. Constructing at
+# import time means an unconfigured Sentinel raises here rather than at first
+# request, which is the intended behaviour — a service that cannot authenticate
+# must fail at boot, not serve traffic unprotected. Both Makefile targets source
+# backend/.env first. Same shape as prot-cellar's interface/app.py.
+app = create_app()

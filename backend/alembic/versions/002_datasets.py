@@ -1,10 +1,12 @@
 """datasets
 
-The unique index on (workspace_id, content_hash) is the load-bearing one: it is
-what makes "two Datasets with the same hash are the same data" an enforced fact
-rather than a convention, and it is what turns a re-upload of identical data into
-a conflict the application can answer with the id of the Dataset that already
-holds it.
+The unique index on (workspace_id, content_hash) is the load-bearing one. The
+hash is taken over the Parquet snapshot *after* the split column is assigned, so
+what the index enforces is "the same data, split the same way, is stored once" --
+not "the same data is stored once". Re-uploading the same CSV under a different
+seed or strategy is a different hash and a legitimately separate Dataset. Within
+one split, though, a re-upload becomes a conflict the application can answer with
+the id of the Dataset that already holds it.
 
 Revision ID: 002
 Revises: 001

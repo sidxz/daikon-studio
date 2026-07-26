@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from returns.result import Result, Success
+from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated
 from daikonstudio.application.pagination import (
@@ -15,7 +15,7 @@ from daikonstudio.application.pagination import (
 )
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.domain.data.dataset import Dataset
-from daikonstudio.domain.shared.errors import DomainError
+from daikonstudio.domain.shared.errors import DomainError, ValidationError
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -34,11 +34,13 @@ class ListDatasets:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
         limit = clamp_limit(query.limit)
+        try:
+            cursor = parse_ts_cursor(query.cursor)
+        except ValidationError as error:
+            return Failure(error)
         # Fetch one more than asked for: if it comes back, there is another page,
         # which is cheaper and more truthful than a COUNT over the whole table.
-        datasets = await self._repository.list(
-            auth.workspace_id, cursor=parse_ts_cursor(query.cursor), limit=limit + 1
-        )
+        datasets = await self._repository.list(auth.workspace_id, cursor=cursor, limit=limit + 1)
         next_cursor = None
         if len(datasets) > limit:
             datasets = datasets[:limit]

@@ -3,6 +3,9 @@ validated, split, content-addressed Dataset -- or a rejection that says why."""
 
 from __future__ import annotations
 
+import re
+import uuid
+
 SOLUBILITY_CSV = b"smiles,y\nCCO,1.0\nc1ccccc1,5.0\nCCN,2.0\nc1ccncc1,6.0\n"
 
 # Nine benzene analogues and one piperidine: one scaffold family owns 90% of the
@@ -102,6 +105,83 @@ async def test_list_datasets_never_leaks_another_workspaces_rows(
     theirs = (await other_workspace_client.get("/api/v1/datasets")).json()
     assert [item["name"] for item in mine["items"]] == ["private"]
     assert theirs["items"] == []
+
+
+async def test_paging_through_more_datasets_than_the_limit_terminates(client, csv_upload):
+    """The regression the cursor bug hid: nothing previously asked for a second
+    page, so `next_cursor` was `None` in every test and the round trip was never
+    exercised at all.
+
+    The cursor is interpolated straight into the query string rather than handed
+    to httpx's `params=`, deliberately. `params=` percent-encodes, which would
+    paper over the actual defect -- a `+` in an ISO timestamp arriving as a space,
+    failing to parse, and silently restarting the listing. Interpolating is what a
+    client following `next_cursor` from a JSON body does.
+    """
+    created = []
+    for index in range(5):
+        csv = f"smiles,y\nCCO,{index}.0\nc1ccccc1,5.0\nCCN,2.0\nc1ccncc1,6.0\n".encode()
+        response = await client.post(
+            "/api/v1/datasets", json=create_body(await csv_upload(csv), name=f"dataset-{index}")
+        )
+        assert response.status_code == 201, response.text
+        created.append(response.json()["id"])
+
+    seen: list[str] = []
+    cursor: str | None = None
+    pages = 0
+    while True:
+        url = "/api/v1/datasets?limit=2"
+        if cursor is not None:
+            url += f"&cursor={cursor}"
+        response = await client.get(url)
+        assert response.status_code == 200, response.text
+        page = response.json()
+        pages += 1
+        seen.extend(item["id"] for item in page["items"])
+        cursor = page["next_cursor"]
+        if cursor is None:
+            break
+        # The property that keeps the token intact across a query string: an
+        # alphabet with nothing for a parser to reinterpret.
+        assert re.fullmatch(r"[A-Za-z0-9_=-]+", cursor), cursor
+        assert pages < 10, f"cursor pagination did not terminate: {pages} pages, saw {seen}"
+
+    assert pages == 3
+    assert len(seen) == 5
+    assert len(set(seen)) == 5
+    assert set(seen) == set(created)
+
+
+async def test_a_malformed_cursor_is_rejected_rather_than_restarting_the_listing(client):
+    """Silently serving page one in answer to a corrupt cursor is how the
+    infinite loop hid. The second case is the exact string a query-string parser
+    produced from the old unencoded cursor: the `+` arrived as a space."""
+    for bad_cursor in ("not-a-real-cursor", f"2026-07-26T02:28:32.079357 00:00|{uuid.uuid4()}"):
+        response = await client.get("/api/v1/datasets", params={"cursor": bad_cursor})
+        assert response.status_code == 422, response.text
+        assert response.json()["message"] == "Invalid pagination cursor"
+
+
+async def test_the_split_is_inside_the_content_hash(client, csv_upload):
+    """The same data under a different seed is a different hash and a separate
+    Dataset -- the unique index enforces "same data, split the same way", not
+    "same data". Pinned because later tasks cite Datasets for reproducibility."""
+    first = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            await csv_upload(SOLUBILITY_CSV), split={"strategy": "random", "seed": 1}
+        ),
+    )
+    second = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            await csv_upload(SOLUBILITY_CSV), split={"strategy": "random", "seed": 2}
+        ),
+    )
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert first.json()["content_hash"] != second.json()["content_hash"]
 
 
 async def test_workspace_id_comes_from_the_token_not_the_body(client, csv_upload):
