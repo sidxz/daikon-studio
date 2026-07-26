@@ -14,16 +14,12 @@ from pydantic import BaseModel
 
 from daikonstudio.application.engines.manifest import ConditionSpec, EngineManifest
 from daikonstudio.application.engines.registry import EngineRegistry
-from daikonstudio.interface.dependencies._container import get_container
+from daikonstudio.interface.dependencies._container import use_case
 from daikonstudio.interface.dependencies._core import AuthDep
 
 router = APIRouter(prefix="/api/v1/engines", tags=["engines"])
 
-
-def get_engine_registry(container: Annotated[object, Depends(get_container)]) -> EngineRegistry:
-    """Retrieve the engine registry from the DI container."""
-    # Type ignore needed because get_container returns object; cast to container
-    return container[EngineRegistry]  # type: ignore[index, no-any-return]
+EngineRegistryDep = Annotated[EngineRegistry, Depends(use_case(EngineRegistry))]
 
 
 class ConditionResponse(BaseModel):
@@ -82,7 +78,7 @@ class EngineManifestResponse(BaseModel):
 @router.get("", response_model=list[EngineManifestResponse])
 async def list_engines(
     auth: AuthDep,
-    registry: Annotated[EngineRegistry, Depends(get_engine_registry)],
+    registry: EngineRegistryDep,
 ) -> list[EngineManifestResponse]:
     """List all available engines with their condition specifications.
 
