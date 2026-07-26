@@ -7,6 +7,7 @@ the RDKit log suppression in `chem/__init__.py` still applies.
 
 from daikonstudio.infrastructure.chem.canonicalize import canonicalize, has_multiple_components
 from daikonstudio.infrastructure.chem.scaffold import murcko_scaffold
+from daikonstudio.infrastructure.chem.similarity import nearest_neighbour_tanimoto
 
 
 class RdkitStructureNormalizer:
@@ -18,3 +19,6 @@ class RdkitStructureNormalizer:
 
     def murcko_scaffold(self, smiles: str) -> str:
         return murcko_scaffold(smiles)
+
+    def nearest_neighbour_tanimoto(self, query: list[str], reference: list[str]) -> list[float]:
+        return [float(v) for v in nearest_neighbour_tanimoto(query, reference)]
