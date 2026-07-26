@@ -4,7 +4,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.infrastructure.sentinel.auth import get_sentinel, register_service_actions
+from daikonstudio.interface.error_handlers import register_error_handlers
+from daikonstudio.interface.routes.datasets import router as datasets_router
 from daikonstudio.settings import Settings
 
 
@@ -36,6 +39,11 @@ def create_app() -> FastAPI:
 
     app = FastAPI(title="daikon-studio", version="0.1.0", lifespan=lifespan)
 
+    # Built here rather than in the lifespan: every binding is lazy, so this
+    # touches no database, filesystem or network, and an app that has not been
+    # started (a test driving it over ASGITransport) still resolves use cases.
+    app.state.container = create_container(settings)
+
     # sentinel.protect() MUST be added before CORSMiddleware. Starlette applies
     # middleware LIFO (last added = outermost), so this order makes CORS the
     # outer layer: a 401 raised by auth still passes back out through CORS and
@@ -51,6 +59,8 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    register_error_handlers(app)
+
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -58,5 +68,7 @@ def create_app() -> FastAPI:
     @app.get("/version")
     async def version() -> dict[str, str]:
         return {"service": settings.service_name, "version": app.version}
+
+    app.include_router(datasets_router)
 
     return app

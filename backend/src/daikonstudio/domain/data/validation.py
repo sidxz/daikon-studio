@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import asdict, dataclass, field
+from typing import Any
+
+from daikonstudio.domain.shared.errors import ValidationError
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -25,3 +29,37 @@ class ValidationReport:
     duplicates_collapsed: int = 0
     salts_flagged: int = 0
     duplicate_spread: float | None = None
+
+
+def report_to_dict(report: ValidationReport) -> dict[str, Any]:
+    """Flatten a report for JSONB storage and for the HTTP error body."""
+    return asdict(report)
+
+
+def report_from_dict(data: Mapping[str, Any]) -> ValidationReport:
+    return ValidationReport(
+        total_rows=data["total_rows"],
+        valid_rows=data["valid_rows"],
+        invalid=[InvalidRow(**row) for row in data.get("invalid", [])],
+        conflicting=[ConflictRow(**row) for row in data.get("conflicting", [])],
+        duplicates_collapsed=data.get("duplicates_collapsed", 0),
+        salts_flagged=data.get("salts_flagged", 0),
+        duplicate_spread=data.get("duplicate_spread"),
+    )
+
+
+class InvalidDatasetError(ValidationError):
+    """A rejection that hands back the entire report, not just a message.
+
+    Which rows failed and why, how many duplicates collapsed, how wide the assay
+    spread was -- that is the whole value of the validation pass. A bare "invalid
+    dataset" would throw it away at the last step and leave the scientist to guess
+    which of ten thousand rows to fix.
+    """
+
+    def __init__(self, message: str, *, report: ValidationReport) -> None:
+        self.report = report
+        super().__init__(message)
+
+    def body_extras(self) -> dict[str, Any]:
+        return {"detail": report_to_dict(self.report)}
