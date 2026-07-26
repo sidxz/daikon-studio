@@ -150,7 +150,12 @@ def app(tmp_path, session_factory):
     container, so a test cannot silently reassign production wiring in place.
     """
     application = create_app()
-    container = Container(create_container(Settings(blob_base_url=f"file://{tmp_path}")))
+    # inline_jobs=True: training runs in-process via InlineEnqueuer rather than
+    # pushing to arq/Redis, so `POST /api/v1/protocols` needs no Valkey in tests
+    # (see infrastructure/worker.py's module docstring for both implementations).
+    container = Container(
+        create_container(Settings(blob_base_url=f"file://{tmp_path}", inline_jobs=True))
+    )
     container.define(async_sessionmaker, Singleton(lambda: session_factory))
     application.state.container = container
     return application
