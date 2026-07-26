@@ -56,24 +56,39 @@ _STRUCTURES = (
 _PREDICTION_CSV = b"smiles\nCCO\nCCN\nc1ccccc1\nFc1ccc(F)cc1\n"
 
 
-def _training_csv(column: str = "y") -> bytes:
+def _training_csv(*, structure_column: str = "smiles", target_column: str = "y") -> bytes:
     rows = "\n".join(f"{smiles},{1.0 + 0.37 * index}" for index, smiles in enumerate(_STRUCTURES))
-    return f"smiles,{column}\n{rows}\n".encode()
+    return f"{structure_column},{target_column}\n{rows}\n".encode()
 
 
-async def _create_dataset(client, csv_upload, *, target_column: str = "y") -> str:
-    upload_ref = await csv_upload(_training_csv(target_column))
+async def _create_dataset(
+    client,
+    csv_upload,
+    *,
+    structure_column: str = "smiles",
+    target_column: str = "y",
+    unit: str | None = "logS",
+    direction: str | None = "high",
+) -> str:
+    """`structure_column` only needs overriding when `target_column` is
+    itself `"smiles"` (a CSV header can't repeat a column name); `unit`/
+    `direction` default to a normal, disambiguating readout, and are set to
+    `None` by the collision tests below to reproduce a readout that renders
+    to its *bare* name -- the actual trigger for Important finding 2/round 2."""
+    upload_ref = await csv_upload(
+        _training_csv(structure_column=structure_column, target_column=target_column)
+    )
     response = await client.post(
         "/api/v1/datasets",
         json={
             "name": "solubility",
             "upload_ref": upload_ref,
-            "structure_column": "smiles",
+            "structure_column": structure_column,
             "target": {
                 "column": target_column,
                 "kind": "numeric",
-                "unit": "logS",
-                "direction": "high",
+                "unit": unit,
+                "direction": direction,
             },
             "split": {"strategy": "random", "seed": 1},
         },
@@ -292,16 +307,11 @@ async def test_export_preserves_the_callers_selection_order_not_sorted(client, r
     assert await _exported_smiles([2]) == [structures[2]]
 
 
-async def test_export_rejects_a_readout_name_that_collides_with_the_provenance_column(
-    client, csv_upload
-):
-    """Important 2 fix: a readout literally named `generation_method` would
-    otherwise have its real predicted value silently overwritten by the
-    provenance stamp (CSV: renamed-then-overwritten column; SDF: the
-    readout's own `SetProp` clobbered by the provenance `SetProp` right
-    after it). Guarded before either render runs, not discovered as a
-    corrupted file with a 200 status."""
-    dataset_id = await _create_dataset(client, csv_upload, target_column="generation_method")
+async def _publish_and_predict(client, csv_upload, dataset_id: str) -> str:
+    """Train, publish, and run a prediction against `_PREDICTION_CSV` --
+    returns the ready run id. Shared by the collision tests below, each of
+    which needs its own from-scratch Protocol built on a non-default target
+    column/unit/direction."""
     trained = await _train(client, dataset_id)
     assert trained.status_code == 202, trained.text
     listing = await client.get("/api/v1/protocols")
@@ -314,19 +324,97 @@ async def test_export_rejects_a_readout_name_that_collides_with_the_provenance_c
     upload_ref = await csv_upload(_PREDICTION_CSV)
     run = await _predict(client, protocol_id, upload_ref)
     assert run.status_code == 202, run.text
+    return str(run.json()["id"])
 
+
+async def _create_collection(
+    client, run_id: str, name: str, row_ids: list[int] | None = None
+) -> str:
     created = await client.post(
         "/api/v1/collections",
-        json={"name": "colliding", "run_id": run.json()["id"], "row_ids": [0]},
+        json={"name": name, "run_id": run_id, "row_ids": row_ids or [0]},
     )
     assert created.status_code == 201, created.text
-    collection_id = created.json()["id"]
+    return str(created.json()["id"])
+
+
+async def test_export_rejects_a_readout_name_that_collides_with_the_provenance_column(
+    client, csv_upload
+):
+    """Important 2 fix: a readout literally named `generation_method`, with
+    no unit or direction to disambiguate it, renders to the bare name
+    `"generation_method"` in both formats -- colliding with the provenance
+    column/tag this module always appends (CSV: renamed-then-overwritten
+    column; SDF: the readout's own `SetProp` clobbered by the provenance
+    `SetProp` right after it). Guarded before either render runs, not
+    discovered as a corrupted file with a 200 status."""
+    dataset_id = await _create_dataset(
+        client, csv_upload, target_column="generation_method", unit=None, direction=None
+    )
+    run_id = await _publish_and_predict(client, csv_upload, dataset_id)
+    collection_id = await _create_collection(client, run_id, "colliding generation_method")
 
     for export_format in ("csv", "sdf"):
         response = await client.get(
             f"/api/v1/collections/{collection_id}/export?format={export_format}"
         )
         assert response.status_code == 422, response.text
+
+
+async def test_export_rejects_a_readout_that_renders_to_the_bare_smiles_column(client, csv_upload):
+    """Round 2 finding: CSV always renames `structure` to `smiles`. A
+    readout with *no* unit and *no* direction renders to its bare name --
+    not exotic, a classification CLASS readout with no direction set
+    produces exactly this -- so a target column literally named `smiles`
+    collides with the renamed structure column the same way
+    `generation_method` collides with the appended provenance column.
+    `structure_column="mol"` avoids a duplicate header in the training CSV
+    itself; the collision is entirely about the *target* column's name.
+
+    SDF never renames `structure`, so the same Protocol's SDF export is
+    unaffected -- proof the guard is computed per format, not a blanket
+    rejection of the name `"smiles"` everywhere.
+    """
+    dataset_id = await _create_dataset(
+        client,
+        csv_upload,
+        structure_column="mol",
+        target_column="smiles",
+        unit=None,
+        direction=None,
+    )
+    run_id = await _publish_and_predict(client, csv_upload, dataset_id)
+    collection_id = await _create_collection(client, run_id, "colliding smiles")
+
+    csv_response = await client.get(f"/api/v1/collections/{collection_id}/export?format=csv")
+    assert csv_response.status_code == 422, csv_response.text
+
+    sdf_response = await client.get(f"/api/v1/collections/{collection_id}/export?format=sdf")
+    assert sdf_response.status_code == 200, sdf_response.text
+
+
+async def test_a_smiles_named_readout_with_a_unit_still_exports_safely(client, csv_upload):
+    """The genuinely safe sibling the guard must not catch: a readout named
+    `smiles` that *does* carry a unit and direction renders to
+    `"smiles (nM, lower is better)"`, distinct from the renamed structure
+    column -- it must keep exporting, not be swept up by an over-broad
+    check on the name `"smiles"` alone."""
+    dataset_id = await _create_dataset(
+        client,
+        csv_upload,
+        structure_column="mol",
+        target_column="smiles",
+        unit="nM",
+        direction="low",
+    )
+    run_id = await _publish_and_predict(client, csv_upload, dataset_id)
+    collection_id = await _create_collection(client, run_id, "safe smiles")
+
+    response = await client.get(f"/api/v1/collections/{collection_id}/export?format=csv")
+    assert response.status_code == 200, response.text
+    rows = list(csv.DictReader(response.text.splitlines()))
+    assert "smiles (nM, lower is better)" in rows[0]
+    assert rows[0]["smiles"]  # the real structure column, untouched by the collision
 
 
 async def test_empty_row_ids_is_rejected(client, ready_run_id):

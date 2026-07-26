@@ -33,18 +33,41 @@ that deletes or edits a Protocol once published, so re-reading it here can
 never disagree with what the Collection's numbers actually mean -- see the
 `ponytail:` comment on the Protocol lookup below for the ceiling on that.
 
-`_RESERVED_COLUMNS` guards the one column/tag name this module appends
-itself (`generation_method`). A readout that happened to be named the same
-would otherwise have its real predicted value silently overwritten by the
-provenance stamp -- `_render_csv` renames-then-overwrites, `_render_sdf`
-sets the readout's own prop then the provenance prop over it -- so this is
-caught before either render runs, not discovered as a corrupted file.
+Rather than a fixed list of "reserved" names, the guard against a naming
+collision is generic: before either render runs, this module computes the
+*actual* final column labels (CSV) or SD tag names (SDF) that rendering
+would produce for this Protocol's readouts, and rejects if any two of them
+would land on the same name. This is deliberately not a fixed set of
+strings to avoid, because each format's own mechanics create more than one
+way to collide:
+
+- CSV always renames `"structure"` to `"smiles"` and always appends
+  `"generation_method"`. A readout renders to the bare string `"smiles"`
+  whenever it has *no* unit and *no* direction -- not exotic; a
+  classification CLASS readout with no direction set produces exactly
+  that -- and colliding with the appended `"smiles"` column silently drops
+  either the structure or the readout's value. A readout literally named
+  `generation_method` (again with no unit/direction) collides with the
+  appended provenance column the same way.
+- SDF never renames anything -- a readout's SD tag is always its bare
+  `readout.name`, unit or no unit -- so the only collision surface there is
+  a readout named `generation_method`, clobbered by the provenance tag
+  `SetProp`'d right after it.
+
+Checking the *rendered* labels for uniqueness, rather than hardcoding the
+names above, is what makes this catch both today's known cases and any
+future one either mechanism introduces, without anyone having to remember
+to extend a list. It also keeps the genuinely safe case safe: a readout
+named `smiles` that *does* carry a unit renders as `"smiles (nM, lower is
+better)"` in CSV, which does not collide with the bare `"smiles"` column
+and exports normally.
 """
 
 from __future__ import annotations
 
 import io
 import uuid
+from collections import Counter
 from dataclasses import dataclass
 from enum import StrEnum
 
@@ -59,9 +82,6 @@ from daikonstudio.application.ports.protocol_repository import ProtocolRepositor
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.catalog.readout import Readout
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
-
-# The only column/tag this module appends on top of a Run's own readouts.
-_RESERVED_COLUMNS = frozenset({"generation_method"})
 
 _DIRECTION_LABEL = {"high": "higher is better", "low": "lower is better"}
 
@@ -119,13 +139,17 @@ class ExportCollection:
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(protocol_id)))
 
-        collisions = sorted({r.name for r in protocol.readouts} & _RESERVED_COLUMNS)
-        if collisions:
+        labels = _final_labels(protocol.readouts, query.format)
+        duplicates = sorted(name for name, count in Counter(labels).items() if count > 1)
+        if duplicates:
             return Failure(
                 ValidationError(
-                    f"Readout name(s) {collisions} collide with a column this export "
-                    "format reserves for provenance stamping; cannot export safely",
-                    detail=f"Reserved: {sorted(_RESERVED_COLUMNS)}",
+                    f"Cannot export as {query.format.value}: rendering these readouts would "
+                    f"produce duplicate column/tag name(s): {duplicates}",
+                    detail=(
+                        "Rename the colliding readout, or give it a unit/direction so it "
+                        "renders to a distinct name."
+                    ),
                 )
             )
 
@@ -166,14 +190,34 @@ def _unit_and_direction(readout: Readout) -> str | None:
     return ", ".join(parts) if parts else None
 
 
-def _render_csv(
-    frame: pl.DataFrame, readouts: tuple[Readout, ...], generation_method: str
-) -> bytes:
+def _csv_rename(readouts: tuple[Readout, ...]) -> dict[str, str]:
+    """The exact `polars.DataFrame.rename` mapping `_render_csv` applies --
+    factored out so the collision guard in `ExportCollection.__call__` checks
+    the *same* computed labels the renderer actually produces, rather than a
+    second, driftable copy of this logic."""
     rename = {"structure": "smiles"}
     for readout in readouts:
         label = _unit_and_direction(readout)
         rename[readout.name] = f"{readout.name} ({label})" if label else readout.name
-    out = frame.rename(rename).with_columns(pl.lit(generation_method).alias("generation_method"))
+    return rename
+
+
+def _final_labels(readouts: tuple[Readout, ...], export_format: ExportFormat) -> list[str]:
+    """The complete set of column names (CSV) or SD tag names (SDF) this
+    Protocol's readouts would render to, including the `generation_method`
+    column/tag this module always appends -- what `ExportCollection.__call__`
+    checks for duplicates before either render runs."""
+    if export_format is ExportFormat.CSV:
+        return [*_csv_rename(readouts).values(), "generation_method"]
+    return [*(readout.name for readout in readouts), "generation_method"]
+
+
+def _render_csv(
+    frame: pl.DataFrame, readouts: tuple[Readout, ...], generation_method: str
+) -> bytes:
+    out = frame.rename(_csv_rename(readouts)).with_columns(
+        pl.lit(generation_method).alias("generation_method")
+    )
     buffer = io.BytesIO()
     out.write_csv(buffer)
     return buffer.getvalue()
