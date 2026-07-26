@@ -17,17 +17,20 @@ from __future__ import annotations
 
 import polars as pl
 
+from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ConflictRow, InvalidRow, ValidationReport
-from daikonstudio.infrastructure.chem.canonicalize import canonicalize, has_multiple_components
 
 
 def prepare_frame(
-    frame: pl.DataFrame, structure_column: str, target: TargetSpec
+    frame: pl.DataFrame,
+    structure_column: str,
+    target: TargetSpec,
+    normalizer: StructureNormalizer,
 ) -> tuple[pl.DataFrame, ValidationReport]:
     total_rows = frame.height
     raw_structures = [str(value) for value in frame[structure_column].to_list()]
-    canonical = [canonicalize(smiles) for smiles in raw_structures]
+    canonical = [normalizer.canonicalize(smiles) for smiles in raw_structures]
 
     invalid = [
         InvalidRow(row_number=index + 1, value=raw_structures[index], reason="invalid structure")
@@ -42,7 +45,8 @@ def prepare_frame(
     valid_rows = valid_frame.height
 
     salts_flagged = sum(
-        has_multiple_components(smiles) for smiles in valid_frame[structure_column].to_list()
+        normalizer.has_multiple_components(smiles)
+        for smiles in valid_frame[structure_column].to_list()
     )
 
     if valid_rows == 0:

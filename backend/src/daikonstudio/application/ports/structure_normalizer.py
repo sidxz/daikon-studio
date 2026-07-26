@@ -1,0 +1,6 @@
+from typing import Protocol
+
+
+class StructureNormalizer(Protocol):
+    def canonicalize(self, smiles: str) -> str | None: ...
+    def has_multiple_components(self, smiles: str) -> bool: ...
