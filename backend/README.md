@@ -14,7 +14,7 @@ otherwise. `make help` lists every target with a one-line description.
 
 ```bash
 cp backend/.env.example backend/.env   # see the note on STUDIO_CORS_ORIGINS below
-make install                           # uv sync (backend) + pnpm install (frontend, once it exists)
+make install                           # backend deps; frontend half fails today, see below
 make up                                # start Postgres + Valkey, run migrations
 make dev-be                            # backend only, on :8002
 ```
@@ -24,6 +24,28 @@ you -- it's gitignored (per-developer, and it holds a real secret in any
 non-local environment) -- so `make up`, `make dev`/`make dev-be`, and
 `make migrate` will fail or silently fall back to mismatched defaults until
 you copy `.env.example` yourself. Do that first.
+
+**No `frontend/` directory exists yet** (the frontend plan hasn't been
+written -- see "OpenAPI snapshot" below for why). `make install` runs the
+backend's `uv sync` first, then unconditionally `cd frontend && pnpm
+install`; today that second line fails outright:
+
+```
+cd backend && uv sync
+Resolved 98 packages in 11ms
+cd frontend && pnpm install
+/bin/sh: line 0: cd: frontend: No such file or directory
+make: *** [install] Error 1
+```
+
+That's expected and harmless for backend-only work: the backend half already
+completed by the time the frontend half fails, `uv sync` is idempotent, and
+nothing downstream in this README needs the frontend. `make dev` has the
+same asymmetry for the same reason -- its frontend leg is backgrounded, so it
+fails silently into `.logs/frontend.log` instead of aborting `make dev`
+itself, but the backend and worker still start fine. Use `make dev-be` +
+`make dev-worker` for backend-only work instead of `make dev` until
+`frontend/` exists. Both caveats go away once the frontend is scaffolded.
 
 **`STUDIO_CORS_ORIGINS` must stay single-quoted in `.env`.** It's a JSON
 list (`'["http://localhost:3003"]'`), and the Makefile loads `.env` into the

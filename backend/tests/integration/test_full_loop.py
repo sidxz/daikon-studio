@@ -24,17 +24,25 @@ one of its 1900 structures, none are multi-component salts, and none collapse
 onto a canonical-SMILES duplicate -- so this fixture, real as it is, does not
 exercise the invalid-row/salt/dedup *branches* of `prepare_frame` the way raw
 lab data would (those branches have their own dedicated coverage in
-`tests/unit/data/test_validation.py` and `tests/api/test_datasets.py`). It
-also groups all `label=1` rows before all `label=0` rows; naively slicing 100
-of each in that order and concatenating them makes the scaffold splitter's
-stable tie-break (first-occurrence order, for equal-size real-scaffold
-groups) hand every same-sized PAINS-scaffold group priority over every
-same-sized clean-scaffold group, which packs *all* 100 `is_pains=1` rows into
-train and leaves validation/test entirely `is_pains=0` -- a single-class test
-partition where MCC is undefined, failing this test for a reason that has
-nothing to do with the code under test. Interleaving the two classes
-row-by-row (still the exact same 200 real rows, just reordered) removes that
-artifact and produces a balanced 80/10/10 split.
+`tests/unit/data/test_validation.py` and `tests/api/test_datasets.py`).
+
+Row order history: the source file groups all `label=1` rows before all
+`label=0` rows -- the shape a real assay export actually arrives in. The
+first cut of this fixture *interleaved* the two classes instead, because the
+scaffold splitter of the day broke equal-size ties by first-occurrence file
+order for every group except empty-scaffold ones, so a label-grouped 200-row
+slice packed *all* 100 `is_pains=1` rows into train and left
+validation/test entirely `is_pains=0` -- a single-class test partition where
+MCC is undefined, for a reason that had nothing to do with the pipeline this
+test exercises. That splitter bug (Task 10, reopened) is now fixed: every
+tie-break is seeded by a hash of the group's own scaffold identity, not by
+row position, so the split is invariant to input order (verified below --
+label-grouped and its exact reverse now produce byte-identical partitions).
+With that fixed, this fixture went back to the natural label-grouped order,
+which is the more valuable thing for an acceptance test to exercise: real
+assay exports arrive sorted by outcome, batch, or submission date far more
+often than pre-shuffled, and this fixture should catch a regression in that
+shape rather than dodge it.
 """
 
 from __future__ import annotations
@@ -160,6 +168,9 @@ async def test_a_scientist_can_walk_the_whole_loop(client, csv_upload):
     assert 0.0 <= card["applicability_coverage"] <= 1.0, card
     # Noise floor is the Dataset's own duplicate-spread -- forced None for a
     # classification Scorecard, which has no such notion, regardless of input.
+    # Coverage boundary: this journey only ever trains a classifier, so this
+    # assertion never exercises the regression branch where noise_floor can be
+    # a real number -- that's covered by test_train_protocol.py instead.
     assert card["noise_floor"] is None, card
 
     # --- Publish: lock the Protocol so it becomes runnable ---
@@ -218,5 +229,10 @@ async def test_a_scientist_can_walk_the_whole_loop(client, csv_upload):
     # A probability readout carries no unit but does carry a direction -- that
     # direction must still survive into the export's column header, the same
     # way a unit would for a numeric readout (`export_collection.py`).
+    # Coverage boundary: `derive_readouts` always gives PROBABILITY readouts
+    # `direction="high"` and no unit, so this journey only ever exercises the
+    # "high", no-unit branch of the header format -- the "low"-direction,
+    # unit-bearing case (a numeric readout, e.g. "IC50 (nM, lower is better)")
+    # is covered by test_collections.py instead.
     direction_label = _DIRECTION_LABEL[probability_readout["direction"]]
     assert f"{probability_readout['name']} ({direction_label})" in lines[0], lines[0]
