@@ -294,6 +294,13 @@ class RunPrediction:
             similarities = [None] * len(structures)
 
         values = predictions["value"].to_list()
+        # "structure"/"uncertainty"/"applicability" below, and the readout
+        # name(s) they sit alongside, are exactly what
+        # `domain.data.target.RESERVED_TARGET_COLUMNS` reserves against a
+        # TargetSpec (C1, whole-branch review): a target sharing one of these
+        # literal names would have this dict's later write silently overwrite
+        # the earlier one. If this dict ever grows another literal key, add
+        # it to that set too.
         columns: dict[str, pl.Series] = {"structure": pl.Series(structures)}
         if len(protocol.readouts) == 1:
             columns[protocol.readouts[0].name] = pl.Series(values, dtype=pl.Float64)

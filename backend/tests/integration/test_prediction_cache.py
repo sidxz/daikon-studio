@@ -53,7 +53,12 @@ from daikonstudio.application.execution.train_protocol import (
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
-from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
+from daikonstudio.domain.data.target import (
+    RESERVED_TARGET_COLUMNS,
+    Direction,
+    TargetKind,
+    TargetSpec,
+)
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
@@ -446,6 +451,12 @@ async def test_predictions_carry_structure_readouts_uncertainty_and_applicabilit
     assert readout_name in frame.columns
     assert "uncertainty" in frame.columns
     assert "applicability" in frame.columns
+    # Whole-branch review follow-up (C1 staleness): every column this run
+    # actually wrote, besides the dynamic readout name, must be one of the
+    # names `create_dataset.py` reserves against a TargetSpec -- checked
+    # against the real output of `RunPrediction`, not a hand-maintained
+    # mirror of what it is believed to write.
+    assert set(frame.columns) - {readout_name} <= RESERVED_TARGET_COLUMNS
     # ecfp4-xgboost: no ensemble spread to report -- never a fabricated number.
     assert frame["uncertainty"].is_null().all()
     # CCO and c1ccccc1 are training compounds themselves (similarity 1.0); the
@@ -460,14 +471,15 @@ async def test_predictions_carry_structure_readouts_uncertainty_and_applicabilit
 async def test_a_classification_protocol_predicts_both_probability_and_class(
     studio: Studio, upload_ref: str
 ) -> None:
-    # 0.0/1.0 in runs of two, not a plain `index % 2` alternation: the default
-    # RANDOM split (seed=7) below puts indices 9 and 11 of `_TRAIN_STRUCTURES`
-    # together in its 2-row test partition, and under a plain alternation
-    # those two share the same parity -- `create_dataset.py`'s I1 guard
-    # (whole-branch review) now rejects that single-class test partition
-    # before training runs at all. This period-4 pattern keeps both values
-    # present in that partition while still holding only 0.0/1.0 overall.
-    values = tuple(float((index // 2) % 2) for index in range(len(_TRAIN_STRUCTURES)))
+    # Plain alternation, restored (I1 re-review): the default RANDOM split
+    # (seed=7) below puts indices 9 and 11 of `_TRAIN_STRUCTURES` together in
+    # its 2-row test partition, single-class under this pattern -- but
+    # `create_dataset.py`'s narrowed guard no longer checks a BINARY target's
+    # test partition (only train, which this pattern never made
+    # single-class; see `_scoring.py`'s NaN branch and
+    # `_undefined_reasons` for why a single-class test split is already
+    # handled honestly rather than refused outright).
+    values = tuple(float(index % 2) for index in range(len(_TRAIN_STRUCTURES)))
     rows = "\n".join(f"{s},{v}" for s, v in zip(_TRAIN_STRUCTURES, values, strict=True))
     upload_ref_dataset = await studio.upload(f"smiles,y\n{rows}\n".encode())
     dataset = (
@@ -499,3 +511,6 @@ async def test_a_classification_protocol_predicts_both_probability_and_class(
     assert class_readout.name in frame.columns
     assert all(0.0 <= v <= 1.0 for v in frame[probability_readout.name].to_list())
     assert set(frame[class_readout.name].to_list()) <= {0.0, 1.0}
+    assert set(frame.columns) - {probability_readout.name, class_readout.name} <= (
+        RESERVED_TARGET_COLUMNS
+    )

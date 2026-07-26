@@ -373,6 +373,78 @@ async def test_a_constant_train_partition_is_rejected_for_regression_too(client,
     assert "train" in response.json()["message"]
 
 
+# Ten distinct structures with a controlled RANDOM split (seed=1, explicit
+# 50/50/0 fractions): train lands on indices 0, 1, 4, 7, 8 and test on
+# 2, 3, 5, 6, 9 -- verified directly against `assign_split`. Shared by the
+# two tests below, which put a varied/constant target on opposite sides of
+# that exact split to isolate "train is fine, test alone is degenerate" from
+# "test is fine, train alone is degenerate".
+_TEN_STRUCTURES = (
+    "CCO",
+    "CCN",
+    "CCCO",
+    "CCCCO",
+    "CCCCCO",
+    "c1ccccc1",
+    "Cc1ccccc1",
+    "c1ccncc1",
+    "c1ccsc1",
+    "C1CCCCC1",
+)
+_CONTROLLED_SPLIT = {"strategy": "random", "seed": 1, "fractions": [0.5, 0.0, 0.5]}
+
+
+async def test_a_varied_train_with_a_constant_test_partition_is_rejected(client, csv_upload):
+    """I1's own named regression scenario (whole-branch review, re-review):
+    both tests above use a wholly single-class/constant dataset, so the
+    "train" then "test" loop always returns on `train` and never actually
+    exercises the test-partition branch. This isolates it: train (indices 0,
+    1, 4, 7, 8) gets five distinct values; test (2, 3, 5, 6, 9) gets the same
+    value five times over -- a real, varied, trainable dataset whose *test*
+    partition alone is degenerate, which is exactly the case `r2_score`
+    silently mismeasures as `R2 = 0.0`."""
+    values = [1.0, 2.0, 9.9, 9.9, 3.0, 9.9, 9.9, 4.0, 5.0, 9.9]
+    rows = "\n".join(f"{s},{v}" for s, v in zip(_TEN_STRUCTURES, values, strict=True))
+    upload_ref = await csv_upload(f"smiles,y\n{rows}\n".encode())
+    response = await client.post(
+        "/api/v1/datasets", json=create_body(upload_ref, split=_CONTROLLED_SPLIT)
+    )
+    assert response.status_code == 422, response.text
+    assert "test" in response.json()["message"]
+
+
+async def test_a_single_class_test_partition_is_accepted_for_binary_classification(
+    client, csv_upload
+):
+    """The narrowing (whole-branch review, re-review): a single-class *test*
+    partition on a BINARY target must NOT be rejected -- `_scoring.py`'s
+    single-class branch already reports every classification metric as
+    undefined, and `train_protocol.py`'s `_undefined_reasons` turns that into
+    an actionable `metrics_undefined` message on the Scorecard. Refusing to
+    even train would replace that honest answer with an over-eager hard
+    refusal for a dataset that is otherwise perfectly trainable -- exactly
+    what a 25-seed sweep against balanced and imbalanced binary datasets
+    showed the pre-narrowing guard doing on 9-15 of 25 seeds, always on
+    `test`, never on `train`.
+
+    Same controlled split as the regression test above, values chosen so
+    train (indices 0, 1, 4, 7, 8) holds both classes and test (2, 3, 5, 6, 9)
+    holds only one.
+    """
+    values = [0, 1, 1, 1, 0, 1, 1, 1, 0, 1]
+    rows = "\n".join(f"{s},{v}" for s, v in zip(_TEN_STRUCTURES, values, strict=True))
+    upload_ref = await csv_upload(f"smiles,active\n{rows}\n".encode())
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref,
+            target={"column": "active", "kind": "binary"},
+            split=_CONTROLLED_SPLIT,
+        ),
+    )
+    assert response.status_code == 201, response.text
+
+
 async def test_an_overlong_name_is_a_422_not_an_asyncpg_500(client, csv_upload):
     """I3 (whole-branch review, Important): `name` has no `max_length`
     against `DatasetModel.name`'s `String(256)` column, so an over-long value

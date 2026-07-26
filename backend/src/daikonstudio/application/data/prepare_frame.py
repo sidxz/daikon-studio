@@ -21,12 +21,6 @@ from daikonstudio.application.ports.structure_normalizer import StructureNormali
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ConflictRow, InvalidRow, ValidationReport
 
-# An internal-only column, never part of a Dataset's frozen snapshot: dropped
-# before either branch below returns `prepared`. Exists solely so a BINARY
-# conflict group (see `ConflictRow.row_numbers`) can report which rows of the
-# *uploaded* file it spans.
-_ROW_NUMBER = "_row_number"
-
 
 def prepare_frame(
     frame: pl.DataFrame,
@@ -53,14 +47,23 @@ def prepare_frame(
 
     is_valid = pl.Series([smiles is not None for smiles in canonical])
     # 1-indexed positions in the *uploaded* file, the same convention
-    # `InvalidRow.row_number` above already uses -- carried through the filter
-    # so a later conflicting-duplicates group (BINARY only) can report which
-    # rows of the original file it spans (I4, whole-branch review), not just
-    # the canonicalized structure they collapsed to.
+    # `InvalidRow.row_number` above already uses -- kept as a plain Python
+    # list, aligned by position with `valid_frame`'s rows (both filtered by
+    # this same `is_valid` mask, so they stay in lockstep), so a later
+    # conflicting-duplicates group (BINARY only) can report which rows of the
+    # original file it spans (I4, whole-branch review), not just the
+    # canonicalized structure they collapsed to.
+    #
+    # Deliberately never written into `valid_frame` itself (an earlier
+    # version of this fix used `with_columns` to add it as a real column,
+    # which is exactly the silent-overwrite mechanism C1 exists to prevent --
+    # a target column named the same as the injected column would have its
+    # real values clobbered by row indices). Keeping this a bare Python list
+    # means there is no column name here for a target column to ever collide
+    # with, no matter what the scientist names it.
     row_numbers = [index + 1 for index, valid in enumerate(is_valid) if valid]
     valid_frame = frame.filter(is_valid).with_columns(
-        pl.Series(structure_column, [smiles for smiles in canonical if smiles is not None]),
-        pl.Series(_ROW_NUMBER, row_numbers, dtype=pl.Int64),
+        pl.Series(structure_column, [smiles for smiles in canonical if smiles is not None])
     )
     valid_rows = valid_frame.height
 
@@ -112,13 +115,24 @@ def prepare_frame(
             duplicate_spread=duplicate_spread,
         )
 
+    # Row numbers per canonical structure, computed independently of the
+    # group_by below (never as an aggregated column of `valid_frame` -- see
+    # the comment above `row_numbers`): `valid_frame[structure_column]` and
+    # `row_numbers` are aligned by position, both filtered by the same
+    # `is_valid` mask, so zipping them reproduces exactly the grouping
+    # `group_by(structure_column)` performs, without ever touching the frame.
+    row_numbers_by_structure: dict[str, list[int]] = {}
+    for structure, row_number in zip(
+        valid_frame[structure_column].to_list(), row_numbers, strict=True
+    ):
+        row_numbers_by_structure.setdefault(structure, []).append(row_number)
+
     # BINARY: agreeing duplicates collapse silently; disagreeing duplicates are a data
     # problem for the scientist to resolve, not one a majority vote papers over.
     grouped = valid_frame.group_by(structure_column, maintain_order=True).agg(
         pl.col(target.column).len().alias("_n"),
         pl.col(target.column).n_unique().alias("_n_unique"),
         pl.col(target.column).alias("_values"),
-        pl.col(_ROW_NUMBER).alias("_row_numbers"),
         pl.col(target.column).first().alias(target.column),
         *keep_others,
     )
@@ -127,13 +141,13 @@ def prepare_frame(
         ConflictRow(
             structure=str(row[structure_column]),
             values=list(row["_values"]),
-            row_numbers=sorted(row["_row_numbers"]),
+            row_numbers=sorted(row_numbers_by_structure[str(row[structure_column])]),
         )
         for row in grouped.filter(is_conflict).iter_rows(named=True)
     ]
     agreeing = grouped.filter(~is_conflict)
     duplicates_collapsed = sum(n - 1 for n in agreeing["_n"].to_list())
-    prepared = agreeing.drop("_n", "_n_unique", "_values", "_row_numbers")
+    prepared = agreeing.drop("_n", "_n_unique", "_values")
     return prepared, ValidationReport(
         total_rows=total_rows,
         valid_rows=valid_rows,

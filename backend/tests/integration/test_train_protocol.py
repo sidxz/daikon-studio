@@ -108,12 +108,23 @@ def _alternating_values() -> tuple[float, ...]:
     of `_STRUCTURES` together in its 2-row test partition (and, symmetrically,
     both in the same 2-row half of most even/odd splits) -- under a plain
     `index % 2` alternation those two indices share the same parity, so the
-    test partition ends up holding only one value, and `create_dataset.py`'s
-    I1 guard (whole-branch review) now rejects that Dataset outright as a
-    degenerate split before training ever runs. This period-4 pattern still
-    yields only 0.0/1.0, the property every caller of this fixture actually
-    cares about, while keeping both values present in every 2+-row partition
-    that split produces.
+    test partition ends up holding only one value.
+
+    That alone no longer matters for a BINARY target: `create_dataset.py`'s
+    I1 guard (whole-branch review, narrowed on re-review) only checks a
+    BINARY target's *train* partition, not its test partition -- a
+    single-class test split is already reported honestly via
+    `metrics_undefined` rather than refused outright, and rejecting it too
+    would block a perfectly trainable model (a seed sweep against balanced
+    and imbalanced binary datasets found this firing on 9-15 of 25 seeds,
+    always on `test`, never `train`). It still matters for a NUMERIC target,
+    whose test partition *is* checked (`r2_score` returns a misleadingly
+    real-looking `0.0` on a constant test target, with nothing to flag it as
+    undefined) -- this fixture's remaining callers are exactly the ones that
+    still need both values present in that 2-row partition. This period-4
+    pattern still yields only 0.0/1.0, the property every caller of this
+    fixture actually cares about, while keeping both values present in every
+    2+-row partition that split produces.
     """
     return tuple(float((index // 2) % 2) for index in range(len(_STRUCTURES)))
 
@@ -417,7 +428,12 @@ async def test_the_task_comes_from_the_target_spec_not_from_the_values(
 async def test_a_binary_target_trains_a_classifier_and_derives_two_readouts(
     studio: Studio,
 ) -> None:
-    values = _alternating_values()
+    # Restored to the plain alternation (I1 re-review): the narrowed guard
+    # (`create_dataset.py`'s `_degenerate_partition`) no longer checks a
+    # BINARY target's *test* partition -- only its train partition, which
+    # this pattern never made single-class -- so `_alternating_values()`'s
+    # workaround is unnecessary here.
+    values = tuple(float(index % 2) for index in range(len(_STRUCTURES)))
     dataset = await studio.dataset(kind=TargetKind.BINARY, values=values, unit=None)
     run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-randomforest", conditions={})
     await studio.wait(run)
@@ -625,7 +641,9 @@ async def test_predictions_say_what_they_are_rather_than_leaving_it_to_be_inferr
     await studio.wait(run)
     assert (await studio.scorecard_for(run)).prediction_kind == "value"
 
-    values = _alternating_values()
+    # Restored to the plain alternation (I1 re-review) -- see the comment on
+    # `test_a_binary_target_trains_a_classifier_and_derives_two_readouts`.
+    values = tuple(float(index % 2) for index in range(len(_STRUCTURES)))
     classification = await studio.dataset(kind=TargetKind.BINARY, values=values, unit=None)
     run = await studio.train(
         dataset_id=classification.id, engine_id="ecfp4-randomforest", conditions={}

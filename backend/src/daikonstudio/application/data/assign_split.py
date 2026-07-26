@@ -53,6 +53,11 @@ def assign_split(
         labels = _random_labels(frame.height, spec)
     else:
         labels = _scaffold_labels(frame, structure_column, spec, normalizer)
+    # "split" is one of `domain.data.target.RESERVED_TARGET_COLUMNS` (C1,
+    # whole-branch review): `with_columns` below silently overwrites any
+    # existing same-named column, including a target's, which is exactly why
+    # `CreateDataset` refuses a TargetSpec named "split" before this ever
+    # runs. If this ever adds a second injected column, reserve that name too.
     return frame.with_columns(pl.Series("split", labels))
 
 

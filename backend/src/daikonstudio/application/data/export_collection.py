@@ -206,7 +206,16 @@ def _final_labels(readouts: tuple[Readout, ...], export_format: ExportFormat) ->
     """The complete set of column names (CSV) or SD tag names (SDF) this
     Protocol's readouts would render to, including the `generation_method`
     column/tag this module always appends -- what `ExportCollection.__call__`
-    checks for duplicates before either render runs."""
+    checks for duplicates before either render runs.
+
+    `"generation_method"` is also one of `domain.data.target.RESERVED_TARGET_COLUMNS`
+    (C1, whole-branch review) -- a TargetSpec can no longer be named that, so
+    this branch of the collision this guard checks for is unreachable through
+    `CreateDataset` today. The guard itself stays: it is generic (computed
+    labels, not a fixed list), so it still catches the *other* collision this
+    module's mechanics create (a readout rendering to the bare `"smiles"`
+    string), which is not one of the reserved names.
+    """
     if export_format is ExportFormat.CSV:
         return [*_csv_rename(readouts).values(), "generation_method"]
     return [*(readout.name for readout in readouts), "generation_method"]

@@ -195,29 +195,43 @@ class CreateDataset:
 
 
 def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> ValidationError | None:
-    """I1 (whole-branch review, Important): a train or test partition whose
-    target column carries only one distinct value.
+    """I1 (whole-branch review, Important): a train partition whose target
+    column carries only one distinct value (either kind), or a test
+    partition whose *numeric* target is constant.
 
     `assign_split` already raises when a *requested* partition (a nonzero
     fraction) comes back entirely empty -- but a partition that is merely
     single-class (BINARY) or constant-valued (NUMERIC, the regression
-    analogue of single-class) still has rows, so that guard never fires, and
-    training happily proceeds:
+    analogue of single-class) still has rows, so that guard never fires.
+    What happens next depends on *which* partition and *which* target kind,
+    and the two do not fail the same way:
 
-    - A single-class **train** partition can only ever learn one class, so
-      every future prediction comes back as that one class with a fabricated
-      `uncertainty` of exactly `0.0` (maximally confident on every compound) --
-      a triage grid has no way to tell that from a real, well-trained model.
-    - A constant-valued **test** partition makes `r2_score` return `0.0`
-      rather than an undefined value (unlike classification's metrics, which
-      already come back `NaN` and get reported as `metrics_undefined` with a
-      reason) -- so a regression Scorecard would show "R2 = 0.0" as if it
-      were measured, silently.
+    - A single-class or constant **train** partition, either kind, can only
+      ever learn one answer, so every future prediction comes back as that
+      one class/value with a fabricated `uncertainty` of exactly `0.0`
+      (maximally confident on every compound) -- a triage grid has no way to
+      tell that from a real, well-trained model. Always rejected here.
+    - A constant-valued **test** partition on a NUMERIC target makes
+      `r2_score` return `0.0` rather than an undefined value, and nothing
+      downstream reports that as undefined the way classification's metrics
+      do -- so a regression Scorecard would show "R2 = 0.0" as if it were
+      measured, silently. Rejected here.
+    - A single-class **test** partition on a BINARY target is different: a
+      seed sweep against real balanced/imbalanced datasets (20 rows 50/50,
+      40 rows at 10%/20% actives) showed this firing on 9-15 of 25 seeds,
+      *never* on `train` -- rejecting a model that is perfectly trainable and
+      useful. And `_scoring.py`'s single-class branch already reports every
+      classification metric as `NaN`, which `train_protocol.py`'s
+      `_undefined_reasons` turns into `metrics_undefined` with an actionable
+      message ("add positives (or negatives), or split it differently") --
+      an earlier version of this guard replaced that honest null-with-reason
+      with a hard refusal, which is worse than the bug it was fixing. **Not**
+      rejected here; left to the Scorecard, which already handles it.
 
-    Only "train" and "test" are checked: "validation" is assigned a label by
-    `assign_split` but nothing downstream (`train_protocol.py`, both ECFP4
-    engines) ever reads it for fitting or scoring, so a degenerate validation
-    partition has no honesty consequence to guard against.
+    Only "train" and "test" are checked at all: "validation" is assigned a
+    label by `assign_split` but nothing downstream (`train_protocol.py`,
+    both ECFP4 engines) ever reads it for fitting or scoring, so a degenerate
+    validation partition has no honesty consequence to guard against.
 
     A partition of fewer than two rows is skipped, not flagged: a single row
     trivially has exactly one distinct value regardless of whether the
@@ -231,7 +245,12 @@ def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> Validation
     decision already reviewed and accepted), so this runs here instead, once
     `command.target` and the split it produced are both in hand.
     """
-    for partition in ("train", "test"):
+    is_binary = target.kind is TargetKind.BINARY
+    # BINARY's test partition is deliberately excluded: see the docstring
+    # above for why rejecting it would replace an honest, already-working
+    # null-with-reason with an over-eager hard refusal.
+    partitions = ("train",) if is_binary else ("train", "test")
+    for partition in partitions:
         rows = frame.filter(pl.col("split") == partition)
         if rows.height < 2:
             # Either an explicitly requested zero-fraction partition, a case
@@ -241,7 +260,7 @@ def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> Validation
             continue
         if rows[target.column].n_unique() >= 2:
             continue
-        kind = "class" if target.kind is TargetKind.BINARY else "value"
+        kind = "class" if is_binary else "value"
         return ValidationError(
             f"The '{partition}' partition has only one distinct target {kind} after "
             "splitting, which would train or score a maximally confident but "

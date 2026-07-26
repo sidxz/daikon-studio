@@ -3,10 +3,30 @@ import pytest
 
 from daikonstudio.application.data.assign_split import assign_split
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
+from daikonstudio.domain.data.target import RESERVED_TARGET_COLUMNS
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 
 NORMALIZER = RdkitStructureNormalizer()
+
+
+def test_assign_split_only_ever_injects_a_reserved_column_name():
+    """Whole-branch review follow-up: the reserved set that C1 introduced
+    went stale within the same commit that created it (a `_row_number`
+    column added elsewhere collided with it, undetected). This asserts
+    against the *real* output of `assign_split` -- not a hand-maintained
+    mirror of what the function is believed to inject -- so a future column
+    added here without updating `RESERVED_TARGET_COLUMNS` fails this test
+    rather than shipping a silent-overwrite bug.
+    """
+    frame = pl.DataFrame({"smiles": ["CCO", "CCN"]})
+    result = assign_split(
+        frame, "smiles", SplitSpec(strategy=SplitStrategy.RANDOM, seed=1), NORMALIZER
+    )
+    injected = set(result.columns) - set(frame.columns)
+    assert injected  # the assertion below is meaningless if this ever becomes empty
+    assert injected <= RESERVED_TARGET_COLUMNS
+
 
 SMILES = [
     "CCO",
