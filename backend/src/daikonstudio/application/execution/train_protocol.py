@@ -44,6 +44,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import math
 import uuid
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -100,15 +101,33 @@ def scorecard_inputs_key(workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> str
 class ScorecardInputs:
     """Everything measured during a training run, before anyone interprets it.
 
-    This is the contract between Task 14 and Task 15: `build_scorecard` consumes
-    `task`/`actual`/`predicted`/`structures`/`train_structures` plus the three
-    comparison fields, and nothing here is a presentation decision.
+    This is the contract between Task 14 and Task 15. `build_scorecard` reads the
+    metric dicts as measured -- it does not recompute them -- and uses
+    `actual`/`predicted` for residuals and applicability only.
 
-    `baseline_is_self` and `random_split_unavailable` exist so the two honest
-    "no comparison happened" cases stay distinguishable from a real comparison.
-    Silence would let a Scorecard imply an independent baseline was beaten when
-    the model *is* the baseline, or that there was no optimism gap when there
-    was one and it could not be computed.
+    **What `predicted` holds depends on the task, and `prediction_kind` says
+    which so no consumer has to re-derive it:**
+
+    - `prediction_kind == "value"` (regression): the predicted target, in the
+      same unit as `actual`. `actual - predicted` is a residual.
+    - `prediction_kind == "probability"` (binary classification): P(class=1), a
+      float in [0, 1], while `actual` holds the 0/1 labels. Feeding this to a
+      metric that expects hard labels raises; a consumer wanting labels must
+      threshold it and own that choice explicitly.
+
+    Three fields exist purely so an absent number cannot be mistaken for a
+    different kind of absent number:
+
+    - `baseline_is_self` -- the chosen engine *is* the baseline, so
+      `baseline_metrics` is the same fit rather than an independent comparison.
+    - `random_split_unavailable` -- there was an optimism gap to measure and the
+      attempt failed, as distinct from `random_split_metrics is None` on a
+      dataset that is already randomly split, where there is nothing to measure.
+    - `metrics_undefined` -- why a metric came back undefined (`None`), keyed by
+      metric name. Without it a Scorecard reading "your model -- versus baseline
+      --" has no way to say why. It describes the Dataset's own test split, which
+      `metrics` and `baseline_metrics` share; `random_split_metrics` is scored on
+      a different partition and is not covered by it.
     """
 
     protocol_id: str
@@ -117,24 +136,29 @@ class ScorecardInputs:
     engine_id: str
     task: str
     conditions: dict[str, Any]
-    metrics: dict[str, float]
+    metrics: dict[str, float | None]
     actual: list[float]
     predicted: list[float]
+    prediction_kind: str
     structures: list[str]
     train_structures: list[str]
     baseline_engine_id: str
-    baseline_metrics: dict[str, float]
+    baseline_metrics: dict[str, float | None]
     baseline_is_self: bool
-    random_split_metrics: dict[str, float] | None
+    random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None
+    metrics_undefined: dict[str, str] | None
     duplicate_spread: float | None
 
     def to_json(self) -> bytes:
-        # `allow_nan` stays on: a classification metric is genuinely undefined on a
-        # single-class test split, and NaN is the honest encoding of that. Python's
-        # own decoder round-trips it; anything serving this over HTTP has to
-        # decide how to render an undefined metric, which is a Task 15/16 call.
-        return json.dumps(asdict(self)).encode()
+        # allow_nan=False on purpose. An undefined metric is real -- a single-class
+        # test split makes every classification metric meaningless -- but `NaN` is
+        # not JSON: strict parsers reject the document outright and jq quietly
+        # turns it into null, so the "honest" encoding was only honest to Python.
+        # Undefined metrics are already `None` by the time they get here (see
+        # `_measured`), with the reason in `metrics_undefined`; this flag is what
+        # stops a future edit silently reintroducing a bare NaN token.
+        return json.dumps(asdict(self), allow_nan=False).encode()
 
     @classmethod
     def from_json(cls, data: bytes) -> ScorecardInputs:
@@ -274,6 +298,7 @@ class RunTraining:
         frame = pl.read_parquet(
             io.BytesIO(self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id)))
         )
+        _require_structure_column(dataset, frame)
 
         chosen = await self._fit(run, engine, dataset, task, conditions, frame, 0.33)
 
@@ -316,32 +341,8 @@ class RunTraining:
         )
 
         protocol_id = uuid.uuid4()
-        # Only the chosen engine's weights are persisted. The baseline's and the
-        # random-split model's are dropped on the floor deliberately: an artifact
-        # is only worth storing if something can run it, and the only runnable
-        # thing here is the Protocol, of which there is exactly one. Those two
-        # fits exist to produce numbers, and their numbers are kept. Writing
-        # their weights would leave two blobs no row references -- and every one
-        # of them is reproducible anyway from (content_hash, seed, engine
-        # defaults), since nothing in this pipeline is unseeded.
-        artifact_uri = self._store.put_bytes(
-            artifact_key(run.workspace_id, protocol_id), chosen.artifact
-        )
-        protocol = InSilicoProtocol(
-            id=protocol_id,
-            workspace_id=run.workspace_id,
-            name=command.name,
-            dataset_id=dataset.id,
-            engine_id=manifest.id,
-            artifact_uri=artifact_uri,
-            # Derived from the Dataset's TargetSpec, which is what makes a
-            # predicted IC50 arrive in the same unit and direction as a measured
-            # one. The Protocol is created in DRAFT; Task 16 publishes it.
-            readouts=derive_readouts(dataset.target, task),
-            conditions=conditions,
-        )
-        await self._protocols.add(protocol)
-
+        metrics, undefined = _measured(chosen.metrics)
+        baseline_metrics, baseline_undefined = _measured(baseline_result.metrics)
         inputs = ScorecardInputs(
             protocol_id=str(protocol_id),
             run_id=str(run.id),
@@ -349,21 +350,64 @@ class RunTraining:
             engine_id=manifest.id,
             task=task.value,
             conditions=conditions,
-            metrics=chosen.metrics,
+            metrics=metrics,
             actual=[float(value) for value in test_rows[dataset.target.column].to_list()],
             predicted=[float(value) for value in predictions["value"].to_list()],
+            prediction_kind=("probability" if task is TaskType.BINARY_CLASSIFICATION else "value"),
             structures=[str(s) for s in test_rows[dataset.structure_column].to_list()],
             train_structures=[str(s) for s in train_rows[dataset.structure_column].to_list()],
             baseline_engine_id=baseline_manifest.id,
-            baseline_metrics=baseline_result.metrics,
+            baseline_metrics=baseline_metrics,
             baseline_is_self=baseline_is_self,
-            random_split_metrics=random_split_metrics,
+            random_split_metrics=(
+                None if random_split_metrics is None else _measured(random_split_metrics)[0]
+            ),
             random_split_unavailable=random_split_unavailable,
+            metrics_undefined=_undefined_reasons(
+                undefined | baseline_undefined, dataset, train_rows, test_rows
+            ),
             duplicate_spread=dataset.validation_report.duplicate_spread,
         )
-        return self._store.put_bytes(
+
+        # Blobs first, Protocol row last, and deliberately in that order. A
+        # Protocol is the publishable, citable thing; a Protocol row with no
+        # scorecard behind it is a model whose honesty data does not exist, which
+        # Task 16 would happily list and then fail to serve -- precisely the
+        # failure this codebase is built to prevent. Writing the row last means
+        # every failure mode leaves *no* Protocol rather than a hollow one.
+        #
+        # The inverse cost is blobs with no row pointing at them when the insert
+        # fails. That is the cheap direction: they sit inside the workspace's own
+        # prefix under an id nothing references, exactly like the orphan snapshot
+        # `create_dataset.py` already documents, and the same sweep reclaims both.
+        # One artifact, not three. The baseline's and the random-split model's
+        # weights are never written: an artifact is only worth storing if something
+        # can run it, the only runnable thing is the Protocol, and there is exactly
+        # one. Those two fits exist to produce numbers, and their numbers are kept
+        # above -- the fits themselves are reproducible from (content_hash, seed,
+        # engine defaults), since nothing in this pipeline is unseeded.
+        artifact_uri = self._store.put_bytes(
+            artifact_key(run.workspace_id, protocol_id), chosen.artifact
+        )
+        result_uri = self._store.put_bytes(
             scorecard_inputs_key(run.workspace_id, protocol_id), inputs.to_json()
         )
+        await self._protocols.add(
+            InSilicoProtocol(
+                id=protocol_id,
+                workspace_id=run.workspace_id,
+                name=command.name,
+                dataset_id=dataset.id,
+                engine_id=manifest.id,
+                artifact_uri=artifact_uri,
+                # Derived from the Dataset's TargetSpec, which is what makes a
+                # predicted IC50 arrive in the same unit and direction as a
+                # measured one. Created in DRAFT; Task 16 publishes it.
+                readouts=derive_readouts(dataset.target, task),
+                conditions=conditions,
+            )
+        )
+        return result_uri
 
     async def _optimism_gap(
         self,
@@ -464,6 +508,85 @@ class RunTraining:
     async def _progress(self, run: Run, fraction: float, phase: str) -> None:
         run.report_progress(fraction, phase=phase)
         await self._runs.update(run)
+
+
+def _measured(metrics: dict[str, float]) -> tuple[dict[str, float | None], set[str]]:
+    """Split an engine's metrics into JSON-encodable values and undefined names.
+
+    An engine reports an undefined metric as NaN (see `engines/_scoring.py`,
+    which returns NaN for all four classification metrics rather than letting
+    balanced accuracy quietly collapse to plain accuracy). NaN is the right
+    thing to *mean* and the wrong thing to *store*: it is not JSON. `None` is,
+    and the reason travels alongside it.
+    """
+    undefined = {name for name, value in metrics.items() if math.isnan(value)}
+    return {name: None if name in undefined else value for name, value in metrics.items()}, (
+        undefined
+    )
+
+
+def _undefined_reasons(
+    undefined: set[str], dataset: Dataset, train_rows: pl.DataFrame, test_rows: pl.DataFrame
+) -> dict[str, str] | None:
+    """Why those metrics are undefined, in words a scientist can act on.
+
+    Derived from the split that produced them rather than guessed: the reason a
+    classification metric has no value is almost always that one side of the
+    split holds a single class, and which side it is changes what the scientist
+    should do about it.
+    """
+    if not undefined:
+        return None
+    column = dataset.target.column
+    if test_rows[column].n_unique() < 2:
+        reason = (
+            f"every row in the test split has the same '{column}' value, so this "
+            "metric has no defined value -- add positives (or negatives) to the "
+            "dataset, or split it differently"
+        )
+    elif train_rows[column].n_unique() < 2:
+        reason = (
+            f"every row in the training split has the same '{column}' value, so the "
+            "model only ever learned one class and this metric has no defined value"
+        )
+    else:
+        # Not a case this function can explain from the split alone. Say that,
+        # rather than attribute it to a cause that was ruled out two lines up.
+        reason = "the engine reported this metric as undefined"
+    return dict.fromkeys(sorted(undefined), reason)
+
+
+# The `server_default` migration 005 backfilled onto Datasets created before the
+# column existed. Those rows have no true answer, so the sentinel is deliberately
+# not a plausible column name -- and training refuses it by name below.
+_LEGACY_STRUCTURE_COLUMN = "unknown"
+
+
+def _require_structure_column(dataset: Dataset, frame: pl.DataFrame) -> None:
+    """Fail with a cause a human can act on, not a polars `ColumnNotFoundError`.
+
+    Covers both the pre-migration sentinel and any other drift between what the
+    Dataset records and what its snapshot actually contains -- one guard, because
+    every such Dataset is untrainable for the same reason and reaching RDKit with
+    the wrong column produces a message naming neither the Dataset nor the cause.
+    """
+    is_legacy = dataset.structure_column == _LEGACY_STRUCTURE_COLUMN
+    if not is_legacy and dataset.structure_column in frame.columns:
+        return
+    # Everything actionable goes in the message, not `detail`: the worker records
+    # `repr(exc)` on the Run, and a DomainError's repr carries only its args -- so
+    # anything parked in `detail` would be invisible exactly where a scientist
+    # looks for why their training run failed.
+    cause = (
+        "this Dataset predates the structure_column migration, so which column "
+        "holds its structures was never recorded -- re-upload it to train on it"
+        if is_legacy
+        else f"its snapshot holds: {', '.join(frame.columns)}"
+    )
+    raise ValidationError(
+        f"Dataset '{dataset.id}' records its structures in column "
+        f"'{dataset.structure_column}', which cannot be used: {cause}"
+    )
 
 
 def _task_for(dataset: Dataset) -> TaskType:

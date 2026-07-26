@@ -18,12 +18,14 @@ because a mocked baseline is exactly the failure this file exists to prevent.
 
 from __future__ import annotations
 
+import json
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from daikonstudio.application.data.create_dataset import (
@@ -48,6 +50,7 @@ from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
 )
+from daikonstudio.infrastructure.persistence.sqlalchemy.data.models import DatasetModel
 from daikonstudio.infrastructure.persistence.sqlalchemy.data.repository import (
     SqlAlchemyDatasetRepository,
 )
@@ -102,6 +105,7 @@ class Studio:
     def __init__(self, sessions: async_sessionmaker, blobs: Path) -> None:
         self.auth = FakeAuth()
         self.blobs = blobs
+        self.sessions = sessions
         self.store = FsspecBlobStore(f"file://{blobs}")
         self.normalizer = RdkitStructureNormalizer()
         self.datasets = SqlAlchemyDatasetRepository(sessions)
@@ -409,6 +413,119 @@ async def test_an_unknown_engine_fails_the_run(studio: Studio) -> None:
     assert failed.status is RunStatus.FAILED
     assert failed.error_message is not None
     assert "nope" in failed.error_message
+
+
+async def test_a_failed_scorecard_write_leaves_no_protocol_behind(studio: Studio) -> None:
+    """A Protocol row with no scorecard behind it is a publishable model with no
+    honesty data -- Task 16 would list it and then have nothing to serve. The row
+    is written last precisely so no partial failure can produce one."""
+    real_put = studio.store.put_bytes
+
+    def fail_on_scorecard(key: str, data: bytes) -> str:
+        if key.endswith("scorecard-inputs.json"):
+            raise OSError("blob store went away")
+        return real_put(key, data)
+
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(studio.store, "put_bytes", fail_on_scorecard)
+    try:
+        dataset = await studio.dataset()
+        run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    finally:
+        monkeypatch.undo()
+
+    failed = await studio.reload(run)
+    assert failed.status is RunStatus.FAILED
+    assert "blob store went away" in (failed.error_message or "")
+    assert await studio.protocols.list(studio.auth.workspace_id) == []
+
+
+async def test_the_stored_scorecard_is_valid_json_even_when_a_metric_is_undefined(
+    studio: Studio,
+) -> None:
+    """A single-class test split makes every classification metric meaningless.
+    That is real and must be recorded -- but as `null` plus a reason, not as the
+    bare `NaN` token, which is not JSON: strict parsers reject the whole document
+    and jq silently turns it into null with no explanation attached."""
+    dataset = await studio.dataset(
+        kind=TargetKind.BINARY, values=(0.0,) * len(_STRUCTURES), unit=None
+    )
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-randomforest", conditions={})
+    await studio.wait(run)
+
+    protocol = await studio.protocol_for(run)
+    raw = studio.store.get_bytes(scorecard_inputs_key(studio.auth.workspace_id, protocol.id))
+    assert b"NaN" not in raw
+
+    # `parse_constant` is only called for NaN/Infinity/-Infinity, so this is a
+    # decoder that rejects exactly the non-standard tokens a strict parser would.
+    def reject(token: str) -> object:
+        raise AssertionError(f"non-standard JSON token in stored scorecard: {token}")
+
+    document = json.loads(raw, parse_constant=reject)
+
+    assert document["metrics"]["mcc"] is None
+    card = await studio.scorecard_for(run)
+    assert card.metrics["mcc"] is None
+    assert card.metrics_undefined is not None
+    assert set(card.metrics_undefined) == {"auprc", "auroc", "balanced_accuracy", "mcc"}
+    assert "test split" in card.metrics_undefined["mcc"]
+
+
+async def test_a_defined_metric_carries_no_undefined_reason(studio: Studio) -> None:
+    dataset = await studio.dataset()
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+
+    card = await studio.scorecard_for(run)
+    assert card.metrics_undefined is None
+    assert all(value is not None for value in card.metrics.values())
+
+
+async def test_predictions_say_what_they_are_rather_than_leaving_it_to_be_inferred(
+    studio: Studio,
+) -> None:
+    """`predicted` is the target value for regression and P(class=1) for
+    classification. Task 15 must not have to re-derive that from the task."""
+    regression = await studio.dataset()
+    run = await studio.train(dataset_id=regression.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+    assert (await studio.scorecard_for(run)).prediction_kind == "value"
+
+    values = tuple(float(index % 2) for index in range(len(_STRUCTURES)))
+    classification = await studio.dataset(kind=TargetKind.BINARY, values=values, unit=None)
+    run = await studio.train(
+        dataset_id=classification.id, engine_id="ecfp4-randomforest", conditions={}
+    )
+    await studio.wait(run)
+    card = await studio.scorecard_for(run)
+    assert card.prediction_kind == "probability"
+    assert all(0.0 <= value <= 1.0 for value in card.predicted)
+
+
+async def test_a_dataset_predating_the_structure_column_migration_fails_readably(
+    studio: Studio,
+) -> None:
+    """Migration 005 backfills `'unknown'`, which is deliberately not a plausible
+    column name. Training must say so, rather than reaching polars and dying with
+    a ColumnNotFoundError that names neither the Dataset nor the real cause."""
+    dataset = await studio.dataset()
+    async with studio.sessions() as session:
+        await session.execute(
+            update(DatasetModel)
+            .where(DatasetModel.id == dataset.id)
+            .values(structure_column="unknown")
+        )
+        await session.commit()
+
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+
+    failed = await studio.reload(run)
+    assert failed.status is RunStatus.FAILED
+    assert failed.error_message is not None
+    assert str(dataset.id) in failed.error_message
+    assert "predates the structure_column migration" in failed.error_message
 
 
 def test_default_registry_has_exactly_one_baseline() -> None:

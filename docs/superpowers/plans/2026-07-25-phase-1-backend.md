@@ -2077,15 +2077,29 @@ git commit -m "feat(execution): training orchestration with mandatory baseline a
 def build_scorecard(
     *,
     task: TaskType,
+    metrics: dict[str, float],              # pre-computed by the engine, NOT recomputed here
+    baseline_engine_id: str,
+    baseline_metrics: dict[str, float],     # mandatory — every run trains a baseline
+    baseline_is_self: bool,
     actual: list[float],
-    predicted: list[float],
+    predicted: list[float],                 # regression: value. classification: P(class=1)
     structures: list[str],
     train_structures: list[str],
-    baseline_engine_id: str | None = None,
-    baseline_metrics: dict[str, float] | None = None,
     random_split_metrics: dict[str, float] | None = None,
+    random_split_unavailable: str | None = None,
     duplicate_spread: float | None = None,
 ) -> Scorecard: ...
+```
+
+**`build_scorecard` does not compute metrics.** Task 14's engines already produced them via
+`_score`, and recomputing the model's numbers here while passing the baseline's through
+would put the two halves of the head-to-head on different code paths. `actual`/`predicted`
+are used only for the worst-20 residual list and the applicability distribution.
+
+For classification, `predicted` holds P(class=1), not a hard label — so residuals are
+probability residuals. Do not feed it to a label-based metric.
+
+```python
 ```
 
 - [ ] **Step 1: Write the failing test**
