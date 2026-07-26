@@ -126,7 +126,7 @@ def test_scaffold_split_raises_on_ordinary_evenly_sized_families():
     assert "25%" in excinfo.value.message
 
 
-def test_scaffold_split_singleton_tie_break_depends_on_seed_not_file_order():
+def test_scaffold_split_acyclic_singleton_tie_break_depends_on_seed_not_file_order():
     """Acyclic rows tie at group size 1; which of them is held out for validation/test
     must come from the seed, not from wherever they happened to sit in the uploaded
     file -- otherwise a CSV sorted by potency would leak a systematic bias into what
@@ -142,6 +142,59 @@ def test_scaffold_split_singleton_tie_break_depends_on_seed_not_file_order():
         benzenes = result.filter(pl.col("smiles").is_in(["c1ccccc1", "Cc1ccccc1", "CCc1ccccc1"]))
         assert benzenes["split"].n_unique() == 1
     assert len(patterns) > 1
+
+
+# Twelve real, ring-bearing molecules, each a distinct Murcko scaffold -- every one
+# of them a "singleton" scaffold family, none of them acyclic. This is the fixture
+# whose absence let the seed be inert on real chemical data: an earlier fix only
+# seeded the tie-break for empty-scaffold (acyclic/invalid) rows, so on data where
+# every molecule has a ring -- the common case, since most drug-like molecules do --
+# ties still broke by file order, and the module's own docstring wrongly claimed
+# immunity to it.
+RING_BEARING_SMILES = [
+    "c1ccccc1",  # benzene
+    "c1ccncc1",  # pyridine
+    "c1ccoc1",  # furan
+    "c1ccsc1",  # thiophene
+    "C1CCCC1",  # cyclopentane
+    "C1CCCCC1",  # cyclohexane
+    "C1CCNC1",  # pyrrolidine
+    "C1CCOC1",  # tetrahydrofuran
+    "c1ccc2ccccc2c1",  # naphthalene
+    "C1CC1",  # cyclopropane
+    "C1CCC1",  # cyclobutane
+    "C1CCNCC1",  # piperidine
+]
+
+
+def test_scaffold_split_seed_matters_when_every_molecule_has_a_ring():
+    """The generalized fix: on a fixture where nothing is acyclic, different seeds
+    must still produce different assignments. Before the fix, this printed the same
+    holdout for every seed tried, because only empty-scaffold ties were seeded."""
+    ring_frame = pl.DataFrame({"smiles": RING_BEARING_SMILES})
+    patterns = set()
+    for seed in (0, 1, 42, 999, 123456):
+        spec = SplitSpec(strategy=SplitStrategy.SCAFFOLD, seed=seed)
+        result = assign_split(ring_frame, "smiles", spec, NORMALIZER)
+        assert result["split"].null_count() == 0
+        patterns.add(tuple(result["split"].to_list()))
+    assert len(patterns) > 1
+
+
+def test_scaffold_split_holdout_is_order_invariant_when_every_molecule_has_a_ring():
+    """A CSV sorted by potency or appended chronologically must not change which
+    molecules get held out, for a fixed seed -- reversing the row order here must
+    not change the holdout set."""
+    spec = SplitSpec(strategy=SplitStrategy.SCAFFOLD, seed=7)
+    forward = assign_split(
+        pl.DataFrame({"smiles": RING_BEARING_SMILES}), "smiles", spec, NORMALIZER
+    )
+    backward = assign_split(
+        pl.DataFrame({"smiles": list(reversed(RING_BEARING_SMILES))}), "smiles", spec, NORMALIZER
+    )
+    forward_holdout = set(forward.filter(pl.col("split") != "train")["smiles"].to_list())
+    backward_holdout = set(backward.filter(pl.col("split") != "train")["smiles"].to_list())
+    assert forward_holdout == backward_holdout
 
 
 def test_tiny_frame_leaves_some_partitions_empty_but_never_crashes():

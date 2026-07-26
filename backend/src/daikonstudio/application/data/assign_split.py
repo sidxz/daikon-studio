@@ -5,15 +5,23 @@ it saw; a scaffold split keeps every Bemis-Murcko scaffold family on one side, w
 is what makes the resulting metrics answer "will this work on unseen chemistry?"
 
 Both strategies are deterministic: identical `(frame, spec.seed)` always produces
-identical assignments. RANDOM draws that determinism straight from the seeded
-`numpy.random.Generator`. SCAFFOLD's grouping and greedy fill are themselves fully
-determined by the input frame, but which row bears the tie-break when groups are
-equal in size is not left to file order (a CSV sorted by potency or appended
-chronologically would otherwise leak a systematic bias into "random" ties) -- it is
-resolved by the seeded RNG instead, so re-sorting the input can't change the split.
+identical assignments, including across processes. RANDOM draws that determinism
+straight from the seeded `numpy.random.Generator`. SCAFFOLD's grouping (which rows
+share a family) and greedy fill (which families go to which partition once ordered)
+are fully determined by the input frame's content, never its row order. The one
+place row order could matter is when two groups tie in size -- a real scaffold
+family of 3 next to another real scaffold family of 3, say, or (the common case,
+since most drug-like molecules have a ring and so mostly form real singleton
+families rather than the acyclic/invalid kind) any two distinct-scaffold molecules.
+That tie is broken by a key derived from the group's own scaffold identity and
+`spec.seed` via sha256 -- not from which one the file listed first -- so re-sorting
+or reversing the uploaded rows cannot change the split for a fixed seed, and
+`hash()` (salted per-process by `PYTHONHASHSEED`) is never used for it.
 """
 
 from __future__ import annotations
+
+import hashlib
 
 import numpy as np
 import polars as pl
@@ -23,6 +31,16 @@ from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.shared.errors import ValidationError
 
 _SINGLETON_PREFIX = "\0singleton-"
+
+
+def _tie_break_key(seed: int, group_key: str) -> int:
+    """A per-group pseudo-random key: stable across processes (sha256, not the
+    per-process-salted `hash()`) and a pure function of the group's own identity, not
+    of where its rows sat in the file -- so it can't reintroduce the file-order bias
+    this exists to eliminate.
+    """
+    digest = hashlib.sha256(f"{seed}:{group_key}".encode()).digest()
+    return int.from_bytes(digest[:8], "big")
 
 
 def assign_split(
@@ -78,35 +96,37 @@ def _scaffold_labels(
     n = frame.height
     if n == 0:
         return []
-    scaffolds = [normalizer.murcko_scaffold(str(s)) for s in frame[structure_column].to_list()]
+    structures = [str(s) for s in frame[structure_column].to_list()]
+    scaffolds = [normalizer.murcko_scaffold(structure) for structure in structures]
 
     # An empty scaffold means "acyclic or invalid", not "same family" -- chemically,
     # two acyclic molecules share nothing just because neither has a ring. Lumping
     # every such row into one mega-group would let that coincidence dictate an entire
-    # partition; each empty-scaffold row instead gets its own singleton group, keyed
-    # uniquely by row position so it can never collide with another row's key.
+    # partition, so each such row is keyed by its own structure text rather than a
+    # shared "" key -- two different acyclic molecules land in different groups (an
+    # actual duplicate structure still correctly merges into one). Keying by the
+    # structure's own content, not by row position, matters below: it's what makes
+    # the tie-break key depend only on the molecule, never on where it sat in the file.
     group_keys = [
-        scaffold if scaffold != "" else f"{_SINGLETON_PREFIX}{index}"
-        for index, scaffold in enumerate(scaffolds)
+        scaffold if scaffold != "" else f"{_SINGLETON_PREFIX}{structure}"
+        for scaffold, structure in zip(scaffolds, structures, strict=True)
     ]
     groups: dict[str, list[int]] = {}
     for index, key in enumerate(group_keys):
         groups.setdefault(key, []).append(index)
 
-    # Real scaffold families keep first-occurrence tie order (unaffected by the seed).
-    # Singleton groups -- typically the acyclic/invalid rows, the ones most likely to
-    # dominate a dataset and the ones an uploaded CSV is most likely to have sorted by
-    # something scientifically meaningful (potency, upload date) -- are shuffled by
-    # the seeded RNG before the stable size sort, so their tie order comes from the
-    # seed, not from wherever they happened to sit in the file.
-    is_singleton = {key: key.startswith(_SINGLETON_PREFIX) for key in groups}
-    real_groups = [group for key, group in groups.items() if not is_singleton[key]]
-    singleton_groups = [group for key, group in groups.items() if is_singleton[key]]
-    shuffle_order = np.random.default_rng(spec.seed).permutation(len(singleton_groups))
-    singleton_groups = [singleton_groups[i] for i in shuffle_order]
-    # A stable sort on size alone leaves ties in the order given -- first-occurrence
-    # for real families, seed-shuffled for singletons.
-    ordered_groups = sorted(real_groups + singleton_groups, key=len, reverse=True)
+    # Sort by descending size; ties -- any two groups of equal size, real scaffold
+    # families included, not just the acyclic/invalid ones -- are broken by
+    # `_tie_break_key`, a function of the group's own identity and the seed. Nothing
+    # here depends on which group the file happened to list first: reversing or
+    # re-sorting the input rows cannot change the split for a fixed seed.
+    ordered_groups = [
+        rows
+        for _key, rows in sorted(
+            groups.items(),
+            key=lambda item: (-len(item[1]), _tie_break_key(spec.seed, item[0])),
+        )
+    ]
 
     train_n, val_n, test_n = _partition_sizes(n, spec.fractions)
     train_cutoff = train_n
