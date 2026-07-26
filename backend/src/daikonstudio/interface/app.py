@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.infrastructure.sentinel.auth import get_sentinel, register_service_actions
 from daikonstudio.interface.error_handlers import register_error_handlers
+from daikonstudio.interface.routes.collections import router as collections_router
 from daikonstudio.interface.routes.datasets import router as datasets_router
 from daikonstudio.interface.routes.engines import router as engines_router
 from daikonstudio.interface.routes.protocols import router as protocols_router
@@ -72,6 +73,7 @@ def create_app() -> FastAPI:
     async def version() -> dict[str, str]:
         return {"service": settings.service_name, "version": app.version}
 
+    app.include_router(collections_router)
     app.include_router(datasets_router)
     app.include_router(engines_router)
     app.include_router(protocols_router)

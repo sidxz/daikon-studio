@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
-from sqlalchemy import Index, Integer, String, Text
+from sqlalchemy import Index, Integer, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -36,3 +37,13 @@ class DatasetModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
         # Backs the newest-first keyset listing.
         Index("ix_datasets_workspace_created_at", "workspace_id", "created_at"),
     )
+
+
+class CollectionModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
+    __tablename__ = "collections"
+
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    derived_from_run_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    member_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    snapshot_uri: Mapped[str] = mapped_column(Text, nullable=False)
+    provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)

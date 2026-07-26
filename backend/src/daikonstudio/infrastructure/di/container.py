@@ -15,7 +15,9 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 from daikonstudio.application.catalog.get_scorecard import GetScorecard
 from daikonstudio.application.catalog.list_protocols import GetProtocol, ListProtocols
 from daikonstudio.application.catalog.publish_protocol import PublishProtocol
+from daikonstudio.application.data.create_collection import CreateCollection, GetCollection
 from daikonstudio.application.data.create_dataset import CreateDataset, StoreUpload
+from daikonstudio.application.data.export_collection import ExportCollection
 from daikonstudio.application.data.get_dataset import GetDataset
 from daikonstudio.application.data.list_datasets import ListDatasets
 from daikonstudio.application.engines.registry import EngineRegistry
@@ -34,6 +36,9 @@ from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.persistence.session import create_session_factory
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
+)
+from daikonstudio.infrastructure.persistence.sqlalchemy.data.collection_repository import (
+    SqlAlchemyCollectionRepository,
 )
 from daikonstudio.infrastructure.persistence.sqlalchemy.data.repository import (
     SqlAlchemyDatasetRepository,
@@ -76,6 +81,9 @@ def create_container(settings: Settings | None = None) -> Container:
 
     def _runs(c: Container) -> SqlAlchemyRunRepository:
         return SqlAlchemyRunRepository(c[async_sessionmaker])
+
+    def _collections(c: Container) -> SqlAlchemyCollectionRepository:
+        return SqlAlchemyCollectionRepository(c[async_sessionmaker])
 
     container.define(StoreUpload, lambda c: StoreUpload(c[BlobStore]))
     container.define(
@@ -136,6 +144,16 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         GetPredictionResults,
         lambda c: GetPredictionResults(_runs(c), _protocols(c), c[BlobStore]),
+    )
+
+    container.define(
+        CreateCollection,
+        lambda c: CreateCollection(_collections(c), _runs(c), _protocols(c), c[BlobStore]),
+    )
+    container.define(GetCollection, lambda c: GetCollection(_collections(c)))
+    container.define(
+        ExportCollection,
+        lambda c: ExportCollection(_collections(c), _runs(c), _protocols(c), c[BlobStore]),
     )
 
     return container
