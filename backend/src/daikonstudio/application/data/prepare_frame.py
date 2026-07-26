@@ -29,6 +29,13 @@ def prepare_frame(
     normalizer: StructureNormalizer,
 ) -> tuple[pl.DataFrame, ValidationReport]:
     total_rows = frame.height
+    if total_rows == 0:
+        # A CSV with a header row and no data rows arrives here as height 0, not as
+        # rows that fail to canonicalize -- distinct from the valid_rows == 0 guard
+        # below. Caught before any per-row work: an empty boolean predicate below
+        # infers polars' Null dtype rather than Boolean, and .filter() on that raises
+        # instead of returning a well-formed empty report.
+        return frame, ValidationReport(total_rows=0, valid_rows=0)
     raw_structures = [str(value) for value in frame[structure_column].to_list()]
     canonical = [normalizer.canonicalize(smiles) for smiles in raw_structures]
 
@@ -60,6 +67,10 @@ def prepare_frame(
         )
 
     other_columns = [c for c in frame.columns if c not in (structure_column, target.column)]
+    # ponytail: a duplicate group narrows extra columns to the first row's value, so a
+    # column that legitimately varies across replicates (e.g. batch ID) collapses to
+    # one arbitrary pick. Upgrade path: carry such columns through as a per-group list,
+    # or reject on conflict the way BINARY targets already do.
     keep_others = [pl.col(c).first() for c in other_columns]
 
     if target.kind is TargetKind.NUMERIC:

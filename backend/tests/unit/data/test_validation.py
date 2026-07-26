@@ -75,3 +75,13 @@ def test_numeric_duplicates_with_identical_values_have_zero_spread_and_still_cou
     assert prepared.height == 1
     assert report.duplicates_collapsed == 1
     assert report.duplicate_spread == pytest.approx(0.0)
+
+
+def test_empty_frame_yields_a_well_formed_report_without_crashing():
+    """A CSV with a header row and no data rows reaches prepare_frame at height 0 --
+    distinct from the all-invalid case, which has rows that just fail to parse."""
+    frame = pl.DataFrame({"smiles": [], "y": []})
+    prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
+    assert prepared.height == 0
+    assert report.total_rows == 0
+    assert report.valid_rows == 0
