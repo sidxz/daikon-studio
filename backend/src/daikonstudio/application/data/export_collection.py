@@ -5,16 +5,23 @@ each -- inferable from the file's own content, never only from a filename
 or a Content-Type header a client can drop:
 
 - CSV: `generation_method` is its own column, holding the value on every
-  row. A spreadsheet shows it as plainly as any other column; a unit lives
-  in the column header (`"IC50 (nM)"`) since a CSV cell is expected to hold
-  a bare, sortable, plottable number, not a number wearing a unit as text.
+  row. A spreadsheet shows it as plainly as any other column; a unit (and
+  direction) lives in the column header (`"IC50 (nM, lower is better)"`)
+  since a CSV cell is expected to hold a bare, sortable, plottable number,
+  not a number wearing a unit as text.
 - SDF: `generation_method` is its own SD tag on every molecule block --
   the SDF equivalent of a column, so a chemistry tool renders it as a
   visible field the same way it would for a measured value's own tags. A
-  readout's own tag carries its value *and* its unit together
-  (`"7.24 nM"`, not a bare `"7.24"`), because that is the one thing an SD
-  tag's value is expected to be self-describing about: SDF has no header
-  row to hang a unit on the way CSV does.
+  readout's own tag carries its value, unit *and* direction together
+  (`"7.24 nM (lower is better)"`, not a bare `"7.24"`), because that is the
+  one thing an SD tag's value is expected to be self-describing about: SDF
+  has no header row to hang a unit or direction on the way CSV does.
+
+Direction travels alongside unit in both formats for the same reason
+`derive_readouts.py` derives it in the first place: "the same unit and the
+same *direction* as a measured one" is the whole point, and a chemist
+reading a bare `IC50 (nM): 6.47` next to a measured column has no way to
+tell from the file whether lower is better.
 
 Both branches read `protocol.readouts` fresh via the Collection's
 `derived_from_run_id -> Run.params["protocol_id"]`, the same path
@@ -23,7 +30,15 @@ its own copy of readout names/units/directions. That is safe only because a
 published Protocol's readouts are immutable for the rest of that Protocol's
 life (`domain/catalog/protocol.py`): there is no code path in this system
 that deletes or edits a Protocol once published, so re-reading it here can
-never disagree with what the Collection's numbers actually mean.
+never disagree with what the Collection's numbers actually mean -- see the
+`ponytail:` comment on the Protocol lookup below for the ceiling on that.
+
+`_RESERVED_COLUMNS` guards the one column/tag name this module appends
+itself (`generation_method`). A readout that happened to be named the same
+would otherwise have its real predicted value silently overwritten by the
+provenance stamp -- `_render_csv` renames-then-overwrites, `_render_sdf`
+sets the readout's own prop then the provenance prop over it -- so this is
+caught before either render runs, not discovered as a corrupted file.
 """
 
 from __future__ import annotations
@@ -43,7 +58,12 @@ from daikonstudio.application.ports.collection_repository import CollectionRepos
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.catalog.readout import Readout
-from daikonstudio.domain.shared.errors import DomainError, NotFoundError
+from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
+
+# The only column/tag this module appends on top of a Run's own readouts.
+_RESERVED_COLUMNS = frozenset({"generation_method"})
+
+_DIRECTION_LABEL = {"high": "higher is better", "low": "lower is better"}
 
 
 class ExportFormat(StrEnum):
@@ -91,14 +111,33 @@ class ExportCollection:
         if run is None:
             return Failure(NotFoundError("Run", str(collection.derived_from_run_id)))
         protocol_id = uuid.UUID(run.params["protocol_id"])
+        # ponytail: re-resolves the Protocol live on every export rather than
+        # the Collection snapshotting its own copy of readout metadata (see
+        # this module's docstring for why that's safe today). Revisit if a
+        # future task ever lets a published Protocol be deleted or edited.
         protocol = await self._protocols.get(auth.workspace_id, protocol_id)
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(protocol_id)))
+
+        collisions = sorted({r.name for r in protocol.readouts} & _RESERVED_COLUMNS)
+        if collisions:
+            return Failure(
+                ValidationError(
+                    f"Readout name(s) {collisions} collide with a column this export "
+                    "format reserves for provenance stamping; cannot export safely",
+                    detail=f"Reserved: {sorted(_RESERVED_COLUMNS)}",
+                )
+            )
 
         try:
             raw = self._store.get_bytes(collection.snapshot_uri)
         except FileNotFoundError:
             return Failure(NotFoundError("Collection snapshot", str(collection.id)))
+        # ponytail: reads and holds the entire snapshot Parquet in memory --
+        # `GetPredictionResults` carries this exact note for the same
+        # `pl.read_parquet` shape. Fine at today's per-Collection sizes (a
+        # scientist's triage selection, not a whole run); upgrade path if a
+        # Collection's row count ever grows large is `scan_parquet`.
         frame = pl.read_parquet(io.BytesIO(raw))
 
         generation_method = collection.provenance.generation_method.value
@@ -118,17 +157,36 @@ class ExportCollection:
         )
 
 
+def _unit_and_direction(readout: Readout) -> str | None:
+    """`"nM, lower is better"` / `"nM"` / `"lower is better"` / `None` --
+    whichever of unit and direction the readout actually carries, joined for
+    a column header's parenthetical."""
+    direction_label = _DIRECTION_LABEL.get(readout.direction or "")
+    parts = [part for part in (readout.unit, direction_label) if part]
+    return ", ".join(parts) if parts else None
+
+
 def _render_csv(
     frame: pl.DataFrame, readouts: tuple[Readout, ...], generation_method: str
 ) -> bytes:
     rename = {"structure": "smiles"}
     for readout in readouts:
-        label = f"{readout.name} ({readout.unit})" if readout.unit else readout.name
-        rename[readout.name] = label
+        label = _unit_and_direction(readout)
+        rename[readout.name] = f"{readout.name} ({label})" if label else readout.name
     out = frame.rename(rename).with_columns(pl.lit(generation_method).alias("generation_method"))
     buffer = io.BytesIO()
     out.write_csv(buffer)
     return buffer.getvalue()
+
+
+def _value_label(value: object, readout: Readout) -> str:
+    """`"7.24 nM (lower is better)"` -- the bare value, its unit, and its
+    direction, all in one self-describing string. SDF has no header row to
+    hang a unit or direction on the way CSV does, so the *value* itself has
+    to carry them."""
+    text = f"{value} {readout.unit}" if readout.unit else str(value)
+    direction_label = _DIRECTION_LABEL.get(readout.direction or "")
+    return f"{text} ({direction_label})" if direction_label else text
 
 
 def _render_sdf(
@@ -147,9 +205,7 @@ def _render_sdf(
             continue
         mol.SetProp("_Name", row["structure"])
         for readout in readouts:
-            value = row[readout.name]
-            label = f"{value} {readout.unit}" if readout.unit else str(value)
-            mol.SetProp(readout.name, label)
+            mol.SetProp(readout.name, _value_label(row[readout.name], readout))
         mol.SetProp("generation_method", generation_method)
         writer.write(mol)
     writer.close()

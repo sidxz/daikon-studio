@@ -9,15 +9,23 @@ already holds a finished Run by the time the request returns -- the same
 
 from __future__ import annotations
 
+import csv
+import io
 import uuid
 from typing import Any
 
 import pytest_asyncio
+from rdkit import Chem
 
 from daikonstudio.domain.execution.run import Run, RunKind
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
 )
+
+# Mirrors `export_collection.py`'s own `_DIRECTION_LABEL` -- a small, stable
+# English-phrase contract, duplicated here deliberately so these tests assert
+# against the HTTP-visible contract, not by importing the implementation.
+_DIRECTION_LABEL = {"high": "higher is better", "low": "lower is better"}
 
 # Twenty distinct compounds to train on -- the same shape `test_runs.py` uses,
 # for the same reason: a real 16/2/2 random split needs enough rows to hold.
@@ -48,25 +56,44 @@ _STRUCTURES = (
 _PREDICTION_CSV = b"smiles\nCCO\nCCN\nc1ccccc1\nFc1ccc(F)cc1\n"
 
 
-def _training_csv() -> bytes:
+def _training_csv(column: str = "y") -> bytes:
     rows = "\n".join(f"{smiles},{1.0 + 0.37 * index}" for index, smiles in enumerate(_STRUCTURES))
-    return f"smiles,y\n{rows}\n".encode()
+    return f"smiles,{column}\n{rows}\n".encode()
 
 
-async def _create_dataset(client, csv_upload) -> str:
-    upload_ref = await csv_upload(_training_csv())
+async def _create_dataset(client, csv_upload, *, target_column: str = "y") -> str:
+    upload_ref = await csv_upload(_training_csv(target_column))
     response = await client.post(
         "/api/v1/datasets",
         json={
             "name": "solubility",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+            "target": {
+                "column": target_column,
+                "kind": "numeric",
+                "unit": "logS",
+                "direction": "high",
+            },
             "split": {"strategy": "random", "seed": 1},
         },
     )
     assert response.status_code == 201, response.text
     return str(response.json()["id"])
+
+
+async def _result_structures(client, run_id: str) -> list[str]:
+    """The run's own results, in file order -- `test_runs.py`'s pagination
+    tests already establish this order is stable and offset-addressable."""
+    response = await client.get(f"/api/v1/runs/{run_id}/results?limit=50")
+    assert response.status_code == 200, response.text
+    return [item["structure"] for item in response.json()["items"]]
+
+
+async def _result_values(client, run_id: str, readout_name: str) -> list[float]:
+    response = await client.get(f"/api/v1/runs/{run_id}/results?limit=50")
+    assert response.status_code == 200, response.text
+    return [item["readouts"][readout_name]["value"] for item in response.json()["items"]]
 
 
 async def _train(client, dataset_id: str, **overrides: object) -> Any:
@@ -174,9 +201,16 @@ async def test_csv_export_contains_the_selected_structures(client, collection_id
 
 
 async def test_sdf_export_is_a_valid_molfile_block(client, collection_id):
+    """Not just "the delimiter appears twice" -- RDKit must actually be able
+    to read every block back as a molecule. A malformed atom table or a
+    mangled tag delimiter would still pass a bare `$$$$` count."""
     response = await client.get(f"/api/v1/collections/{collection_id}/export?format=sdf")
     assert response.status_code == 200, response.text
     assert response.text.count("$$$$") == 2
+
+    molecules = list(Chem.ForwardSDMolSupplier(io.BytesIO(response.content)))
+    assert len(molecules) == 2
+    assert all(mol is not None for mol in molecules)
 
 
 async def test_predictions_carry_the_ai_predicted_provenance(client, collection_id):
@@ -192,27 +226,107 @@ async def test_selecting_rows_from_an_unfinished_run_is_rejected(client, pending
     assert response.status_code == 409, response.text
 
 
-async def test_csv_column_header_carries_the_readouts_unit(client, collection_id, readout):
-    """Decision 3: a spreadsheet reader sees the unit in the column header,
-    not just a bare number -- CSV has no per-cell tag the way SDF does."""
+async def test_csv_column_header_carries_the_readouts_unit_and_direction(
+    client, collection_id, readout
+):
+    """Decision 3 (Important 1 fix): a spreadsheet reader sees the unit
+    *and* direction in the column header itself -- CSV has no per-cell tag
+    the way SDF does. Parsed with `csv.DictReader`, not a substring search:
+    a bare `"logS" in body` would pass even if the unit landed somewhere
+    unrelated to the actual value column."""
     response = await client.get(f"/api/v1/collections/{collection_id}/export?format=csv")
-    header = response.text.splitlines()[0]
-    assert f"{readout['name']} ({readout['unit']})" in header
-    assert "generation_method" in header
-    rows = response.text.splitlines()[1:]
-    assert all("ai_predicted" in row for row in rows)
+    rows = list(csv.DictReader(response.text.splitlines()))
+    assert len(rows) == 2
+
+    direction_label = _DIRECTION_LABEL[readout["direction"]]
+    column = f"{readout['name']} ({readout['unit']}, {direction_label})"
+    assert column in rows[0]  # KeyError if the header doesn't have exactly this name
+    assert all(row["generation_method"] == "ai_predicted" for row in rows)
 
 
-async def test_sdf_tag_carries_the_readouts_value_and_unit(client, collection_id, readout):
-    """Decision 3: an SD tag's *value* is labelled with its unit (a chemistry
-    tool has no header row to hang a unit on the way a spreadsheet does), and
-    a dedicated `generation_method` tag marks every block as a prediction."""
+async def test_sdf_tag_carries_the_readouts_value_unit_and_direction(
+    client, ready_run_id, collection_id, readout
+):
+    """Decision 3 (Important 1 + 4 fix): an SD tag's *value* is labelled with
+    its unit and direction together (a chemistry tool has no header row to
+    hang either on), and a dedicated `generation_method` tag marks every
+    block as a prediction -- not inferable only from the filename.
+
+    Parsed with RDKit's own SD reader and compared with `==` against the
+    exact predicted value, not a substring search: `"logS" in body` would
+    pass even if the unit were detached from the value entirely.
+    """
+    values = await _result_values(client, ready_run_id, readout["name"])
+    # `collection_id` selected row_ids [0, 3] -- the first of those two.
+    first_value = values[0]
+    direction_label = _DIRECTION_LABEL[readout["direction"]]
+
     response = await client.get(f"/api/v1/collections/{collection_id}/export?format=sdf")
-    body = response.text
-    assert f"<{readout['name']}>" in body
-    assert readout["unit"] in body
-    assert "<generation_method>" in body
-    assert "ai_predicted" in body
+    molecules = list(Chem.ForwardSDMolSupplier(io.BytesIO(response.content)))
+    assert len(molecules) == 2
+
+    first = molecules[0]
+    assert first.GetProp(readout["name"]) == f"{first_value} {readout['unit']} ({direction_label})"
+    assert first.GetProp("generation_method") == "ai_predicted"
+
+
+async def test_export_preserves_the_callers_selection_order_not_sorted(client, ready_run_id):
+    """Decision 1's whole point, made concrete: `row_ids` is a ranked "top N"
+    the caller chose, not a set. `[3, 0]` must come back as compound 3 then
+    compound 0 -- re-sorting ascending would be the exact "believed they
+    saved compound A" substitution the decision was written against."""
+    structures = await _result_structures(client, ready_run_id)
+    assert len(structures) == 4
+
+    async def _exported_smiles(row_ids: list[int]) -> list[str]:
+        created = await client.post(
+            "/api/v1/collections",
+            json={"name": f"order {row_ids}", "run_id": ready_run_id, "row_ids": row_ids},
+        )
+        assert created.status_code == 201, created.text
+        export = await client.get(f"/api/v1/collections/{created.json()['id']}/export?format=csv")
+        return [row["smiles"] for row in csv.DictReader(export.text.splitlines())]
+
+    assert await _exported_smiles([0, 3]) == [structures[0], structures[3]]
+    assert await _exported_smiles([3, 0]) == [structures[3], structures[0]]
+    assert await _exported_smiles([2]) == [structures[2]]
+
+
+async def test_export_rejects_a_readout_name_that_collides_with_the_provenance_column(
+    client, csv_upload
+):
+    """Important 2 fix: a readout literally named `generation_method` would
+    otherwise have its real predicted value silently overwritten by the
+    provenance stamp (CSV: renamed-then-overwritten column; SDF: the
+    readout's own `SetProp` clobbered by the provenance `SetProp` right
+    after it). Guarded before either render runs, not discovered as a
+    corrupted file with a 200 status."""
+    dataset_id = await _create_dataset(client, csv_upload, target_column="generation_method")
+    trained = await _train(client, dataset_id)
+    assert trained.status_code == 202, trained.text
+    listing = await client.get("/api/v1/protocols")
+    items = listing.json()["items"]
+    assert len(items) == 1, items
+    protocol_id = items[0]["id"]
+    published = await client.post(f"/api/v1/protocols/{protocol_id}/publish")
+    assert published.status_code == 204, published.text
+
+    upload_ref = await csv_upload(_PREDICTION_CSV)
+    run = await _predict(client, protocol_id, upload_ref)
+    assert run.status_code == 202, run.text
+
+    created = await client.post(
+        "/api/v1/collections",
+        json={"name": "colliding", "run_id": run.json()["id"], "row_ids": [0]},
+    )
+    assert created.status_code == 201, created.text
+    collection_id = created.json()["id"]
+
+    for export_format in ("csv", "sdf"):
+        response = await client.get(
+            f"/api/v1/collections/{collection_id}/export?format={export_format}"
+        )
+        assert response.status_code == 422, response.text
 
 
 async def test_empty_row_ids_is_rejected(client, ready_run_id):
