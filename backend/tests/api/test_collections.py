@@ -207,6 +207,17 @@ async def test_saving_a_triage_selection_creates_a_collection(client, ready_run_
     assert body["name"] == "top 2 for synthesis"
 
 
+async def test_an_overlong_collection_name_is_a_422_not_an_asyncpg_500(client, ready_run_id):
+    """I3 (whole-branch review, Important): matches `CollectionModel.name`'s
+    `String(256)` column, the same finding as `test_datasets.py`'s own
+    `name`/`structure_column` coverage."""
+    response = await client.post(
+        "/api/v1/collections",
+        json={"name": "x" * 257, "run_id": ready_run_id, "row_ids": [0]},
+    )
+    assert response.status_code == 422, response.text
+
+
 async def test_csv_export_contains_the_selected_structures(client, collection_id):
     response = await client.get(f"/api/v1/collections/{collection_id}/export?format=csv")
     assert response.status_code == 200, response.text
@@ -338,27 +349,44 @@ async def _create_collection(
     return str(created.json()["id"])
 
 
-async def test_export_rejects_a_readout_name_that_collides_with_the_provenance_column(
+async def test_a_generation_method_readout_collision_is_now_rejected_at_creation(
     client, csv_upload
 ):
-    """Important 2 fix: a readout literally named `generation_method`, with
-    no unit or direction to disambiguate it, renders to the bare name
-    `"generation_method"` in both formats -- colliding with the provenance
-    column/tag this module always appends (CSV: renamed-then-overwritten
-    column; SDF: the readout's own `SetProp` clobbered by the provenance
-    `SetProp` right after it). Guarded before either render runs, not
-    discovered as a corrupted file with a 200 status."""
-    dataset_id = await _create_dataset(
-        client, csv_upload, target_column="generation_method", unit=None, direction=None
-    )
-    run_id = await _publish_and_predict(client, csv_upload, dataset_id)
-    collection_id = await _create_collection(client, run_id, "colliding generation_method")
+    """Was Important 2 (round 2): a readout literally named `generation_method`
+    rendered to the bare name `"generation_method"` in both export formats,
+    colliding with the provenance column/tag this module always appends -- so
+    it used to be caught here, by `export_collection.py`'s own duplicate-label
+    guard, at export time.
 
-    for export_format in ("csv", "sdf"):
-        response = await client.get(
-            f"/api/v1/collections/{collection_id}/export?format={export_format}"
-        )
-        assert response.status_code == 422, response.text
+    C1 (whole-branch review, this round) moved that same rejection to Dataset
+    creation: `generation_method` is one of the reserved names
+    `create_dataset.py` now refuses as a target column outright (see
+    `tests/api/test_datasets.py`'s own coverage of that guard), because
+    catching it at export time is downstream of a Protocol that has already
+    been trained and published on the bad column. `CreateDataset` is the only
+    path that can ever produce a Dataset in this app, so the scenario this
+    test used to build -- a *trained* Protocol with a `generation_method`
+    readout reaching export -- can no longer occur at all; what's left to
+    pin is that creation itself refuses it, which is what this now checks.
+
+    The export guard's own mechanism (computing rendered labels and checking
+    for duplicates before either render runs) is still fully exercised by its
+    sibling tests below via the `"smiles"` collision, which -- unlike
+    `generation_method` -- is a CSV-format rename target, not a
+    pipeline-injected column, and so is not one of C1's reserved names.
+    """
+    response = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "solubility",
+            "upload_ref": await csv_upload(_training_csv(target_column="generation_method")),
+            "structure_column": "smiles",
+            "target": {"column": "generation_method", "kind": "numeric"},
+            "split": {"strategy": "random", "seed": 1},
+        },
+    )
+    assert response.status_code == 422, response.text
+    assert "generation_method" in response.json()["message"]
 
 
 async def test_export_rejects_a_readout_that_renders_to_the_bare_smiles_column(client, csv_upload):

@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, UploadFile
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from daikonstudio.application.data.create_dataset import (
     CreateDataset,
@@ -71,9 +71,14 @@ class SplitBody(BaseModel):
 class CreateDatasetBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    # `max_length` matches the `String(256)`/`String(128)` columns these values
+    # are eventually written into (`DatasetModel.name`/`.structure_column`) --
+    # without it, an over-long value reaches asyncpg and comes back as an
+    # unmapped `StringDataRightTruncationError` (500), rather than a 422 that
+    # names the field (whole-branch review, Important 3).
+    name: str = Field(max_length=256)
     upload_ref: str
-    structure_column: str
+    structure_column: str = Field(max_length=128)
     target: TargetBody
     split: SplitBody
 

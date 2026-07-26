@@ -18,6 +18,13 @@ class InvalidRow:
 class ConflictRow:
     structure: str
     values: list[int]
+    # 1-indexed positions in the *uploaded* file, matching `InvalidRow.row_number`'s
+    # own convention -- a conflict spans several rows (the replicate measurements
+    # that disagree), so this is a collection rather than a single int. Without it,
+    # a scientist reading "CCO: [0, 1]" in a ten-thousand-row CSV has no way to find
+    # the rows being talked about -- especially since `structure` here is the
+    # canonicalized SMILES, which need not match the text the file actually contains.
+    row_numbers: list[int]
 
 
 @dataclass(frozen=True, kw_only=True)

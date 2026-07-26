@@ -29,7 +29,7 @@ from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.data.dataset import Dataset, DuplicateDatasetError
 from daikonstudio.domain.data.split import SplitSpec
-from daikonstudio.domain.data.target import TargetSpec
+from daikonstudio.domain.data.target import RESERVED_TARGET_COLUMNS, TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import InvalidDatasetError
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
 
@@ -83,6 +83,34 @@ class CreateDataset:
         assert auth is not None  # require_authenticated has already rejected None
         workspace_id = auth.workspace_id
 
+        # C1 (whole-branch review, Critical): a target column named the same as
+        # one of these is not a naming quirk -- it is a silent data-corruption
+        # bug. `derive_readouts` names the predicted Readout after
+        # `target.column`, and every one of these names is a column the
+        # pipeline itself writes downstream (see `RESERVED_TARGET_COLUMNS`'s own
+        # comment for exactly where): whichever write happens last wins, so
+        # either the served prediction becomes the model's uncertainty/an
+        # unrelated provenance value, or -- for a target named "structure" --
+        # the compound identity column is overwritten by the predicted value
+        # instead. Checked here, before any file is even read, because this is
+        # the one and only place a rejection can still prevent the damage; the
+        # export-time collision guard (`export_collection.py`) is downstream of
+        # a Protocol that has already been trained and published on the bad
+        # column.
+        if command.target.column in RESERVED_TARGET_COLUMNS:
+            return Failure(
+                ValidationError(
+                    f"'{command.target.column}' cannot be used as a target column",
+                    detail=(
+                        "This name is reserved for a column the pipeline itself writes "
+                        "downstream (prediction results, exports, or the train/test split "
+                        "column) -- using it as a target would let that column silently "
+                        "overwrite the target's own values in every prediction and export. "
+                        f"Reserved names: {', '.join(sorted(RESERVED_TARGET_COLUMNS))}."
+                    ),
+                )
+            )
+
         try:
             upload_ref = uuid.UUID(command.upload_ref)
         except ValueError:
@@ -133,6 +161,10 @@ class CreateDataset:
             # exactly as written.
             return Failure(error)
 
+        degenerate = _degenerate_partition(split_frame, command.target)
+        if degenerate is not None:
+            return Failure(degenerate)
+
         dataset_id = uuid.uuid4()
         snapshot_uri, content_hash = write_snapshot(
             self._store, str(workspace_id), str(dataset_id), split_frame
@@ -160,3 +192,65 @@ class CreateDataset:
         )
         await self._repository.add(dataset)
         return Success(dataset)
+
+
+def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> ValidationError | None:
+    """I1 (whole-branch review, Important): a train or test partition whose
+    target column carries only one distinct value.
+
+    `assign_split` already raises when a *requested* partition (a nonzero
+    fraction) comes back entirely empty -- but a partition that is merely
+    single-class (BINARY) or constant-valued (NUMERIC, the regression
+    analogue of single-class) still has rows, so that guard never fires, and
+    training happily proceeds:
+
+    - A single-class **train** partition can only ever learn one class, so
+      every future prediction comes back as that one class with a fabricated
+      `uncertainty` of exactly `0.0` (maximally confident on every compound) --
+      a triage grid has no way to tell that from a real, well-trained model.
+    - A constant-valued **test** partition makes `r2_score` return `0.0`
+      rather than an undefined value (unlike classification's metrics, which
+      already come back `NaN` and get reported as `metrics_undefined` with a
+      reason) -- so a regression Scorecard would show "R2 = 0.0" as if it
+      were measured, silently.
+
+    Only "train" and "test" are checked: "validation" is assigned a label by
+    `assign_split` but nothing downstream (`train_protocol.py`, both ECFP4
+    engines) ever reads it for fitting or scoring, so a degenerate validation
+    partition has no honesty consequence to guard against.
+
+    A partition of fewer than two rows is skipped, not flagged: a single row
+    trivially has exactly one distinct value regardless of whether the
+    dataset has a real balance problem, so treating that as "degenerate"
+    would reject the many tiny (e.g. four-row) fixtures already exercising
+    other, unrelated behaviour throughout this codebase's test suite --
+    a real single-class/constant partition this guard needs to catch has
+    several rows, not one.
+
+    `assign_split` deliberately carries no knowledge of the target column (a
+    decision already reviewed and accepted), so this runs here instead, once
+    `command.target` and the split it produced are both in hand.
+    """
+    for partition in ("train", "test"):
+        rows = frame.filter(pl.col("split") == partition)
+        if rows.height < 2:
+            # Either an explicitly requested zero-fraction partition, a case
+            # `assign_split` has already rejected, or too small for "only one
+            # distinct value" to mean anything -- none of them this guard's
+            # concern.
+            continue
+        if rows[target.column].n_unique() >= 2:
+            continue
+        kind = "class" if target.kind is TargetKind.BINARY else "value"
+        return ValidationError(
+            f"The '{partition}' partition has only one distinct target {kind} after "
+            "splitting, which would train or score a maximally confident but "
+            "meaningless model",
+            detail=(
+                f"Every row in the '{partition}' partition has the same "
+                f"'{target.column}' value. Use a different split seed, "
+                "SplitStrategy.RANDOM instead of a scaffold split, or add more "
+                "diverse compounds/measurements to the dataset."
+            ),
+        )
+    return None

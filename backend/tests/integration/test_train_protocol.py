@@ -100,6 +100,24 @@ def _csv(values: tuple[float, ...] | None = None) -> bytes:
     return f"smiles,y\n{rows}\n".encode()
 
 
+def _alternating_values() -> tuple[float, ...]:
+    """0.0/1.0 in runs of two (`0,0,1,1,0,0,1,1,...`), not a plain `index % 2`
+    alternation.
+
+    `Studio.dataset()`'s default RANDOM split (seed=7) puts indices 9 and 11
+    of `_STRUCTURES` together in its 2-row test partition (and, symmetrically,
+    both in the same 2-row half of most even/odd splits) -- under a plain
+    `index % 2` alternation those two indices share the same parity, so the
+    test partition ends up holding only one value, and `create_dataset.py`'s
+    I1 guard (whole-branch review) now rejects that Dataset outright as a
+    degenerate split before training ever runs. This period-4 pattern still
+    yields only 0.0/1.0, the property every caller of this fixture actually
+    cares about, while keeping both values present in every 2+-row partition
+    that split produces.
+    """
+    return tuple(float((index // 2) % 2) for index in range(len(_STRUCTURES)))
+
+
 class Studio:
     """The whole backend, wired for one test: upload -> dataset -> train."""
 
@@ -384,7 +402,7 @@ async def test_the_task_comes_from_the_target_spec_not_from_the_values(
     Inferring from the values would silently train a classifier and report MCC
     for something the scientist declared continuous.
     """
-    values = tuple(float(index % 2) for index in range(len(_STRUCTURES)))
+    values = _alternating_values()
     dataset = await studio.dataset(kind=TargetKind.NUMERIC, values=values)
     run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
     await studio.wait(run)
@@ -399,7 +417,7 @@ async def test_the_task_comes_from_the_target_spec_not_from_the_values(
 async def test_a_binary_target_trains_a_classifier_and_derives_two_readouts(
     studio: Studio,
 ) -> None:
-    values = tuple(float(index % 2) for index in range(len(_STRUCTURES)))
+    values = _alternating_values()
     dataset = await studio.dataset(kind=TargetKind.BINARY, values=values, unit=None)
     run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-randomforest", conditions={})
     await studio.wait(run)
@@ -520,14 +538,45 @@ async def test_a_failed_scorecard_write_leaves_no_protocol_behind(studio: Studio
 
 
 async def test_the_stored_scorecard_is_valid_json_even_when_a_metric_is_undefined(
-    studio: Studio,
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A single-class test split makes every classification metric meaningless.
-    That is real and must be recorded -- but as `null` plus a reason, not as the
-    bare `NaN` token, which is not JSON: strict parsers reject the whole document
-    and jq silently turns it into null with no explanation attached."""
+    """A single-class split makes every classification metric meaningless.
+    That is real and must be recorded -- but as `null` plus a reason, not as
+    the bare `NaN` token, which is not JSON: strict parsers reject the whole
+    document and jq silently turns it into null with no explanation attached.
+
+    This used to build the Dataset itself from an all-single-class CSV, so
+    both its train and test partitions were degenerate by construction. I1
+    (whole-branch review) closed exactly that door: `create_dataset.py` now
+    rejects a Dataset whose train or test partition is single-class before
+    training ever runs, so that CSV would now fail at `studio.dataset()`
+    itself rather than reach a NaN. The one split that guard cannot see is
+    the optimism gap's internal random reshuffle (`RunTraining`'s own
+    `assign_split` call, for a SCAFFOLD-split Dataset only) -- not a new
+    Dataset, so never routed through `CreateDataset` -- which is what this
+    now collapses instead, the same rig
+    `test_a_metric_undefined_only_on_the_random_split_carries_its_own_reason`
+    uses to reach an undefined metric legitimately.
+    """
+    import daikonstudio.application.execution.train_protocol as module
+
+    real_assign_split = module.assign_split
+
+    def collapse_random_test_split_to_one_class(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        random_frame = real_assign_split(frame, structure_column, spec, normalizer)
+        if spec.strategy is not SplitStrategy.RANDOM:
+            return random_frame
+        return random_frame.with_columns(
+            pl.when(pl.col("split") == "test").then(0.0).otherwise(pl.col("y")).alias("y")
+        )
+
+    monkeypatch.setattr(module, "assign_split", collapse_random_test_split_to_one_class)
+
     dataset = await studio.dataset(
-        kind=TargetKind.BINARY, values=(0.0,) * len(_STRUCTURES), unit=None
+        strategy=SplitStrategy.SCAFFOLD,
+        kind=TargetKind.BINARY,
+        values=_alternating_values(),
+        unit=None,
     )
     run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-randomforest", conditions={})
     await studio.wait(run)
@@ -543,12 +592,17 @@ async def test_the_stored_scorecard_is_valid_json_even_when_a_metric_is_undefine
 
     document = json.loads(raw, parse_constant=reject)
 
-    assert document["metrics"]["mcc"] is None
+    assert document["random_split_metrics"]["mcc"] is None
     card = await studio.scorecard_for(run)
-    assert card.metrics["mcc"] is None
-    assert card.metrics_undefined is not None
-    assert set(card.metrics_undefined) == {"auprc", "auroc", "balanced_accuracy", "mcc"}
-    assert "test split" in card.metrics_undefined["mcc"]
+    assert card.random_split_metrics["mcc"] is None
+    assert card.random_split_metrics_undefined is not None
+    assert set(card.random_split_metrics_undefined) == {
+        "auprc",
+        "auroc",
+        "balanced_accuracy",
+        "mcc",
+    }
+    assert "test split" in card.random_split_metrics_undefined["mcc"]
 
 
 async def test_a_defined_metric_carries_no_undefined_reason(studio: Studio) -> None:
@@ -571,7 +625,7 @@ async def test_predictions_say_what_they_are_rather_than_leaving_it_to_be_inferr
     await studio.wait(run)
     assert (await studio.scorecard_for(run)).prediction_kind == "value"
 
-    values = tuple(float(index % 2) for index in range(len(_STRUCTURES)))
+    values = _alternating_values()
     classification = await studio.dataset(kind=TargetKind.BINARY, values=values, unit=None)
     run = await studio.train(
         dataset_id=classification.id, engine_id="ecfp4-randomforest", conditions={}

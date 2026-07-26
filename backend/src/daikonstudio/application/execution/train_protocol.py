@@ -136,6 +136,14 @@ class ScorecardInputs:
       wrong partition's reason, and (when only the random split is undefined)
       find no explanation there at all -- a bare, unexplained null on the exact
       number an optimism-gap comparison exists to justify.
+
+    `target_unit`/`target_direction` and `split_strategy` are the Dataset's own
+    `TargetSpec.unit`/`.direction` and `SplitSpec.strategy.value` at the moment
+    this Run trained -- carried through unchanged so `build_scorecard` (Task
+    15 review, Important 2) can render a metric with the unit and direction
+    that make it meaningful, and say which split strategy produced it, rather
+    than a consumer inferring the strategy from `random_split_metrics`/
+    `random_split_unavailable` both being `None`.
     """
 
     protocol_id: str
@@ -158,6 +166,9 @@ class ScorecardInputs:
     random_split_metrics_undefined: dict[str, str] | None
     metrics_undefined: dict[str, str] | None
     duplicate_spread: float | None
+    target_unit: str | None
+    target_direction: str | None
+    split_strategy: str
 
     def to_json(self) -> bytes:
         # allow_nan=False on purpose. An undefined metric is real -- a single-class
@@ -391,6 +402,11 @@ class RunTraining:
                 undefined | baseline_undefined, dataset, train_rows, test_rows
             ),
             duplicate_spread=dataset.validation_report.duplicate_spread,
+            target_unit=dataset.target.unit,
+            target_direction=(
+                dataset.target.direction.value if dataset.target.direction is not None else None
+            ),
+            split_strategy=dataset.split.strategy.value,
         )
 
         # Blobs first, Protocol row last, and deliberately in that order. A

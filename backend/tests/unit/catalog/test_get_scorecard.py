@@ -64,6 +64,9 @@ def _inputs(protocol_id: uuid.UUID) -> ScorecardInputs:
         random_split_metrics_undefined=None,
         metrics_undefined=None,
         duplicate_spread=None,
+        target_unit="nM",
+        target_direction="low",
+        split_strategy="random",
     )
 
 
@@ -89,6 +92,9 @@ async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
             noise_floor=None,
             worst_rows=[],
             applicability_coverage=None,
+            target_unit="nM",
+            target_direction="low",
+            split_strategy="random",
         )
 
     monkeypatch.setattr(module, "build_scorecard", fake_build_scorecard)

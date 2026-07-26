@@ -38,6 +38,9 @@ def build_scorecard(
     structures: list[str],
     train_structures: list[str],
     normalizer: StructureNormalizer,
+    target_unit: str | None,
+    target_direction: str | None,
+    split_strategy: str,
     random_split_metrics: dict[str, float | None] | None = None,
     random_split_unavailable: str | None = None,
     random_split_metrics_undefined: dict[str, str] | None = None,
@@ -93,4 +96,7 @@ def build_scorecard(
         noise_floor=None if is_classification else duplicate_spread,
         worst_rows=worst_rows,
         applicability_coverage=applicability_coverage,
+        target_unit=target_unit,
+        target_direction=target_direction,
+        split_strategy=split_strategy,
     )

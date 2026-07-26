@@ -84,13 +84,25 @@ class SqlAlchemyRunRepository:
         one when it does. Zero rows affected means someone else's write (e.g. a
         worker's progress update racing a cancel request) already moved the row
         on -- raise rather than silently last-writer-wins overwriting it.
+
+        `workspace_id` is also part of the predicate (whole-branch review,
+        Important 5) -- every real caller already loads its `run` through
+        `get()` or `get_by_id()` (the worker's own, deliberately unscoped
+        read of a row already scoped when its owning use case created it --
+        see this module's docstring), so this cannot fire today. It stays
+        because it is the one invariant in this module that was conventional
+        rather than enforced, at the cost of one clause.
         """
         model = _to_model(run)
         expected_version = run.version
         async with self._sessions() as session:
             result = await session.execute(
                 sa_update(RunModel)
-                .where(RunModel.id == run.id, RunModel.version == expected_version)
+                .where(
+                    RunModel.id == run.id,
+                    RunModel.workspace_id == run.workspace_id,
+                    RunModel.version == expected_version,
+                )
                 .values(
                     status=model.status,
                     progress=model.progress,

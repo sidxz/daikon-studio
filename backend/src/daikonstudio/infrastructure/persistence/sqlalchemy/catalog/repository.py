@@ -109,6 +109,12 @@ class SqlAlchemyProtocolRepository:
         one when it does. Zero rows affected means someone else's write (e.g. a
         concurrent `publish()`) already moved the row on -- raise rather than
         silently last-writer-wins overwriting it.
+
+        `workspace_id` is also part of the predicate (whole-branch review,
+        Important 5) -- every real caller already loads its `protocol` through
+        `get()`, which is itself workspace-scoped, so this cannot fire today.
+        It stays because it is the one invariant in this module that was
+        conventional rather than enforced, at the cost of one clause.
         """
         model = _to_model(protocol)
         expected_version = protocol.version
@@ -117,6 +123,7 @@ class SqlAlchemyProtocolRepository:
                 sa_update(InSilicoProtocolModel)
                 .where(
                     InSilicoProtocolModel.id == protocol.id,
+                    InSilicoProtocolModel.workspace_id == protocol.workspace_id,
                     InSilicoProtocolModel.version == expected_version,
                 )
                 .values(

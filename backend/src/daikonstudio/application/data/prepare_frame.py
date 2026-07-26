@@ -21,6 +21,12 @@ from daikonstudio.application.ports.structure_normalizer import StructureNormali
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ConflictRow, InvalidRow, ValidationReport
 
+# An internal-only column, never part of a Dataset's frozen snapshot: dropped
+# before either branch below returns `prepared`. Exists solely so a BINARY
+# conflict group (see `ConflictRow.row_numbers`) can report which rows of the
+# *uploaded* file it spans.
+_ROW_NUMBER = "_row_number"
+
 
 def prepare_frame(
     frame: pl.DataFrame,
@@ -46,8 +52,15 @@ def prepare_frame(
     ]
 
     is_valid = pl.Series([smiles is not None for smiles in canonical])
+    # 1-indexed positions in the *uploaded* file, the same convention
+    # `InvalidRow.row_number` above already uses -- carried through the filter
+    # so a later conflicting-duplicates group (BINARY only) can report which
+    # rows of the original file it spans (I4, whole-branch review), not just
+    # the canonicalized structure they collapsed to.
+    row_numbers = [index + 1 for index, valid in enumerate(is_valid) if valid]
     valid_frame = frame.filter(is_valid).with_columns(
-        pl.Series(structure_column, [smiles for smiles in canonical if smiles is not None])
+        pl.Series(structure_column, [smiles for smiles in canonical if smiles is not None]),
+        pl.Series(_ROW_NUMBER, row_numbers, dtype=pl.Int64),
     )
     valid_rows = valid_frame.height
 
@@ -105,17 +118,22 @@ def prepare_frame(
         pl.col(target.column).len().alias("_n"),
         pl.col(target.column).n_unique().alias("_n_unique"),
         pl.col(target.column).alias("_values"),
+        pl.col(_ROW_NUMBER).alias("_row_numbers"),
         pl.col(target.column).first().alias(target.column),
         *keep_others,
     )
     is_conflict = grouped["_n_unique"] > 1
     conflicting = [
-        ConflictRow(structure=str(row[structure_column]), values=list(row["_values"]))
+        ConflictRow(
+            structure=str(row[structure_column]),
+            values=list(row["_values"]),
+            row_numbers=sorted(row["_row_numbers"]),
+        )
         for row in grouped.filter(is_conflict).iter_rows(named=True)
     ]
     agreeing = grouped.filter(~is_conflict)
     duplicates_collapsed = sum(n - 1 for n in agreeing["_n"].to_list())
-    prepared = agreeing.drop("_n", "_n_unique", "_values")
+    prepared = agreeing.drop("_n", "_n_unique", "_values", "_row_numbers")
     return prepared, ValidationReport(
         total_rows=total_rows,
         valid_rows=valid_rows,

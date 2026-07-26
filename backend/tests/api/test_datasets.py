@@ -273,6 +273,135 @@ async def test_missing_target_column_is_rejected(client, csv_upload):
     assert "potency" in response.json()["message"]
 
 
+async def test_a_reserved_target_column_name_is_rejected(client, csv_upload):
+    """C1 (whole-branch review, Critical): a target named `uncertainty`
+    means `predict_with_protocol.py`'s own ensemble-spread column silently
+    overwrites the served prediction; a target named `structure` overwrites
+    compound identity instead. Both are columns the pipeline itself injects
+    downstream (predictions, exports, the train/test split), so the guard
+    has to sit here, at creation, where the export-time collision guard is
+    already too late -- by then the bad column has already trained and
+    published a Protocol."""
+    upload_ref = await csv_upload(
+        b"smiles,uncertainty\nCCO,1.0\nc1ccccc1,5.0\nCCN,2.0\nc1ccncc1,6.0\n"
+    )
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, target={"column": "uncertainty", "kind": "numeric"}),
+    )
+    assert response.status_code == 422, response.text
+    assert "uncertainty" in response.json()["message"]
+
+
+async def test_every_reserved_target_column_name_is_rejected(client, csv_upload):
+    for name in (
+        "structure",
+        "uncertainty",
+        "applicability",
+        "generation_method",
+        "row_id",
+        "split",
+    ):
+        upload_ref = await csv_upload(f"smiles,{name}\nCCO,1.0\nc1ccccc1,5.0\n".encode())
+        response = await client.post(
+            "/api/v1/datasets",
+            json=create_body(upload_ref, target={"column": name, "kind": "numeric"}),
+        )
+        assert response.status_code == 422, response.text
+        assert name in response.json()["message"]
+
+
+async def test_a_single_class_train_partition_is_rejected_before_training(client, csv_upload):
+    """I1 (whole-branch review, Important): `assign_split` only raises when a
+    requested partition comes back *empty*, not when it is merely
+    single-class -- so a binary dataset whose train split holds one class
+    used to create 201, train `ready`, and produce a Protocol whose
+    predictions come out as one class with `uncertainty` exactly `0.0` on
+    every compound: maximally confident, and worthless. Ten rows, all the
+    same class, guarantee a single-class train partition (8 of 10 rows)
+    regardless of split seed or strategy."""
+    rows = "\n".join(
+        f"{smiles},1"
+        for smiles in (
+            "CCO",
+            "CCN",
+            "CCCO",
+            "CCCCO",
+            "CCCCCO",
+            "c1ccccc1",
+            "Cc1ccccc1",
+            "c1ccncc1",
+            "c1ccsc1",
+            "C1CCCCC1",
+        )
+    )
+    upload_ref = await csv_upload(f"smiles,active\n{rows}\n".encode())
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, target={"column": "active", "kind": "binary"}),
+    )
+    assert response.status_code == 422, response.text
+    assert "train" in response.json()["message"]
+
+
+async def test_a_constant_train_partition_is_rejected_for_regression_too(client, csv_upload):
+    """The regression twin (I1): `r2_score` returns `0.0`, not NaN, on a
+    constant target, so a regression Scorecard would show "R2 = 0.0" as if
+    it were measured, with `metrics_undefined` silent about it -- the
+    classification path already handles its equivalent explicitly. A
+    constant-valued partition is the regression analogue of single-class,
+    and the check must cover it the same way, on the same all-identical-value
+    dataset shape as the classification case above."""
+    rows = "\n".join(
+        f"{smiles},5.0"
+        for smiles in (
+            "CCO",
+            "CCN",
+            "CCCO",
+            "CCCCO",
+            "CCCCCO",
+            "c1ccccc1",
+            "Cc1ccccc1",
+            "c1ccncc1",
+            "c1ccsc1",
+            "C1CCCCC1",
+        )
+    )
+    upload_ref = await csv_upload(f"smiles,y\n{rows}\n".encode())
+    response = await client.post("/api/v1/datasets", json=create_body(upload_ref))
+    assert response.status_code == 422, response.text
+    assert "train" in response.json()["message"]
+
+
+async def test_an_overlong_name_is_a_422_not_an_asyncpg_500(client, csv_upload):
+    """I3 (whole-branch review, Important): `name` has no `max_length`
+    against `DatasetModel.name`'s `String(256)` column, so an over-long value
+    used to reach asyncpg and come back as an unmapped
+    `StringDataRightTruncationError` (500) instead of a 422 naming the
+    field."""
+    upload_ref = await csv_upload(SOLUBILITY_CSV)
+    response = await client.post("/api/v1/datasets", json=create_body(upload_ref, name="x" * 257))
+    assert response.status_code == 422, response.text
+
+
+async def test_an_overlong_structure_column_is_a_422_not_an_asyncpg_500(client, csv_upload):
+    """Same finding, `DatasetModel.structure_column`'s `String(128)` column.
+
+    The uploaded file's own header is the same 129-character name the request
+    names as `structure_column`, so this reaches every application-level
+    check (the column really is present) and would only be stopped by the
+    database's column width without this fix -- not by the unrelated
+    "column not present" 422 a nonexistent column name would trigger for a
+    less careful test.
+    """
+    long_column = "x" * 129
+    upload_ref = await csv_upload(f"{long_column},y\nCCO,1.0\nc1ccccc1,5.0\n".encode())
+    response = await client.post(
+        "/api/v1/datasets", json=create_body(upload_ref, structure_column=long_column)
+    )
+    assert response.status_code == 422, response.text
+
+
 async def test_unknown_upload_ref_is_a_404(client):
     response = await client.post(
         "/api/v1/datasets", json=create_body("11111111-1111-1111-1111-111111111111")

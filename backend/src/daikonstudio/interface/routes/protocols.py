@@ -26,7 +26,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from daikonstudio.application.catalog.get_scorecard import GetScorecard, GetScorecardQuery
 from daikonstudio.application.catalog.list_protocols import (
@@ -61,7 +61,15 @@ PublishProtocolDep = Annotated[PublishProtocol, Depends(use_case(PublishProtocol
 class TrainProtocolBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    # `max_length` matches `InSilicoProtocolModel.name`'s `String(256)` column.
+    # Worse than the other three fields this same review finding covers: the
+    # worker, not this route, is what inserts the Protocol row -- so an
+    # over-long name here would return 202, run all three fits (the chosen
+    # engine, the mandatory baseline, and -- on a scaffold split -- the
+    # optimism-gap comparison), and only then fail on the insert, having
+    # already paid for compute the request should never have accepted
+    # (whole-branch review, Important 3).
+    name: str = Field(max_length=256)
     dataset_id: uuid.UUID
     engine_id: str
     conditions: dict[str, Any]
@@ -147,6 +155,13 @@ class ScorecardResponse(BaseModel):
     with the Dataset's own split about which metrics are undefined and why,
     so a renderer must not reuse `metrics_undefined` to explain a
     `random_split_metrics` null.
+
+    `unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'
+    `actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and
+    which way is better. `split_strategy` (`"random"` or `"scaffold"`) is
+    which split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this
+    instead of inferring it from `random_split_metrics`/
+    `random_split_unavailable` both being `None`.
     """
 
     primary_metric: str
@@ -162,6 +177,9 @@ class ScorecardResponse(BaseModel):
     noise_floor: float | None
     worst_rows: list[WorstRowResponse]
     applicability_coverage: float | None
+    unit: str | None
+    direction: str | None
+    split_strategy: str
 
     @classmethod
     def from_domain(cls, card: Scorecard) -> ScorecardResponse:
@@ -179,6 +197,9 @@ class ScorecardResponse(BaseModel):
             noise_floor=card.noise_floor,
             worst_rows=[WorstRowResponse.from_domain(row) for row in card.worst_rows],
             applicability_coverage=card.applicability_coverage,
+            unit=card.target_unit,
+            direction=card.target_direction,
+            split_strategy=card.split_strategy,
         )
 
 

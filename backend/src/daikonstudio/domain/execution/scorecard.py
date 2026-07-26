@@ -76,6 +76,24 @@ class Scorecard:
     `metrics_undefined` to explain a `random_split_metrics` null: that would
     either attribute the wrong partition's reason, or (when `metrics_undefined`
     is `None`) leave the null unexplained.
+
+    `target_unit`/`target_direction` are the Dataset's own `TargetSpec.unit`/
+    `.direction` (`"nM"`/`"low"`, or either `None`) -- without them `rmse: 0.61`
+    reads identically whether the target was nM or uM, and a bare number
+    carries no answer to "is higher better here?" Every other place a
+    predicted number reaches a consumer (prediction results, both export
+    formats) already carries its unit and direction; this is the last one.
+
+    `split_strategy` is the Dataset's own `SplitSpec.strategy` (`"random"` or
+    `"scaffold"`, matching `domain.data.split.SplitStrategy`'s own string
+    values -- plain `str` here, not that enum, because the bounded-context
+    independence contract forbids `domain.execution` from importing
+    `domain.data`). Without it, a consumer can only *infer* "this metric came
+    from a random split" from `random_split_metrics is None and
+    random_split_unavailable is None` -- a two-null inference that silently
+    breaks the moment either field's meaning changes, and which split
+    produced a number is the single most important fact about how flattering
+    it is allowed to be.
     """
 
     primary_metric: str
@@ -91,3 +109,6 @@ class Scorecard:
     noise_floor: float | None
     worst_rows: list[WorstRow]
     applicability_coverage: float | None
+    target_unit: str | None
+    target_direction: str | None
+    split_strategy: str

@@ -142,6 +142,33 @@ async def test_two_stale_writers_produce_one_success_and_one_conflict(session_fa
     assert fetched.status == ProtocolStatus.PUBLISHED
 
 
+async def test_update_cannot_cross_a_workspace_boundary(session_factory):
+    """I5 (whole-branch review, Important): `update()`'s WHERE clause used to
+    match only `(id, version)`, not `workspace_id`. No live caller reaches
+    this -- every one loads its `protocol` through `get()`, itself
+    workspace-scoped -- but it was the last predicate in this repository
+    that was conventional rather than enforced. Reproduced directly: a
+    Protocol object whose in-memory `workspace_id` has been tampered with
+    after loading must not be able to mutate a row it no longer claims to
+    own.
+    """
+    repository = SqlAlchemyProtocolRepository(session_factory)
+    protocol = _draft()
+    await repository.add(protocol)
+
+    stolen = await repository.get(protocol.workspace_id, protocol.id)
+    assert stolen is not None
+    stolen.workspace_id = uuid.uuid4()
+    stolen.publish()
+    with pytest.raises(ConcurrencyConflictError):
+        await repository.update(stolen)
+
+    fetched = await repository.get(protocol.workspace_id, protocol.id)
+    assert fetched is not None
+    assert fetched.status == ProtocolStatus.DRAFT  # untouched
+    assert fetched.version == 1
+
+
 async def test_list_excludes_other_workspaces(session_factory):
     repository = SqlAlchemyProtocolRepository(session_factory)
     mine = _draft()

@@ -460,7 +460,14 @@ async def test_predictions_carry_structure_readouts_uncertainty_and_applicabilit
 async def test_a_classification_protocol_predicts_both_probability_and_class(
     studio: Studio, upload_ref: str
 ) -> None:
-    values = tuple(float(index % 2) for index in range(len(_TRAIN_STRUCTURES)))
+    # 0.0/1.0 in runs of two, not a plain `index % 2` alternation: the default
+    # RANDOM split (seed=7) below puts indices 9 and 11 of `_TRAIN_STRUCTURES`
+    # together in its 2-row test partition, and under a plain alternation
+    # those two share the same parity -- `create_dataset.py`'s I1 guard
+    # (whole-branch review) now rejects that single-class test partition
+    # before training runs at all. This period-4 pattern keeps both values
+    # present in that partition while still holding only 0.0/1.0 overall.
+    values = tuple(float((index // 2) % 2) for index in range(len(_TRAIN_STRUCTURES)))
     rows = "\n".join(f"{s},{v}" for s, v in zip(_TRAIN_STRUCTURES, values, strict=True))
     upload_ref_dataset = await studio.upload(f"smiles,y\n{rows}\n".encode())
     dataset = (

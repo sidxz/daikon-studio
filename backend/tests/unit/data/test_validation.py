@@ -33,6 +33,31 @@ def test_conflicting_binary_duplicates_are_rejected_not_voted():
     prepared, report = prepare_frame(frame, "smiles", BINARY, NORMALIZER)
     assert prepared.height == 0
     assert report.conflicting[0].values == [0, 1]
+    assert report.conflicting[0].row_numbers == [1, 2]
+
+
+def test_conflicting_row_numbers_are_positions_in_the_uploaded_file_not_in_a_filtered_frame():
+    """I4 (whole-branch review, Important): the spec calls for conflicting
+    replicates to be "rejected with their row numbers" -- these must be
+    1-indexed positions in the file the scientist actually uploaded (matching
+    `InvalidRow.row_number`'s own convention), the same numbers a spreadsheet
+    would show, not positions re-counted after invalid rows are dropped.
+
+    Row 1 is invalid and filtered out before grouping; the conflicting pair
+    that follows it must still report row numbers 2 and 3 -- not 1 and 2, the
+    positions they would fall on if row numbers were assigned after the
+    invalid row's removal.
+    """
+    frame = pl.DataFrame(
+        {"smiles": ["not-a-molecule", "CCO", "OCC", "c1ccccc1"], "y": [9, 0, 1, 1]}
+    )
+    prepared, report = prepare_frame(frame, "smiles", BINARY, NORMALIZER)
+    assert prepared.height == 1  # only the unconflicted benzene row survives
+    assert report.invalid[0].row_number == 1
+    assert len(report.conflicting) == 1
+    assert report.conflicting[0].structure == "CCO"
+    assert report.conflicting[0].values == [0, 1]
+    assert report.conflicting[0].row_numbers == [2, 3]
 
 
 def test_agreeing_binary_duplicates_collapse_silently():

@@ -117,6 +117,34 @@ async def test_two_stale_writers_produce_one_success_and_one_conflict(session_fa
     assert fetched.status is RunStatus.RUNNING
 
 
+async def test_update_cannot_cross_a_workspace_boundary(session_factory):
+    """I5 (whole-branch review, Important): `update()`'s WHERE clause used to
+    match only `(id, version)`, not `workspace_id` -- the one predicate in
+    this repository that was conventional rather than enforced. No live
+    caller reaches this: every one loads its `run` through `get()`, itself
+    workspace-scoped, before calling `update()`. Reproduced directly instead:
+    a Run object whose in-memory `workspace_id` has been tampered with after
+    loading (however that could happen) must not be able to mutate a row it
+    no longer claims to own -- if the predicate ignores `workspace_id`, `(id,
+    version)` alone still matches the real row and the write goes through.
+    """
+    repository = SqlAlchemyRunRepository(session_factory)
+    run = _pending()
+    await repository.add(run)
+
+    stolen = await repository.get(run.workspace_id, run.id)
+    assert stolen is not None
+    stolen.workspace_id = uuid.uuid4()
+    stolen.start()
+    with pytest.raises(ConcurrencyConflictError):
+        await repository.update(stolen)
+
+    fetched = await repository.get(run.workspace_id, run.id)
+    assert fetched is not None
+    assert fetched.status is RunStatus.PENDING  # untouched
+    assert fetched.version == 1
+
+
 async def test_find_by_cache_key_scopes_to_workspace(session_factory):
     repository = SqlAlchemyRunRepository(session_factory)
     mine = _pending(cache_key="shared-key")

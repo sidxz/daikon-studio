@@ -110,3 +110,26 @@ def test_registry_raises_for_multiple_baselines():
     registry = EngineRegistry({"a": _baseline_engine("a"), "b": _baseline_engine("b")})
     with pytest.raises(UnknownEngineError, match="multiple baseline"):
         registry.baseline()
+
+
+def test_unknown_engine_error_maps_to_a_real_http_status_not_a_bare_500():
+    """I6 (whole-branch review, Important): `EngineRegistry` is handed to the
+    interface layer directly (`engines.py`'s route depends on the registry
+    itself, not a Result-returning use case), so it was one route away from
+    an unguarded `.get()`/`.baseline()` call. Before the fix,
+    `UnknownEngineError` subclassed bare `KeyError`, the one error type in
+    the app outside `error_handlers.py`'s single status map: `isinstance`
+    against every entry there was `False`, and `_error_to_status` fell
+    through to its unmapped-error default of 500 -- exactly the bare crash a
+    scientist would see instead of a domain error naming the missing engine.
+    """
+    from daikonstudio.domain.shared.errors import DomainError
+    from daikonstudio.interface.error_handlers import _error_to_status
+
+    with pytest.raises(DomainError) as get_error:
+        EngineRegistry({}).get("nope")
+    assert _error_to_status(get_error.value) == 404
+
+    with pytest.raises(DomainError) as baseline_error:
+        EngineRegistry({}).baseline()
+    assert _error_to_status(baseline_error.value) == 404

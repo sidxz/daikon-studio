@@ -15,7 +15,7 @@ from datetime import date, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from daikonstudio.application.data.create_collection import (
     CreateCollection,
@@ -44,7 +44,10 @@ ExportCollectionDep = Annotated[ExportCollection, Depends(use_case(ExportCollect
 class CreateCollectionBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    # Matches `CollectionModel.name`'s `String(256)` column -- see
+    # `datasets.py`'s `CreateDatasetBody.name` for why this is a 422, not a
+    # 500 from asyncpg (whole-branch review, Important 3).
+    name: str = Field(max_length=256)
     run_id: uuid.UUID
     row_ids: list[int]
 

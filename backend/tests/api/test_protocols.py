@@ -141,6 +141,24 @@ async def test_scorecard_exposes_the_baseline_comparison(client, trained_protoco
     assert len(card["worst_rows"]) <= 20
 
 
+async def test_scorecard_carries_the_targets_unit_direction_and_split_strategy(
+    client, trained_protocol_id
+):
+    """I2 (whole-branch review, Important): `rmse: 0.61` reads identically
+    whether the target was nM or uM, and a consumer had no way to tell which
+    split produced a metric except a two-null inference
+    (`random_split_metrics is None and random_split_unavailable is None`).
+    The Dataset behind `trained_protocol_id` declares `unit="logS"`,
+    `direction="high"`, and a RANDOM split -- all three must survive onto the
+    Scorecard response, the fourth and last place a predicted number reaches
+    a consumer without them (prediction results and both export formats
+    already carry unit/direction)."""
+    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()
+    assert card["unit"] == "logS"
+    assert card["direction"] == "high"
+    assert card["split_strategy"] == "random"
+
+
 async def test_scorecard_says_the_model_is_the_baseline_rather_than_faking_a_comparison(
     client, trained_protocol_id
 ):
@@ -221,6 +239,20 @@ async def test_workspace_id_in_the_training_body_is_rejected(client, dataset_id)
     response = await _train(
         client, dataset_id, workspace_id="00000000-0000-0000-0000-000000000001"
     )
+    assert response.status_code == 422, response.text
+
+
+async def test_an_overlong_protocol_name_is_a_422_not_a_202_that_fails_later(client, dataset_id):
+    """I3 (whole-branch review, Important): `name` has no `max_length` against
+    `InSilicoProtocolModel.name`'s `String(256)` column. Worse than the same
+    finding on the dataset/collection routes: the Protocol row is inserted by
+    the *worker*, not this route, so an over-long name used to return 202 and
+    let the request pay for three real model fits (the chosen engine, the
+    mandatory baseline, and -- on a scaffold split -- the optimism-gap
+    comparison) before dying on the insert, orphaning the artifact and
+    scorecard-inputs blobs it had already written. Caught here instead, so
+    the request never returns 202 at all."""
+    response = await _train(client, dataset_id, name="x" * 257)
     assert response.status_code == 422, response.text
 
 

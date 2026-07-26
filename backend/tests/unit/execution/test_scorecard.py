@@ -27,8 +27,23 @@ def regression_card(**overrides):
         "structures": ["CCO", "CCN", "CCCO"],
         "train_structures": ["CCO"],
         "normalizer": NORMALIZER,
+        "target_unit": "nM",
+        "target_direction": "low",
+        "split_strategy": "random",
     }
     return build_scorecard(**{**kwargs, **overrides})
+
+
+def test_unit_direction_and_split_strategy_are_carried_through_unchanged():
+    """Task 15 review, Important 2 (whole-branch review): the fourth and last
+    place a predicted number reaches a consumer without its unit and
+    direction, and the only way to know which split produced a metric short
+    of a two-null inference. `build_scorecard` must pass these straight
+    through, not derive or drop them."""
+    card = regression_card(target_unit="uM", target_direction="low", split_strategy="scaffold")
+    assert card.target_unit == "uM"
+    assert card.target_direction == "low"
+    assert card.split_strategy == "scaffold"
 
 
 def test_regression_leads_with_rmse():
@@ -50,6 +65,9 @@ def test_classification_leads_with_mcc_never_accuracy():
         structures=["CCO"] * 100,
         train_structures=["CCO"],
         normalizer=NORMALIZER,
+        target_unit=None,
+        target_direction=None,
+        split_strategy="random",
     )
     assert card.primary_metric == "mcc"
     assert set(card.metrics) >= {"mcc", "balanced_accuracy", "auroc", "auprc"}
@@ -111,6 +129,9 @@ def test_noise_floor_is_forced_none_for_classification_regardless_of_input():
         structures=["CCO", "CCN"],
         train_structures=["CCO"],
         normalizer=NORMALIZER,
+        target_unit=None,
+        target_direction=None,
+        split_strategy="random",
         duplicate_spread=0.4,
     )
     assert card.noise_floor is None
@@ -140,6 +161,9 @@ def test_classification_worst_rows_are_probability_residuals_and_say_so():
         structures=["CCO", "CCN", "CCCO"],
         train_structures=["CCO"],
         normalizer=NORMALIZER,
+        target_unit=None,
+        target_direction=None,
+        split_strategy="random",
     )
     assert card.prediction_kind == "probability"
     assert card.worst_rows[0].structure == "CCO"
@@ -165,6 +189,9 @@ def test_undefined_metrics_carry_their_reason_onto_the_scorecard():
         structures=["CCO", "CCN"],
         train_structures=["CCO"],
         normalizer=NORMALIZER,
+        target_unit=None,
+        target_direction=None,
+        split_strategy="random",
         metrics_undefined={
             "mcc": "every row in the test split has the same value",
             "balanced_accuracy": "every row in the test split has the same value",

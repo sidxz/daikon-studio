@@ -11,6 +11,28 @@ class TargetKind(StrEnum):
     BINARY = "binary"
 
 
+# Names the pipeline injects into a frame *downstream* of a Dataset, so a
+# TargetSpec choosing one of them collides with that column rather than the
+# scientist's own data:
+#   - "structure"/"uncertainty"/"applicability" -- the prediction-results
+#     columns `predict_with_protocol.py`'s `RunPrediction` always writes.
+#   - "generation_method" -- the provenance column/tag `export_collection.py`
+#     always appends to a Collection export.
+#   - "split" -- the partition label `assign_split.py` always adds, via
+#     `with_columns`, which silently overwrites a same-named column rather
+#     than refusing to.
+#   - "row_id" -- the per-engine row index `infrastructure/engines/_scoring.py`
+#     returns from every `predict()` call; not persisted today, reserved
+#     defensively since nothing stops a future caller from persisting it.
+# A readout is derived 1:1 from `TargetSpec.column` (`derive_readouts.py`), so
+# a collision here means the pipeline's own column and the model's predicted
+# value silently overwrite one another -- caught once, at Dataset creation,
+# rather than downstream where the damage is already served to a client.
+RESERVED_TARGET_COLUMNS = frozenset(
+    {"structure", "uncertainty", "applicability", "generation_method", "row_id", "split"}
+)
+
+
 class Direction(StrEnum):
     HIGH = "high"
     LOW = "low"
