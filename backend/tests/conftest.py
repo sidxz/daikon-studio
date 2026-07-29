@@ -8,10 +8,27 @@ from collections.abc import AsyncIterator
 # which raises ValueError without a service key and IdP audience. create_app()
 # calls it unconditionally and deliberately fails loud on a real misconfigured
 # deploy — but the test suite isn't a real deploy, so it needs values here, not
-# a bypass. Must not rely on a .env file (there isn't one, and this must hold
-# regardless).
+# a bypass.
+#
+# Every Sentinel/IdP setting is pinned here, not just the two that raise on a
+# missing value. `Settings` reads `backend/.env` (env_file in its model_config),
+# and env vars set here take precedence over that file -- so pinning the whole
+# group is what actually makes the suite independent of whatever a developer has
+# in `.env`. It was hermetic only by accident while no `.env` existed; the moment
+# setup docs told developers to create one, an unpinned STUDIO_SENTINEL_SERVICE_NAME
+# made the app validate tokens against a different service than the harness minted
+# them for, and 45 tests failed with "Authz token was issued for a different service".
+#
+# STUDIO_SENTINEL_URL is pinned to an unroutable address on purpose: nothing in the
+# suite should reach a live Sentinel, and a developer's `.env` legitimately points at
+# the real one with a real key.
 os.environ["STUDIO_SENTINEL_SERVICE_KEY"] = "test-key-for-api-tests"
 os.environ["STUDIO_IDP_AUDIENCE"] = "test-audience.apps.googleusercontent.com"
+os.environ["STUDIO_SENTINEL_URL"] = "http://127.0.0.1:1"
+os.environ["STUDIO_SERVICE_NAME"] = "daikon-studio"
+os.environ["STUDIO_SENTINEL_SERVICE_NAME"] = "daikon-studio"
+os.environ["STUDIO_IDP_JWKS_URL"] = "http://127.0.0.1:1/.well-known/jwks.json"
+os.environ["STUDIO_IDP_ISSUER"] = "https://accounts.google.com"
 
 import pytest_asyncio
 from alembic import command

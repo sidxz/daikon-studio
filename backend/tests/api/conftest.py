@@ -107,7 +107,12 @@ def auth_headers(
             "wid": str(workspace_id),
             "wslug": "test-workspace",
             "wrole": role,
-            "svc": settings.service_name,
+            # Must resolve the same way build_sentinel() does. Using `service_name`
+            # alone mints a token for the display name, so any deployment that
+            # registers under a different Sentinel identity (a `-dev` instance in the
+            # shared realm, say) gets 403 "Authz token was issued for a different
+            # service" on every request -- the harness would be testing the wrong app.
+            "svc": settings.sentinel_service_name or settings.service_name,
             "aud": _AUTHZ_AUDIENCE,
             "iat": now,
             "exp": expires,

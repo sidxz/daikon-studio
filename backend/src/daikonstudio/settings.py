@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     # rather than silently let them through.
     sentinel_url: str = "http://localhost:9003"
     sentinel_service_key: str = ""
+    # The identity Sentinel knows this deployment by, which is NOT always
+    # `service_name` -- that one is display text for /version. A dev instance is
+    # commonly registered under its own name (e.g. "daikon-studio-dev") so its
+    # actions and role grants are scoped separately from production's within the
+    # shared realm. Empty falls back to `service_name`, so a deployment whose
+    # registered name matches the display name needs no extra config. prot-cellar
+    # keeps these separate too (SENTINEL_SERVICE_NAME); conflating them silently
+    # registers actions under one identity and checks them under another.
+    sentinel_service_name: str = ""
     idp_jwks_url: str = "https://www.googleapis.com/oauth2/v3/certs"
     idp_audience: str = ""
     idp_issuer: str = "https://accounts.google.com"

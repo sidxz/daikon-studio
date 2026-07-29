@@ -53,7 +53,9 @@ def build_sentinel(settings: Settings) -> Sentinel:
     # genuinely cannot work without the signing key.
     return Sentinel(
         base_url=settings.sentinel_url,
-        service_name=settings.service_name,
+        # Falls back to the display name when unset -- see Settings.sentinel_service_name
+        # for why these are separate fields.
+        service_name=settings.sentinel_service_name or settings.service_name,
         service_key=settings.sentinel_service_key,
         mode="authz",
         idp_jwks_url=settings.idp_jwks_url,
