@@ -49,6 +49,60 @@ def _positive_class_probability(model: Any, x: np.ndarray) -> np.ndarray:
     return proba[:, 1]  # type: ignore[no-any-return]
 
 
+def _undefined_classification_metrics() -> dict[str, float]:
+    """All four together, uniformly. MCC has no defined value on a single-class split,
+    and balanced accuracy silently collapses to plain accuracy -- reporting three of
+    four would imply the missing one was the only problem."""
+    return {
+        "mcc": float("nan"),
+        "balanced_accuracy": float("nan"),
+        "auroc": float("nan"),
+        "auprc": float("nan"),
+    }
+
+
+def regression_metrics(y_true: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
+    """RMSE, MAE and R2 -- the regression half of the shared vocabulary.
+
+    Engine-agnostic on purpose: this is the code a chemprop model and the ECFP4
+    baseline are both measured by, which is what makes a Scorecard's comparison mean
+    anything.
+    """
+    return {
+        "rmse": float(root_mean_squared_error(y_true, predicted)),
+        "mae": float(mean_absolute_error(y_true, predicted)),
+        "r2": float(r2_score(y_true, predicted)),
+    }
+
+
+def classification_metrics(
+    y_true: np.ndarray,
+    labels: np.ndarray,
+    probabilities: np.ndarray,
+    *,
+    train_has_both_classes: bool,
+) -> dict[str, float]:
+    """MCC, balanced accuracy, AUROC and AUPRC. Never plain accuracy.
+
+    `labels` are hard 0/1 predictions and `probabilities` is P(class=1); both are passed
+    rather than derived, because sklearn's `predict` and a 0.5 threshold on
+    `predict_proba` are the same thing for these estimators and an engine that only has
+    probabilities (chemprop) should threshold them explicitly rather than have this
+    function guess.
+
+    `train_has_both_classes` generalises what used to be a `model.classes_` check, so an
+    engine with no such attribute can answer the same question.
+    """
+    if len(np.unique(y_true)) < 2 or not train_has_both_classes:
+        return _undefined_classification_metrics()
+    return {
+        "mcc": float(matthews_corrcoef(y_true, labels)),
+        "balanced_accuracy": float(balanced_accuracy_score(y_true, labels)),
+        "auroc": float(roc_auc_score(y_true, probabilities)),
+        "auprc": float(average_precision_score(y_true, probabilities)),
+    }
+
+
 def _score(
     model: Any, test_rows: pl.DataFrame, ctx: TrainContext, is_classification: bool
 ) -> dict[str, float]:
@@ -57,36 +111,20 @@ def _score(
     y_test = test_rows[ctx.target_column].to_numpy()
 
     if not is_classification:
-        predictions = model.predict(x_test)
-        return {
-            "rmse": float(root_mean_squared_error(y_test, predictions)),
-            "mae": float(mean_absolute_error(y_test, predictions)),
-            "r2": float(r2_score(y_test, predictions)),
-        }
+        return regression_metrics(y_test, model.predict(x_test))
 
-    # A single-class train split (model.classes_) or test split (y_test) makes
-    # every classification metric undefined, not just AUROC/AUPRC: MCC has no
-    # defined value, and balanced accuracy silently collapses to plain accuracy
-    # when y_true has one class -- exactly the number this module exists to never
-    # report. All four are reported as undefined together, uniformly, without
-    # calling into sklearn at all -- which also means no "y_pred contains classes
-    # not in y_true" warning, since nothing here can trigger it.
+    # Both single-class checks stay HERE, before any sklearn call -- not delegated to
+    # `classification_metrics` -- because short-circuiting is what keeps sklearn's
+    # "y_pred contains classes not in y_true" warning from firing at all.
     if len(np.unique(y_test)) < 2 or len(model.classes_) < 2:
-        return {
-            "mcc": float("nan"),
-            "balanced_accuracy": float("nan"),
-            "auroc": float("nan"),
-            "auprc": float("nan"),
-        }
+        return _undefined_classification_metrics()
 
-    predictions = model.predict(x_test)
-    probabilities = _positive_class_probability(model, x_test)
-    return {
-        "mcc": float(matthews_corrcoef(y_test, predictions)),
-        "balanced_accuracy": float(balanced_accuracy_score(y_test, predictions)),
-        "auroc": float(roc_auc_score(y_test, probabilities)),
-        "auprc": float(average_precision_score(y_test, probabilities)),
-    }
+    return classification_metrics(
+        y_test,
+        model.predict(x_test),
+        _positive_class_probability(model, x_test),
+        train_has_both_classes=True,
+    )
 
 
 def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
