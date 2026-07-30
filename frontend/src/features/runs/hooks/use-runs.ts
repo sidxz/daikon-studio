@@ -15,6 +15,7 @@ import type {
 import { RUN_POLL_MS } from "@/shared/lib/query-defaults";
 import { showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import type { ResultParams } from "../lib/result-query";
 import type { TriageRow } from "../types";
 import { RUNS_KEY, RUN_KEY } from "./query-keys";
 
@@ -100,14 +101,18 @@ export async function fetchResultBlock(
   runId: string,
   startRow: number,
   limit: number,
+  params: ResultParams,
 ): Promise<{ rows: TriageRow[]; nextCursor: string | null }> {
   const page = await customInstance<PaginatedResponsePredictionResponse>({
     url: `${API_V1}/runs/${runId}/results`,
     method: "GET",
-    params: { cursor: String(startRow), limit },
+    params: { cursor: String(startRow), limit, ...params },
   });
   return {
-    rows: page.items.map((item, index) => ({ ...item, __rowId: startRow + index })),
+    // `row_id` from the server, never the page offset: under a sort or filter
+    // the two disagree, and the offset would save the wrong compounds into a
+    // Collection without any visible symptom.
+    rows: page.items.map((item) => ({ ...item, __rowId: item.row_id })),
     nextCursor: page.next_cursor ?? null,
   };
 }

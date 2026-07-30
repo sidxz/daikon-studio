@@ -4,6 +4,8 @@ import { StructureThumbnail } from "@/shared/components/chemistry/structure-thum
 import { studioGridTheme } from "@/shared/components/data-grid/ag-grid-theme";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Button } from "@/shared/components/ui/button";
+import { Label } from "@/shared/components/ui/label";
+import { Switch } from "@/shared/components/ui/switch";
 import type { ReadoutResponse } from "@/shared/lib/api/model";
 import {
   AllCommunityModule,
@@ -14,13 +16,26 @@ import {
   ModuleRegistry,
 } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchResultBlock } from "../hooks/use-runs";
+import { buildResultParams } from "../lib/result-query";
 import type { TriageRow } from "../types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
 const BLOCK_SIZE = 100;
+
+const NUMBER_FILTER = {
+  sortable: true,
+  filter: "agNumberColumnFilter" as const,
+  filterParams: {
+    // Only what the API can honour. Offering "not equal" or "blank" would be
+    // a control that quietly filters by something else.
+    filterOptions: ["greaterThanOrEqual", "lessThanOrEqual", "inRange"],
+    maxNumConditions: 1,
+    buttons: ["reset"],
+  },
+} satisfies Partial<ColDef<TriageRow>>;
 
 function StructureCell({ value }: { value: string }) {
   return <StructureThumbnail smiles={value} size={64} className="my-1" />;
@@ -40,6 +55,7 @@ export function TriageGrid({
   const apiRef = useRef<GridApi<TriageRow> | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [outsideDomain, setOutsideDomain] = useState(0);
+  const [inDomainOnly, setInDomainOnly] = useState(false);
 
   const columns = useMemo<ColDef<TriageRow>[]>(() => {
     // No column for `__rowId`. AG Grid renders its own checkbox column from
@@ -60,6 +76,8 @@ export function TriageGrid({
         field: "structure",
         flex: 1,
         minWidth: 200,
+        sortable: false,
+        filter: false,
         cellClass: "font-mono text-xs",
       },
     ];
@@ -69,7 +87,11 @@ export function TriageGrid({
     for (const readout of readouts) {
       base.push({
         headerName: readout.unit ? `${readout.name} (${readout.unit})` : readout.name,
+        // A valueGetter column has no `field` to derive a colId from, and the
+        // colId is what the API receives as the column name to sort by.
+        colId: readout.name,
         width: 150,
+        ...NUMBER_FILTER,
         valueGetter: (params) => params.data?.readouts?.[readout.name]?.value ?? null,
         cellRenderer: (params: { value: number | null }) => (
           <ReadoutValue value={params.value} unit={readout.unit} precision={3} />
@@ -82,6 +104,7 @@ export function TriageGrid({
         headerName: "Uncertainty",
         field: "uncertainty",
         width: 130,
+        ...NUMBER_FILTER,
         // Null for XGBoost, which has no ensemble spread to report. Rendered as
         // absence rather than as a fabricated zero.
         cellRenderer: (params: { value: number | null }) => (
@@ -92,6 +115,7 @@ export function TriageGrid({
         headerName: "Applicability",
         field: "applicability",
         width: 140,
+        ...NUMBER_FILTER,
         cellRenderer: (params: { value: number | null }) =>
           params.value == null ? (
             <span className="text-muted-foreground">—</span>
@@ -115,6 +139,11 @@ export function TriageGrid({
             runId,
             params.startRow,
             params.endRow - params.startRow,
+            buildResultParams({
+              sortModel: params.sortModel,
+              filterModel: params.filterModel ?? {},
+              inDomainOnly,
+            }),
           );
           // `total_count` is always null in this API, so the last row is only
           // known when a page comes back without a next cursor.
@@ -125,7 +154,7 @@ export function TriageGrid({
         }
       },
     }),
-    [runId],
+    [runId, inDomainOnly],
   );
 
   const onGridReady = useCallback(
@@ -135,6 +164,14 @@ export function TriageGrid({
     },
     [datasource],
   );
+
+  useEffect(() => {
+    // AG Grid purges its block cache when the sort or filter model changes,
+    // but the in-domain switch lives outside both -- re-setting the datasource
+    // is what makes it restart from offset 0 instead of appending a filtered
+    // page onto unfiltered blocks.
+    apiRef.current?.setGridOption("datasource", datasource);
+  }, [datasource]);
 
   const refreshSelection = useCallback(() => {
     const api = apiRef.current;
@@ -148,12 +185,13 @@ export function TriageGrid({
 
   return (
     <div className="space-y-3">
-      {/* No filter box. AG Grid's quick filter is client-side only and this
-          grid is infinite, and `GET /runs/{id}/results` takes no filter
-          parameter -- so a search input here would be a control that silently
-          does nothing, which is worse than not offering one. Sorting and
-          filtering the results server-side is a real gap, recorded as such. */}
       <div className="flex flex-wrap items-center gap-3">
+        <div className="flex items-center gap-2">
+          <Switch id="in-domain" checked={inDomainOnly} onCheckedChange={setInDomainOnly} />
+          <Label htmlFor="in-domain" className="text-sm font-normal">
+            In domain only
+          </Label>
+        </div>
         <div className="ml-auto flex items-center gap-3">
           {selected.length > 0 && outsideDomain > 0 && (
             // A forecast about the selection, so it sits beside the button
