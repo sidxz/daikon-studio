@@ -24,16 +24,17 @@ Collection → export CSV/SDF.
 The Phase 2 UX pass then landed on top: server-side sort/filter/row-identity on
 run results, native AG Grid filters and an in-domain switch on triage, the
 Scorecard's verdict strip, an enriched predict flow, and theme-aware structure
-thumbnails. **None of it has been driven in a browser** — see §3 for why and
-exactly what that leaves unverified.
+thumbnails. **All of it has now been driven in a browser**, signed in as a real
+user, including both paths §7 lists as previously unexercised — see §3 for what
+that pass actually established.
 
 | Area | State |
 |---|---|
 | Chrome, Sentinel auth, branding | done, live |
 | Engines catalogue | done, live |
 | Datasets: wizard, ValidationReport, list, detail | done, live |
-| Protocols: training form, Scorecard verdict strip, publish | done, not seen live since the verdict-strip rework |
-| Runs: predict wizard + preview, sort/filter/in-domain triage grid | done, not seen live since the UX pass |
+| Protocols: training form, Scorecard verdict strip, publish | done, live — verdict strip seen for all three verdict kinds |
+| Runs: predict wizard + preview, sort/filter/in-domain triage grid | done, live |
 | Collections: list, detail, CSV/SDF export | done, live |
 
 303 backend tests, 28 frontend tests, `tsc` and `biome` clean by exit code.
@@ -76,33 +77,43 @@ curl -s localhost:8002/openapi.json | python3 -c "import json,sys; d=json.load(s
 
 ## 3. What is NOT done
 
-- **Nothing in the Phase 2 UX pass has been verified in a browser.** The
-  controller could not sign in — auth is Google OAuth, and there is no way to
-  do that on the user's behalf — so every task's browser-verification step was
-  skipped. The pass shipped on unit/API tests, `tsc`, and `biome` alone. Two
-  things specifically need eyes before they're trusted: the triage grid's
-  filter and sort behaviour under AG Grid's infinite row model, and — the one
-  that matters most — the save-as-collection round-trip while a filter or sort
-  is active. That round-trip is the exact behaviour `row_id` was added to
-  protect (see §4), and it has never been exercised end to end.
-- **Task 6 of the UX-pass plan did not run.** That was the live pass over the
-  two paths no browser has ever seen: a binary-classification protocol end to
-  end, where the noise-floor stat must be *absent* from the verdict strip, not
-  rendered empty, and `baseline_is_self`, where the strip must say the model
-  IS the baseline and render no comparison at all. Both still have only
-  unit-test coverage. The files are staged and ready — `bace-active.csv` for
-  the first, the same file trained with ECFP4+RandomForest for the second (see
-  §7) — this is owed to the user, not dropped. It is also worth more than it
-  looks: the whole-branch review found that the rebuilt Scorecard rendered its
-  honesty numbers in only one of three verdict branches, so a `baseline_is_self`
-  protocol showed no optimism gap and no applicability coverage anywhere on the
-  page. That is precisely what Task 6 step 3 would have caught. It is fixed, and
-  the fix is itself unverified in a browser.
+- ~~Browser verification of the Phase 2 UX pass~~ — **done.** The whole pass was
+  driven live in SACLAB-DEV. What it established, in the order it matters:
+  - **The `row_id` round trip holds under the hardest case.** With applicability
+    filtered to ≥ 0.9 *and* log_solubility sorted descending, three rows tied at
+    exactly −2.156 were selected and saved. The collection's snapshot Parquet
+    holds precisely those three compounds. This is the behaviour the entire
+    backend half of the pass exists to protect (see §4, traps 10 and 12).
+  - **The stable-sort fix is visible.** Sorting the all-null Uncertainty column
+    on an XGBoost run — where the whole frame is one tie group — returns exact
+    original-file order, holds it across the 100-row block boundary, and
+    produces no duplicate rows and no AG Grid console errors.
+  - **Both previously unexercised paths are now exercised** (what was plan
+    Task 6). A binary-classification Scorecard (BBBP-XGBoost) leads with MCC,
+    says "No better than the baseline" at 0.603 against 0.632, and renders the
+    noise-floor stat *absent* — the two remaining stats reflow, with no empty
+    box. A `baseline_is_self` Scorecard (ESOL + ECFP4-RandomForest) says the
+    model is the baseline, renders no comparison, and its metric table's third
+    column reads "is the baseline" with no BASELINE header. Its RMSE 1.228 and
+    MAE 0.924 are exactly the baseline figures the XGBoost Scorecard is measured
+    against, so the two pages agree.
+  - That last check earned its keep. The whole-branch review had found the
+    rebuilt Scorecard rendering its honesty numbers in only one of three verdict
+    branches, so a `baseline_is_self` protocol would have shown no optimism gap
+    and no applicability coverage at all. The live page now shows all three,
+    which is the fix confirmed rather than merely asserted.
+  - Cache hits, the predict preview, the read-only trained-with conditions, the
+    0.3 in-domain threshold on both sides, and structures in both themes all
+    behave as designed. The console stayed clean throughout.
 - **`Sweep`, lineage visualisation, cross-app Sources, Proposals, generation** —
   all Phase 2+ by the product spec, none started.
 - **Playwright.** No E2E. chem-cellar has a mock-auth interception recipe at
-  `chem-vault2/.claude/skills/verify/SKILL.md` worth adopting — it would also
-  be the fix for the Google-OAuth sign-in wall above.
+  `chem-vault2/.claude/skills/verify/SKILL.md` worth adopting. Everything in the
+  bullet above was checked by hand, once, and none of it survives as a test —
+  the `row_id` round trip under an active filter and sort is the first thing
+  that should become one. Note that an agent session cannot sign in on its own
+  (Google OAuth); either a human signs in first, or that recipe removes the
+  wall.
 - **A dashboard worth the name.** `/` is honest signposting, because nothing in
   the Phase 1 API aggregates anything. Real numbers need new endpoints.
 
@@ -242,11 +253,12 @@ MoleculeNet benchmarks, shaped for upload, in this session's scratchpad and
 Re-fetch from `https://deepchemdata.s3.us-west-1.amazonaws.com/datasets/` if the
 scratchpad is gone.
 
-**Two paths are still unexercised and worth hitting early:** a binary
-classification protocol end to end (MCC and balanced accuracy lead there, and the
-noise-floor card should be *absent*, not empty), and `baseline_is_self`, where the
-Scorecard must say "this model is the baseline" rather than render a comparison
-that never happened. Both have unit tests; neither has been seen in a browser.
+**Both of the once-unexercised paths have now been run** (§3): binary
+classification via BBBP-XGBoost, and `baseline_is_self` via ESOL trained with
+ECFP4+RandomForest. The workspace holds those protocols already, so re-checking
+either after a Scorecard change costs nothing — and the `baseline_is_self` one is
+worth re-checking after *any* change to the verdict branches, because that is the
+branch a Scorecard rework has already silently broken once.
 
 ---
 
