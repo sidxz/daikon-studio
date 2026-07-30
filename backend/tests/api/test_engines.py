@@ -9,7 +9,10 @@ async def test_engines_are_listed_with_their_conditions(client):
     assert response.status_code == 200, response.text
     engines = response.json()
     ids = {e["id"] for e in engines}
-    assert ids == {"ecfp4-xgboost", "ecfp4-randomforest"}
+    # Every registered engine is listed in every deployment, GPU-lane ones included:
+    # the manifest is plain data, so the picker stays identical everywhere and a
+    # deployment that cannot run one says so through a PENDING Run, not a missing entry.
+    assert ids == {"ecfp4-xgboost", "ecfp4-randomforest", "chemprop-dmpnn"}
     xgb = next(e for e in engines if e["id"] == "ecfp4-xgboost")
     keys = {c["key"] for c in xgb["conditions"]}
     assert keys == {"n_estimators", "max_depth", "learning_rate"}

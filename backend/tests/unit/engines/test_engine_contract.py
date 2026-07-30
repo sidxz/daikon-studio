@@ -161,6 +161,46 @@ def test_every_registered_manifest_round_trips_through_json():
             assert raw["type"] == spec.type.value
 
 
+def test_the_registry_loads_with_no_gpu_extra_installed():
+    """The API tier and the default-lane worker install without chemprop, torch or
+    CUDA, and must still serve every manifest -- otherwise the engine picker differs
+    per deployment and Task 6's two-image split does not work.
+
+    A subprocess, not a monkeypatched `sys.modules`: what this guards against is an
+    import hoisted to *module* scope in `chemprop_dmpnn.py`, and by the time this test
+    runs the registry is long since imported. Only a fresh interpreter can tell.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    probe = textwrap.dedent(
+        """
+        import sys
+
+        class _NoChemprop:
+            def find_spec(self, name, path=None, target=None):
+                if name == "chemprop" or name.startswith("chemprop."):
+                    raise ImportError("blocked")
+                return None
+
+        sys.meta_path.insert(0, _NoChemprop())
+
+        from daikonstudio.infrastructure.engines.registry import default_registry
+
+        ids = sorted(m.id for m in default_registry().manifests())
+        assert "chemprop-dmpnn" in ids, ids
+        assert "torch" not in sys.modules, "torch imported at module scope"
+        print("ok")
+        """
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", probe], capture_output=True, text=True, check=False
+    )
+    assert result.returncode == 0, result.stderr
+    assert "ok" in result.stdout
+
+
 def test_report_defaults_to_a_no_op() -> None:
     """An engine that never calls `report` must still train. Both ECFP4 engines are
     exactly that: a single `.fit()` offers no yield point, so they are honestly not

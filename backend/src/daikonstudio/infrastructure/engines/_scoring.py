@@ -1,4 +1,10 @@
-"""Metrics and ensemble-uncertainty prediction shared by both ECFP4 engines.
+"""The shared metric vocabulary, plus ensemble-uncertainty prediction for the ECFP4 pair.
+
+`regression_metrics` and `classification_metrics` are engine-agnostic and imported by
+every engine, chemprop included: a Scorecard comparing "your model" against "the
+baseline" is only meaningful while both numbers come from literally the same code.
+`_score` and `_predict_with_tree_ensemble` below are sklearn-shaped and stay private to
+the two ECFP4 engines.
 
 Plain accuracy is never computed here -- not even as an unused local. A dataset
 that is 99.9% negative yields a 99.9%-accurate model that predicts nothing
