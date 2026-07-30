@@ -34,6 +34,16 @@ function HonestyStat({
  * one border, nobody reads the claim without the doubts. The captions stay
  * visible for the same reason -- hover-to-see-the-caveat is a way of hiding
  * one.
+ *
+ * Rendered on every verdict, including `is-baseline` and `unknown`, not just
+ * the head-to-head branch: the optimism gap compares the model's own
+ * random-split score to its own scaffold-split score, and applicability
+ * coverage compares training set to test set -- neither involves the
+ * baseline, so neither has anything to do with whether a comparison exists.
+ * Only the noise floor is comparison-adjacent, and it already degrades on its
+ * own via the `noise_floor != null` guard below. Training the product's own
+ * baseline engine (`ecfp4-randomforest`, `is-baseline`) still has an
+ * optimism gap and an applicability rate worth knowing.
  */
 function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
   const gap = computeOptimismGap(scorecard);
@@ -152,9 +162,10 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
             In published benchmarks a fingerprint baseline places mid-field against purpose-built
             models — a model that cannot beat one has not earned its complexity.
           </p>
-          <HonestyStats scorecard={scorecard} />
         </>
       )}
+
+      <HonestyStats scorecard={scorecard} />
     </div>
   );
 }

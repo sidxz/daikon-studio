@@ -27,7 +27,14 @@ import { TriageGrid } from "./triage-grid";
 export function RunDetail({ runId }: { runId: string }) {
   const router = useRouter();
   const params = useSearchParams();
-  const submittedCount = params.get("compounds");
+  // A URL parameter is user input, not a measurement -- `?compounds=9999`
+  // must not render as fact. Parsed and range-checked before it is trusted
+  // enough to show; a run opened with no parameter (or a bogus one) shows no
+  // line at all, same as any other absent value.
+  const rawCompounds = params.get("compounds");
+  const submittedCount = rawCompounds !== null ? Number.parseInt(rawCompounds, 10) : null;
+  const hasSubmittedCount =
+    submittedCount !== null && Number.isFinite(submittedCount) && submittedCount > 0;
   const fromCache = params.get("cached") === "1";
   const { data: run, isLoading } = useRun(runId);
   const { data: protocol } = useProtocol(run?.protocol_id ?? undefined);
@@ -76,9 +83,9 @@ export function RunDetail({ runId }: { runId: string }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date(run.created_at).toLocaleString()}
           </p>
-          {submittedCount && (
+          {hasSubmittedCount && (
             <p className="mt-1 text-sm text-muted-foreground">
-              {submittedCount} compound{submittedCount === "1" ? "" : "s"} submitted
+              {submittedCount} compound{submittedCount === 1 ? "" : "s"} submitted
             </p>
           )}
         </div>

@@ -1,7 +1,15 @@
 import type { SortModelItem } from "ag-grid-community";
 
-/** The applicability below which a compound is extrapolation, not prediction. */
-export const IN_DOMAIN_FLOOR = 0.5;
+/**
+ * The applicability below which a compound is extrapolation, not prediction.
+ *
+ * This is the same threshold `build_scorecard.py`'s `applicability_coverage`
+ * uses (`_APPLICABILITY_THRESHOLD`), and the two must not drift apart: a
+ * compound this grid calls out-of-domain and one the Scorecard's coverage
+ * number excludes have to be the same compound, or the product disagrees with
+ * itself about what "in domain" means.
+ */
+export const IN_DOMAIN_FLOOR = 0.3;
 
 export interface ResultParams {
   sort_by?: string;

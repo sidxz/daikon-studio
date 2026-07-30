@@ -3,7 +3,9 @@
 `row_ids` are the same plain integer offsets `GetPredictionResults` pages
 over -- positions into the run's results Parquet in file-write order, not a
 separate id space. A client that paged through `/runs/{id}/results` already
-has these from each row's position (offset + index within the page).
+has these from each row's `row_id`, which the endpoint returns and which is
+minted before any sort or filter -- which is why it survives reordering when
+a page offset would not.
 
 Three ways a selection can be wrong, and none of them are silently repaired:
 empty (no rows chosen -- a saved Collection with zero members is not a

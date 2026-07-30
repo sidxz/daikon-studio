@@ -18,7 +18,7 @@ import {
 import { AgGridReact } from "ag-grid-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { fetchResultBlock } from "../hooks/use-runs";
-import { buildResultParams } from "../lib/result-query";
+import { IN_DOMAIN_FLOOR, buildResultParams } from "../lib/result-query";
 import type { TriageRow } from "../types";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
@@ -34,6 +34,10 @@ const NUMBER_FILTER = {
     filterOptions: ["greaterThanOrEqual", "lessThanOrEqual", "inRange"],
     maxNumConditions: 1,
     buttons: ["reset"],
+    // The server applies `>=` / `<=` -- inclusive on both ends. AG Grid's own
+    // default for "in range" is exclusive of the upper bound, which would show
+    // a control whose semantics disagree with what actually gets sent.
+    inRangeInclusive: true,
   },
 } satisfies Partial<ColDef<TriageRow>>;
 
@@ -120,7 +124,7 @@ export function TriageGrid({
           params.value == null ? (
             <span className="text-muted-foreground">—</span>
           ) : (
-            <span className={params.value < 0.5 ? "text-warning" : undefined}>
+            <span className={params.value < IN_DOMAIN_FLOOR ? "text-warning" : undefined}>
               {(params.value * 100).toFixed(0)}%
             </span>
           ),
@@ -179,7 +183,7 @@ export function TriageGrid({
     const rows = api.getSelectedRows();
     setSelected(rows.map((row) => row.__rowId));
     setOutsideDomain(
-      rows.filter((row) => row.applicability != null && row.applicability < 0.5).length,
+      rows.filter((row) => row.applicability != null && row.applicability < IN_DOMAIN_FLOOR).length,
     );
   }, []);
 

@@ -79,7 +79,24 @@ def apply_result_view(
         # Nulls last either way: `uncertainty` is null for every XGBoost row
         # and `applicability` is null when the training set could not be read.
         # Neither is "the smallest value", so neither may lead a page.
-        view = view.sort(sort.column, descending=sort.descending, nulls_last=True)
+        #
+        # `ROW_ID` as a second sort key breaks every tie on `sort.column` in
+        # favour of file order. Polars' `sort` is unstable by default (ties may
+        # land in either relative order), and `GetPredictionResults` re-reads
+        # the Parquet and re-sorts on every page request -- an unstable sort on
+        # a column with ties gives two independent, possibly-different
+        # permutations of the tied rows for page 1 and page 2, so a row can be
+        # emitted on both pages or on neither. This is not a rare edge case:
+        # `uncertainty` is null for every row of an XGBoost run (one tie group,
+        # the whole frame), and a classification protocol's class column is
+        # only ever 0.0 or 1.0 (two tie groups, half the rows each). Sorting on
+        # `[sort.column, ROW_ID]` makes the ordering a total order, so it is
+        # identical across requests by construction.
+        view = view.sort(
+            [sort.column, ROW_ID],
+            descending=[sort.descending, False],
+            nulls_last=[True, False],
+        )
 
     return Success(view)
 

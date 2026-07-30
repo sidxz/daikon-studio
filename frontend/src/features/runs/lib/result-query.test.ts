@@ -50,8 +50,11 @@ describe("AG Grid model -> results API parameters", () => {
   });
 
   it("turns the in-domain switch into an applicability floor", () => {
+    // Literal 0.3, not the imported constant: this must fail if
+    // IN_DOMAIN_FLOOR ever drifts from build_scorecard.py's 0.3 threshold,
+    // not silently pass because it's asserting the constant against itself.
     expect(buildResultParams({ sortModel: [], filterModel: {}, inDomainOnly: true })).toEqual({
-      filters: JSON.stringify({ applicability: { min: 0.5 } }),
+      filters: JSON.stringify({ applicability: { min: 0.3 } }),
     });
   });
 
@@ -66,7 +69,7 @@ describe("AG Grid model -> results API parameters", () => {
         },
         inDomainOnly: true,
       }),
-    ).toEqual({ filters: JSON.stringify({ applicability: { min: 0.5, max: 0.7 } }) });
+    ).toEqual({ filters: JSON.stringify({ applicability: { min: 0.3, max: 0.7 } }) });
   });
 
   it("keeps the user's floor when it is already tighter than the switch", () => {

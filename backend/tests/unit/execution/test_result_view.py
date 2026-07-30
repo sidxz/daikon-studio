@@ -55,6 +55,21 @@ def test_nulls_sort_last_in_both_directions(frame):
     assert rows(frame, sort=SortSpec(column="applicability", descending=True))[-1] == 3
 
 
+def test_a_fully_tied_sort_column_still_yields_stable_row_order(frame):
+    # `GetPredictionResults` re-reads the Parquet and re-runs `apply_result_view`
+    # on every page request, so page 1 and page 2 are two *independent* sorts.
+    # Polars' `sort` is unstable by default (`maintain_order=False`), so a sort
+    # key with ties can permute the tied rows differently each call -- a row
+    # could land on both pages, or on neither, with no error to notice it by.
+    # This is not a rare edge case to hedge against: `uncertainty` is null for
+    # every row of an XGBoost run, which makes the entire frame one tie group,
+    # and a classification protocol's class column is only ever 0.0 or 1.0.
+    # Modelling the XGBoost case -- every value in the sort column null --
+    # is what would have caught the missing `ROW_ID` tiebreak.
+    tied = frame.with_columns(pl.lit(None, dtype=pl.Float64).alias("uncertainty"))
+    assert rows(tied, sort=SortSpec(column="uncertainty")) == [0, 1, 2, 3]
+
+
 def test_a_minimum_excludes_smaller_values_and_nulls(frame):
     assert rows(frame, filters=(RangeFilter(column="applicability", minimum=0.5),)) == [1, 2]
 

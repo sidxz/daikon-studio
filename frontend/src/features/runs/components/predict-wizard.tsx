@@ -97,6 +97,12 @@ export function PredictWizard() {
   const onDrop = useCallback((files: File[]) => {
     const dropped = files[0];
     if (!dropped) return;
+    // ponytail: parses the whole file on the main thread, synchronously,
+    // before the preview can show a true row count. Bounded today by the
+    // shared upload endpoint's 100 MB cap (`MAX_UPLOAD_BYTES`, datasets.py) --
+    // at that ceiling a pathological CSV blocks the thread between drop and
+    // preview. Upgrade path: papaparse's `worker: true`, once that stall is
+    // actually felt.
     Papa.parse<Record<string, string>>(dropped, {
       header: true,
       skipEmptyLines: true,
