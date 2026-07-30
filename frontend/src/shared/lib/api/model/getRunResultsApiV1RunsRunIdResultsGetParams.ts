@@ -4,8 +4,12 @@
  * daikon-studio
  * OpenAPI spec version: 0.1.0
  */
+import type { GetRunResultsApiV1RunsRunIdResultsGetSortDir } from './getRunResultsApiV1RunsRunIdResultsGetSortDir';
 
 export type GetRunResultsApiV1RunsRunIdResultsGetParams = {
 cursor?: string | null;
 limit?: number | null;
+sort_by?: string | null;
+sort_dir?: GetRunResultsApiV1RunsRunIdResultsGetSortDir;
+filters?: string | null;
 };

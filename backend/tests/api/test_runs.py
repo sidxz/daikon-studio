@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 import pytest_asyncio
 
@@ -477,3 +478,90 @@ async def test_listing_runs_pages_with_an_opaque_cursor(
     assert len(second["items"]) == 1
     assert second["items"][0]["id"] != first["items"][0]["id"]
     assert second["next_cursor"] is None
+
+
+async def test_results_carry_their_row_id(client, published_protocol_id, prediction_upload_ref):
+    submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
+    response = await client.get(f"/api/v1/runs/{submitted.json()['id']}/results")
+    assert response.status_code == 200, response.text
+    assert [item["row_id"] for item in response.json()["items"]] == [0, 1, 2]
+
+
+async def test_results_can_be_sorted_by_a_readout(
+    client, published_protocol_id, prediction_upload_ref
+):
+    submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
+    run_id = submitted.json()["id"]
+    protocol = (await client.get(f"/api/v1/protocols/{published_protocol_id}")).json()
+    readout = protocol["readouts"][0]["name"]
+
+    ascending = await client.get(f"/api/v1/runs/{run_id}/results?sort_by={readout}&sort_dir=asc")
+    descending = await client.get(f"/api/v1/runs/{run_id}/results?sort_by={readout}&sort_dir=desc")
+    assert ascending.status_code == 200, ascending.text
+    assert descending.status_code == 200, descending.text
+
+    def values(response):
+        return [item["readouts"][readout]["value"] for item in response.json()["items"]]
+
+    assert values(ascending) == sorted(values(ascending))
+    assert values(descending) == list(reversed(values(ascending)))
+    # Reordering must not renumber: the same compound keeps the same handle,
+    # because that handle is what POST /collections stores.
+    assert {item["row_id"] for item in descending.json()["items"]} == {0, 1, 2}
+
+
+async def test_results_can_be_filtered_by_a_range(
+    client, published_protocol_id, prediction_upload_ref
+):
+    submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
+    run_id = submitted.json()["id"]
+    unfiltered = await client.get(f"/api/v1/runs/{run_id}/results")
+    assert len(unfiltered.json()["items"]) == 3
+
+    # No compound can be more than perfectly applicable, so this floor empties
+    # the view -- which must be a well-formed empty page, not a 4xx.
+    response = await client.get(
+        f"/api/v1/runs/{run_id}/results?filters=" + quote('{"applicability": {"min": 1.1}}')
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["items"] == []
+    assert response.json()["next_cursor"] is None
+
+
+async def test_an_unknown_filter_column_is_a_422(
+    client, published_protocol_id, prediction_upload_ref
+):
+    submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
+    response = await client.get(
+        f"/api/v1/runs/{submitted.json()['id']}/results?filters="
+        + quote('{"not_a_column": {"min": 1}}')
+    )
+    assert response.status_code == 422, response.text
+
+
+async def test_malformed_filter_json_is_a_422(client, published_protocol_id, prediction_upload_ref):
+    submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
+    response = await client.get(f"/api/v1/runs/{submitted.json()['id']}/results?filters=not-json")
+    assert response.status_code == 422, response.text
+
+
+async def test_a_filter_with_no_bounds_is_a_422(
+    client, published_protocol_id, prediction_upload_ref
+):
+    submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
+    response = await client.get(
+        f"/api/v1/runs/{submitted.json()['id']}/results?filters=" + quote('{"applicability": {}}')
+    )
+    assert response.status_code == 422, response.text
+
+
+async def test_an_unknown_sort_direction_is_a_422(
+    client, published_protocol_id, prediction_upload_ref
+):
+    submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
+    protocol = (await client.get(f"/api/v1/protocols/{published_protocol_id}")).json()
+    response = await client.get(
+        f"/api/v1/runs/{submitted.json()['id']}/results"
+        f"?sort_by={protocol['readouts'][0]['name']}&sort_dir=sideways"
+    )
+    assert response.status_code == 422, response.text

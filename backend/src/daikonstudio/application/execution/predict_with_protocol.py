@@ -47,6 +47,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import polars as pl
+from returns.pipeline import is_successful
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
@@ -54,6 +55,12 @@ from daikonstudio.application.data.create_dataset import upload_key
 from daikonstudio.application.engines.context import PredictContext
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.enqueue import JobEnqueuer
+from daikonstudio.application.execution.result_view import (
+    ROW_ID,
+    RangeFilter,
+    SortSpec,
+    apply_result_view,
+)
 from daikonstudio.application.execution.train_protocol import ScorecardInputs, scorecard_inputs_key
 from daikonstudio.application.pagination import PageResult, clamp_limit
 from daikonstudio.application.ports.blob_store import BlobStore
@@ -436,6 +443,7 @@ class PredictionRow:
     `uncertainty` and `applicability` are shaped the way they are."""
 
     structure: str
+    row_id: int
     readouts: dict[str, PredictedReadout]
     uncertainty: float | None
     applicability: float | None
@@ -446,6 +454,8 @@ class GetPredictionResultsQuery:
     run_id: uuid.UUID
     cursor: str | None = None
     limit: int | None = None
+    sort: SortSpec | None = None
+    filters: tuple[RangeFilter, ...] = ()
 
 
 class GetPredictionResults:
@@ -515,6 +525,17 @@ class GetPredictionResults:
         # `read_parquet`, or a precomputed row-group index for true partial reads.
         frame = pl.read_parquet(io.BytesIO(raw))
 
+        viewed = apply_result_view(
+            frame,
+            columns={readout.name for readout in protocol.readouts}
+            | {"uncertainty", "applicability"},
+            sort=query.sort,
+            filters=query.filters,
+        )
+        if not is_successful(viewed):
+            return Failure(viewed.failure())
+        frame = viewed.unwrap()
+
         # Fetch one more row than asked for: its presence is what says there is
         # another page, cheaper and more honest than a second COUNT query.
         page = frame.slice(offset, limit + 1).to_dicts()
@@ -526,6 +547,7 @@ class GetPredictionResults:
         items = [
             PredictionRow(
                 structure=row["structure"],
+                row_id=row[ROW_ID],
                 readouts={
                     readout.name: PredictedReadout(
                         value=row[readout.name], unit=readout.unit, direction=readout.direction

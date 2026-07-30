@@ -11,11 +11,13 @@ and `protocols.py` give: `workspace_id` is refused, not silently dropped.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Response
+from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict
 
 from daikonstudio.application.execution.list_runs import ListRuns, ListRunsQuery
@@ -31,6 +33,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
     PredictWithProtocol,
     PredictWithProtocolCommand,
 )
+from daikonstudio.application.execution.result_view import RangeFilter, SortSpec
 from daikonstudio.domain.execution.run import Run, RunKind
 from daikonstudio.interface.dependencies._container import use_case
 from daikonstudio.interface.dependencies._core import AuthDep
@@ -110,6 +113,7 @@ class PredictionResponse(BaseModel):
     see `PredictionRow`'s own docstring for why `uncertainty` and
     `applicability` are shaped the way they are."""
 
+    row_id: int
     structure: str
     readouts: dict[str, PredictedReadoutResponse]
     uncertainty: float | None
@@ -118,6 +122,7 @@ class PredictionResponse(BaseModel):
     @classmethod
     def from_domain(cls, row: PredictionRow) -> PredictionResponse:
         return cls(
+            row_id=row.row_id,
             structure=row.structure,
             readouts={
                 name: PredictedReadoutResponse.from_domain(readout)
@@ -168,6 +173,49 @@ async def get_run(run_id: uuid.UUID, auth: AuthDep, service: GetRunDep) -> RunRe
     return RunResponse.from_domain(run)
 
 
+def _parse_filters(raw: str | None) -> tuple[RangeFilter, ...]:
+    """`{"applicability": {"min": 0.5}}` -> RangeFilters.
+
+    A JSON object in one query parameter rather than repeated scalar params
+    (`applicability_min=...`): filterable columns are a Protocol's own readout
+    names, so a fixed parameter list cannot name them without being invented
+    per Protocol.
+    """
+    if raw is None:
+        return ()
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as error:
+        raise _invalid_filters(f"not valid JSON: {error.msg}") from error
+    if not isinstance(parsed, dict):
+        raise _invalid_filters("must be a JSON object")
+
+    filters: list[RangeFilter] = []
+    for column, bounds in parsed.items():
+        if not isinstance(bounds, dict):
+            raise _invalid_filters(f"'{column}' must be an object with min and/or max")
+        minimum, maximum = bounds.get("min"), bounds.get("max")
+        if minimum is None and maximum is None:
+            raise _invalid_filters(f"'{column}' needs at least one of min or max")
+        try:
+            filters.append(
+                RangeFilter(
+                    column=column,
+                    minimum=None if minimum is None else float(minimum),
+                    maximum=None if maximum is None else float(maximum),
+                )
+            )
+        except (TypeError, ValueError) as error:
+            raise _invalid_filters(f"'{column}': min and max must be numbers") from error
+    return tuple(filters)
+
+
+def _invalid_filters(message: str) -> RequestValidationError:
+    return RequestValidationError(
+        [{"loc": ("query", "filters"), "msg": message, "type": "value_error"}]
+    )
+
+
 @router.get("/{run_id}/results", response_model=PaginatedResponse[PredictionResponse])
 async def get_run_results(
     run_id: uuid.UUID,
@@ -175,10 +223,25 @@ async def get_run_results(
     service: GetPredictionResultsDep,
     cursor: str | None = None,
     limit: int | None = None,
+    sort_by: str | None = None,
+    sort_dir: Literal["asc", "desc"] = "asc",
+    filters: str | None = None,
 ) -> PaginatedResponse[PredictionResponse]:
+    """`sort_by` and `filters` name columns a Protocol declares, so which names
+    are legal is decided in the use case -- this function only parses the wire
+    format. `sort_dir` is a Literal, so FastAPI rejects anything else itself."""
     page = result_to_response(
         await service(
-            GetPredictionResultsQuery(run_id=run_id, cursor=cursor, limit=limit), auth=auth
+            GetPredictionResultsQuery(
+                run_id=run_id,
+                cursor=cursor,
+                limit=limit,
+                sort=None
+                if sort_by is None
+                else SortSpec(column=sort_by, descending=sort_dir == "desc"),
+                filters=_parse_filters(filters),
+            ),
+            auth=auth,
         )
     )
     return PaginatedResponse(

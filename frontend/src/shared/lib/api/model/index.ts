@@ -26,6 +26,7 @@ export * from './engineManifestResponse';
 export * from './exportCollectionApiV1CollectionsCollectionIdExportGetParams';
 export * from './exportFormat';
 export * from './getRunResultsApiV1RunsRunIdResultsGetParams';
+export * from './getRunResultsApiV1RunsRunIdResultsGetSortDir';
 export * from './hTTPValidationError';
 export * from './healthHealthGet200';
 export * from './invalidRowResponse';

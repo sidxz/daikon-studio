@@ -17,6 +17,7 @@ see `PredictionRow`'s own docstring for why `uncertainty` and
 `applicability` are shaped the way they are.
  */
 export interface PredictionResponse {
+  row_id: number;
   structure: string;
   readouts: PredictionResponseReadouts;
   uncertainty: PredictionResponseUncertainty;

@@ -290,6 +290,9 @@ export function useGetRunApiV1RunsRunIdGet<TData = Awaited<ReturnType<typeof get
 
 
 /**
+ * `sort_by` and `filters` name columns a Protocol declares, so which names
+are legal is decided in the use case -- this function only parses the wire
+format. `sort_dir` is a Literal, so FastAPI rejects anything else itself.
  * @summary Get Run Results
  */
 export const getRunResultsApiV1RunsRunIdResultsGet = (

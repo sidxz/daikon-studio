@@ -856,6 +856,7 @@
           "runs"
         ],
         "summary": "Get Run Results",
+        "description": "`sort_by` and `filters` name columns a Protocol declares, so which names\nare legal is decided in the use case -- this function only parses the wire\nformat. `sort_dir` is a Literal, so FastAPI rejects anything else itself.",
         "operationId": "get_run_results_api_v1_runs__run_id__results_get",
         "parameters": [
           {
@@ -898,6 +899,52 @@
                 }
               ],
               "title": "Limit"
+            }
+          },
+          {
+            "name": "sort_by",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Sort By"
+            }
+          },
+          {
+            "name": "sort_dir",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "asc",
+                "desc"
+              ],
+              "type": "string",
+              "default": "asc",
+              "title": "Sort Dir"
+            }
+          },
+          {
+            "name": "filters",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Filters"
             }
           }
         ],
@@ -1690,6 +1737,10 @@
       },
       "PredictionResponse": {
         "properties": {
+          "row_id": {
+            "type": "integer",
+            "title": "Row Id"
+          },
           "structure": {
             "type": "string",
             "title": "Structure"
@@ -1726,6 +1777,7 @@
         },
         "type": "object",
         "required": [
+          "row_id",
           "structure",
           "readouts",
           "uncertainty",
