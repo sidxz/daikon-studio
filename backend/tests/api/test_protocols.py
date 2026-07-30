@@ -117,6 +117,30 @@ async def test_the_trained_protocol_starts_as_an_unlocked_draft(client, trained_
     assert body["is_locked"] is False
 
 
+async def test_a_readout_carries_the_datasets_unit_and_direction_over_http(
+    client, trained_protocol_id
+):
+    """The whole point of deriving Readouts from the TargetSpec is that a
+    predicted value arrives in the same unit, and pointing the same way, as a
+    measured one. That pairing has to survive the HTTP boundary too -- it was
+    dropped at four separate boundaries during the backend build, and a client
+    rendering a bare float has no way to notice the fifth.
+
+    The dataset these fixtures build declares `unit="logS", direction="high"`.
+    """
+    body = (await client.get(f"/api/v1/protocols/{trained_protocol_id}")).json()
+
+    assert body["readouts"] == [
+        {
+            "name": "y",
+            "type": "numeric",
+            "unit": "logS",
+            "direction": "high",
+            "description": "Predicted y",
+        }
+    ]
+
+
 async def test_publish_locks_the_protocol(client, trained_protocol_id):
     response = await client.post(f"/api/v1/protocols/{trained_protocol_id}/publish")
     assert response.status_code == 204, response.text

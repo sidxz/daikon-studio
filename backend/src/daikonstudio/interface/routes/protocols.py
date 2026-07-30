@@ -41,7 +41,8 @@ from daikonstudio.application.catalog.publish_protocol import (
 )
 from daikonstudio.application.execution.train_protocol import TrainProtocol, TrainProtocolCommand
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
-from daikonstudio.domain.catalog.readout import Readout
+from daikonstudio.domain.catalog.readout import Readout, ReadoutType
+from daikonstudio.domain.data.target import Direction
 from daikonstudio.domain.execution.scorecard import Scorecard, WorstRow
 from daikonstudio.interface.dependencies._container import use_case
 from daikonstudio.interface.dependencies._core import AuthDep
@@ -75,14 +76,36 @@ class TrainProtocolBody(BaseModel):
     conditions: dict[str, Any]
 
 
-def _readout_to_dict(readout: Readout) -> dict[str, Any]:
-    return {
-        "name": readout.name,
-        "type": readout.type.value,
-        "unit": readout.unit,
-        "direction": readout.direction,
-        "description": readout.description,
-    }
+class ReadoutResponse(BaseModel):
+    """One declared output of a trained Protocol.
+
+    Typed rather than a bare `dict` because `unit` and `direction` are the
+    whole point of a Readout: they are what let a predicted IC50 be lined up
+    against a measured one instead of being a bare float. That pairing was
+    dropped at four separate boundaries during the backend build; handing the
+    client `dict[str, Any]` here would have invited a fifth.
+
+    `direction` is narrowed to the `Direction` enum even though `Readout` types
+    it as `str`. Every value `derive_readouts` can produce is a `Direction`
+    member or `None`, so the narrower contract is honest and gives a client a
+    closed union instead of an open string.
+    """
+
+    name: str
+    type: ReadoutType
+    unit: str | None
+    direction: Direction | None
+    description: str
+
+    @classmethod
+    def from_domain(cls, readout: Readout) -> ReadoutResponse:
+        return cls(
+            name=readout.name,
+            type=readout.type,
+            unit=readout.unit,
+            direction=Direction(readout.direction) if readout.direction else None,
+            description=readout.description,
+        )
 
 
 class ProtocolResponse(BaseModel):
@@ -92,7 +115,10 @@ class ProtocolResponse(BaseModel):
     dataset_id: uuid.UUID
     engine_id: str
     artifact_uri: str
-    readouts: list[dict[str, Any]]
+    readouts: list[ReadoutResponse]
+    # Stays an open map: the keys are whatever conditions the chosen Engine
+    # declares, which is exactly the thing the self-describing catalogue makes
+    # discoverable at runtime rather than fixing in a schema.
     conditions: dict[str, Any]
     status: str
     is_locked: bool
@@ -110,7 +136,7 @@ class ProtocolResponse(BaseModel):
             dataset_id=protocol.dataset_id,
             engine_id=protocol.engine_id,
             artifact_uri=protocol.artifact_uri,
-            readouts=[_readout_to_dict(readout) for readout in protocol.readouts],
+            readouts=[ReadoutResponse.from_domain(readout) for readout in protocol.readouts],
             conditions=dict(protocol.conditions),
             status=protocol.status.value,
             is_locked=protocol.is_locked,

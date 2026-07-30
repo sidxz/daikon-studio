@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
@@ -87,17 +87,55 @@ class UploadResponse(BaseModel):
     upload_ref: uuid.UUID
 
 
+class InvalidRowResponse(BaseModel):
+    row_number: int
+    value: str
+    reason: str
+
+
+class ConflictRowResponse(BaseModel):
+    structure: str
+    values: list[int]
+    row_numbers: list[int]
+
+
+class ValidationReportResponse(BaseModel):
+    """The report, typed rather than a bare `dict`.
+
+    It reaches a client by two routes -- on an accepted `DatasetResponse`, and
+    as the `detail` of the 422 that `InvalidDatasetError` raises when a file is
+    refused at the door. The rejection is the case that matters: which rows
+    failed and why, how many duplicates collapsed, how wide the assay spread
+    was, is the whole value of the validation pass, and a UI cannot render any
+    of it from `dict[str, Any]`. The error path serialises the same dataclasses
+    through `report_to_dict`, so both bodies share this shape even though only
+    this one appears in the OpenAPI contract.
+    """
+
+    total_rows: int
+    valid_rows: int
+    invalid: list[InvalidRowResponse]
+    conflicting: list[ConflictRowResponse]
+    duplicates_collapsed: int
+    salts_flagged: int
+    duplicate_spread: float | None
+
+
 class DatasetResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
     name: str
     structure_column: str
-    target: dict[str, Any]
-    split: dict[str, Any]
+    # `TargetBody`/`SplitBody` are reused verbatim rather than mirrored into
+    # `*Response` twins: the spec a scientist submits *is* the spec that gets
+    # frozen and read back, so one model for both directions is what keeps the
+    # two from ever drifting apart.
+    target: TargetBody
+    split: SplitBody
     content_hash: str
     snapshot_uri: str
     row_count: int
-    validation_report: dict[str, Any]
+    validation_report: ValidationReportResponse
     version: int
     created_at: datetime
 
@@ -108,12 +146,14 @@ class DatasetResponse(BaseModel):
             workspace_id=dataset.workspace_id,
             name=dataset.name,
             structure_column=dataset.structure_column,
-            target=target_to_dict(dataset.target),
-            split=split_to_dict(dataset.split),
+            target=TargetBody.model_validate(target_to_dict(dataset.target)),
+            split=SplitBody.model_validate(split_to_dict(dataset.split)),
             content_hash=dataset.content_hash,
             snapshot_uri=dataset.snapshot_uri,
             row_count=dataset.row_count,
-            validation_report=report_to_dict(dataset.validation_report),
+            validation_report=ValidationReportResponse.model_validate(
+                report_to_dict(dataset.validation_report)
+            ),
             version=dataset.version,
             created_at=dataset.created_at,
         )
