@@ -90,7 +90,7 @@ export function useCancelRun() {
 }
 
 /**
- * One page of a run's results, stamped with absolute offsets.
+ * One page of a run's results, each row carrying the server's `row_id`.
  *
  * Not a hook: AG Grid's infinite row model calls its datasource imperatively
  * with a start row, so this is a plain async function. The cursor for this

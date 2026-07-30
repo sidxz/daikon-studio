@@ -59,7 +59,7 @@ export function TriageGrid({
 
   const columns = useMemo<ColDef<TriageRow>[]>(() => {
     // No column for `__rowId`. AG Grid renders its own checkbox column from
-    // `rowSelection.checkboxes`, and the offset is an internal handle for
+    // `rowSelection.checkboxes`, and `row_id` is an internal handle for
     // `POST /collections` -- surfacing it would put a bare index in front of a
     // chemist, which is the same mistake as showing a UUID.
     const base: ColDef<TriageRow>[] = [
@@ -231,9 +231,11 @@ export function TriageGrid({
             headerCheckbox: false,
             enableClickSelection: false,
           }}
-          // Absolute offset, which is exactly what POST /collections wants back
-          // as row_ids -- and what keeps a selection alive across blocks AG Grid
-          // has already discarded.
+          // The server's row_id: the row's position in the original results
+          // file, minted before any sort or filter. That's exactly what
+          // POST /collections wants back as row_ids, and what keeps a
+          // selection alive across blocks AG Grid has already discarded --
+          // a page offset would disagree with it under any sort or filter.
           getRowId={(params) => String(params.data.__rowId)}
           onGridReady={onGridReady}
           onSelectionChanged={refreshSelection}
