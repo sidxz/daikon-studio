@@ -65,7 +65,8 @@ Points `BlobStore` at any fsspec-addressable backend (MinIO, S3, Azure Blob) thr
 - Modify: `backend/src/daikonstudio/infrastructure/storage/fsspec_blob_store.py`
 - Modify: `backend/src/daikonstudio/infrastructure/di/container.py:66-69`
 - Modify: `backend/src/daikonstudio/infrastructure/worker.py` (in `_on_startup`)
-- Test: `backend/tests/unit/infrastructure/test_blob_store.py` (add to the existing file)
+- Test: `backend/tests/integration/test_blob_store.py` (add to the existing file — despite
+  the name it uses only `tmp_path`, and there is no `tests/unit/infrastructure/test_blob_store.py`)
 
 **Interfaces:**
 - Consumes: nothing.
