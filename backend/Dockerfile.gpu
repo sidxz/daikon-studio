@@ -1,0 +1,65 @@
+# GPU-lane worker.
+#
+# Build this on x86_64 (CI or a swarm node), not on an Apple Silicon Mac. The target is
+# linux/amd64, so a Mac must build it under `--platform linux/amd64` QEMU emulation,
+# which pushes several GB of torch and vendored CUDA through an emulator: measured here,
+# dependency download alone took 7m05s and the bytecode-compile step did not finish
+# inside 10 minutes. Nothing is wrong with the file -- it is the wrong machine.
+#
+# pytorch/pytorch:2.6.0-cuda12.4-cudnn9-runtime is the obvious base and is ruled out: it
+# ships Python 3.11, and this codebase uses PEP 695 generics (`class PageResult[T]` in
+# domain/shared/pagination.py) which need 3.12+. Lowering requires-python to fit a base
+# image would be the tail wagging the dog; uv installs its own interpreter, so the plain
+# CUDA runtime is the cleaner floor.
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
+
+# No apt step on purpose. The base image already ships ca-certificates, uv arrives by
+# COPY rather than by curl, and neither image defines a HEALTHCHECK -- so an
+# `apt-get update` here would buy nothing while making every build depend on
+# developer.download.nvidia.com's apt mirror, which is exactly what failed the first
+# time this was built ("File has unexpected size ... Mirror sync in progress?").
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/opt/uv-python
+RUN uv python install 3.13
+
+WORKDIR /app
+
+# Torch comes from the lock, not from a CUDA index pinned here.
+#
+# An earlier draft set UV_INDEX=pytorch-cu124 at this point, claiming it was where the
+# CUDA build got selected. Under `uv sync --frozen` that is dead config: frozen installs
+# exactly the artifacts uv.lock names, and uv.lock resolves torch 2.13.0 from pypi.org
+# (`grep -c download.pytorch.org uv.lock` -> 0). The env var changed nothing, so it is
+# gone rather than left behind to be believed.
+#
+# It is not needed either. PyPI's linux torch wheels vendor their own CUDA userspace as
+# the nvidia-*-cu13 dependency wheels, so the runtime CUDA that matters is bundled, not
+# inherited from the base image. What the HOST must supply is a driver new enough for
+# the CUDA major the locked torch was built against -- see the CUDA note in the plan's
+# Deployment notes. Keeping the cu124 index out of pyproject.toml is still right, for
+# the reason recorded there: it would break `uv sync --extra gpu` on a developer's Mac,
+# and CPU torch locally is what makes this engine testable without a GPU.
+
+# Both extras in ONE sync. Extras are not additive across separate `uv sync` runs --
+# a second `uv sync --extra gpu` uninstalls what `--extra s3` put there.
+COPY pyproject.toml uv.lock ./
+RUN uv sync --frozen --no-dev --extra gpu --extra s3 --no-install-project
+
+COPY src ./src
+RUN uv sync --frozen --no-dev --extra gpu --extra s3
+
+# TMPDIR is where chemprop's checkpoint round-trip lands. Bind a fast local NVMe at
+# /scratch on a node that has one; everything written there is transient.
+ENV PATH="/app/.venv/bin:$PATH" \
+    NVIDIA_VISIBLE_DEVICES=all \
+    NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    TMPDIR=/scratch \
+    STUDIO_WORKER_LANE=gpu \
+    STUDIO_WORKER_MAX_JOBS=1
+
+RUN mkdir -p /scratch \
+ && useradd --create-home --uid 10001 studio \
+ && chown -R studio /app /scratch
+USER studio
+
+CMD ["arq", "daikonstudio.infrastructure.worker.WorkerSettings"]

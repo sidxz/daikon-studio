@@ -2071,6 +2071,32 @@ STUDIO_BLOB_STORAGE_OPTIONS={"endpoint_url":"https://minio-api.snet.biobio.tamu.
 Several GPUs on one node: one `worker-gpu` replica per device with `CUDA_VISIBLE_DEVICES`
 pinned. Several GPU nodes: raise the replica count. Both pull the same queue.
 
+### `Dockerfile.gpu` must be built on x86_64
+
+Task 6 was implemented on an Apple Silicon Mac (linux/aarch64). The slim image builds and
+verifies there under `--platform linux/amd64`; the GPU image does not, and this is not a
+fault in the file. The deployment target is x86_64, so a Mac must build it under QEMU
+emulation, and pushing several GB of torch plus vendored CUDA through an emulator is
+impractical: measured on that machine the dependency download alone took 7m05s and the
+bytecode-compile step had not finished at the 10-minute mark. Build it on an x86_64 CI
+runner or directly on a swarm node.
+
+What *was* verified there, from the partial emulated build: the base image pulls,
+`uv python install 3.13` succeeds (17s), and `uv sync --frozen --no-dev --extra gpu
+--extra s3` accepts the lock and prepares all 127 packages including torch — so `uv.lock`
+is current for linux/amd64 with both extras. Unverified anywhere: that the image finishes
+building, that chemprop imports inside it, and anything CUDA-related.
+
+**Check the host driver before the first GPU run.** `uv.lock` pins torch 2.13.0 from
+PyPI, whose linux wheels vendor their own CUDA userspace as `nvidia-*-cu13` dependency
+wheels. The `nvidia/cuda:12.4.1` base image therefore does not determine the runtime CUDA
+version — the bundled cu13 libraries do, and the base tag is now mostly a convention. The
+constraint that remains is the **host NVIDIA driver**, which must be new enough for CUDA
+13; a 12.4-era driver on the GPU node will fail at first `torch.cuda` use with an
+insufficient-driver error that no build step can catch. Confirm with `nvidia-smi` on the
+node, and if the driver cannot be raised, re-lock torch to a CUDA 12 build instead of
+changing the base image tag.
+
 ---
 
 ## Self-Review
