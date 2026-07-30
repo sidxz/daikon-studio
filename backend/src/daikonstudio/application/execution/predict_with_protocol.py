@@ -53,7 +53,7 @@ from returns.result import Failure, Result, Success
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
 from daikonstudio.application.data.create_dataset import upload_key
 from daikonstudio.application.engines.context import PredictContext
-from daikonstudio.application.engines.registry import EngineRegistry
+from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.result_view import (
     ROW_ID,
@@ -139,11 +139,13 @@ class PredictWithProtocol:
         runs: RunRepository,
         store: BlobStore,
         enqueuer: JobEnqueuer,
+        engines: EngineRegistry,
     ) -> None:
         self._protocols = protocols
         self._runs = runs
         self._store = store
         self._enqueuer = enqueuer
+        self._engines = engines
 
     async def __call__(
         self, command: PredictWithProtocolCommand, auth: AuthContext | None = None
@@ -208,6 +210,15 @@ class PredictWithProtocol:
         if existing is not None and existing.status is RunStatus.READY:
             return Success(existing)
 
+        # Resolved before the Run row exists, so a Protocol whose engine this deployment
+        # no longer ships fails as a clean 404 rather than leaving an orphan PENDING Run
+        # that no worker can ever serve. Deliberately after the cache check: an already
+        # READY result stays reusable even if the engine has since been removed.
+        try:
+            lane = self._engines.get(protocol.engine_id).manifest().lane
+        except UnknownEngineError:
+            return Failure(NotFoundError("Engine", protocol.engine_id))
+
         run = Run(
             kind=RunKind.PREDICTION,
             workspace_id=auth.workspace_id,
@@ -222,7 +233,7 @@ class PredictWithProtocol:
             protocol_id=command.protocol_id,
         )
         await self._runs.add(run)
-        await self._enqueuer.enqueue(run.id)
+        await self._enqueuer.enqueue(run.id, lane=lane)
         return Success(run)
 
 

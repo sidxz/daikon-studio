@@ -139,7 +139,9 @@ def create_container(settings: Settings | None = None) -> Container:
 
     container.define(
         PredictWithProtocol,
-        lambda c: PredictWithProtocol(_protocols(c), _runs(c), c[BlobStore], c[JobEnqueuer]),
+        lambda c: PredictWithProtocol(
+            _protocols(c), _runs(c), c[BlobStore], c[JobEnqueuer], c[EngineRegistry]
+        ),
     )
     container.define(GetRun, lambda c: GetRun(_runs(c)))
     container.define(ListRuns, lambda c: ListRuns(_runs(c)))

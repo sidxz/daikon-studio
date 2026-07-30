@@ -19,6 +19,15 @@ same dual-implementation trick as chem-cellar's `NullJobOrchestrator`.
 import uuid
 from typing import Protocol
 
+from daikonstudio.application.engines.manifest import DEFAULT_LANE
+
 
 class JobEnqueuer(Protocol):
-    async def enqueue(self, run_id: uuid.UUID) -> None: ...
+    async def enqueue(self, run_id: uuid.UUID, lane: str = DEFAULT_LANE) -> None:
+        """`lane` is routing metadata and nothing else.
+
+        The queue message stays a bare `run_id` -- all job state lives on the Run row,
+        which is what lets any orchestrator sit behind this port. A lane names which
+        pool of workers should pick the job up; it is never state, and is never stored.
+        """
+        ...

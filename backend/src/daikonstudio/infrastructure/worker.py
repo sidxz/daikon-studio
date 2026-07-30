@@ -30,6 +30,7 @@ from typing import Any, ClassVar
 
 import arq
 from arq.connections import ArqRedis, RedisSettings
+from arq.constants import default_queue_name
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
@@ -37,6 +38,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from daikonstudio.application.engines.manifest import DEFAULT_LANE
 from daikonstudio.application.execution.predict_with_protocol import RunPrediction
 from daikonstudio.application.execution.train_protocol import RunTraining
 from daikonstudio.application.ports.blob_store import BlobStore
@@ -166,16 +168,42 @@ async def _on_shutdown(ctx: dict[str, Any]) -> None:
         await engine.dispose()
 
 
+# arq's own hard timeout is a backstop, not the mechanism. The cooperative deadline in
+# train_protocol.py is what actually stops a fit; this margin exists so arq only fires
+# when an engine ignores `report` entirely -- see the module docstring there for why a
+# firing arq timeout is expensive.
+_HARD_TIMEOUT_MARGIN_SECONDS = 600
+
+
+def queue_for(lane: str) -> str:
+    """The arq queue a lane's jobs land on.
+
+    The default lane deliberately keeps arq's own default queue name, so introducing
+    lanes needs no drain-and-migrate of jobs already queued under the old one.
+    """
+    return default_queue_name if lane == DEFAULT_LANE else f"{default_queue_name}:{lane}"
+
+
+_settings = Settings()
+
+
 class WorkerSettings:
-    """arq WorkerSettings -- mirrors the lifespan wiring in `interface/app.py`."""
+    """arq WorkerSettings -- mirrors the lifespan wiring in `interface/app.py`.
+
+    One worker process serves exactly one lane. A deployment with a GPU runs a second
+    process with STUDIO_WORKER_LANE=gpu and STUDIO_WORKER_MAX_JOBS=1; a deployment with
+    several GPUs runs one process per device with CUDA_VISIBLE_DEVICES pinned; a
+    deployment with a GPU cluster runs one per node. All of them pull the same queue,
+    and Redis distributes. None of that is code.
+    """
 
     functions: ClassVar[list[Any]] = [run_job]
-    redis_settings = RedisSettings.from_dsn(Settings().redis_url)
+    redis_settings = RedisSettings.from_dsn(_settings.redis_url)
     on_startup = _on_startup
     on_shutdown = _on_shutdown
-    # ponytail: 1800s covers CPU engines comfortably. Climb to a durable engine
-    # (Temporal) only when a GPU training run genuinely needs multi-hour execution.
-    job_timeout = 1800
+    queue_name = queue_for(_settings.worker_lane)
+    max_jobs = _settings.worker_max_jobs
+    job_timeout = _settings.worker_job_timeout + _HARD_TIMEOUT_MARGIN_SECONDS
 
 
 class ArqEnqueuer:
@@ -198,9 +226,9 @@ class ArqEnqueuer:
                     self._pool = await arq.create_pool(RedisSettings.from_dsn(self._redis_url))
         return self._pool
 
-    async def enqueue(self, run_id: uuid.UUID) -> None:
+    async def enqueue(self, run_id: uuid.UUID, lane: str = DEFAULT_LANE) -> None:
         pool = await self._get_pool()
-        await pool.enqueue_job("run_job", run_id)
+        await pool.enqueue_job("run_job", run_id, _queue_name=queue_for(lane))
 
     async def aclose(self) -> None:
         if self._pool is not None:
@@ -234,6 +262,9 @@ class InlineEnqueuer:
         # handler cannot tell which enqueuer it is running under.
         self._ctx: dict[str, Any] = {"sessions": sessions, "store": store}
 
-    async def enqueue(self, run_id: uuid.UUID) -> None:
+    async def enqueue(self, run_id: uuid.UUID, lane: str = DEFAULT_LANE) -> None:
+        # `lane` is ignored on purpose: running the job in the caller's own process
+        # has no queue to route it to. Accepting the argument is what keeps the two
+        # implementations interchangeable from a caller's point of view.
         with contextlib.suppress(Exception, SystemExit):
             await run_job(self._ctx, run_id)

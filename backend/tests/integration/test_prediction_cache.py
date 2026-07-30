@@ -129,7 +129,9 @@ class Studio:
         self._create_dataset = CreateDataset(self.datasets, self.store, self.normalizer)
         enqueuer = InlineEnqueuer(sessions, self.store)
         self._train = TrainProtocol(self.datasets, self.runs, enqueuer, default_registry())
-        self._predict = PredictWithProtocol(self.protocols, self.runs, self.store, enqueuer)
+        self._predict = PredictWithProtocol(
+            self.protocols, self.runs, self.store, enqueuer, default_registry()
+        )
         self._publish = PublishProtocol(self.protocols)
 
     async def upload(self, data: bytes) -> str:

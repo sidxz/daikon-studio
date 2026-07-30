@@ -248,7 +248,7 @@ class TrainProtocol:
         assert auth is not None  # require_authenticated has already rejected None
 
         try:
-            self._engines.get(command.engine_id)
+            engine = self._engines.get(command.engine_id)
         except UnknownEngineError:
             return Failure(NotFoundError("Engine", command.engine_id))
 
@@ -278,7 +278,9 @@ class TrainProtocol:
             params=command.to_params(),
         )
         await self._runs.add(run)
-        await self._enqueuer.enqueue(run.id)
+        # Routed by the engine's own declared lane. The engine is already in hand from
+        # the membership check above, so this costs nothing.
+        await self._enqueuer.enqueue(run.id, lane=engine.manifest().lane)
         return Success(run)
 
 

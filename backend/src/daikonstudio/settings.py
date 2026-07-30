@@ -22,6 +22,20 @@ class Settings(BaseSettings):
     # runs jobs in-process so tests and local dev need no Valkey at all.
     inline_jobs: bool = False
 
+    # Which lane's queue this worker process pulls. Engines declare a lane on their
+    # manifest and a deployment satisfies it by running a worker here -- nothing in the
+    # codebase names a host. See
+    # docs/superpowers/specs/2026-07-30-remote-engines-chemprop-design.md.
+    worker_lane: str = "default"
+    # arq's own default is 10. A GPU worker MUST set this to 1 (or run one process per
+    # device with CUDA_VISIBLE_DEVICES pinned): concurrent fits on one device exhaust
+    # its memory, and arq will happily start ten.
+    worker_max_jobs: int = 10
+    # The SOFT deadline, in seconds, enforced cooperatively inside the engine through
+    # TrainContext.report. arq's hard job_timeout is derived from this with a margin;
+    # see infrastructure/worker.py. Raise this on a GPU lane, not the hard timeout.
+    worker_job_timeout: int = 1800
+
     # Sentinel (authz mode) — same realm as prot-cellar, chem-cellar, daikon-gen3,
     # docu-store. `sentinel_service_key` defaults to "" as a missing-config signal,
     # not a usable key: an empty key means auth is unconfigured, and the auth
