@@ -18,7 +18,7 @@ import { Label } from "@/shared/components/ui/label";
 import { Progress } from "@/shared/components/ui/progress";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useCancelRun, useRun } from "../hooks/use-runs";
 import { RUN_STATUS_COPY } from "../types";
@@ -26,6 +26,9 @@ import { TriageGrid } from "./triage-grid";
 
 export function RunDetail({ runId }: { runId: string }) {
   const router = useRouter();
+  const params = useSearchParams();
+  const submittedCount = params.get("compounds");
+  const fromCache = params.get("cached") === "1";
   const { data: run, isLoading } = useRun(runId);
   const { data: protocol } = useProtocol(run?.protocol_id ?? undefined);
   const cancel = useCancelRun();
@@ -73,6 +76,11 @@ export function RunDetail({ runId }: { runId: string }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date(run.created_at).toLocaleString()}
           </p>
+          {submittedCount && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {submittedCount} compound{submittedCount === "1" ? "" : "s"} submitted
+            </p>
+          )}
         </div>
         {running && (
           <Button
@@ -98,6 +106,13 @@ export function RunDetail({ runId }: { runId: string }) {
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm font-medium text-destructive">This run failed</p>
           <p className="mt-1 font-mono text-xs text-muted-foreground">{run.error_message}</p>
+        </div>
+      )}
+
+      {fromCache && run.status === "ready" && (
+        <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
+          These compounds had already been scored by this protocol — these results came from cache,
+          not a new run.
         </div>
       )}
 

@@ -1,7 +1,9 @@
 "use client";
 
-import { PREDICTION_TEMPLATE_CSV } from "@/features/datasets";
+import { PREDICTION_TEMPLATE_CSV, useDataset } from "@/features/datasets";
+import { useEngines } from "@/features/engines";
 import { useProtocols } from "@/features/protocols";
+import type { Protocol } from "@/features/protocols";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Label } from "@/shared/components/ui/label";
@@ -17,9 +19,61 @@ import { showError } from "@/shared/lib/toast";
 import { Download, FileUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Papa from "papaparse";
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useCreateRun, useUploadPredictionFile } from "../hooks/use-runs";
+import { summarisePreview } from "../lib/parse-preview";
+import { PredictionPreview } from "./prediction-preview";
+
+function ProtocolContext({ protocol }: { protocol: Protocol }) {
+  const { data: dataset } = useDataset(protocol.dataset_id);
+  const { data: engines } = useEngines();
+  const engine = engines?.find((candidate) => candidate.id === protocol.engine_id);
+  const conditions = engine?.conditions ?? [];
+
+  return (
+    <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
+      <p>
+        {/* A classification Protocol declares two readouts (probability and
+            class), so this joins rather than concatenating them into one
+            unreadable run-on. */}
+        Predicts{" "}
+        <span className="font-medium">
+          {protocol.readouts
+            .map((readout) => (readout.unit ? `${readout.name} (${readout.unit})` : readout.name))
+            .join(" and ")}
+        </span>
+        {dataset && (
+          <span className="text-muted-foreground">
+            {" "}
+            · trained on {dataset.row_count} compounds from {dataset.name}
+          </span>
+        )}
+      </p>
+      {conditions.length > 0 && (
+        <div className="mt-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Trained with
+          </p>
+          {/* Read-only, and not an oversight: neither engine reads conditions
+              at predict time, so an input here would be a control that changes
+              nothing. When an engine declares predict-time conditions, this
+              becomes ConditionFields. */}
+          <dl className="mt-1 flex flex-wrap gap-x-6 gap-y-1 text-xs">
+            {conditions.map((condition) => (
+              <div key={condition.key} className="flex gap-1.5">
+                <dt className="text-muted-foreground">{condition.label}</dt>
+                <dd className="font-mono">
+                  {String(protocol.conditions?.[condition.key] ?? condition.default ?? "—")}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function PredictWizard() {
   const router = useRouter();
@@ -29,6 +83,7 @@ export function PredictWizard() {
   const [file, setFile] = useState<File | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [structureColumn, setStructureColumn] = useState("");
+  const [rows, setRows] = useState<Record<string, string | undefined>[]>([]);
 
   const protocols = useProtocols();
   const upload = useUploadPredictionFile();
@@ -37,6 +92,7 @@ export function PredictWizard() {
   // Only published protocols are runnable; a draft is not something anyone
   // else can rely on, so offering one here would just produce a 409.
   const published = (protocols.data?.items ?? []).filter((protocol) => protocol.status !== "draft");
+  const selectedProtocol = published.find((protocol) => protocol.id === protocolId);
 
   const onDrop = useCallback((files: File[]) => {
     const dropped = files[0];
@@ -44,7 +100,6 @@ export function PredictWizard() {
     Papa.parse<Record<string, string>>(dropped, {
       header: true,
       skipEmptyLines: true,
-      preview: 5,
       complete: (result) => {
         const fields = (result.meta.fields ?? []).filter((field) => field.trim() !== "");
         if (fields.length === 0) {
@@ -53,6 +108,7 @@ export function PredictWizard() {
         }
         setFile(dropped);
         setColumns(fields);
+        setRows(result.data);
         const guess =
           fields.find((field) => field.toLowerCase().trim() === "smiles") ??
           fields.find((field) => field.toLowerCase().includes("smiles")) ??
@@ -62,6 +118,12 @@ export function PredictWizard() {
       error: () => showError("Could not read that file"),
     });
   }, []);
+
+  const summary = useMemo(
+    () => (rows.length > 0 && structureColumn ? summarisePreview(rows, structureColumn) : null),
+    [rows, structureColumn],
+  );
+  const compoundCount = summary ? summary.total - summary.blank : 0;
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
@@ -79,7 +141,11 @@ export function PredictWizard() {
         upload_ref: uploadRef,
         structure_column: structureColumn,
       });
-      router.push(`/runs/${run.id}`);
+      // A cache hit comes back 202 with an already-ready Run, so the status is
+      // the only way to tell that no work was started. Saying so beats showing
+      // a progress bar that was never going to move.
+      const cached = run.status === "ready" ? "&cached=1" : "";
+      router.push(`/runs/${run.id}?compounds=${compoundCount}${cached}`);
     } catch {
       // The global mutation handler already surfaced the message.
     }
@@ -118,6 +184,7 @@ export function PredictWizard() {
                 Nothing is published yet. Train a protocol and publish it first.
               </p>
             )}
+            {selectedProtocol && <ProtocolContext protocol={selectedProtocol} />}
           </div>
 
           <div {...getRootProps()} className="space-y-2">
@@ -169,6 +236,7 @@ export function PredictWizard() {
               </Select>
             </div>
           )}
+          {summary && <PredictionPreview summary={summary} column={structureColumn} />}
         </CardContent>
       </Card>
 
@@ -176,8 +244,8 @@ export function PredictWizard() {
         <Button variant="ghost" onClick={() => router.push("/runs")} disabled={busy}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={!protocolId || !file || busy}>
-          {busy ? "Starting…" : "Run"}
+        <Button onClick={submit} disabled={!protocolId || !file || compoundCount === 0 || busy}>
+          {busy ? "Starting…" : `Score ${compoundCount} compound${compoundCount === 1 ? "" : "s"}`}
         </Button>
       </div>
     </div>
