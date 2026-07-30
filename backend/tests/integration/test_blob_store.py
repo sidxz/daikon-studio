@@ -1,3 +1,6 @@
+import fsspec.core  # type: ignore[import-untyped]
+import pytest
+
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
 
 
@@ -26,3 +29,21 @@ def test_get_bytes_also_accepts_the_uri_put_bytes_returned(tmp_path):
     uri = store.put_bytes("ws/protocols/abc/artifact/model.joblib", b"weights")
 
     assert store.get_bytes(uri) == b"weights"
+
+
+def test_storage_options_are_forwarded_to_fsspec(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A MinIO or Azure endpoint reaches fsspec, or the store silently talks to the
+    wrong backend -- which on S3 means a confusing 403 rather than a clear failure."""
+    seen: dict[str, object] = {}
+
+    def fake_url_to_fs(url: str, **options: object) -> tuple[object, str]:
+        seen["url"] = url
+        seen["options"] = options
+        return (object(), url)
+
+    monkeypatch.setattr(fsspec.core, "url_to_fs", fake_url_to_fs)
+
+    FsspecBlobStore("s3://bucket/prefix", {"endpoint_url": "https://minio.example.edu"})
+
+    assert seen["url"] == "s3://bucket/prefix"
+    assert seen["options"] == {"endpoint_url": "https://minio.example.edu"}

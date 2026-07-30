@@ -1,12 +1,21 @@
-"""One implementation, driven by BLOB_BASE_URL. file:// in dev, s3:// in prod."""
+"""One implementation, driven by BLOB_BASE_URL. file:// in dev, s3:// or abfs:// in prod.
+
+`storage_options` is what makes the backend swappable without a code change: an
+S3-compatible endpoint (MinIO) needs `endpoint_url`, AWS needs `key`/`secret`, Azure
+needs `account_name`/`connection_string`. Passing them explicitly rather than relying on
+ambient environment variables means a misconfiguration fails where it is configured,
+not three layers down inside botocore.
+"""
+
+from typing import Any
 
 import fsspec  # type: ignore[import-untyped]
 
 
 class FsspecBlobStore:
-    def __init__(self, base_url: str) -> None:
+    def __init__(self, base_url: str, storage_options: dict[str, Any] | None = None) -> None:
         self._base = base_url.rstrip("/")
-        self._fs, _ = fsspec.core.url_to_fs(self._base)
+        self._fs, _ = fsspec.core.url_to_fs(self._base, **(storage_options or {}))
 
     def _path(self, key: str) -> str:
         # `key` is sometimes actually a full URI this same store already

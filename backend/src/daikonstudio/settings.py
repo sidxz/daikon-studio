@@ -1,3 +1,5 @@
+from typing import Any
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -7,6 +9,12 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://studio:studio@localhost:5435/studio"
     redis_url: str = "redis://localhost:6381"
     blob_base_url: str = "file:///data/blobs"
+    # Forwarded to fsspec's url_to_fs, which is what makes the blob backend swappable
+    # with no code change: `endpoint_url` for MinIO or any S3-compatible store,
+    # `key`/`secret` for AWS, `account_name`/`connection_string` for Azure Blob. Supplied
+    # as JSON in the environment, e.g.
+    #   STUDIO_BLOB_STORAGE_OPTIONS='{"endpoint_url": "https://minio-api.example.edu"}'
+    blob_storage_options: dict[str, Any] = {}
     cors_origins: list[str] = ["http://localhost:3002"]
     service_name: str = "daikon-studio"
 

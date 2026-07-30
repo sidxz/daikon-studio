@@ -63,7 +63,7 @@ def create_container(settings: Settings | None = None) -> Container:
     )
     container.define(
         BlobStore,  # type: ignore[type-abstract]
-        Singleton(lambda: FsspecBlobStore(resolved.blob_base_url)),
+        Singleton(lambda: FsspecBlobStore(resolved.blob_base_url, resolved.blob_storage_options)),
     )
     container.define(
         StructureNormalizer,  # type: ignore[type-abstract]

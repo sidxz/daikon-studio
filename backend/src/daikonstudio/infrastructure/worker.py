@@ -157,7 +157,7 @@ async def _on_startup(ctx: dict[str, Any]) -> None:
     engine = create_async_engine(settings.database_url, pool_pre_ping=True)
     ctx["engine"] = engine
     ctx["sessions"] = async_sessionmaker(engine, expire_on_commit=False)
-    ctx["store"] = FsspecBlobStore(settings.blob_base_url)
+    ctx["store"] = FsspecBlobStore(settings.blob_base_url, settings.blob_storage_options)
 
 
 async def _on_shutdown(ctx: dict[str, Any]) -> None:

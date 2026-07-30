@@ -30,6 +30,17 @@ dependencies = [
     "openpyxl>=3.1",
 ]
 
+[project.optional-dependencies]
+# Networked blob backends. `BLOB_BASE_URL=file://...` needs neither.
+s3 = ["s3fs>=2024.10"]
+azure = ["adlfs>=2024.7"]
+# The GPU lane. chemprop pulls torch, lightning and rdkit itself, so listing them
+# again here would only create a second place for their floors to drift. The CUDA
+# build of torch is selected in Dockerfile.gpu, deliberately NOT in [tool.uv.sources]:
+# pinning a cu124 index here would break `uv sync --extra gpu` on a developer's Mac,
+# and running the chemprop tests locally on CPU torch is what makes this engine testable.
+gpu = ["chemprop>=2.2,<3"]
+
 [dependency-groups]
 dev = [
     "pytest>=8.0.0",
