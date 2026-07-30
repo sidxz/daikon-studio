@@ -28,6 +28,11 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
     # training run. Free-form and per-kind, which is what JSONB is for; a column
     # per kind would be a wide table of mostly-nulls.
     params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
+    # Nullable by nature, not by laxity: a training Run has no Protocol until it
+    # finishes. A bare indexed UUID, not a ForeignKey -- `catalog` and
+    # `execution` are separate bounded contexts and cross-context references are
+    # plain ids by contract.
+    protocol_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     phase: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -45,4 +50,6 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
         Index("ix_runs_workspace_cache_key", "workspace_id", "cache_key"),
         # Backs the newest-first keyset listing.
         Index("ix_runs_workspace_created_at", "workspace_id", "created_at"),
+        # Backs "which runs belong to this Protocol".
+        Index("ix_runs_workspace_protocol_id", "workspace_id", "protocol_id"),
     )

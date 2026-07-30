@@ -62,18 +62,20 @@ class RunResponse(BaseModel):
     phase: str | None
     result_uri: str | None
     error_message: str | None
-    # `None` for a training Run: `params` there holds `dataset_id`/`engine_id`,
-    # not a protocol (the Protocol doesn't exist until training finishes). Set
-    # for a prediction Run, where it is known at enqueue time -- without it a
-    # client holding only a run id has no way to fetch the Protocol's readout
-    # metadata (unit, direction) that makes a prediction comparable to a
-    # measurement (Task 17 review, Important 5).
+    # Set at enqueue time for a prediction Run (you pick the Protocol to run),
+    # and at completion for a training Run (the Protocol does not exist until
+    # the work finishes). So it is null for a training Run only while that run
+    # is still pending or running, or if it failed.
+    #
+    # Without it a client holding only a run id has no way to fetch the
+    # Protocol's readout metadata -- the unit and direction that make a
+    # prediction comparable to a measurement (Task 17 review, Important 5) --
+    # and no way at all to reach the Scorecard a training run just built.
     protocol_id: uuid.UUID | None
     created_at: datetime
 
     @classmethod
     def from_domain(cls, run: Run) -> RunResponse:
-        protocol_id = run.params.get("protocol_id")
         return cls(
             id=run.id,
             workspace_id=run.workspace_id,
@@ -83,7 +85,7 @@ class RunResponse(BaseModel):
             phase=run.phase,
             result_uri=run.result_uri,
             error_message=run.error_message,
-            protocol_id=uuid.UUID(protocol_id) if protocol_id else None,
+            protocol_id=run.protocol_id,
             created_at=run.created_at,
         )
 

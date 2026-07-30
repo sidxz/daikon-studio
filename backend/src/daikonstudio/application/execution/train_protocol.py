@@ -447,6 +447,10 @@ class RunTraining:
                 conditions=conditions,
             )
         )
+        # After the Protocol row exists, so the link is never dangling. The
+        # worker's own `succeed()` + `update()` is what persists it -- both this
+        # and `result_uri` ride out on that one write.
+        run.link_protocol(protocol_id)
         return result_uri
 
     async def _optimism_gap(

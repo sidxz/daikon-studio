@@ -66,6 +66,7 @@ class Run(AggregateRoot):
         requested_by: uuid.UUID,
         cache_key: str,
         params: Mapping[str, Any] | None = None,
+        protocol_id: uuid.UUID | None = None,
         status: RunStatus = RunStatus.PENDING,
         progress: float = 0.0,
         phase: str | None = None,
@@ -87,6 +88,17 @@ class Run(AggregateRoot):
         # that created the row. Write-once by convention: `update()` never
         # persists it, so a handler cannot rewrite its own instructions mid-flight.
         self.params: dict[str, Any] = dict(params or {})
+        # The Protocol this Run concerns. Known at creation for a prediction
+        # (you pick the Protocol to run) but not for a training run, where the
+        # Protocol does not exist until the work finishes -- `link_protocol`
+        # fills it in then.
+        #
+        # A real column rather than a `params` key, because `params` is
+        # write-once by convention: `update()` deliberately never persists it,
+        # so that a handler cannot rewrite its own instructions mid-flight. An
+        # outcome is not an instruction, and needs a field that survives an
+        # update.
+        self.protocol_id = protocol_id
         self.status = status
         self.progress = progress
         self.phase = phase
@@ -95,6 +107,25 @@ class Run(AggregateRoot):
 
     def _touch(self) -> None:
         self.updated_at = datetime.now(UTC)
+
+    def link_protocol(self, protocol_id: uuid.UUID) -> None:
+        """Record the Protocol a training run produced.
+
+        Without this a finished training Run is a dead end: the client that
+        submitted it holds a run id, polls it to `ready`, and has no way to
+        reach the Scorecard it just paid for -- which is the single most
+        important transition in the application.
+
+        Write-once. A Run concerns exactly one Protocol, and re-pointing a
+        completed Run at a different one would silently rewrite history for
+        anyone already citing it.
+        """
+        if self.protocol_id is not None and self.protocol_id != protocol_id:
+            raise ConflictError(
+                f"Run '{self.id}' is already linked to protocol '{self.protocol_id}'"
+            )
+        self.protocol_id = protocol_id
+        self._touch()
 
     def start(self) -> None:
         """Only a freshly created Run can start -- a second `start()` (on a

@@ -231,6 +231,38 @@ async def test_training_produces_a_draft_protocol_with_derived_readouts(studio: 
     assert (await studio.reload(run)).status is RunStatus.READY
 
 
+async def test_a_finished_training_run_names_the_protocol_it_produced(studio: Studio) -> None:
+    """A client holding a run id must be able to reach the Scorecard its own
+    work just built. Before `Run.protocol_id` the only route was parsing the id
+    back out of the blob path in `result_uri`, which ties every client to the
+    storage layout.
+
+    Asserted against `protocol_for`, which reads the id out of the scorecard
+    blob -- so this pins the column and the blob to the same Protocol rather
+    than merely checking the column is non-null.
+    """
+    dataset = await studio.dataset()
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+
+    protocol = await studio.protocol_for(run)
+    assert (await studio.reload(run)).protocol_id == protocol.id
+
+
+async def test_a_failed_training_run_links_no_protocol(studio: Studio) -> None:
+    """The link is written after the Protocol row exists, so a run that dies
+    before that point leaves no dangling reference for a client to chase."""
+    dataset = await studio.dataset()
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={"max_depth": 999}
+    )
+    await studio.wait(run)
+
+    reloaded = await studio.reload(run)
+    assert reloaded.status is RunStatus.FAILED
+    assert reloaded.protocol_id is None
+
+
 async def test_training_always_also_trains_the_baseline(studio: Studio) -> None:
     """The baseline is mandatory, not a checkbox."""
     dataset = await studio.dataset()

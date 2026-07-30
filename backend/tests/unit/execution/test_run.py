@@ -74,3 +74,31 @@ def test_cancel_from_running_flips_status_but_cannot_stop_the_worker():
     run.start()
     run.cancel()
     assert run.status is RunStatus.CANCELLED
+
+
+def test_link_protocol_records_the_protocol_a_training_run_produced():
+    run = _pending()
+    assert run.protocol_id is None
+
+    protocol_id = uuid.uuid4()
+    run.link_protocol(protocol_id)
+    assert run.protocol_id == protocol_id
+
+
+def test_relinking_the_same_protocol_is_a_no_op():
+    """A worker retry that re-runs the tail of a handler must not be punished
+    for arriving at the same answer twice."""
+    run = _pending()
+    protocol_id = uuid.uuid4()
+    run.link_protocol(protocol_id)
+    run.link_protocol(protocol_id)
+    assert run.protocol_id == protocol_id
+
+
+def test_relinking_a_different_protocol_raises():
+    """Write-once: a Run concerns exactly one Protocol, and re-pointing a
+    completed Run would silently rewrite history for anyone already citing it."""
+    run = _pending()
+    run.link_protocol(uuid.uuid4())
+    with pytest.raises(ConflictError):
+        run.link_protocol(uuid.uuid4())

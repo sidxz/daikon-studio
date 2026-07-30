@@ -35,6 +35,7 @@ def _to_domain(model: RunModel) -> Run:
         requested_by=model.requested_by,
         cache_key=model.cache_key,
         params=model.params,
+        protocol_id=model.protocol_id,
         status=RunStatus(model.status),
         progress=model.progress,
         phase=model.phase,
@@ -54,6 +55,7 @@ def _to_model(run: Run) -> RunModel:
         requested_by=run.requested_by,
         cache_key=run.cache_key,
         params=run.params,
+        protocol_id=run.protocol_id,
         status=run.status.value,
         progress=run.progress,
         phase=run.phase,
@@ -104,6 +106,9 @@ class SqlAlchemyRunRepository:
                     RunModel.version == expected_version,
                 )
                 .values(
+                    # Persisted by `update` because it is an *outcome*, unlike
+                    # `params` which stays write-once -- see `Run.link_protocol`.
+                    protocol_id=model.protocol_id,
                     status=model.status,
                     progress=model.progress,
                     phase=model.phase,

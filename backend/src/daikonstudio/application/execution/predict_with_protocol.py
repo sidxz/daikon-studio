@@ -207,6 +207,12 @@ class PredictWithProtocol:
             requested_by=auth.user_id,
             cache_key=cache_key,
             params=command.to_params(),
+            # Also in `params`, which is what the worker reads to do the work.
+            # Set here as well so the *column* answers "which Protocol is this
+            # Run about" for both kinds -- a training Run has no such params
+            # key, and a client should not have to know which kind it is
+            # holding to find that out.
+            protocol_id=command.protocol_id,
         )
         await self._runs.add(run)
         await self._enqueuer.enqueue(run.id)
