@@ -102,3 +102,29 @@ def test_relinking_a_different_protocol_raises():
     run.link_protocol(uuid.uuid4())
     with pytest.raises(ConflictError):
         run.link_protocol(uuid.uuid4())
+
+
+def test_start_on_a_running_run_restarts_it():
+    """arq is at-least-once: a worker crash mid-job redelivers the same run_id
+    to a fresh process, which finds the row already RUNNING. With no
+    checkpoints, restart-from-zero is the designed recovery -- so the
+    redelivery is a legitimate restart, and stale progress from the dead
+    attempt is wiped."""
+    run = _pending()
+    run.start()
+    run.report_progress(0.66, phase="training baseline")
+
+    run.start()  # redelivery after a worker crash
+
+    assert run.status is RunStatus.RUNNING
+    assert run.progress == 0.0
+    assert run.phase is None
+
+
+def test_start_on_a_terminal_run_still_raises():
+    """Cancelled-while-queued (or already finished) runs must not restart --
+    ConflictError from start() is how the worker knows to drop a redelivery."""
+    run = _pending()
+    run.cancel()
+    with pytest.raises(ConflictError):
+        run.start()

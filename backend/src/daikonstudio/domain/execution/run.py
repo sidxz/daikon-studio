@@ -1,7 +1,9 @@
 """The Run aggregate -- one execution: training a model or making predictions.
 
-Status is a strict one-way lattice: `pending -> running -> {ready, failed,
-cancelled}`, with `pending -> cancelled` as the only shortcut. `_TERMINAL`
+Status is a one-way lattice: `pending -> running -> {ready, failed,
+cancelled}`, with `pending -> cancelled` as the only shortcut and
+`running -> running` allowed as a restart (at-least-once redelivery after a
+worker crash -- see `start()`). `_TERMINAL`
 gates every mutating method uniformly, so "a terminal Run cannot change again"
 is one check reused everywhere rather than a rule re-derived per method.
 
@@ -128,12 +130,19 @@ class Run(AggregateRoot):
         self._touch()
 
     def start(self) -> None:
-        """Only a freshly created Run can start -- a second `start()` (on a
-        `running` Run, or on any terminal one) is a bug in the caller, not a
-        no-op to swallow."""
-        if self.status is not RunStatus.PENDING:
+        """`pending -> running` normally. `running -> running` is also legal:
+        arq is at-least-once, so a worker crash mid-job redelivers the same
+        run_id to a fresh process, which lands here with the row already
+        RUNNING. With no checkpoints, restart-from-zero is the designed
+        recovery, so the redelivery restarts the run and wipes the dead
+        attempt's stale progress. Terminal runs still refuse -- a redelivery
+        for a run that was cancelled (or somehow finished) while queued must
+        be dropped by the caller, not restarted."""
+        if self.status in _TERMINAL:
             raise ConflictError(f"Cannot start run '{self.id}' in status '{self.status}'")
         self.status = RunStatus.RUNNING
+        self.progress = 0.0
+        self.phase = None
         self._touch()
 
     def report_progress(self, fraction: float, *, phase: str) -> None:
