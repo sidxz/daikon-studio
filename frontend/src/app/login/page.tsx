@@ -30,6 +30,11 @@ function GoogleIcon() {
   );
 }
 
+/* Shared by the animated mark and its reduced-motion static twin. 28%/20%
+   (light/dark) replaces the old 7%, which vanished on white. */
+const coverMarkClass =
+  "absolute left-1/2 top-1/2 size-[min(80vh,780px)] -translate-x-1/2 -translate-y-1/2 opacity-[0.28] dark:opacity-[0.20] [filter:drop-shadow(0_0_12px_rgba(96,130,255,0.2))]";
+
 export default function LoginPage() {
   const { isAuthenticated, login } = useAuthz();
   const { idp } = useAppConfig();
@@ -44,11 +49,13 @@ export default function LoginPage() {
   return (
     <div className="fixed inset-0 overflow-hidden bg-background">
       {/* Cover art, CSS and one SVG only -- no animation library for a page you
-          see once a day. The mark bleeds off-canvas at low opacity so the panel
-          keeps all the contrast. */}
+          see once a day. The suite spectrum orbits the ring (one SMIL element,
+          7s per lap); reduced-motion users get the static twin via the CSS
+          swap. Opacity and a same-hue bloom keep the mark legible on white. */}
       <div className="pointer-events-none absolute inset-0 hidden md:right-[460px] md:block">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_30%_40%,var(--color-sidebar)_0%,transparent_70%)]" />
-        <LogoMark className="absolute left-1/2 top-1/2 size-[min(80vh,780px)] -translate-x-1/2 -translate-y-1/2 opacity-[0.07]" />
+        <LogoMark animate className={`${coverMarkClass} motion-reduce:hidden`} />
+        <LogoMark className={`${coverMarkClass} hidden motion-reduce:block`} />
       </div>
       <div className="relative z-20 flex min-h-screen flex-col md:ml-auto md:w-[460px] md:border-l md:border-sidebar-border md:bg-sidebar">
         <div

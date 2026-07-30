@@ -12,8 +12,16 @@ import { useId } from "react";
  *
  * `useId` for the gradient id so several instances on one page (sidebar and
  * login, say) do not collide on a duplicate `id`.
+ *
+ * `animate` makes the spectrum orbit the ring -- the gradient axis rotates
+ * about the center, one lap per 7s (the brand clock, deliberately not a knob).
+ * One SMIL element, no animation library; callers that honor reduced motion
+ * render a static twin and CSS-swap (see the login cover).
  */
-export function LogoMark({ className }: { className?: string }) {
+export function LogoMark({
+  className,
+  animate = false,
+}: { className?: string; animate?: boolean }) {
   const id = useId();
   return (
     <svg viewBox="0 0 32 32" className={className} aria-hidden="true">
@@ -24,6 +32,16 @@ export function LogoMark({ className }: { className?: string }) {
           <stop offset="0.4" stopColor="#4b72fe" />
           <stop offset="0.68" stopColor="#ff8df2" />
           <stop offset="1" stopColor="#ff8705" />
+          {animate && (
+            <animateTransform
+              attributeName="gradientTransform"
+              type="rotate"
+              from="0 16 16"
+              to="360 16 16"
+              dur="7s"
+              repeatCount="indefinite"
+            />
+          )}
         </linearGradient>
       </defs>
       {/* Measured: the half you already know. */}
