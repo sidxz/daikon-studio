@@ -15,6 +15,7 @@ import {
 } from "@/shared/components/ui/dialog";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
+import { Progress } from "@/shared/components/ui/progress";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import { useRouter } from "next/navigation";
@@ -88,12 +89,7 @@ export function RunDetail({ runId }: { runId: string }) {
         <Card>
           <CardContent className="space-y-3 py-6">
             <p className="text-sm text-muted-foreground">{run.phase ?? "Starting…"}</p>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-all duration-500"
-                style={{ width: `${Math.round(run.progress * 100)}%` }}
-              />
-            </div>
+            <Progress value={Math.round(run.progress * 100)} />
           </CardContent>
         </Card>
       )}

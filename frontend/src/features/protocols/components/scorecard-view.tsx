@@ -3,10 +3,96 @@
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Progress } from "@/shared/components/ui/progress";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
 import { computeOptimismGap, computeVerdict } from "../lib/verdict";
 import { metricLabel } from "../types";
+
+function HonestyStat({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="min-w-[9rem] flex-1">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</p>
+      <div className="mt-0.5">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * The three numbers that argue with the verdict, inside the verdict's own
+ * border.
+ *
+ * They were three separate cards below the band, and separate blocks can be
+ * read separately: the ESOL run showed a green "beats the baseline" while an
+ * optimism gap six times the winning margin sat in a card underneath it. In
+ * one border, nobody reads the claim without the doubts. The captions stay
+ * visible for the same reason -- hover-to-see-the-caveat is a way of hiding
+ * one.
+ */
+function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
+  const gap = computeOptimismGap(scorecard);
+  const coverage = scorecard.applicability_coverage;
+  const metric = metricLabel(scorecard.primary_metric);
+
+  return (
+    <div className="mt-4 flex flex-wrap gap-x-8 gap-y-4 border-t border-current/15 pt-3">
+      <HonestyStat label="Optimism gap">
+        {gap.kind === "shown" ? (
+          <>
+            <ReadoutValue value={gap.gap} precision={3} className="text-xl font-semibold" />
+            <p className="mt-1 text-xs text-muted-foreground">
+              {metric} was <ReadoutValue value={gap.random} precision={3} /> on a random split and{" "}
+              <ReadoutValue value={gap.scaffold} precision={3} /> on the scaffold split it was
+              actually scored on — the difference an easier split would have flattered it by.
+            </p>
+          </>
+        ) : (
+          <p className="text-xs text-muted-foreground">{gap.message}</p>
+        )}
+      </HonestyStat>
+
+      {/* Absent, not empty, for a binary target: there are no replicate
+          spreads to average, so the question does not arise. */}
+      {scorecard.noise_floor != null && (
+        <HonestyStat label="Assay noise floor">
+          <ReadoutValue
+            value={scorecard.noise_floor}
+            unit={scorecard.unit}
+            precision={3}
+            className="text-xl font-semibold"
+          />
+          <p className="mt-1 text-xs text-muted-foreground">
+            Repeat measurements of the same compound disagreed by this much. No model trained on
+            this data can honestly do better.
+          </p>
+        </HonestyStat>
+      )}
+
+      <HonestyStat label="Applicability">
+        {coverage == null ? (
+          <p className="text-xs text-muted-foreground">Could not be computed for this protocol.</p>
+        ) : (
+          <>
+            <span className="text-xl font-semibold tabular-nums">
+              {(coverage * 100).toFixed(0)}%
+            </span>
+            <Progress value={coverage * 100} className="mt-1.5 h-1.5" />
+            <p className="mt-1 text-xs text-muted-foreground">
+              of test compounds sit close enough to the training set for the model to have seen
+              anything like them. The rest is extrapolation.
+            </p>
+          </>
+        )}
+      </HonestyStat>
+    </div>
+  );
+}
 
 function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
   const verdict = computeVerdict(scorecard);
@@ -66,51 +152,10 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
             In published benchmarks a fingerprint baseline places mid-field against purpose-built
             models — a model that cannot beat one has not earned its complexity.
           </p>
+          <HonestyStats scorecard={scorecard} />
         </>
       )}
     </div>
-  );
-}
-
-function HonestyCard({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className="h-full">
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">{title}</CardTitle>
-      </CardHeader>
-      <CardContent className="text-sm">{children}</CardContent>
-    </Card>
-  );
-}
-
-function OptimismGapCard({ scorecard }: { scorecard: ScorecardResponse }) {
-  const gap = computeOptimismGap(scorecard);
-  const metric = metricLabel(scorecard.primary_metric);
-
-  return (
-    <HonestyCard title="Optimism gap">
-      {gap.kind === "shown" ? (
-        <>
-          <span className="text-2xl font-semibold tabular-nums">
-            {gap.gap != null ? gap.gap.toFixed(3) : "—"}
-          </span>
-          <p className="mt-2 text-xs text-muted-foreground">
-            {metric} was <ReadoutValue value={gap.random} precision={3} /> on a random split and{" "}
-            <ReadoutValue value={gap.scaffold} precision={3} /> on the scaffold split it was
-            actually scored on. That difference is how much an easier split would have flattered
-            this model.
-          </p>
-        </>
-      ) : (
-        <p className="text-xs text-muted-foreground">{gap.message}</p>
-      )}
-    </HonestyCard>
   );
 }
 
@@ -247,53 +292,15 @@ function WorstRows({ scorecard }: { scorecard: ScorecardResponse }) {
 }
 
 export function ScorecardView({ scorecard }: { scorecard: ScorecardResponse }) {
-  const coverage = scorecard.applicability_coverage;
-
   return (
     <div className="space-y-4">
       <VerdictBand scorecard={scorecard} />
-
-      <div className="grid items-stretch gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <OptimismGapCard scorecard={scorecard} />
-
-        {/* Absent, not empty, for a binary target -- there are no replicate
-            spreads to average, so the question does not arise. */}
-        {scorecard.noise_floor != null && (
-          <HonestyCard title="Assay noise floor">
-            <span className="text-2xl font-semibold tabular-nums">
-              <ReadoutValue value={scorecard.noise_floor} unit={scorecard.unit} precision={3} />
-            </span>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Repeat measurements of the same compound disagreed by this much. No model trained on
-              this data can honestly do better.
-            </p>
-          </HonestyCard>
-        )}
-
-        <HonestyCard title="Applicability">
-          {coverage == null ? (
-            <p className="text-xs text-muted-foreground">
-              Could not be computed for this protocol.
-            </p>
-          ) : (
-            <>
-              <span className="text-2xl font-semibold tabular-nums">
-                {(coverage * 100).toFixed(0)}%
-              </span>
-              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div className="h-full bg-primary" style={{ width: `${coverage * 100}%` }} />
-              </div>
-              <p className="mt-2 text-xs text-muted-foreground">
-                of test compounds sit close enough to the training set for the model to have seen
-                anything like them. Predictions outside that are extrapolation.
-              </p>
-            </>
-          )}
-        </HonestyCard>
-      </div>
-
-      <MetricTable scorecard={scorecard} />
+      {/* Before the metric table: the ESOL run's most actionable finding was
+          that 8 of its 20 worst predictions had no ring system at all. An
+          aggregate cannot say that, and a table of aggregates should not
+          outrank it. */}
       <WorstRows scorecard={scorecard} />
+      <MetricTable scorecard={scorecard} />
     </div>
   );
 }
