@@ -186,11 +186,28 @@ async def test_run_response_carries_the_protocol_id_for_a_prediction(
     assert polled.json()["protocol_id"] == published_protocol_id
 
 
-async def test_run_response_has_no_protocol_id_for_a_training_run(client, csv_upload):
+async def test_a_training_run_has_no_protocol_id_when_it_is_first_accepted(client, csv_upload):
+    """The 202 is built from the Run as enqueued, and at that moment the
+    Protocol genuinely does not exist yet. Null here is honest, not missing."""
     dataset_id = await _create_dataset(client, csv_upload)
     response = await _train(client, dataset_id)
     assert response.status_code == 202, response.text
     assert response.json()["protocol_id"] is None
+
+
+async def test_polling_a_finished_training_run_yields_the_protocol_it_produced(client, csv_upload):
+    """The transition the whole training screen depends on: submit, poll to
+    `ready`, then follow `protocol_id` to the Scorecard. Before Run gained the
+    column this was a dead end -- the id existed only inside a blob path."""
+    dataset_id = await _create_dataset(client, csv_upload)
+    run_id = (await _train(client, dataset_id)).json()["id"]
+
+    polled = (await client.get(f"/api/v1/runs/{run_id}")).json()
+    assert polled["status"] == "ready", polled
+    assert polled["protocol_id"] is not None
+
+    scorecard = await client.get(f"/api/v1/protocols/{polled['protocol_id']}/scorecard")
+    assert scorecard.status_code == 200, scorecard.text
 
 
 async def test_a_third_identical_request_after_two_failures_does_not_500(
@@ -295,6 +312,7 @@ async def test_runs_are_scoped_to_the_callers_workspace(
     assert (await other_workspace_client.get(f"/api/v1/runs/{run_id}")).status_code == 404
     assert (await other_workspace_client.get(f"/api/v1/runs/{run_id}/results")).status_code == 404
     assert (await other_workspace_client.post(f"/api/v1/runs/{run_id}/cancel")).status_code == 404
+    assert (await other_workspace_client.get("/api/v1/runs")).json()["items"] == []
 
 
 async def test_a_protocol_from_another_workspace_is_not_runnable(
@@ -413,3 +431,49 @@ async def test_paging_through_more_results_than_the_limit_terminates(
     assert pages == 3
     assert len(seen) == 6
     assert len(set(seen)) == 6
+
+
+async def test_listing_runs_returns_both_kinds_newest_first(
+    client, published_protocol_id, prediction_upload_ref
+):
+    """Training a Protocol and then predicting with it leaves two Runs. Both
+    are listed, and the prediction -- created second -- comes back first."""
+    await _predict(client, published_protocol_id, prediction_upload_ref)
+
+    items = (await client.get("/api/v1/runs")).json()["items"]
+    assert [item["kind"] for item in items] == ["prediction", "training"]
+
+
+async def test_listing_runs_filters_by_kind(client, published_protocol_id, prediction_upload_ref):
+    """A prediction Run is what a user browses; a training Run belongs to its
+    Protocol's history. Filtering server-side keeps a client from paging
+    through the wrong kind to assemble one screen."""
+    await _predict(client, published_protocol_id, prediction_upload_ref)
+
+    predictions = (await client.get("/api/v1/runs?kind=prediction")).json()["items"]
+    assert [item["kind"] for item in predictions] == ["prediction"]
+
+    trainings = (await client.get("/api/v1/runs?kind=training")).json()["items"]
+    assert [item["kind"] for item in trainings] == ["training"]
+
+
+async def test_an_unknown_run_kind_is_a_422_not_a_silent_unfiltered_list(client):
+    """Silently ignoring an unrecognised filter would hand back every Run as
+    though the filter had matched them all."""
+    response = await client.get("/api/v1/runs?kind=generation")
+    assert response.status_code == 422, response.text
+
+
+async def test_listing_runs_pages_with_an_opaque_cursor(
+    client, published_protocol_id, prediction_upload_ref
+):
+    await _predict(client, published_protocol_id, prediction_upload_ref)
+
+    first = (await client.get("/api/v1/runs?limit=1")).json()
+    assert len(first["items"]) == 1
+    assert first["next_cursor"] is not None
+
+    second = (await client.get(f"/api/v1/runs?limit=1&cursor={first['next_cursor']}")).json()
+    assert len(second["items"]) == 1
+    assert second["items"][0]["id"] != first["items"][0]["id"]
+    assert second["next_cursor"] is None

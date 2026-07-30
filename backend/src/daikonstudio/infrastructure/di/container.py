@@ -19,9 +19,11 @@ from daikonstudio.application.data.create_collection import CreateCollection, Ge
 from daikonstudio.application.data.create_dataset import CreateDataset, StoreUpload
 from daikonstudio.application.data.export_collection import ExportCollection
 from daikonstudio.application.data.get_dataset import GetDataset
+from daikonstudio.application.data.list_collections import ListCollections
 from daikonstudio.application.data.list_datasets import ListDatasets
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.enqueue import JobEnqueuer
+from daikonstudio.application.execution.list_runs import ListRuns
 from daikonstudio.application.execution.predict_with_protocol import (
     CancelRun,
     GetPredictionResults,
@@ -140,6 +142,7 @@ def create_container(settings: Settings | None = None) -> Container:
         lambda c: PredictWithProtocol(_protocols(c), _runs(c), c[BlobStore], c[JobEnqueuer]),
     )
     container.define(GetRun, lambda c: GetRun(_runs(c)))
+    container.define(ListRuns, lambda c: ListRuns(_runs(c)))
     container.define(CancelRun, lambda c: CancelRun(_runs(c)))
     container.define(
         GetPredictionResults,
@@ -151,6 +154,7 @@ def create_container(settings: Settings | None = None) -> Container:
         lambda c: CreateCollection(_collections(c), _runs(c), _protocols(c), c[BlobStore]),
     )
     container.define(GetCollection, lambda c: GetCollection(_collections(c)))
+    container.define(ListCollections, lambda c: ListCollections(_collections(c)))
     container.define(
         ExportCollection,
         lambda c: ExportCollection(_collections(c), _runs(c), _protocols(c), c[BlobStore]),

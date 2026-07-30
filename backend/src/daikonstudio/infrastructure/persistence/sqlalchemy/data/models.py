@@ -47,3 +47,8 @@ class CollectionModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
     member_count: Mapped[int] = mapped_column(Integer, nullable=False)
     snapshot_uri: Mapped[str] = mapped_column(Text, nullable=False)
     provenance: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+
+    __table_args__ = (
+        # Backs the newest-first keyset listing, as on datasets and runs.
+        Index("ix_collections_workspace_created_at", "workspace_id", "created_at"),
+    )

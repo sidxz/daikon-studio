@@ -1,11 +1,13 @@
 """Collection endpoints: save a triage selection, read it back, export it.
 
-There is no PATCH, no DELETE and no listing endpoint here -- not scoped for
-this task. A Collection is created once, from a `ready` Run's results, and
-read back either as JSON (to confirm what was saved) or as a file (to act on
-it). Every request body here is `extra="forbid"`, the same reason every
-other route module in this app gives: `workspace_id` is refused, not
-silently dropped.
+There is no PATCH and no DELETE: a Collection is created once, from a `ready`
+Run's results, and read back either as JSON (to confirm what was saved) or as
+a file (to act on it). It is also the deliverable of the whole product, which
+is why it does have a listing -- without one, every Collection a scientist has
+made becomes unreachable the moment the tab that created it is closed.
+
+Every request body here is `extra="forbid"`, the same reason every other route
+module in this app gives: `workspace_id` is refused, not silently dropped.
 """
 
 from __future__ import annotations
@@ -28,17 +30,20 @@ from daikonstudio.application.data.export_collection import (
     ExportCollectionQuery,
     ExportFormat,
 )
+from daikonstudio.application.data.list_collections import ListCollections, ListCollectionsQuery
 from daikonstudio.domain.data.collection import Collection
 from daikonstudio.domain.shared.provenance import Citation, Provenance
 from daikonstudio.interface.dependencies._container import use_case
 from daikonstudio.interface.dependencies._core import AuthDep
 from daikonstudio.interface.error_handlers import result_to_response
+from daikonstudio.interface.pagination import PaginatedResponse
 
 router = APIRouter(prefix="/api/v1/collections", tags=["collections"])
 
 CreateCollectionDep = Annotated[CreateCollection, Depends(use_case(CreateCollection))]
 GetCollectionDep = Annotated[GetCollection, Depends(use_case(GetCollection))]
 ExportCollectionDep = Annotated[ExportCollection, Depends(use_case(ExportCollection))]
+ListCollectionsDep = Annotated[ListCollections, Depends(use_case(ListCollections))]
 
 
 class CreateCollectionBody(BaseModel):
@@ -117,6 +122,26 @@ async def create_collection(
         name=body.name, run_id=body.run_id, row_ids=tuple(body.row_ids)
     )
     return CollectionResponse.from_domain(result_to_response(await service(command, auth=auth)))
+
+
+@router.get("", response_model=PaginatedResponse[CollectionResponse])
+async def list_collections(
+    auth: AuthDep,
+    service: ListCollectionsDep,
+    cursor: str | None = None,
+    limit: int | None = None,
+) -> PaginatedResponse[CollectionResponse]:
+    """Declared before `/{collection_id}` so the empty path is not swallowed by
+    the id route -- Starlette matches in declaration order."""
+    # `limit` is clamped inside the use case, not here: a worker calling it
+    # directly must get the same ceiling as an HTTP caller.
+    page = result_to_response(
+        await service(ListCollectionsQuery(cursor=cursor, limit=limit), auth=auth)
+    )
+    return PaginatedResponse(
+        items=[CollectionResponse.from_domain(collection) for collection in page.items],
+        next_cursor=page.next_cursor,
+    )
 
 
 @router.get("/{collection_id}", response_model=CollectionResponse)

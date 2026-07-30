@@ -14,10 +14,11 @@ cases actually call and not one before, exactly as `ProtocolRepository`'s own
 docstring explains.
 """
 
+from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
-from daikonstudio.domain.execution.run import Run
+from daikonstudio.domain.execution.run import Run, RunKind
 
 
 class RunRepository(Protocol):
@@ -28,3 +29,12 @@ class RunRepository(Protocol):
     async def get(self, workspace_id: UUID, run_id: UUID) -> Run | None: ...
 
     async def find_by_cache_key(self, workspace_id: UUID, cache_key: str) -> Run | None: ...
+
+    async def list(
+        self,
+        workspace_id: UUID,
+        *,
+        kind: RunKind | None = None,
+        cursor: tuple[datetime, UUID] | None = None,
+        limit: int = 50,
+    ) -> list[Run]: ...

@@ -164,6 +164,7 @@ class SqlAlchemyRunRepository:
         self,
         workspace_id: uuid.UUID,
         *,
+        kind: RunKind | None = None,
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
     ) -> list[Run]:
@@ -172,6 +173,8 @@ class SqlAlchemyRunRepository:
             .where(RunModel.workspace_id == workspace_id)
             .order_by(RunModel.created_at.desc(), RunModel.id.desc())
         )
+        if kind is not None:
+            statement = statement.where(RunModel.kind == kind.value)
         if cursor is not None:
             statement = statement.where(tuple_(RunModel.created_at, RunModel.id) < cursor)
         async with self._sessions() as session:

@@ -9,8 +9,9 @@ fetched and then discarded, it is never selected.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, tuple_
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.domain.data.collection import (
@@ -73,3 +74,23 @@ class SqlAlchemyCollectionRepository:
                 )
             ).scalar_one_or_none()
             return _to_domain(model) if model is not None else None
+
+    async def list(
+        self,
+        workspace_id: uuid.UUID,
+        *,
+        cursor: tuple[datetime, uuid.UUID] | None = None,
+        limit: int = 50,
+    ) -> list[Collection]:
+        statement = (
+            select(CollectionModel)
+            .where(CollectionModel.workspace_id == workspace_id)
+            .order_by(CollectionModel.created_at.desc(), CollectionModel.id.desc())
+        )
+        if cursor is not None:
+            statement = statement.where(
+                tuple_(CollectionModel.created_at, CollectionModel.id) < cursor
+            )
+        async with self._sessions() as session:
+            result = await session.execute(statement.limit(limit))
+            return [_to_domain(model) for model in result.scalars()]

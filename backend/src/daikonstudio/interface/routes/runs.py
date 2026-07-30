@@ -18,6 +18,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict
 
+from daikonstudio.application.execution.list_runs import ListRuns, ListRunsQuery
 from daikonstudio.application.execution.predict_with_protocol import (
     CancelRun,
     CancelRunCommand,
@@ -30,7 +31,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
     PredictWithProtocol,
     PredictWithProtocolCommand,
 )
-from daikonstudio.domain.execution.run import Run
+from daikonstudio.domain.execution.run import Run, RunKind
 from daikonstudio.interface.dependencies._container import use_case
 from daikonstudio.interface.dependencies._core import AuthDep
 from daikonstudio.interface.error_handlers import result_to_response
@@ -42,6 +43,7 @@ PredictWithProtocolDep = Annotated[PredictWithProtocol, Depends(use_case(Predict
 GetRunDep = Annotated[GetRun, Depends(use_case(GetRun))]
 CancelRunDep = Annotated[CancelRun, Depends(use_case(CancelRun))]
 GetPredictionResultsDep = Annotated[GetPredictionResults, Depends(use_case(GetPredictionResults))]
+ListRunsDep = Annotated[ListRuns, Depends(use_case(ListRuns))]
 
 
 class PredictBody(BaseModel):
@@ -137,6 +139,27 @@ async def create_run(
         conditions=body.conditions,
     )
     return RunResponse.from_domain(result_to_response(await service(command, auth=auth)))
+
+
+@router.get("", response_model=PaginatedResponse[RunResponse])
+async def list_runs(
+    auth: AuthDep,
+    service: ListRunsDep,
+    kind: RunKind | None = None,
+    cursor: str | None = None,
+    limit: int | None = None,
+) -> PaginatedResponse[RunResponse]:
+    """Declared before `/{run_id}` so the empty path is not swallowed by the
+    id route -- Starlette matches in declaration order."""
+    # `limit` is clamped inside the use case, not here: a worker calling it
+    # directly must get the same ceiling as an HTTP caller.
+    page = result_to_response(
+        await service(ListRunsQuery(kind=kind, cursor=cursor, limit=limit), auth=auth)
+    )
+    return PaginatedResponse(
+        items=[RunResponse.from_domain(run) for run in page.items],
+        next_cursor=page.next_cursor,
+    )
 
 
 @router.get("/{run_id}", response_model=RunResponse)

@@ -535,6 +535,7 @@ async def test_collections_are_scoped_to_the_callers_workspace(
     assert (
         await other_workspace_client.get(f"/api/v1/collections/{collection_id}/export?format=csv")
     ).status_code == 404
+    assert (await other_workspace_client.get("/api/v1/collections")).json()["items"] == []
 
 
 async def test_a_collection_cannot_be_created_from_another_workspaces_run(
@@ -545,3 +546,39 @@ async def test_a_collection_cannot_be_created_from_another_workspaces_run(
         json={"name": "borrowed", "run_id": ready_run_id, "row_ids": [0]},
     )
     assert response.status_code == 404, response.text
+
+
+async def test_listing_collections_returns_what_the_workspace_has_saved(client, ready_run_id):
+    """A Collection is this product's deliverable. Without a listing every one
+    a scientist saves is unreachable the moment the tab is closed."""
+    for name, rows in (("first pass", [0]), ("second pass", [1, 2])):
+        response = await client.post(
+            "/api/v1/collections",
+            json={"name": name, "run_id": ready_run_id, "row_ids": rows},
+        )
+        assert response.status_code == 201, response.text
+
+    items = (await client.get("/api/v1/collections")).json()["items"]
+    # Newest first.
+    assert [item["name"] for item in items] == ["second pass", "first pass"]
+    assert [item["member_count"] for item in items] == [2, 1]
+
+
+async def test_listing_collections_pages_with_an_opaque_cursor(client, ready_run_id):
+    for name in ("first pass", "second pass"):
+        response = await client.post(
+            "/api/v1/collections",
+            json={"name": name, "run_id": ready_run_id, "row_ids": [0]},
+        )
+        assert response.status_code == 201, response.text
+
+    first = (await client.get("/api/v1/collections?limit=1")).json()
+    assert len(first["items"]) == 1
+    assert first["next_cursor"] is not None
+
+    second = (
+        await client.get(f"/api/v1/collections?limit=1&cursor={first['next_cursor']}")
+    ).json()
+    assert len(second["items"]) == 1
+    assert second["items"][0]["id"] != first["items"][0]["id"]
+    assert second["next_cursor"] is None

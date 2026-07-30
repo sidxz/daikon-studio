@@ -57,14 +57,14 @@
         "summary": "Create Collection",
         "operationId": "create_collection_api_v1_collections_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/CreateCollectionBody"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -73,6 +73,70 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/CollectionResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "collections"
+        ],
+        "summary": "List Collections",
+        "description": "Declared before `/{collection_id}` so the empty path is not swallowed by\nthe id route -- Starlette matches in declaration order.",
+        "operationId": "list_collections_api_v1_collections_get",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_CollectionResponse_"
                 }
               }
             }
@@ -630,14 +694,14 @@
         "summary": "Create Run",
         "operationId": "create_run_api_v1_runs_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PredictBody"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "202": {
@@ -646,6 +710,86 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "List Runs",
+        "description": "Declared before `/{run_id}` so the empty path is not swallowed by the\nid route -- Starlette matches in declaration order.",
+        "operationId": "list_runs_api_v1_runs_get",
+        "parameters": [
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RunKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Kind"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Limit"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedResponse_RunResponse_"
                 }
               }
             }
@@ -1024,6 +1168,35 @@
         "title": "ConditionResponse",
         "description": "A single engine condition parameter specification, carrying everything\na form needs to render without any hardcoded knowledge of the engine."
       },
+      "ConflictRowResponse": {
+        "properties": {
+          "structure": {
+            "type": "string",
+            "title": "Structure"
+          },
+          "values": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Values"
+          },
+          "row_numbers": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Row Numbers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "structure",
+          "values",
+          "row_numbers"
+        ],
+        "title": "ConflictRowResponse"
+      },
       "CreateCollectionBody": {
         "properties": {
           "name": {
@@ -1108,14 +1281,10 @@
             "title": "Structure Column"
           },
           "target": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Target"
+            "$ref": "#/components/schemas/TargetBody"
           },
           "split": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Split"
+            "$ref": "#/components/schemas/SplitBody"
           },
           "content_hash": {
             "type": "string",
@@ -1130,9 +1299,7 @@
             "title": "Row Count"
           },
           "validation_report": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Validation Report"
+            "$ref": "#/components/schemas/ValidationReportResponse"
           },
           "version": {
             "type": "integer",
@@ -1239,6 +1406,67 @@
         },
         "type": "object",
         "title": "HTTPValidationError"
+      },
+      "InvalidRowResponse": {
+        "properties": {
+          "row_number": {
+            "type": "integer",
+            "title": "Row Number"
+          },
+          "value": {
+            "type": "string",
+            "title": "Value"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row_number",
+          "value",
+          "reason"
+        ],
+        "title": "InvalidRowResponse"
+      },
+      "PaginatedResponse_CollectionResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CollectionResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "PaginatedResponse[CollectionResponse]"
       },
       "PaginatedResponse_DatasetResponse_": {
         "properties": {
@@ -1353,6 +1581,44 @@
           "items"
         ],
         "title": "PaginatedResponse[ProtocolResponse]"
+      },
+      "PaginatedResponse_RunResponse_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/RunResponse"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "total_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "PaginatedResponse[RunResponse]"
       },
       "PredictBody": {
         "properties": {
@@ -1499,8 +1765,7 @@
           },
           "readouts": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/ReadoutResponse"
             },
             "type": "array",
             "title": "Readouts"
@@ -1646,6 +1911,69 @@
           "note"
         ],
         "title": "ProvenanceResponse"
+      },
+      "ReadoutResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "type": {
+            "$ref": "#/components/schemas/ReadoutType"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "direction": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Direction"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "type",
+          "unit",
+          "direction",
+          "description"
+        ],
+        "title": "ReadoutResponse",
+        "description": "One declared output of a trained Protocol.\n\nTyped rather than a bare `dict` because `unit` and `direction` are the\nwhole point of a Readout: they are what let a predicted IC50 be lined up\nagainst a measured one instead of being a bare float. That pairing was\ndropped at four separate boundaries during the backend build; handing the\nclient `dict[str, Any]` here would have invited a fifth.\n\n`direction` is narrowed to the `Direction` enum even though `Readout` types\nit as `str`. Every value `derive_readouts` can produce is a `Direction`\nmember or `None`, so the narrower contract is honest and gives a client a\nclosed union instead of an open string."
+      },
+      "ReadoutType": {
+        "type": "string",
+        "enum": [
+          "numeric",
+          "probability",
+          "class"
+        ],
+        "title": "ReadoutType"
+      },
+      "RunKind": {
+        "type": "string",
+        "enum": [
+          "training",
+          "prediction"
+        ],
+        "title": "RunKind"
       },
       "RunResponse": {
         "properties": {
@@ -2101,6 +2429,63 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "ValidationReportResponse": {
+        "properties": {
+          "total_rows": {
+            "type": "integer",
+            "title": "Total Rows"
+          },
+          "valid_rows": {
+            "type": "integer",
+            "title": "Valid Rows"
+          },
+          "invalid": {
+            "items": {
+              "$ref": "#/components/schemas/InvalidRowResponse"
+            },
+            "type": "array",
+            "title": "Invalid"
+          },
+          "conflicting": {
+            "items": {
+              "$ref": "#/components/schemas/ConflictRowResponse"
+            },
+            "type": "array",
+            "title": "Conflicting"
+          },
+          "duplicates_collapsed": {
+            "type": "integer",
+            "title": "Duplicates Collapsed"
+          },
+          "salts_flagged": {
+            "type": "integer",
+            "title": "Salts Flagged"
+          },
+          "duplicate_spread": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Duplicate Spread"
+          }
+        },
+        "type": "object",
+        "required": [
+          "total_rows",
+          "valid_rows",
+          "invalid",
+          "conflicting",
+          "duplicates_collapsed",
+          "salts_flagged",
+          "duplicate_spread"
+        ],
+        "title": "ValidationReportResponse",
+        "description": "The report, typed rather than a bare `dict`.\n\nIt reaches a client by two routes -- on an accepted `DatasetResponse`, and\nas the `detail` of the 422 that `InvalidDatasetError` raises when a file is\nrefused at the door. The rejection is the case that matters: which rows\nfailed and why, how many duplicates collapsed, how wide the assay spread\nwas, is the whole value of the validation pass, and a UI cannot render any\nof it from `dict[str, Any]`. The error path serialises the same dataclasses\nthrough `report_to_dict`, so both bodies share this shape even though only\nthis one appears in the OpenAPI contract."
       },
       "WorstRowResponse": {
         "properties": {
