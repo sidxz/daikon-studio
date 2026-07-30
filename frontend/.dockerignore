@@ -1,0 +1,14 @@
+# Never ship a local install into the image -- node_modules is platform-specific
+# (darwin vs linux) and overlaying it on the deps stage breaks pnpm's dependency
+# verification during `pnpm build`.
+node_modules
+.next
+.turbo
+coverage
+
+*.log
+.env
+.env.*
+
+Dockerfile
+.dockerignore

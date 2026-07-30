@@ -1,0 +1,12 @@
+# Not a workspace. This file exists solely to carry pnpm 11's allowBuilds
+# approvals -- without it `pnpm install` in Docker fails with
+# ERR_PNPM_IGNORED_BUILDS.
+allowBuilds:
+  '@biomejs/biome': true
+  # Telemetry. Denied deliberately: its postinstall phones home, and nothing
+  # here needs it. Listed explicitly so pnpm stops failing the install with
+  # ERR_PNPM_IGNORED_BUILDS and so the decision is recorded rather than
+  # rediscovered.
+  '@scarf/scarf': false
+  esbuild: true
+  sharp: true
