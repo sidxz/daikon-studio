@@ -38,11 +38,12 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from daikonstudio.application.engines.context import RunInterrupted
 from daikonstudio.application.engines.manifest import DEFAULT_LANE
 from daikonstudio.application.execution.predict_with_protocol import RunPrediction
 from daikonstudio.application.execution.train_protocol import RunTraining
 from daikonstudio.application.ports.blob_store import BlobStore
-from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import ConflictError
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
@@ -70,6 +71,9 @@ async def _train(ctx: dict[str, Any], run: Run) -> str:
         ctx["store"],
         default_registry(),
         RdkitStructureNormalizer(),
+        # `.get`, not `[...]`: InlineEnqueuer builds its own ctx with only the two
+        # entries a handler needs, and dev-mode jobs have no lane deadline to enforce.
+        deadline_seconds=ctx.get("job_deadline_seconds"),
     )(run)
 
 
@@ -139,11 +143,31 @@ async def run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
     try:
         handler = _HANDLERS[run.kind]
         result_uri = await handler(ctx, run)
-        run.succeed(result_uri)
+    except RunInterrupted as interrupted:
+        # Deliberately NOT re-raised, unlike a handler failure below. arq treats a
+        # propagating exception as a retry (retry_jobs=True, max_tries=5 by default),
+        # and this exception means the work was stopped on purpose. Retrying it would
+        # restart a fit the user cancelled -- five times, on the same GPU.
+        if not interrupted.cancelled:
+            run.fail(interrupted.reason)
+            await _save(ctx, run)
+        # A cancellation needs no write: the row is already CANCELLED, which is
+        # precisely why `report` raised.
+        return
     except (Exception, SystemExit) as exc:
         run.fail(repr(exc))
         await _save(ctx, run)
         raise  # re-raise: FAILED is persisted above regardless of what happens next
+
+    # Re-read before claiming success. `RunTraining`'s reporter only consults the row
+    # every `_PROGRESS_INTERVAL_SECONDS`, and an engine that never calls `report` never
+    # consults it at all -- so without this a cancellation landing after the last
+    # checkpoint would be silently overwritten with READY, which is exactly the lie
+    # `Run.cancel()` used to have to admit to in its docstring.
+    current = await _load(ctx, run.id)
+    if current.status is not RunStatus.RUNNING:
+        return
+    run.succeed(result_uri)
     await _save(ctx, run)
 
 
@@ -160,6 +184,7 @@ async def _on_startup(ctx: dict[str, Any]) -> None:
     ctx["engine"] = engine
     ctx["sessions"] = async_sessionmaker(engine, expire_on_commit=False)
     ctx["store"] = FsspecBlobStore(settings.blob_base_url, settings.blob_storage_options)
+    ctx["job_deadline_seconds"] = settings.worker_job_timeout
 
 
 async def _on_shutdown(ctx: dict[str, Any]) -> None:

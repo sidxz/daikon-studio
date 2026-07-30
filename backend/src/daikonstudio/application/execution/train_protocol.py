@@ -45,6 +45,7 @@ import asyncio
 import io
 import json
 import math
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -61,7 +62,13 @@ from daikonstudio.application.auth import (
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
 from daikonstudio.application.data.assign_split import assign_split
 from daikonstudio.application.data.snapshot import snapshot_key
-from daikonstudio.application.engines.context import PredictContext, TrainContext, TrainResult
+from daikonstudio.application.engines.context import (
+    PredictContext,
+    ProgressReporter,
+    RunInterrupted,
+    TrainContext,
+    TrainResult,
+)
 from daikonstudio.application.engines.manifest import TaskType, validate_conditions
 from daikonstudio.application.engines.protocol import Engine
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
@@ -75,7 +82,7 @@ from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import TargetKind
-from daikonstudio.domain.execution.run import Run, RunKind, compute_cache_key
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
 
 
@@ -95,6 +102,20 @@ def scorecard_inputs_key(workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> str
     directions with no extra column.
     """
     return f"{workspace_id}/protocols/{protocol_id}/scorecard-inputs.json"
+
+
+# How often the reporter is allowed a database round-trip. Cancellation latency is
+# bounded by this; against a fit measured in minutes that is immaterial, and it keeps a
+# 500-epoch run from writing 500 rows.
+_PROGRESS_INTERVAL_SECONDS = 10.0
+# How long the training thread will wait for the event loop to service one checkpoint.
+# Generous: the loop is otherwise idle while the fit runs.
+_CHECKPOINT_TIMEOUT_SECONDS = 30.0
+# Progress spans per leg, so a long fit's own per-epoch progress has somewhere to move
+# instead of the bar sitting at a single number for its whole duration.
+_CHOSEN_SPAN = (0.0, 0.6)
+_BASELINE_SPAN = (0.6, 0.7)
+_RANDOM_SPLIT_SPAN = (0.7, 0.95)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -301,6 +322,7 @@ class RunTraining:
         store: BlobStore,
         engines: EngineRegistry,
         normalizer: StructureNormalizer,
+        deadline_seconds: float | None = None,
     ) -> None:
         self._datasets = datasets
         self._protocols = protocols
@@ -308,8 +330,15 @@ class RunTraining:
         self._store = store
         self._engines = engines
         self._normalizer = normalizer
+        self._deadline_seconds = deadline_seconds
+        self._deadline_at: float | None = None
 
     async def __call__(self, run: Run) -> str:
+        self._deadline_at = (
+            time.monotonic() + self._deadline_seconds
+            if self._deadline_seconds is not None
+            else None
+        )
         command = TrainProtocolCommand.from_params(run.params)
         dataset = await self._datasets.get(run.workspace_id, command.dataset_id)
         if dataset is None:
@@ -336,7 +365,7 @@ class RunTraining:
         )
         _require_structure_column(dataset, frame)
 
-        chosen = await self._fit(run, engine, dataset, task, conditions, frame, 0.33)
+        chosen = await self._fit(run, engine, dataset, task, conditions, frame, _CHOSEN_SPAN)
 
         # The baseline is unconditional -- with one exception that is *not* an
         # exception to the rule. When the chosen engine is the baseline engine on
@@ -353,7 +382,14 @@ class RunTraining:
             baseline_result = chosen
         else:
             baseline_result = await self._fit(
-                run, baseline, dataset, task, baseline_conditions, frame, 0.66, "training baseline"
+                run,
+                baseline,
+                dataset,
+                task,
+                baseline_conditions,
+                frame,
+                _BASELINE_SPAN,
+                "training baseline",
             )
 
         (
@@ -489,7 +525,7 @@ class RunTraining:
         # comparison. Swallowing it would leave the aggregate's in-memory version
         # out of step with the row and turn a database problem into a missing
         # optimism gap.
-        await self._progress(run, 0.9, "training random-split comparison")
+        await self._progress(run, _RANDOM_SPLIT_SPAN[0], "training random-split comparison")
         try:
             # Same seed and same fractions as the Dataset's own split, so the only
             # variable between the two numbers is the split *strategy* -- which is
@@ -504,7 +540,9 @@ class RunTraining:
                 ),
                 self._normalizer,
             )
-            result = await self._train_off_thread(engine, dataset, task, conditions, random_frame)
+            result = await self._train_off_thread(
+                run, engine, dataset, task, conditions, random_frame, _RANDOM_SPLIT_SPAN
+            )
             metrics, undefined = _measured(result.metrics)
             reasons = _undefined_reasons(
                 undefined,
@@ -513,6 +551,11 @@ class RunTraining:
                 random_frame.filter(pl.col("split") == "test"),
             )
             return metrics, None, reasons
+        except RunInterrupted:
+            # Not degradable, unlike every other failure in this leg. A cancellation or
+            # a deadline means stop, and recording it as an unavailable comparison would
+            # let the run succeed after the user asked it not to.
+            raise
         except Exception as exc:
             # Deliberately broad, and deliberately not fatal. The scaffold number
             # and the baseline are the primary result and they are already in
@@ -534,7 +577,7 @@ class RunTraining:
         task: TaskType,
         conditions: dict[str, object],
         frame: pl.DataFrame,
-        fraction: float,
+        span: tuple[float, float],
         phase: str | None = None,
     ) -> TrainResult:
         """Report the phase, then fit off the event loop.
@@ -543,21 +586,27 @@ class RunTraining:
         than what just finished: the row is the only channel the client has, and
         a phase that describes the completed step would leave the UI reading
         "training baseline" while the random-split fit is what is actually
-        holding it up.
+        holding it up. Inside the span, an engine that calls `ctx.report` moves
+        the bar itself.
         """
-        await self._progress(run, fraction, phase or f"training {engine.manifest().id}")
-        return await self._train_off_thread(engine, dataset, task, conditions, frame)
+        resolved_phase = phase or f"training {engine.manifest().id}"
+        await self._progress(run, span[0], resolved_phase)
+        return await self._train_off_thread(run, engine, dataset, task, conditions, frame, span)
 
     async def _train_off_thread(
         self,
+        run: Run,
         engine: Engine,
         dataset: Dataset,
         task: TaskType,
         conditions: dict[str, object],
         frame: pl.DataFrame,
+        span: tuple[float, float],
     ) -> TrainResult:
         # train() is synchronous and CPU-bound by contract (see engines/protocol.py):
         # the worker offloads it so engine authors never have to think about threads.
+        # `run` is threaded through only so the reporter can reach the row -- the
+        # engine never sees it.
         return await asyncio.to_thread(
             engine.train,
             TrainContext(
@@ -567,8 +616,60 @@ class RunTraining:
                 target_column=dataset.target.column,
                 conditions=conditions,
                 seed=dataset.split.seed,
+                report=self._reporter(run, span),
             ),
         )
+
+    def _reporter(self, run: Run, span: tuple[float, float]) -> ProgressReporter:
+        """A callback the engine invokes from the worker thread.
+
+        Three things happen per call, in this order and for this reason:
+
+        1. The deadline is checked. It needs no I/O, so it runs on every call -- which
+           is what makes an overrunning fit stop promptly rather than at the next
+           throttled checkpoint.
+        2. The database round-trip is throttled to `_PROGRESS_INTERVAL_SECONDS`.
+        3. The Run's status is re-read and progress written. Reading is the point: a
+           cancellation happens in the API process against a different row instance
+           entirely, so this worker's in-memory aggregate would never see it.
+
+        `asyncio.run_coroutine_threadsafe` is how a synchronous engine reaches the
+        event loop that owns the repositories. Blocking on the result is deliberate:
+        the engine must not proceed past a checkpoint that says the run was cancelled.
+        """
+        loop = asyncio.get_running_loop()
+        low, high = span
+        last_written = 0.0
+
+        def report(fraction: float, phase: str) -> None:
+            nonlocal last_written
+            now = time.monotonic()
+            if self._deadline_at is not None and now > self._deadline_at:
+                raise RunInterrupted(
+                    f"exceeded this worker lane's {self._deadline_seconds:.0f}s deadline; "
+                    "raise STUDIO_WORKER_JOB_TIMEOUT on the lane if the work is legitimate",
+                    cancelled=False,
+                )
+            if now - last_written < _PROGRESS_INTERVAL_SECONDS:
+                return
+            last_written = now
+            clamped = min(max(fraction, 0.0), 1.0)
+            future = asyncio.run_coroutine_threadsafe(
+                self._checkpoint(run, low + (high - low) * clamped, phase), loop
+            )
+            if not future.result(timeout=_CHECKPOINT_TIMEOUT_SECONDS):
+                raise RunInterrupted("the run was cancelled", cancelled=True)
+
+        return report
+
+    async def _checkpoint(self, run: Run, fraction: float, phase: str) -> bool:
+        """Write progress; report whether the run is still wanted."""
+        current = await self._runs.get_by_id(run.id)
+        if current is None or current.status is not RunStatus.RUNNING:
+            return False
+        run.report_progress(fraction, phase=phase)
+        await self._runs.update(run)
+        return True
 
     async def _progress(self, run: Run, fraction: float, phase: str) -> None:
         run.report_progress(fraction, phase=phase)

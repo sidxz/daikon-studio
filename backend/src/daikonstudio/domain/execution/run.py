@@ -7,9 +7,10 @@ worker crash -- see `start()`). `_TERMINAL`
 gates every mutating method uniformly, so "a terminal Run cannot change again"
 is one check reused everywhere rather than a rule re-derived per method.
 
-`cancel()` on a `running` Run is honest about its ceiling -- see the
-`ponytail:` comment on the method -- rather than pretending to interrupt a
-worker process that is already mid-flight.
+`cancel()` on a `running` Run flips the row and nothing else; the worker is a
+separate process and the row is the only channel to it. What makes that
+actually stop work is cooperative and lives outside this aggregate -- see the
+method's docstring.
 """
 
 from __future__ import annotations
@@ -179,13 +180,13 @@ class Run(AggregateRoot):
         process already executing `handler(ctx, run)`, and this method has no
         channel to it.
 
-        ponytail: this only flips the row's status; it does not signal the
-        worker. A cancelled-while-running Run's worker keeps running to
-        completion and will still call `succeed()`/`fail()` on this row when
-        it's done, silently overwriting `cancelled`. Real interruption needs
-        either a cooperative flag the handler polls or an arq job abort --
-        add it when a training run is slow enough that "cancel" meaning
-        "stop showing it as running" stops being good enough.
+        The row *is* the channel, though. A worker checkpoints against it
+        (`RunTraining._checkpoint`) and stops the fit when it no longer reads
+        RUNNING, and `run_job` re-reads before `succeed()` so a cancellation
+        landing inside the last checkpoint window is not overwritten with
+        READY. So this stops the work as promptly as the engine calls
+        `ctx.report` -- and for an engine that never calls it, only when the
+        current fit returns.
         """
         if self.status in _TERMINAL:
             raise ConflictError(

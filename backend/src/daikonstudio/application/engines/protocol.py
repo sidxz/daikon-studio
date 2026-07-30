@@ -5,6 +5,12 @@ elsewhere in the project family. Engines are CPU-bound (fitting a model, scoring
 batch); making them `async def` would either block the event loop or force every
 engine author to think about threads. Instead the contract stays plain sync code,
 and the worker offloads the call with `asyncio.to_thread`.
+
+An engine that does long work SHOULD call `ctx.report(fraction, phase)` periodically.
+That single callback is what publishes progress to the Run row a client is polling,
+and -- because it may raise `RunInterrupted` -- is the only thing that can stop a fit
+already running on a worker thread. An engine that never calls it still works; it is
+simply not interruptible, and its progress bar will not move.
 """
 
 from __future__ import annotations

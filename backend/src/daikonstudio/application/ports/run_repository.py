@@ -28,6 +28,14 @@ class RunRepository(Protocol):
 
     async def get(self, workspace_id: UUID, run_id: UUID) -> Run | None: ...
 
+    async def get_by_id(self, run_id: UUID) -> Run | None:
+        """Unscoped, for the worker only -- it is handed a bare `run_id` with no tenant
+        context of its own, and the Run was already scoped to its workspace by the use
+        case that created the row. On the port rather than only on the SQLAlchemy class
+        because `RunTraining`'s cancellation checkpoint calls it, and `application` may
+        not import `infrastructure`."""
+        ...
+
     async def find_by_cache_key(self, workspace_id: UUID, cache_key: str) -> Run | None: ...
 
     async def list(

@@ -3,6 +3,7 @@ from dataclasses import replace
 import polars as pl
 import pytest
 
+from daikonstudio.application.engines.context import TrainContext
 from daikonstudio.application.engines.manifest import (
     ConditionSpec,
     ConditionType,
@@ -158,3 +159,19 @@ def test_every_registered_manifest_round_trips_through_json():
         for spec, raw in zip(manifest.conditions, payload["conditions"], strict=True):
             assert raw["key"] == spec.key
             assert raw["type"] == spec.type.value
+
+
+def test_report_defaults_to_a_no_op() -> None:
+    """An engine that never calls `report` must still train. Both ECFP4 engines are
+    exactly that: a single `.fit()` offers no yield point, so they are honestly not
+    interruptible, and the contract must not force them to pretend otherwise."""
+    ctx = TrainContext(
+        frame=pl.DataFrame({"smiles": ["CCO"], "y": [1.0], "split": ["train"]}),
+        task=TaskType.REGRESSION,
+        structure_column="smiles",
+        target_column="y",
+        conditions={},
+        seed=7,
+    )
+
+    assert ctx.report(0.5, "anything") is None

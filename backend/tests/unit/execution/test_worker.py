@@ -12,12 +12,14 @@ tests/integration/test_run_repository.py already covers.
 from __future__ import annotations
 
 import asyncio
+import copy
 import uuid
 from typing import Any
 
 import pytest
 
-from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.application.engines.context import RunInterrupted
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.infrastructure import worker
 
 
@@ -182,3 +184,91 @@ async def test_run_job_drops_a_redelivery_for_a_terminal_run(
 
     assert run.status.value == "cancelled"
     assert saved == []
+
+
+def _ctx_with(run: Run, monkeypatch: pytest.MonkeyPatch) -> dict[str, Any]:
+    """A ctx whose `_load`/`_save` round-trip through an in-memory row store.
+
+    Unlike `_stub_load_and_save` above, every `_load` builds a *fresh* Run from the
+    stored row the way the real repository does. That is the whole point of the
+    cancellation tests below: a cancellation happens in the API process against a
+    different instance of the row entirely, so the worker's own aggregate can never
+    see it and re-reading is the only thing that can.
+    """
+    ctx: dict[str, Any] = {"rows": {run.id: copy.deepcopy(run)}}
+
+    async def fake_load(ctx: dict[str, Any], run_id: uuid.UUID) -> Run:
+        return copy.deepcopy(ctx["rows"][run_id])  # type: ignore[no-any-return]
+
+    async def fake_save(ctx: dict[str, Any], saved_run: Run) -> None:
+        ctx["rows"][saved_run.id] = copy.deepcopy(saved_run)
+
+    monkeypatch.setattr(worker, "_load", fake_load)
+    monkeypatch.setattr(worker, "_save", fake_save)
+    return ctx
+
+
+def _reload(ctx: dict[str, Any], run_id: uuid.UUID) -> Run:
+    return ctx["rows"][run_id]  # type: ignore[no-any-return]
+
+
+async def _cancel_in_the_database(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
+    """What `POST /runs/{id}/cancel` does: flips the row, in another process, on an
+    instance of the aggregate the worker is not holding."""
+    ctx["rows"][run_id].cancel()
+
+
+async def test_a_cancelled_run_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`run_job` must not re-raise RunInterrupted. arq treats a propagating exception
+    as a job to retry (retry_jobs=True, max_tries=5), and at GPU durations retrying a
+    deliberately-stopped fit is how one cancelled run becomes five training threads on
+    one device."""
+    run = _pending_run()
+    ctx = _ctx_with(run, monkeypatch)
+
+    async def _interrupt(_ctx: dict[str, Any], _run: Run) -> str:
+        # The order the real path takes: the row is cancelled first, and `report`
+        # noticing that is exactly why it raises.
+        await _cancel_in_the_database(ctx, run.id)
+        raise RunInterrupted("the run was cancelled", cancelled=True)
+
+    monkeypatch.setitem(worker._HANDLERS, run.kind, _interrupt)
+
+    await worker.run_job(ctx, run.id)  # must not raise
+
+    assert _reload(ctx, run.id).status is RunStatus.CANCELLED
+
+
+async def test_a_deadline_fails_the_run_with_its_reason(monkeypatch: pytest.MonkeyPatch) -> None:
+    run = _pending_run()
+    ctx = _ctx_with(run, monkeypatch)
+
+    async def _interrupt(_ctx: dict[str, Any], _run: Run) -> str:
+        raise RunInterrupted("exceeded the 60s deadline for this worker lane", cancelled=False)
+
+    monkeypatch.setitem(worker._HANDLERS, run.kind, _interrupt)
+
+    await worker.run_job(ctx, run.id)  # must not raise
+
+    reloaded = _reload(ctx, run.id)
+    assert reloaded.status is RunStatus.FAILED
+    assert "deadline" in (reloaded.error_message or "")
+
+
+async def test_a_run_cancelled_during_the_last_throttle_window_is_not_marked_ready(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The reporter only checks the row every 10 seconds. A cancellation landing inside
+    that window would otherwise be overwritten with READY by a handler that finished."""
+    run = _pending_run()
+    ctx = _ctx_with(run, monkeypatch)
+
+    async def _succeed_after_cancellation(_ctx: dict[str, Any], inflight: Run) -> str:
+        await _cancel_in_the_database(ctx, inflight.id)
+        return "blob://result"
+
+    monkeypatch.setitem(worker._HANDLERS, run.kind, _succeed_after_cancellation)
+
+    await worker.run_job(ctx, run.id)
+
+    assert _reload(ctx, run.id).status is RunStatus.CANCELLED
