@@ -287,9 +287,11 @@ genuinely large object the system can produce — is never stored, per `train_pr
 existing "one artifact, not three" decision.
 
 The one place a real filesystem path is unavoidable is chemprop's checkpoint round-trip,
-since Lightning saves to a path. `Settings.scratch_dir` (default: the system temporary
-directory) lets a deployment point that at a fast local NVMe. Everything written there is
-transient and deleted with the `TemporaryDirectory`.
+since Lightning saves to a path. That uses a plain `tempfile.TemporaryDirectory()`, which
+honours the standard `TMPDIR` environment variable — so a deployment points scratch at a
+fast local NVMe by setting `TMPDIR`, with no setting of our own to invent. The GPU image
+sets it to `/scratch`. Everything written there is transient and removed with the
+directory.
 
 `Dataset` — content-hashed, immutably snapshotted, carrying its validation report and
 split spec — already *is* the central dataset registry. It was only ever missing a
