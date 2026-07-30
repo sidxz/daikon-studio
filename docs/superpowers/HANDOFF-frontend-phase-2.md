@@ -10,9 +10,10 @@ yourself — brainstorm first, then `writing-plans`. The predecessor to this fil
 
 ## 1. Where things are
 
-Everything is on **`feat/frontend`**, 21 commits ahead of `main`, working tree clean.
-**Nothing is pushed — there is still no git remote.** `main` holds the Phase 1
-backend, which was merged there at the start of the prior session.
+Everything is merged to **`main`** and pushed to
+**`github.com/sidxz/daikon-studio`** (private). `feat/frontend` was
+fast-forwarded into `main` and is now a dead branch — it exists on the remote
+only as a marker and can be deleted whenever. Working tree clean.
 
 The Phase 1 loop was exercised end to end in a browser against the live backend,
 signed in as a real user in the **SACLAB-DEV** workspace:
@@ -37,7 +38,11 @@ that pass actually established.
 | Runs: predict wizard + preview, sort/filter/in-domain triage grid | done, live |
 | Collections: list, detail, CSV/SDF export | done, live |
 
-303 backend tests, 28 frontend tests, `tsc` and `biome` clean by exit code.
+307 backend tests, 28 frontend unit tests, 2 Playwright E2E tests, `tsc` and
+`biome` clean by exit code. `pnpm test` is vitest only — `tests/e2e/**` is
+excluded from it, because Playwright specs are `.spec.ts` too and vitest will
+otherwise collect them and fail on a foreign `beforeEach`. `pnpm test:e2e` runs
+the browser suite.
 
 Two documents matter more than this one:
 
@@ -107,13 +112,28 @@ curl -s localhost:8002/openapi.json | python3 -c "import json,sys; d=json.load(s
     behave as designed. The console stayed clean throughout.
 - **`Sweep`, lineage visualisation, cross-app Sources, Proposals, generation** —
   all Phase 2+ by the product spec, none started.
-- **Playwright.** No E2E. chem-cellar has a mock-auth interception recipe at
-  `chem-vault2/.claude/skills/verify/SKILL.md` worth adopting. Everything in the
-  bullet above was checked by hand, once, and none of it survives as a test —
-  the `row_id` round trip under an active filter and sort is the first thing
-  that should become one. Note that an agent session cannot sign in on its own
-  (Google OAuth); either a human signs in first, or that recipe removes the
-  wall.
+- ~~Playwright~~ — **the round trip is now a test, on both sides.**
+  `backend/tests/api/test_triage_round_trip.py` reads a sorted and filtered page
+  and asserts the saved Collection holds the structures that were on screen;
+  `frontend/tests/e2e/triage-round-trip.spec.ts` asserts the browser posts the
+  server's `row_id`s rather than page offsets. Both were validated by
+  reintroducing the original defect and watching them go red — the backend one
+  fails with `{'CCN'} == {'Fc1ccc(F)cc1'}`, which is the bug in the only terms
+  that matter. Everything *else* in the bullets above is still hand-checked
+  once and unencoded; the Scorecard's verdict branches are the obvious next
+  spec, since that is the one a rework has already silently broken.
+- **The E2E suite may never drive a real backend, and this is not negotiable.**
+  It runs on port 3103 with `APP_API_BASE_URL` pointed at an unresolvable host,
+  intercepts all of `/api/v1/**`, and carries unsigned payload-only JWTs that
+  exist solely to satisfy the client's `exp` check. If a request 401s against a
+  real server, **the 401 is correct** — mock the endpoint, or write the
+  assertion as a pytest case where the auth harness is process-local. Do not add
+  an env-gated JWKS override or a patched entrypoint to make it pass: the authz
+  token carries `wid` and role claims, so that key would assert any identity on
+  any workspace at any role, in a realm four other apps share. The reasoning is
+  restated at the top of `frontend/tests/e2e/auth.ts` for whoever hits the 401s.
+- **No CI.** Nothing runs the 307 backend, 28 vitest, or 2 Playwright tests on
+  push — every suite above is only as good as someone remembering to run it.
 - **A dashboard worth the name.** `/` is honest signposting, because nothing in
   the Phase 1 API aggregates anything. Real numbers need new endpoints.
 

@@ -16,6 +16,11 @@ passing, mypy strict clean, three import-linter contracts enforced with no exemp
 **Decide first: merge to `main`, or build the frontend on the same branch?** Nobody has integrated
 it yet. There is **no git remote configured** on this repo.
 
+> **Superseded 2026-07-30.** Both questions are answered: the frontend was built on
+> `feat/frontend`, that branch is merged to `main`, and the repo now pushes to
+> `github.com/sidxz/daikon-studio` (private). The rest of this document is kept as the
+> backend build's own history — read `HANDOFF-frontend-phase-2.md` for current state.
+
 Read these two documents before anything else:
 
 | Document | Why |
@@ -209,4 +214,5 @@ comment there says so.
 - 42 per-task reports are in the gitignored `.superpowers/sdd/2026-07-25-phase-1-backend/`
   directory — every finding, fix and ruling from the backend build, if you ever need to know why
   something is the way it is.
-- Nothing is merged. Nothing is pushed. There is no remote.
+- ~~Nothing is merged. Nothing is pushed. There is no remote.~~ All three were true when
+  this was written; none is true now — see the note at the top.
