@@ -3,8 +3,8 @@
 # First run:
 #   make install      # backend (uv) + frontend (pnpm) deps
 #   make up           # start Postgres + Valkey, run DB migrations
-#   make dev          # start backend (:8002) + frontend (:3002) + import worker in the background
-#   open http://localhost:3002
+#   make dev          # start backend (:8002) + frontend (:3003) + job worker in the background
+#   open http://localhost:3003
 #
 # Day to day:  make logs (tail)  ·  make stop (stop servers)  ·  make down (stop containers)
 #
@@ -17,8 +17,8 @@ FRONTEND := cd frontend
 LOGDIR   := .logs
 # Load backend/.env (DATABASE_URL, SENTINEL_*) into the recipe shell.
 BE_ENV   := set -a && . ./.env && set +a
-# arq import worker entrypoint (processes FE-enqueued import jobs).
-WORKER   := uv run arq daikonstudio.infrastructure.ingestion.worker.WorkerSettings
+# arq worker entrypoint (runs the training and prediction jobs the API enqueues).
+WORKER   := uv run arq daikonstudio.infrastructure.worker.WorkerSettings
 
 .DEFAULT_GOAL := help
 .PHONY: help up down install dev dev-be dev-fe dev-worker stop logs migrate generate-api \
@@ -31,7 +31,7 @@ help: ## Show this help
 up: ## Start Postgres + Valkey, wait for readiness, run migrations
 	$(COMPOSE) up -d postgres valkey
 	@echo "Waiting for Postgres on :5435..."
-	@until $(COMPOSE) exec -T postgres pg_isready -U daikonstudio -q 2>/dev/null; do sleep 1; done
+	@until $(COMPOSE) exec -T postgres pg_isready -U studio -q 2>/dev/null; do sleep 1; done
 	@$(MAKE) --no-print-directory migrate
 	@echo "Infra ready: Postgres :5435, Valkey :6381."
 
@@ -45,22 +45,22 @@ install: ## Install backend (uv) + frontend (pnpm) dependencies
 migrate: ## Apply DB migrations (alembic)
 	$(BACKEND) && $(BE_ENV) && uv run alembic upgrade head
 
-dev: stop ## Start backend (:8002) + frontend (:3002) + import worker in the background
+dev: stop ## Start backend (:8002) + frontend (:3003) + job worker in the background
 	@mkdir -p $(LOGDIR)
 	@echo "Starting backend on :8002..."
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec uv run uvicorn daikonstudio.interface.app:app --reload --port 8002' \
 		> $(LOGDIR)/backend.log 2>&1 & echo "$$!" > $(LOGDIR)/backend.pid
-	@echo "Starting frontend on :3002..."
+	@echo "Starting frontend on :3003..."
 	@nohup sh -c '$(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
-	@echo "Starting import worker..."
+	@echo "Starting job worker..."
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
 	@sleep 1
 	@echo ""
 	@echo "  Backend   http://localhost:8002/docs   (pid $$(cat $(LOGDIR)/backend.pid), log $(LOGDIR)/backend.log)"
-	@echo "  Frontend  http://localhost:3002        (pid $$(cat $(LOGDIR)/frontend.pid), log $(LOGDIR)/frontend.log)"
-	@echo "  Worker    import jobs                   (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
+	@echo "  Frontend  http://localhost:3003        (pid $$(cat $(LOGDIR)/frontend.pid), log $(LOGDIR)/frontend.log)"
+	@echo "  Worker    training + prediction jobs                   (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
 	@echo "  make logs — tail all    ·    make stop — stop all"
 
 dev-be: ## (Re)start the backend only, in the background
@@ -72,15 +72,15 @@ dev-be: ## (Re)start the backend only, in the background
 
 dev-fe: ## (Re)start the frontend only, in the background
 	@mkdir -p $(LOGDIR)
-	@lsof -ti:3002 | xargs kill 2>/dev/null || true
+	@lsof -ti:3003 | xargs kill 2>/dev/null || true
 	@nohup sh -c '$(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
-	@echo "Frontend (re)started on :3002 (log $(LOGDIR)/frontend.log)"
+	@echo "Frontend (re)started on :3003 (log $(LOGDIR)/frontend.log)"
 
-dev-worker: ## (Re)start the import worker only, in the background
+dev-worker: ## (Re)start the job worker only, in the background
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker.pid ] && kill $$(cat $(LOGDIR)/worker.pid) 2>/dev/null || true
-	@pkill -f 'arq daikonstudio.infrastructure.ingestion.worker.WorkerSettings' 2>/dev/null || true
+	@pkill -f 'arq daikonstudio.infrastructure.worker.WorkerSettings' 2>/dev/null || true
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
 	@echo "Import worker (re)started (log $(LOGDIR)/worker.log)"
@@ -90,8 +90,8 @@ stop: ## Stop the backend + frontend + worker dev processes
 	@[ -f $(LOGDIR)/frontend.pid ] && kill $$(cat $(LOGDIR)/frontend.pid) 2>/dev/null || true
 	@[ -f $(LOGDIR)/worker.pid ]   && kill $$(cat $(LOGDIR)/worker.pid)   2>/dev/null || true
 	@lsof -ti:8002 | xargs kill 2>/dev/null || true
-	@lsof -ti:3002 | xargs kill 2>/dev/null || true
-	@pkill -f 'arq daikonstudio.infrastructure.ingestion.worker.WorkerSettings' 2>/dev/null || true
+	@lsof -ti:3003 | xargs kill 2>/dev/null || true
+	@pkill -f 'arq daikonstudio.infrastructure.worker.WorkerSettings' 2>/dev/null || true
 	@rm -f $(LOGDIR)/backend.pid $(LOGDIR)/frontend.pid $(LOGDIR)/worker.pid
 	@echo "Dev servers stopped."
 
