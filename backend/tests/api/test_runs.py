@@ -539,7 +539,9 @@ async def test_an_unknown_filter_column_is_a_422(
     assert response.status_code == 422, response.text
 
 
-async def test_malformed_filter_json_is_a_422(client, published_protocol_id, prediction_upload_ref):
+async def test_malformed_filter_json_is_a_422(
+    client, published_protocol_id, prediction_upload_ref
+):
     submitted = await _predict(client, published_protocol_id, prediction_upload_ref)
     response = await client.get(f"/api/v1/runs/{submitted.json()['id']}/results?filters=not-json")
     assert response.status_code == 422, response.text
