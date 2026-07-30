@@ -92,7 +92,12 @@ curl -s localhost:8002/openapi.json | python3 -c "import json,sys; d=json.load(s
   IS the baseline and render no comparison at all. Both still have only
   unit-test coverage. The files are staged and ready — `bace-active.csv` for
   the first, the same file trained with ECFP4+RandomForest for the second (see
-  §7) — this is owed to the user, not dropped.
+  §7) — this is owed to the user, not dropped. It is also worth more than it
+  looks: the whole-branch review found that the rebuilt Scorecard rendered its
+  honesty numbers in only one of three verdict branches, so a `baseline_is_self`
+  protocol showed no optimism gap and no applicability coverage anywhere on the
+  page. That is precisely what Task 6 step 3 would have caught. It is fixed, and
+  the fix is itself unverified in a browser.
 - **`Sweep`, lineage visualisation, cross-app Sources, Proposals, generation** —
   all Phase 2+ by the product spec, none started.
 - **Playwright.** No E2E. chem-cellar has a mock-auth interception recipe at
@@ -149,6 +154,31 @@ curl -s localhost:8002/openapi.json | python3 -c "import json,sys; d=json.load(s
     than as inputs — editable fields would be dead controls. If an engine ever
     starts reading predict-time conditions, this is the one place to check
     before making them editable.
+12. **A sorted results page is only a stable window because the sort breaks ties
+    on `row_id`.** Every page request re-reads the Parquet and re-sorts it, and
+    polars' `sort` defaults to `multithreaded=True, maintain_order=False` — an
+    unstable sort. Two page requests were therefore two independent
+    permutations, so a tied row could come back in both pages or in neither.
+    The worst case needs no hunting: `uncertainty` is null for every row of an
+    XGBoost run, so sorting that column makes the whole frame one tie group.
+    `result_view.py` now sorts on `[column, row_id]`, which is a total order and
+    identical across requests by construction. There is a regression test, but
+    it locks the invariant rather than proving the old bug — the installed
+    polars happened to preserve input order in every trial, so the test does not
+    fail against the pre-fix code. Do not cite it as evidence the old code was
+    broken; the argument is the API contract, not the observation.
+13. **"In domain" is 0.3, in all three places that say it.** The Scorecard's
+    `applicability_coverage` is computed at `_APPLICABILITY_THRESHOLD = 0.3` in
+    `build_scorecard.py`, and `predict_with_protocol.py`'s docstring promises
+    that a compound the triage screen calls out-of-domain and one the Scorecard's
+    coverage excludes are always the same compound. The frontend had drifted to
+    `0.5` — in the applicability cell's warning colour and in the "N of your M
+    are outside the domain of applicability" count — and the Phase 2 spec copied
+    that 0.5 into the new "In domain only" switch, which would have made a
+    Scorecard claiming 72% coverage sit beside a grid filtering at a different
+    line. All three now read `IN_DOMAIN_FLOOR` from
+    `features/runs/lib/result-query.ts`, which is 0.3. If that number ever moves,
+    it moves on both sides of the stack at once or the promise above is a lie.
 
 ---
 
