@@ -1,0 +1,18 @@
+@import "tailwindcss";
+@import "@structflo/daikon-design-tokens/tokens.css";
+
+/* Every colour, radius and font comes from the tokens package. The app's side
+   of that contract is three things: supply --font-plex-sans / --font-plex-mono
+   / --font-inter via next/font, and drive data-theme and data-font on <html>. */
+
+/* ── Auth page entrance animation ─────────────────────────── */
+@keyframes auth-enter {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
