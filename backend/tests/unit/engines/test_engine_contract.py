@@ -133,3 +133,28 @@ def test_unknown_engine_error_maps_to_a_real_http_status_not_a_bare_500():
     with pytest.raises(DomainError) as baseline_error:
         EngineRegistry({}).baseline()
     assert _error_to_status(baseline_error.value) == 404
+
+
+def test_every_registered_manifest_round_trips_through_json():
+    """The manifest is the Phase 5 HTTP envelope: engines move out of process
+    by *serving* their manifest instead of being imported (manifest.py's
+    docstring). That exit stays open only while every manifest field is plain
+    data. This trips the moment someone adds a non-serializable field -- an
+    infrastructure object, a callable, a custom type -- to EngineManifest or
+    ConditionSpec. If it fails, fix the field, not this test.
+    (Spec: docs/superpowers/specs/2026-07-30-future-seams-alignment-design.md)
+    """
+    import json
+    from dataclasses import asdict
+
+    from daikonstudio.infrastructure.engines.registry import default_registry
+
+    manifests = default_registry().manifests()
+    assert manifests, "registry unexpectedly empty"
+    for manifest in manifests:
+        payload = json.loads(json.dumps(asdict(manifest)))
+        assert payload["id"] == manifest.id
+        assert payload["tasks"] == [task.value for task in manifest.tasks]
+        for spec, raw in zip(manifest.conditions, payload["conditions"], strict=True):
+            assert raw["key"] == spec.key
+            assert raw["type"] == spec.type.value
