@@ -146,3 +146,39 @@ async def test_inline_enqueuer_lets_cancelled_error_propagate(
 
     with pytest.raises(asyncio.CancelledError):
         await enqueuer.enqueue(uuid.uuid4())
+
+
+async def test_run_job_restarts_a_running_row_after_redelivery(
+    monkeypatch: pytest.MonkeyPatch, _stub_load_and_save: tuple[Run, list[str]]
+) -> None:
+    """A worker crash mid-job leaves the row RUNNING; arq's at-least-once
+    delivery hands the same run_id to a fresh process. That redelivery must
+    restart the run and complete it -- not raise outside the try/except and
+    strand the row at RUNNING forever."""
+    run, saved = _stub_load_and_save
+    run.start()  # the dead attempt got this far before its process died
+
+    async def ok(ctx: dict[str, Any], run: Run) -> str:
+        return "blob://result"
+
+    monkeypatch.setitem(worker._HANDLERS, RunKind.TRAINING, ok)
+
+    await worker.run_job({}, run.id)
+
+    assert run.status.value == "ready"
+    assert saved == ["running", "ready"]
+
+
+async def test_run_job_drops_a_redelivery_for_a_terminal_run(
+    _stub_load_and_save: tuple[Run, list[str]],
+) -> None:
+    """Cancelled while queued: the redelivered job is nobody's work anymore.
+    run_job must return normally (so arq does not retry) without touching the
+    row -- no save, no status change, no exception."""
+    run, saved = _stub_load_and_save
+    run.cancel()
+
+    await worker.run_job({}, run.id)
+
+    assert run.status.value == "cancelled"
+    assert saved == []

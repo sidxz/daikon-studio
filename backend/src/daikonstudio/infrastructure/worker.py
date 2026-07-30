@@ -41,6 +41,7 @@ from daikonstudio.application.execution.predict_with_protocol import RunPredicti
 from daikonstudio.application.execution.train_protocol import RunTraining
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.domain.shared.errors import ConflictError
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
@@ -114,26 +115,24 @@ async def run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
     kills the whole worker process here, taking any other jobs running
     concurrently in it down too. Catching it doesn't prevent that -- nothing
     can, short of not letting it happen in the first place -- but it does
-    guarantee the row is persisted as `FAILED` before the process dies, which
-    is strictly better than the alternative (see the note on `run.start()`
-    below for what "not catching it" would leave behind instead). Upgrade
+    guarantee the row is persisted as `FAILED` before the process dies, rather
+    than leaving it RUNNING until arq redelivers and restarts the whole job
+    from zero (see the comment on `run.start()` below). Upgrade
     path if this bites: one job per worker process (arq's `max_jobs=1` or a
     process-per-job deployment), or a supervisor that restarts the worker on
     exit.
     """
     run = await _load(ctx, run_id)
-    # ponytail: if a previous attempt at this same run_id crashed the worker
-    # process after start() but before finishing (including the SystemExit
-    # case above), arq's at-least-once delivery redelivers the job to a fresh
-    # process. That redelivery lands here with the row already RUNNING, not
-    # PENDING -- start() raises ConflictError, that raise is outside the
-    # try/except below, fail() never runs, and the row is stuck at RUNNING
-    # forever with no worker left executing it. Upgrade path: a reaper that
-    # fails Runs stuck in RUNNING past some staleness window, or relaxing
-    # start() to allow a RUNNING -> RUNNING restart specifically for
-    # redelivery (distinguishable from a genuine double-start by a jobs table
-    # arq itself doesn't expose here).
-    run.start()
+    # arq is at-least-once: a worker crash mid-job redelivers this run_id with
+    # the row already RUNNING, and start() treats that as a restart-from-zero
+    # (see Run.start). A ConflictError here therefore means the run went
+    # terminal while queued -- cancelled, most likely -- so the redelivered
+    # job is nobody's work anymore: return without saving, and without
+    # raising, so arq marks the job done instead of retrying it.
+    try:
+        run.start()
+    except ConflictError:
+        return
     await _save(ctx, run)
     try:
         handler = _HANDLERS[run.kind]
