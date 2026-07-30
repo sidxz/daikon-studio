@@ -10,27 +10,33 @@ yourself — brainstorm first, then `writing-plans`. The predecessor to this fil
 
 ## 1. Where things are
 
-Everything is on **`feat/frontend`**, 12 commits ahead of `main`, working tree clean.
+Everything is on **`feat/frontend`**, 21 commits ahead of `main`, working tree clean.
 **Nothing is pushed — there is still no git remote.** `main` holds the Phase 1
-backend, which was merged there at the start of this session.
+backend, which was merged there at the start of the prior session.
 
-The whole Phase 1 loop is built and was exercised end to end in a browser against
-the live backend, signed in as a real user in the **SACLAB-DEV** workspace:
+The Phase 1 loop was exercised end to end in a browser against the live backend,
+signed in as a real user in the **SACLAB-DEV** workspace:
 
 upload a CSV → freeze a Dataset → train a Protocol against the mandatory baseline
 → read the Scorecard → publish → run it over new compounds → triage → save a
 Collection → export CSV/SDF.
+
+The Phase 2 UX pass then landed on top: server-side sort/filter/row-identity on
+run results, native AG Grid filters and an in-domain switch on triage, the
+Scorecard's verdict strip, an enriched predict flow, and theme-aware structure
+thumbnails. **None of it has been driven in a browser** — see §3 for why and
+exactly what that leaves unverified.
 
 | Area | State |
 |---|---|
 | Chrome, Sentinel auth, branding | done, live |
 | Engines catalogue | done, live |
 | Datasets: wizard, ValidationReport, list, detail | done, live |
-| Protocols: training form, Scorecard, publish | done, live |
-| Runs: predict wizard, polling, triage grid | done, live |
+| Protocols: training form, Scorecard verdict strip, publish | done, not seen live since the verdict-strip rework |
+| Runs: predict wizard + preview, sort/filter/in-domain triage grid | done, not seen live since the UX pass |
 | Collections: list, detail, CSV/SDF export | done, live |
 
-285 backend tests, 15 frontend tests, `tsc` and `biome` clean by exit code.
+303 backend tests, 28 frontend tests, `tsc` and `biome` clean by exit code.
 
 Two documents matter more than this one:
 
@@ -70,23 +76,28 @@ curl -s localhost:8002/openapi.json | python3 -c "import json,sys; d=json.load(s
 
 ## 3. What is NOT done
 
-- **The UX polish pass.** This was always the plan: ship the loop, then refine.
-  The user named the Scorecard layout and the triage grid's filters as the two
-  most likely to need a second pass, before either existed. Having seen them
-  live, both still look like the right call.
-- **Sorting and filtering run results.** The triage grid deliberately has no
-  filter control, because AG Grid's quick filter is client-side only and this
-  grid is infinite, and `GET /runs/{id}/results` accepts no filter or sort
-  parameter. Making triage usable past a few hundred rows needs backend work
-  first. This is the largest genuine gap.
-- **Dark-mode structure rendering.** `StructureThumbnail` uses `dark:invert` on
-  an SVG with a white background, so structures sit on black rectangles in dark
-  mode. Rendering with a themed palette instead of inverting would fix it.
+- **Nothing in the Phase 2 UX pass has been verified in a browser.** The
+  controller could not sign in — auth is Google OAuth, and there is no way to
+  do that on the user's behalf — so every task's browser-verification step was
+  skipped. The pass shipped on unit/API tests, `tsc`, and `biome` alone. Two
+  things specifically need eyes before they're trusted: the triage grid's
+  filter and sort behaviour under AG Grid's infinite row model, and — the one
+  that matters most — the save-as-collection round-trip while a filter or sort
+  is active. That round-trip is the exact behaviour `row_id` was added to
+  protect (see §4), and it has never been exercised end to end.
+- **Task 6 of the UX-pass plan did not run.** That was the live pass over the
+  two paths no browser has ever seen: a binary-classification protocol end to
+  end, where the noise-floor stat must be *absent* from the verdict strip, not
+  rendered empty, and `baseline_is_self`, where the strip must say the model
+  IS the baseline and render no comparison at all. Both still have only
+  unit-test coverage. The files are staged and ready — `bace-active.csv` for
+  the first, the same file trained with ECFP4+RandomForest for the second (see
+  §7) — this is owed to the user, not dropped.
 - **`Sweep`, lineage visualisation, cross-app Sources, Proposals, generation** —
   all Phase 2+ by the product spec, none started.
 - **Playwright.** No E2E. chem-cellar has a mock-auth interception recipe at
-  `chem-vault2/.claude/skills/verify/SKILL.md` worth adopting; this session
-  verified by driving a real browser instead, which does not survive as a test.
+  `chem-vault2/.claude/skills/verify/SKILL.md` worth adopting — it would also
+  be the fix for the Google-OAuth sign-in wall above.
 - **A dashboard worth the name.** `/` is honest signposting, because nothing in
   the Phase 1 API aggregates anything. Real numbers need new endpoints.
 
@@ -102,7 +113,11 @@ curl -s localhost:8002/openapi.json | python3 -c "import json,sys; d=json.load(s
    it cross-origin always gets null. Exports are named client-side now.
 3. **The results cursor is a plain integer offset**, while every other list uses
    a base64 keyset cursor — behind the same `next_cursor` field name. A generic
-   pagination helper cannot tell them apart.
+   pagination helper cannot tell them apart. Since the Phase 2 pass it means
+   "offset within the current filtered and sorted view," not offset into the
+   whole file — the results file itself is immutable, but the view the offset
+   counts into is not, which is why the client must reset to offset 0 on every
+   filter or sort change rather than trying to translate an old offset forward.
 4. **`total_count` is always null.** Pagination is load-more; there is no honest
    "1–50 of 320" to render.
 5. **A cache hit returns 202 with an already-`ready` Run.** Branch on status;
@@ -117,6 +132,23 @@ curl -s localhost:8002/openapi.json | python3 -c "import json,sys; d=json.load(s
    with a test that fails if the backend gains a third target kind.
 9. **The OpenAPI snapshot declares no error responses.** 404/409/422/423/503 are
    all handled by hand.
+10. **`row_id` comes from the server, minted before any filter or sort, and is
+    the row's position in the *original* results file — not in whatever page
+    or view the client is currently looking at.** The triage grid used to
+    derive row identity from pagination offset (`startRow + index`); under a
+    server-side sort or filter, that offset diverges from the true position
+    silently, because reordering the view does not renumber the rows in it.
+    Deriving `__rowId` that way again would break under exactly that
+    condition, and the symptom would not be an error — it would be a
+    Collection quietly holding the wrong compounds. This is the specific
+    thing the browser has never confirmed; see §3.
+11. **Both engines ignore `ctx.conditions` at predict time** — `predict()` on
+    both `ecfp4_randomforest` and `ecfp4_xgboost` forwards to the same
+    `_predict_with_tree_ensemble`, which never reads them. That is why the
+    predict wizard shows a protocol's trained-with conditions read-only rather
+    than as inputs — editable fields would be dead controls. If an engine ever
+    starts reading predict-time conditions, this is the one place to check
+    before making them editable.
 
 ---
 
