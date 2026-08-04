@@ -169,13 +169,21 @@ class Studio:
         return (await self._create(command, self.auth)).unwrap()
 
     async def train(
-        self, *, dataset_id: uuid.UUID, engine_id: str, conditions: dict[str, object]
+        self,
+        *,
+        dataset_id: uuid.UUID,
+        engine_id: str,
+        conditions: dict[str, object],
+        baseline_engine_id: str | None = None,
+        baseline_conditions: dict[str, object] | None = None,
     ) -> Run:
         command = TrainProtocolCommand(
             name="a trained model",
             dataset_id=dataset_id,
             engine_id=engine_id,
             conditions=conditions,
+            baseline_engine_id=baseline_engine_id,
+            baseline_conditions=baseline_conditions or {},
         )
         return (await self._train(command, self.auth)).unwrap()
 
@@ -407,6 +415,90 @@ async def test_non_default_conditions_still_earn_a_real_baseline(studio: Studio)
     scorecard = await studio.scorecard_for(run)
     assert scorecard.baseline_is_self is False
     assert scorecard.conditions["n_estimators"] == 40
+
+
+async def test_a_chosen_baseline_is_the_one_that_gets_fit(studio: Studio) -> None:
+    """The Scorecard names the baseline that actually ran, not the flagged default."""
+    dataset = await studio.dataset()
+    run = await studio.train(
+        dataset_id=dataset.id,
+        engine_id="ecfp4-randomforest",
+        conditions={"n_estimators": 20},
+        baseline_engine_id="ecfp4-xgboost",
+        baseline_conditions={"n_estimators": 20},
+    )
+    await studio.wait(run)
+
+    inputs = await studio.scorecard_for(run)
+    assert inputs.baseline_engine_id == "ecfp4-xgboost"
+    # validate_conditions fills the rest of the manifest's defaults.
+    assert inputs.baseline_conditions["n_estimators"] == 20
+    assert inputs.baseline_is_self is False
+
+
+async def test_same_engine_different_conditions_is_not_a_self_comparison(
+    studio: Studio,
+) -> None:
+    """The case that makes 'pretrained vs not' work: one engine id, two settings.
+    If this collapsed into baseline_is_self the second fit would never run and
+    the Scorecard would present one result twice as though it were a comparison."""
+    dataset = await studio.dataset()
+    run = await studio.train(
+        dataset_id=dataset.id,
+        engine_id="ecfp4-randomforest",
+        conditions={"n_estimators": 20},
+        baseline_engine_id="ecfp4-randomforest",
+        baseline_conditions={"n_estimators": 200},
+    )
+    await studio.wait(run)
+
+    inputs = await studio.scorecard_for(run)
+    assert inputs.baseline_is_self is False
+    assert inputs.baseline_conditions["n_estimators"] == 200
+
+
+def _scorecard_inputs_fixture() -> ScorecardInputs:
+    """One valid, fully-populated `ScorecardInputs` -- the seed for the
+    read-old-blobs test below, which deletes a key from its JSON and checks
+    the default fills in."""
+    return ScorecardInputs(
+        protocol_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        dataset_id=str(uuid.uuid4()),
+        engine_id="ecfp4-randomforest",
+        task="regression",
+        conditions={"n_estimators": 200},
+        metrics={"rmse": 1.0, "mae": 0.5, "r2": 0.9},
+        actual=[1.0, 2.0],
+        predicted=[1.1, 1.9],
+        prediction_kind="value",
+        structures=["CCO", "CCN"],
+        train_structures=["CCCO"],
+        baseline_engine_id="ecfp4-randomforest",
+        baseline_conditions={"n_estimators": 200},
+        baseline_metrics={"rmse": 1.0, "mae": 0.5, "r2": 0.9},
+        baseline_is_self=True,
+        random_split_metrics=None,
+        random_split_unavailable=None,
+        random_split_metrics_undefined=None,
+        metrics_undefined=None,
+        duplicate_spread=None,
+        target_unit="logS",
+        target_direction="high",
+        split_strategy="random",
+    )
+
+
+def test_scorecard_inputs_reads_a_blob_written_before_baseline_conditions_existed() -> None:
+    """`from_json` is `cls(**json.loads(data))`. Without a default, every
+    Scorecard blob written before this change becomes unreadable."""
+    dataset = _scorecard_inputs_fixture()  # build one valid instance at module scope
+    legacy = json.loads(dataset.to_json())
+    del legacy["baseline_conditions"]
+
+    restored = ScorecardInputs.from_json(json.dumps(legacy).encode())
+
+    assert restored.baseline_conditions == {}
 
 
 async def test_a_failed_optimism_gap_does_not_destroy_the_honest_result(

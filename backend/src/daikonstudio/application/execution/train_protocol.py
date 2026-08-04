@@ -180,6 +180,12 @@ class ScorecardInputs:
     structures: list[str]
     train_structures: list[str]
     baseline_engine_id: str
+    # Defaulted because `from_json` is `cls(**json.loads(data))`: a required
+    # field here makes every Scorecard blob written before the baseline became
+    # choosable unreadable. Also load-bearing for display -- when the baseline
+    # is the *same* engine with different settings (pretrained vs not), the two
+    # engine ids are identical and this is the only thing distinguishing them.
+    baseline_conditions: dict[str, Any] = field(default_factory=dict)
     baseline_metrics: dict[str, float | None]
     baseline_is_self: bool
     random_split_metrics: dict[str, float | None] | None
@@ -389,9 +395,20 @@ class RunTraining:
             )
         conditions = validate_conditions(manifest, command.conditions)
 
-        baseline = self._engines.baseline()
+        # Resolved at enqueue for new Runs; `None` only on a row written before
+        # the baseline became choosable, where the registry default is correct.
+        baseline = (
+            self._engines.get(command.baseline_engine_id)
+            if command.baseline_engine_id
+            else self._engines.baseline()
+        )
         baseline_manifest = baseline.manifest()
-        baseline_conditions = validate_conditions(baseline_manifest, {})
+        if task not in baseline_manifest.tasks:
+            raise ValidationError(
+                f"Baseline engine '{baseline_manifest.id}' cannot train a {task.value} "
+                f"model; it supports {', '.join(t.value for t in baseline_manifest.tasks)}"
+            )
+        baseline_conditions = validate_conditions(baseline_manifest, command.baseline_conditions)
 
         frame = pl.read_parquet(
             io.BytesIO(self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id)))
@@ -464,6 +481,7 @@ class RunTraining:
             structures=[str(s) for s in test_rows[dataset.structure_column].to_list()],
             train_structures=[str(s) for s in train_rows[dataset.structure_column].to_list()],
             baseline_engine_id=baseline_manifest.id,
+            baseline_conditions=baseline_conditions,
             baseline_metrics=baseline_metrics,
             baseline_is_self=baseline_is_self,
             random_split_metrics=random_split_metrics,
