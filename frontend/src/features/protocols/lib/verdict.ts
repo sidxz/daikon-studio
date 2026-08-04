@@ -129,6 +129,14 @@ export function describeBaseline(
 
   const conditions = scorecard.conditions as Record<string, unknown>;
   const baselineConditions = scorecard.baseline_conditions as Record<string, unknown>;
+
+  // A Run trained before the baseline became choosable has no recorded
+  // baseline conditions at all (`field(default_factory=dict)` makes that blob
+  // readable, not renderable). There is nothing to diff against, so naming the
+  // engine is the only true thing left to say -- the alternative is a
+  // "key = undefined" for every key `conditions` happens to have.
+  if (Object.keys(baselineConditions).length === 0) return scorecard.baseline_engine_id;
+
   const keys = new Set([...Object.keys(conditions), ...Object.keys(baselineConditions)]);
   const differing = [...keys].filter((key) => conditions[key] !== baselineConditions[key]).sort();
 

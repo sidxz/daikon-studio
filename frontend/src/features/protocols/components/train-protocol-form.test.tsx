@@ -165,3 +165,71 @@ describe("CheMeleon's pinned settings reach the submitted payload", () => {
     expect(payload.conditions.depth).toBe(6);
   });
 });
+
+// --- Submit is blocked when a run would silently compare an engine against
+// itself, exempting only the registry's flagged baseline engine. ---
+//
+// Before this branch that state was reachable only by the flagged baseline
+// engine, for which "there is nothing to compare against" is true. With a
+// choosable baseline, any engine can now be set to compare against itself; the
+// server still runs one fit and reports it as both sides, so the client must
+// refuse to submit rather than let the Scorecard render a comparison that
+// never happened.
+
+describe("submit is blocked when the run would compare an engine against itself", () => {
+  afterEach(() => mutateAsync.mockClear());
+
+  it("disables Train for a non-baseline engine compared against itself", async () => {
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <TrainProtocolForm />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByText(/Solubility/));
+
+    // Indexed rather than by trigger text: once both selects have shown
+    // "Chemprop D-MPNN" at some point, the text alone is no longer unique.
+    const [, engineTrigger, baselineTrigger] = screen.getAllByRole("combobox");
+
+    fireEvent.click(engineTrigger);
+    fireEvent.click(await screen.findByRole("option", { name: "Chemprop D-MPNN" }));
+
+    // The baseline defaults to the flagged engine (ECFP4 + RF); switch it to
+    // chemprop too, so both sides are chemprop-dmpnn on identical settings.
+    fireEvent.click(baselineTrigger);
+    fireEvent.click(await screen.findByRole("option", { name: "Chemprop D-MPNN" }));
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
+
+    expect(screen.getByText("Train")).toBeDisabled();
+    fireEvent.click(screen.getByText("Train"));
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("still permits Train when the flagged baseline engine compares against itself", async () => {
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <TrainProtocolForm />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByText(/Solubility/));
+
+    // The baseline already defaults to this same flagged engine, with no
+    // conditions on either side -- a self-comparison this product has always
+    // allowed, because there is nothing else to compare the baseline against.
+    fireEvent.click(screen.getByText("Choose an engine"));
+    fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
+
+    await waitFor(() => expect(screen.getByText("Train")).not.toBeDisabled());
+    fireEvent.click(screen.getByText("Train"));
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+  });
+});

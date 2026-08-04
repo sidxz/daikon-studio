@@ -82,6 +82,34 @@ describe("describeBaseline", () => {
       }),
     ).toContain("ecfp4-randomforest");
   });
+
+  it("names the engine, not 'undefined', for a legacy blob with no recorded baseline conditions", () => {
+    // A Run trained before the baseline became choosable: same engine on both
+    // sides, non-default conditions, and `baseline_conditions == {}` because
+    // the field predates this branch. Diffing against an empty object would
+    // render every one of the model's own keys as "key = undefined".
+    const described = describeBaseline({
+      baseline_engine_id: "ecfp4-randomforest",
+      engine_id: "ecfp4-randomforest",
+      conditions: { n_estimators: 800 },
+      baseline_conditions: {},
+    });
+    expect(described).not.toContain("undefined");
+    expect(described).toBe("ecfp4-randomforest");
+  });
+
+  it("names every key that differs, not just the first, when several settings diverge", () => {
+    const described = describeBaseline({
+      baseline_engine_id: "chemprop-dmpnn",
+      engine_id: "chemprop-dmpnn",
+      conditions: { pretrained: "CheMeleon", depth: 6, message_hidden_dim: 2048, epochs: 50 },
+      baseline_conditions: { pretrained: "none", depth: 3, message_hidden_dim: 300, epochs: 50 },
+    });
+    expect(described).toContain("pretrained");
+    expect(described).toContain("depth");
+    expect(described).toContain("message_hidden_dim");
+    expect(described).not.toContain("epochs");
+  });
 });
 
 describe("optimism gap", () => {

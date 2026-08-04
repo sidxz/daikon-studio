@@ -173,8 +173,26 @@ export function TrainProtocolForm() {
     }
   }
 
+  // The client-side mirror of the server's `baseline_is_self` -- computed once
+  // here so both the submit gate and the warning below agree on it.
+  const selfCompare = comparesAgainstItself(
+    engineId,
+    conditions,
+    baselineEngineId,
+    baselineConditions,
+    engine?.conditions ?? [],
+    baselineEngine?.conditions ?? [],
+  );
+
   const working = train.isPending || Boolean(runId);
-  const canSubmit = Boolean(name.trim() && datasetId && engineId && baselineEngineId) && !working;
+  // Blocked when the run would silently compare an engine against itself --
+  // one fit runs and its metrics get reported as both sides of a comparison
+  // that never happened. Exempt only the registry's own flagged baseline
+  // engine, for which there truly is nothing else to compare against.
+  const canSubmit =
+    Boolean(name.trim() && datasetId && engineId && baselineEngineId) &&
+    (!selfCompare || Boolean(engine?.is_baseline)) &&
+    !working;
 
   if (working) {
     return (
@@ -247,7 +265,17 @@ export function TrainProtocolForm() {
 
           <div className="space-y-1.5">
             <Label>Engine</Label>
-            <Select value={engineId} onValueChange={setEngineId} disabled={!dataset}>
+            <Select
+              value={engineId}
+              onValueChange={(value) => {
+                setEngineId(value);
+                // Otherwise a chemprop condition like `depth` lingers in state
+                // and, if the new engine is ECFP4, fails validation server-side
+                // as an unknown condition -- a run that never gets to fit.
+                setConditions({});
+              }}
+              disabled={!dataset}
+            >
               <SelectTrigger>
                 <SelectValue placeholder={dataset ? "Choose an engine" : "Pick a dataset first"} />
               </SelectTrigger>
@@ -266,7 +294,13 @@ export function TrainProtocolForm() {
             <Label>Compare against</Label>
             <Select
               value={baselineEngineId}
-              onValueChange={setBaselineEngineId}
+              onValueChange={(value) => {
+                setBaselineEngineId(value);
+                // Same reason as the chosen-engine selector above: stale
+                // conditions from the previous baseline engine otherwise
+                // survive the switch and fail validation on submit.
+                setBaselineConditions({});
+              }}
               disabled={!dataset}
             >
               <SelectTrigger>
@@ -281,18 +315,11 @@ export function TrainProtocolForm() {
                 ))}
               </SelectContent>
             </Select>
-            {comparesAgainstItself(
-              engineId,
-              conditions,
-              baselineEngineId,
-              baselineConditions,
-              engine?.conditions ?? [],
-              baselineEngine?.conditions ?? [],
-            ) && (
+            {selfCompare && (
               <p className="text-xs text-muted-foreground">
                 This is the same engine with the same settings on both sides, so there is nothing to
-                compare. Its scorecard will say so rather than showing a comparison that never
-                happened — change a setting, or pick a different engine to measure against.
+                compare. Change a setting on one side, or pick a different engine to measure
+                against.
               </p>
             )}
           </div>
