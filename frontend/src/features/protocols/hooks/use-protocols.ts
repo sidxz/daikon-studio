@@ -6,6 +6,7 @@ import type {
   ProtocolResponse,
   RunResponse,
   ScorecardResponse,
+  TrainProtocolBody,
 } from "@/shared/lib/api/model";
 import { RUN_POLL_MS, STALE_TIME } from "@/shared/lib/query-defaults";
 import { showSuccess } from "@/shared/lib/toast";
@@ -58,12 +59,8 @@ export function useScorecard(id: string | undefined) {
 export function useTrainProtocol() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: {
-      name: string;
-      dataset_id: string;
-      engine_id: string;
-      conditions: Record<string, unknown>;
-    }) => customInstance<RunResponse>({ url: `${API_V1}/protocols`, method: "POST", data }),
+    mutationFn: (data: TrainProtocolBody) =>
+      customInstance<RunResponse>({ url: `${API_V1}/protocols`, method: "POST", data }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: PROTOCOLS_KEY });
     },

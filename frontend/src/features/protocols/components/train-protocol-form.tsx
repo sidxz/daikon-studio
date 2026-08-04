@@ -1,9 +1,15 @@
 "use client";
 
 import { useDataset, useDatasets } from "@/features/datasets";
+import type { Condition } from "@/features/engines";
 import { enginesForTargetKind, useEngines } from "@/features/engines";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/shared/components/ui/collapsible";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import {
@@ -15,10 +21,46 @@ import {
 } from "@/shared/components/ui/select";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { showError } from "@/shared/lib/toast";
+import { ChevronDownIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isTerminal, useRunPoll, useTrainProtocol } from "../hooks/use-protocols";
 import { ConditionFields } from "./condition-fields";
+
+/**
+ * The two fields `resolveConditions` needs, projected from the generated
+ * `Condition` manifest type rather than redeclared -- a real engine's full
+ * `Condition[]` satisfies this, and so does a test's minimal fixture.
+ */
+type ConditionDefault = Pick<Condition, "key" | "default">;
+
+/**
+ * Conditions as the server will see them: form state over manifest defaults.
+ * Comparing raw form state instead would call `{n_estimators: 500}` different
+ * from `{}` even though `validate_conditions` resolves both to the same dict.
+ */
+export function resolveConditions(
+  specs: ConditionDefault[],
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  return Object.fromEntries(specs.map((spec) => [spec.key, values[spec.key] ?? spec.default]));
+}
+
+/** The client-side mirror of the server's `baseline_is_self`. */
+export function comparesAgainstItself(
+  engineId: string,
+  conditions: Record<string, unknown>,
+  baselineEngineId: string,
+  baselineConditions: Record<string, unknown>,
+  specs: ConditionDefault[],
+  baselineSpecs: ConditionDefault[],
+): boolean {
+  if (!engineId || engineId !== baselineEngineId) return false;
+  return (
+    JSON.stringify(resolveConditions(specs, conditions)) ===
+    JSON.stringify(resolveConditions(baselineSpecs, baselineConditions))
+  );
+}
 
 export function TrainProtocolForm() {
   const router = useRouter();
@@ -28,6 +70,8 @@ export function TrainProtocolForm() {
   const [engineId, setEngineId] = useState("");
   const [name, setName] = useState("");
   const [conditions, setConditions] = useState<Record<string, unknown>>({});
+  const [baselineEngineId, setBaselineEngineId] = useState("");
+  const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
   const [runId, setRunId] = useState<string | undefined>();
 
   const datasets = useDatasets();
@@ -41,16 +85,37 @@ export function TrainProtocolForm() {
   const eligible =
     engines.data && dataset ? enginesForTargetKind(engines.data, dataset.target.kind) : [];
 
-  // Reset the engine when the dataset changes to one it cannot handle,
-  // rather than silently submitting an impossible pair.
+  // Reset the engine -- and the baseline alongside it -- when the dataset
+  // changes to one either cannot handle, rather than silently submitting an
+  // impossible pair or a stale baseline left over from the last dataset.
   useEffect(() => {
     if (engineId && eligible.length > 0 && !eligible.some((e) => e.id === engineId)) {
       setEngineId("");
       setConditions({});
     }
-  }, [engineId, eligible]);
+    if (
+      baselineEngineId &&
+      eligible.length > 0 &&
+      !eligible.some((e) => e.id === baselineEngineId)
+    ) {
+      setBaselineEngineId("");
+      setBaselineConditions({});
+    }
+  }, [engineId, baselineEngineId, eligible]);
 
   const engine = eligible.find((candidate) => candidate.id === engineId);
+
+  // A baseline comparison is mandatory, so the form defaults to the manifest's
+  // flagged engine the moment there is something to default to -- the user
+  // chooses which baseline, never whether to have one.
+  useEffect(() => {
+    if (!baselineEngineId && eligible.length > 0) {
+      const flagged = eligible.find((candidate) => candidate.is_baseline);
+      if (flagged) setBaselineEngineId(flagged.id);
+    }
+  }, [baselineEngineId, eligible]);
+
+  const baselineEngine = eligible.find((candidate) => candidate.id === baselineEngineId);
 
   // The Protocol does not exist until training finishes, so the run carries the
   // id back. Before Run gained that column this transition was a dead end.
@@ -71,6 +136,8 @@ export function TrainProtocolForm() {
         dataset_id: datasetId,
         engine_id: engineId,
         conditions,
+        baseline_engine_id: baselineEngineId,
+        baseline_conditions: baselineConditions,
       });
       // A cache hit returns 202 with an already-ready Run, so branch on
       // status rather than assuming 202 means work started.
@@ -117,8 +184,8 @@ export function TrainProtocolForm() {
       <div>
         <h1 className="text-lg font-semibold">Train a protocol</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          A protocol is a trained model someone else can run. It is scored against a fingerprint
-          baseline automatically — you do not get to skip that comparison.
+          A protocol is a trained model someone else can run. It is scored against a baseline you
+          choose automatically — you do not get to skip that comparison.
         </p>
       </div>
 
@@ -171,10 +238,39 @@ export function TrainProtocolForm() {
                 ))}
               </SelectContent>
             </Select>
-            {engine?.is_baseline && (
+          </div>
+
+          <div className="space-y-1.5">
+            <Label>Compare against</Label>
+            <Select
+              value={baselineEngineId}
+              onValueChange={setBaselineEngineId}
+              disabled={!dataset}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder={dataset ? "Choose a baseline" : "Pick a dataset first"} />
+              </SelectTrigger>
+              <SelectContent>
+                {eligible.map((candidate) => (
+                  <SelectItem key={candidate.id} value={candidate.id}>
+                    {candidate.name}
+                    {candidate.is_baseline ? " · the baseline" : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {comparesAgainstItself(
+              engineId,
+              conditions,
+              baselineEngineId,
+              baselineConditions,
+              engine?.conditions ?? [],
+              baselineEngine?.conditions ?? [],
+            ) && (
               <p className="text-xs text-muted-foreground">
-                This engine is the baseline, so there is nothing to compare it against. Its
-                scorecard will say so rather than showing a comparison that never happened.
+                This is the same engine with the same settings on both sides, so there is nothing to
+                compare. Its scorecard will say so rather than showing a comparison that never
+                happened — change a setting, or pick a different engine to measure against.
               </p>
             )}
           </div>
@@ -200,6 +296,26 @@ export function TrainProtocolForm() {
                 onChange={(key, value) => setConditions((prev) => ({ ...prev, [key]: value }))}
               />
             </div>
+          )}
+
+          {baselineEngine && (
+            <Collapsible className="border-t pt-4">
+              <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
+                <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                  {baselineEngine.name} baseline settings
+                </p>
+                <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
+              </CollapsibleTrigger>
+              <CollapsibleContent className="mt-3">
+                <ConditionFields
+                  conditions={baselineEngine.conditions}
+                  values={baselineConditions}
+                  onChange={(key, value) =>
+                    setBaselineConditions((prev) => ({ ...prev, [key]: value }))
+                  }
+                />
+              </CollapsibleContent>
+            </Collapsible>
           )}
         </CardContent>
       </Card>
