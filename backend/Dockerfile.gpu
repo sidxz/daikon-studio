@@ -45,6 +45,14 @@ WORKDIR /app
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --extra gpu --extra s3 --no-install-project
 
+# Bake CheMeleon in so a production worker never reaches Zenodo, and an
+# air-gapped deployment works. 34,859,448 bytes, MIT licensed.
+ENV STUDIO_PRETRAINED_WEIGHTS_DIR=/opt/weights
+RUN mkdir -p /opt/weights \
+    && curl -fsSL -o /opt/weights/chemeleon_mp.pt \
+       https://zenodo.org/records/15460715/files/chemeleon_mp.pt \
+    && echo "6a80b54fdb7de37ef0374d302f01e8ce  /opt/weights/chemeleon_mp.pt" | md5sum -c -
+
 COPY src ./src
 RUN uv sync --frozen --no-dev --extra gpu --extra s3
 

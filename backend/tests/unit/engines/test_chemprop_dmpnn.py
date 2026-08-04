@@ -9,13 +9,16 @@ line up with every other engine's.
 
 from __future__ import annotations
 
+import os
+from pathlib import Path
+
 import polars as pl
 import pytest
 
 pytest.importorskip("chemprop")
 
 from daikonstudio.application.engines.context import PredictContext, TrainContext
-from daikonstudio.application.engines.manifest import TaskType
+from daikonstudio.application.engines.manifest import ConditionType, TaskType
 from daikonstudio.infrastructure.engines.chemprop_dmpnn import ChempropDMPNN
 
 _SMILES = [
@@ -142,3 +145,38 @@ def test_report_is_called_once_per_epoch() -> None:
     assert len(calls) == 2
     assert calls[-1][0] == pytest.approx(1.0)
     assert calls[-1][1] == "training chemprop-dmpnn"
+
+
+def test_the_manifest_offers_pretrained_weights():
+    spec = next(c for c in ChempropDMPNN.manifest().conditions if c.key == "pretrained")
+    assert spec.type is ConditionType.ENUM
+    assert spec.default == "none"
+    assert spec.options == ("none", "CheMeleon")
+
+
+@pytest.mark.skipif(
+    not (
+        Path(
+            os.environ.get("STUDIO_PRETRAINED_WEIGHTS_DIR", "~/.cache/daikon-studio/weights")
+        ).expanduser()
+        / "chemeleon_mp.pt"
+    ).exists(),
+    reason="CheMeleon weights not cached; CI does not download 35 MB",
+)
+def test_chemeleon_builds_a_network_sized_by_the_checkpoint_not_the_conditions():
+    """CheMeleon pins d_h=2048. The FFN's input_dim must follow the checkpoint,
+    not the message_hidden_dim condition, or the first layer is built for the
+    wrong width and the fit dies on a shape mismatch."""
+    from daikonstudio.infrastructure.engines.chemprop_dmpnn import _build_model
+
+    model = _build_model(
+        pretrained="CheMeleon",
+        weights_dir=os.environ.get(
+            "STUDIO_PRETRAINED_WEIGHTS_DIR", "~/.cache/daikon-studio/weights"
+        ),
+        hidden=300,
+        depth=3,
+        is_classification=False,
+        output_transform=None,
+    )
+    assert model.message_passing.output_dim == 2048

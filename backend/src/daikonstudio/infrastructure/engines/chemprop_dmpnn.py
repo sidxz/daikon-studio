@@ -90,6 +90,17 @@ _MANIFEST = EngineManifest(
             help="How many molecules are scored before the weights update. Lower it "
             "if training runs out of GPU memory.",
         ),
+        ConditionSpec(
+            key="pretrained",
+            label="Pretrained weights",
+            type=ConditionType.ENUM,
+            default="none",
+            options=("none", "CheMeleon"),
+            help="Start from a foundation model's learned representation instead of "
+            "random weights. CheMeleon was pretrained on ~1M PubChem molecules against "
+            "classical descriptors; it fixes the hidden size at 2048 and the message "
+            "passing steps at 6, so those two settings are ignored when it is selected.",
+        ),
     ),
     lane="gpu",
 )
@@ -155,6 +166,67 @@ def _forward(trainer: Any, model: Any, dataset: Any) -> Any:
     return torch.cat(batches).cpu().numpy().reshape(-1)
 
 
+def _build_model(
+    *,
+    pretrained: str,
+    weights_dir: str,
+    hidden: int,
+    depth: int,
+    is_classification: bool,
+    output_transform: Any,
+) -> Any:
+    """The network, before any data touches it.
+
+    Under `pretrained`, the architecture comes from the checkpoint's own saved
+    hyperparameters rather than from the conditions -- a request that bypassed
+    the form must not be able to build a network the weights do not fit. The
+    form pins and disables the two inert conditions so the stored record still
+    matches what ran; this function is what makes that safe rather than trusted.
+    """
+    import torch
+    from chemprop.models import MPNN
+    from chemprop.nn import (
+        BinaryClassificationFFN,
+        BondMessagePassing,
+        MeanAggregation,
+        RegressionFFN,
+    )
+
+    from daikonstudio.infrastructure.engines._pretrained import weights_path
+
+    if pretrained == "none":
+        message_passing = BondMessagePassing(d_h=hidden, depth=depth)
+        # An untrained encoder benefits from batch norm on the graph embedding.
+        batch_norm = True
+    else:
+        # NOT MPNN.load_from_checkpoint: this file is not a Lightning checkpoint.
+        # It holds exactly two keys -- `hyper_parameters` and `state_dict` -- for
+        # the message-passing block alone, with no predictor head, and
+        # load_from_checkpoint raises KeyError('metrics') on it.
+        checkpoint = torch.load(weights_path(pretrained, weights_dir), weights_only=True)
+        message_passing = BondMessagePassing(**checkpoint["hyper_parameters"])
+        message_passing.load_state_dict(checkpoint["state_dict"])
+        # False to match chemprop's own chemeleon_foundation_finetuning notebook.
+        batch_norm = False
+
+    # Must equal the message passing's output width, which under a pretrained
+    # encoder is the checkpoint's d_h (2048 for CheMeleon), not `hidden`.
+    input_dim = message_passing.output_dim
+    predictor = (
+        BinaryClassificationFFN(input_dim=input_dim)
+        if is_classification
+        else RegressionFFN(input_dim=input_dim, output_transform=output_transform)
+    )
+    return MPNN(
+        message_passing=message_passing,
+        # CheMeleon requires mean aggregation, which is also what this engine
+        # has always used -- so there is nothing to branch on.
+        agg=MeanAggregation(),
+        predictor=predictor,
+        batch_norm=batch_norm,
+    )
+
+
 class ChempropDMPNN:
     @staticmethod
     def manifest() -> EngineManifest:
@@ -164,16 +236,11 @@ class ChempropDMPNN:
         _require_chemprop()
 
         from chemprop.data import MoleculeDataset, build_dataloader
-        from chemprop.models import MPNN
-        from chemprop.nn import (
-            BinaryClassificationFFN,
-            BondMessagePassing,
-            MeanAggregation,
-            RegressionFFN,
-        )
         from chemprop.nn.transforms import UnscaleTransform
         from lightning import pytorch as lightning
         from lightning.pytorch.callbacks import LambdaCallback
+
+        from daikonstudio.settings import Settings
 
         # Annotated `Any` rather than the declared `dict[str, object]`: every value here
         # has already been coerced to the type its ConditionSpec declares, so the `int()`
@@ -183,6 +250,7 @@ class ChempropDMPNN:
         hidden = int(conditions["message_hidden_dim"])
         depth = int(conditions["depth"])
         batch_size = int(conditions["batch_size"])
+        pretrained = str(conditions["pretrained"])
         is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
 
         lightning.seed_everything(ctx.seed, workers=True)
@@ -220,18 +288,13 @@ class ChempropDMPNN:
         # puts predictions back into real units, and scaling the truth as well would
         # cancel out silently.
 
-        predictor = (
-            BinaryClassificationFFN(input_dim=hidden)
-            if is_classification
-            # input_dim must equal the message-passing d_h, or the FFN's first layer
-            # is built for the wrong width.
-            else RegressionFFN(input_dim=hidden, output_transform=output_transform)
-        )
-        model = MPNN(
-            message_passing=BondMessagePassing(d_h=hidden, depth=depth),
-            agg=MeanAggregation(),
-            predictor=predictor,
-            batch_norm=True,
+        model = _build_model(
+            pretrained=pretrained,
+            weights_dir=Settings().pretrained_weights_dir,
+            hidden=hidden,
+            depth=depth,
+            is_classification=is_classification,
+            output_transform=output_transform,
         )
 
         def _report_epoch(trainer: Any, _module: Any) -> None:
