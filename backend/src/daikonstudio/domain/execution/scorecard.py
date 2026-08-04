@@ -15,6 +15,7 @@ contract a consumer reads, so nothing is lost by not carrying the enum.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -101,6 +102,7 @@ class Scorecard:
     metrics: dict[str, float | None]
     metrics_undefined: dict[str, str] | None
     baseline_engine_id: str
+    baseline_conditions: dict[str, Any]
     baseline_metrics: dict[str, float | None]
     baseline_is_self: bool
     random_split_metrics: dict[str, float | None] | None

@@ -84,6 +84,7 @@ async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
             metrics={},
             metrics_undefined=None,
             baseline_engine_id="x",
+            baseline_conditions={},
             baseline_metrics={},
             baseline_is_self=True,
             random_split_metrics=None,

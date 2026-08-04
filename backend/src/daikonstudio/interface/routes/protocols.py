@@ -199,6 +199,7 @@ class ScorecardResponse(BaseModel):
     metrics: dict[str, float | None]
     metrics_undefined: dict[str, str] | None
     baseline_engine_id: str
+    baseline_conditions: dict[str, Any]
     baseline_metrics: dict[str, float | None]
     baseline_is_self: bool
     random_split_metrics: dict[str, float | None] | None
@@ -219,6 +220,7 @@ class ScorecardResponse(BaseModel):
             metrics=card.metrics,
             metrics_undefined=card.metrics_undefined,
             baseline_engine_id=card.baseline_engine_id,
+            baseline_conditions=card.baseline_conditions,
             baseline_metrics=card.baseline_metrics,
             baseline_is_self=card.baseline_is_self,
             random_split_metrics=card.random_split_metrics,

@@ -18,6 +18,8 @@ port for one more RDKit function would be a needless abstraction split.
 
 from __future__ import annotations
 
+from typing import Any
+
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.execution.scorecard import Scorecard, WorstRow
@@ -46,6 +48,7 @@ def build_scorecard(
     random_split_metrics_undefined: dict[str, str] | None = None,
     metrics_undefined: dict[str, str] | None = None,
     duplicate_spread: float | None = None,
+    baseline_conditions: dict[str, Any] | None = None,
 ) -> Scorecard:
     is_classification = task is TaskType.BINARY_CLASSIFICATION
 
@@ -85,6 +88,7 @@ def build_scorecard(
         metrics=metrics,
         metrics_undefined=metrics_undefined,
         baseline_engine_id=baseline_engine_id,
+        baseline_conditions=baseline_conditions or {},
         baseline_metrics=baseline_metrics,
         baseline_is_self=baseline_is_self,
         random_split_metrics=random_split_metrics,

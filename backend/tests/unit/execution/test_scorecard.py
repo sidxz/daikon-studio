@@ -243,3 +243,19 @@ def test_no_test_rows_yields_no_coverage_and_no_worst_rows():
     card = regression_card(actual=[], predicted=[], structures=[])
     assert card.applicability_coverage is None
     assert card.worst_rows == []
+
+
+def test_the_baseline_conditions_reach_the_rendered_scorecard():
+    """Without this the page cannot tell a pretrained model from an untrained one:
+    both sides carry the same engine id, and only the conditions differ."""
+    card = regression_card(
+        baseline_engine_id="chemprop-dmpnn",
+        baseline_conditions={"pretrained": "none"},
+    )
+    assert card.baseline_conditions == {"pretrained": "none"}
+
+
+def test_baseline_conditions_default_to_empty_for_a_scorecard_written_earlier():
+    """Every existing call site omits them, including scorecards read back off
+    blobs that predate the field."""
+    assert regression_card().baseline_conditions == {}
