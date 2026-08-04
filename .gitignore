@@ -4,6 +4,11 @@ __pycache__/
 .venv/
 .env
 .logs/
+# Local blob store (dataset snapshots, model artifacts, scorecards). Deliberately
+# inside the repo rather than /tmp: macOS periodically sweeps aged files out of
+# /tmp while leaving the directories behind, which silently strands every blob the
+# database still points at.
+.blobs/
 
 # Playwright
 frontend/test-results/

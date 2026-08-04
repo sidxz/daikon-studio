@@ -156,5 +156,9 @@ lint: ## Backend lint (ruff + mypy)
 lint-fe: ## Frontend lint (biome)
 	$(FRONTEND) && pnpm lint
 
-nuke: ## Stop containers and DELETE all data volumes
+nuke: ## Stop containers and DELETE all data volumes + local blobs
 	$(COMPOSE) down -v
+	# Blobs go too, deliberately. A dropped database with the blob store left
+	# behind is the worse of the two inconsistent states: orphaned snapshots and
+	# artifacts nothing references, under ids the fresh database will never mint.
+	rm -rf .blobs
