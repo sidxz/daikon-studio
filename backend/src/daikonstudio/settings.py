@@ -15,6 +15,10 @@ class Settings(BaseSettings):
     # as JSON in the environment, e.g.
     #   STUDIO_BLOB_STORAGE_OPTIONS='{"endpoint_url": "https://minio-api.example.edu"}'
     blob_storage_options: dict[str, Any] = {}
+    # Where pretrained foundation-model weights are cached. Downloaded once on
+    # first use; Dockerfile.gpu bakes them in so a production worker never
+    # reaches the network, and an air-gapped deployment works.
+    pretrained_weights_dir: str = "~/.cache/daikon-studio/weights"
     cors_origins: list[str] = ["http://localhost:3002"]
     service_name: str = "daikon-studio"
 
