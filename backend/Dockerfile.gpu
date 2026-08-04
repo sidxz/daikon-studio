@@ -47,11 +47,16 @@ RUN uv sync --frozen --no-dev --extra gpu --extra s3 --no-install-project
 
 # Bake CheMeleon in so a production worker never reaches Zenodo, and an
 # air-gapped deployment works. 34,859,448 bytes, MIT licensed.
+#
+# ADD's remote-URL form, not curl: this base image's curl exists only long enough to
+# fetch the cuda-keyring deb, then the base layer runs `apt-get purge --autoremove -y
+# curl` -- confirmed against nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04 directly,
+# which has neither curl nor wget. BuildKit fetches an `ADD <url>` from the builder
+# itself, so it needs no client binary in the image at all. Do not "clean this up" back
+# to curl; it will not build.
 ENV STUDIO_PRETRAINED_WEIGHTS_DIR=/opt/weights
-RUN mkdir -p /opt/weights \
-    && curl -fsSL -o /opt/weights/chemeleon_mp.pt \
-       https://zenodo.org/records/15460715/files/chemeleon_mp.pt \
-    && echo "6a80b54fdb7de37ef0374d302f01e8ce  /opt/weights/chemeleon_mp.pt" | md5sum -c -
+ADD https://zenodo.org/records/15460715/files/chemeleon_mp.pt /opt/weights/chemeleon_mp.pt
+RUN echo "6a80b54fdb7de37ef0374d302f01e8ce  /opt/weights/chemeleon_mp.pt" | md5sum -c -
 
 COPY src ./src
 RUN uv sync --frozen --no-dev --extra gpu --extra s3
@@ -67,7 +72,7 @@ ENV PATH="/app/.venv/bin:$PATH" \
 
 RUN mkdir -p /scratch \
  && useradd --create-home --uid 10001 studio \
- && chown -R studio /app /scratch
+ && chown -R studio /app /scratch /opt/weights
 # OMP_NUM_THREADS=1 is load-bearing, not tuning. torch and scikit-learn each ship
 # their own OpenMP runtime, and a training job loads BOTH -- RunTraining fits the
 # chosen engine and the mandatory ECFP4 baseline in one process, by design. Multiple
