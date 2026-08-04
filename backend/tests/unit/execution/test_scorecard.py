@@ -19,6 +19,8 @@ def regression_card(**overrides):
     kwargs = {
         "task": TaskType.REGRESSION,
         "metrics": {"rmse": 0.5, "mae": 0.4, "r2": 0.8},
+        "engine_id": "ecfp4-randomforest",
+        "conditions": {},
         "baseline_engine_id": "ecfp4-randomforest",
         "baseline_metrics": {"rmse": 0.9, "mae": 0.7, "r2": 0.3},
         "baseline_is_self": False,
@@ -57,6 +59,8 @@ def test_classification_leads_with_mcc_never_accuracy():
     card = build_scorecard(
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": 0.0, "balanced_accuracy": 0.5, "auroc": 0.5, "auprc": 0.5},
+        engine_id="ecfp4-randomforest",
+        conditions={},
         baseline_engine_id="ecfp4-randomforest",
         baseline_metrics={"mcc": 0.0, "balanced_accuracy": 0.5, "auroc": 0.5, "auprc": 0.5},
         baseline_is_self=False,
@@ -121,6 +125,8 @@ def test_noise_floor_is_forced_none_for_classification_regardless_of_input():
     card = build_scorecard(
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": 0.5, "balanced_accuracy": 0.7, "auroc": 0.8, "auprc": 0.6},
+        engine_id="ecfp4-randomforest",
+        conditions={},
         baseline_engine_id="ecfp4-randomforest",
         baseline_metrics={"mcc": 0.1, "balanced_accuracy": 0.5, "auroc": 0.5, "auprc": 0.5},
         baseline_is_self=False,
@@ -153,6 +159,8 @@ def test_classification_worst_rows_are_probability_residuals_and_say_so():
     card = build_scorecard(
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": 0.0, "balanced_accuracy": 0.5, "auroc": 0.5, "auprc": 0.5},
+        engine_id="ecfp4-randomforest",
+        conditions={},
         baseline_engine_id="ecfp4-randomforest",
         baseline_metrics={"mcc": 0.0, "balanced_accuracy": 0.5, "auroc": 0.5, "auprc": 0.5},
         baseline_is_self=False,
@@ -181,6 +189,8 @@ def test_undefined_metrics_carry_their_reason_onto_the_scorecard():
     card = build_scorecard(
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": None, "balanced_accuracy": None, "auroc": None, "auprc": None},
+        engine_id="ecfp4-randomforest",
+        conditions={},
         baseline_engine_id="ecfp4-randomforest",
         baseline_metrics={"mcc": None, "balanced_accuracy": None, "auroc": None, "auprc": None},
         baseline_is_self=False,

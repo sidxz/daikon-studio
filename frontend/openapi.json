@@ -2155,6 +2155,15 @@
             ],
             "title": "Metrics Undefined"
           },
+          "engine_id": {
+            "type": "string",
+            "title": "Engine Id"
+          },
+          "conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Conditions"
+          },
           "baseline_engine_id": {
             "type": "string",
             "title": "Baseline Engine Id"
@@ -2290,6 +2299,8 @@
           "prediction_kind",
           "metrics",
           "metrics_undefined",
+          "engine_id",
+          "conditions",
           "baseline_engine_id",
           "baseline_conditions",
           "baseline_metrics",

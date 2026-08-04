@@ -59,6 +59,11 @@ class Scorecard:
     identical fit (same engine, same conditions) -- a consumer must render "this
     model is the baseline" rather than a head-to-head that never happened.
 
+    `engine_id`/`conditions` are this model's own -- the baseline is choosable
+    now, so `baseline_engine_id` no longer implies what actually trained the
+    model under test. A renderer that names the baseline without naming this
+    would tell the truth about only one side of the comparison.
+
     `noise_floor` is the Dataset's own duplicate-spread: the honest floor for
     model error, since a model cannot be more accurate than the assay it was
     trained on. `None` for classification, which has no equivalent, regardless of
@@ -101,6 +106,8 @@ class Scorecard:
     prediction_kind: str
     metrics: dict[str, float | None]
     metrics_undefined: dict[str, str] | None
+    engine_id: str
+    conditions: dict[str, Any]
     baseline_engine_id: str
     baseline_conditions: dict[str, Any]
     baseline_metrics: dict[str, float | None]

@@ -6,6 +6,7 @@
  */
 import type { ScorecardResponseMetrics } from './scorecardResponseMetrics';
 import type { ScorecardResponseMetricsUndefined } from './scorecardResponseMetricsUndefined';
+import type { ScorecardResponseConditions } from './scorecardResponseConditions';
 import type { ScorecardResponseBaselineConditions } from './scorecardResponseBaselineConditions';
 import type { ScorecardResponseBaselineMetrics } from './scorecardResponseBaselineMetrics';
 import type { ScorecardResponseRandomSplitMetrics } from './scorecardResponseRandomSplitMetrics';
@@ -44,6 +45,8 @@ export interface ScorecardResponse {
   prediction_kind: string;
   metrics: ScorecardResponseMetrics;
   metrics_undefined: ScorecardResponseMetricsUndefined;
+  engine_id: string;
+  conditions: ScorecardResponseConditions;
   baseline_engine_id: string;
   baseline_conditions: ScorecardResponseBaselineConditions;
   baseline_metrics: ScorecardResponseBaselineMetrics;

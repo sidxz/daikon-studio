@@ -198,6 +198,8 @@ class ScorecardResponse(BaseModel):
     prediction_kind: str
     metrics: dict[str, float | None]
     metrics_undefined: dict[str, str] | None
+    engine_id: str
+    conditions: dict[str, Any]
     baseline_engine_id: str
     baseline_conditions: dict[str, Any]
     baseline_metrics: dict[str, float | None]
@@ -219,6 +221,8 @@ class ScorecardResponse(BaseModel):
             prediction_kind=card.prediction_kind,
             metrics=card.metrics,
             metrics_undefined=card.metrics_undefined,
+            engine_id=card.engine_id,
+            conditions=card.conditions,
             baseline_engine_id=card.baseline_engine_id,
             baseline_conditions=card.baseline_conditions,
             baseline_metrics=card.baseline_metrics,

@@ -83,6 +83,8 @@ async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
             prediction_kind="value",
             metrics={},
             metrics_undefined=None,
+            engine_id="ecfp4-randomforest",
+            conditions={},
             baseline_engine_id="x",
             baseline_conditions={},
             baseline_metrics={},

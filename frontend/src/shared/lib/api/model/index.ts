@@ -81,6 +81,7 @@ export * from './scorecardResponse';
 export * from './scorecardResponseApplicabilityCoverage';
 export * from './scorecardResponseBaselineConditions';
 export * from './scorecardResponseBaselineMetrics';
+export * from './scorecardResponseConditions';
 export * from './scorecardResponseDirection';
 export * from './scorecardResponseMetrics';
 export * from './scorecardResponseMetricsUndefined';
