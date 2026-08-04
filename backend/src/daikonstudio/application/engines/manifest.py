@@ -121,3 +121,18 @@ def validate_conditions(
             raise ValueError(f"{key} must be one of {spec.options}")
         resolved[key] = value
     return resolved
+
+
+def lane_for(*manifests: EngineManifest) -> str:
+    """The lane a Run needs when more than one engine must fit inside it.
+
+    A training Run fits the chosen engine and the baseline in one process, so it
+    has to land on a worker that can serve both. Any non-default lane wins over
+    the default one, because the default lane is the "no special hardware"
+    lane -- a gpu-lane worker can run an ECFP4 fit, but not the reverse.
+
+    ponytail: two lanes, so "the non-default one" is unambiguous. A Run wanting
+    two *different* non-default lanes has no home; if a third lane ever exists,
+    reject that pair at enqueue rather than silently picking the first.
+    """
+    return next((m.lane for m in manifests if m.lane != DEFAULT_LANE), DEFAULT_LANE)

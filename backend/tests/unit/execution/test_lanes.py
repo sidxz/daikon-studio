@@ -14,7 +14,12 @@ import polars as pl
 import pytest
 
 from daikonstudio.application.engines.context import PredictContext, TrainContext, TrainResult
-from daikonstudio.application.engines.manifest import DEFAULT_LANE, EngineManifest, TaskType
+from daikonstudio.application.engines.manifest import (
+    DEFAULT_LANE,
+    EngineManifest,
+    TaskType,
+    lane_for,
+)
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.predict_with_protocol import (
     PredictWithProtocol,
@@ -243,3 +248,31 @@ async def test_a_protocol_whose_engine_is_gone_never_creates_a_run(
 
     assert isinstance(result.failure(), NotFoundError)
     assert use_case._runs.added == []
+
+
+def _manifest(engine_id: str, lane: str) -> EngineManifest:
+    return EngineManifest(
+        id=engine_id,
+        version="1.0.0",
+        name=engine_id,
+        description="",
+        tasks=(TaskType.REGRESSION,),
+        lane=lane,
+    )
+
+
+def test_lane_for_returns_default_when_every_engine_is_default_lane() -> None:
+    assert lane_for(_manifest("a", "default"), _manifest("b", "default")) == "default"
+
+
+def test_lane_for_returns_the_non_default_lane_whichever_side_declares_it() -> None:
+    """A run fits the chosen engine *and* the baseline in one process, so it must
+    land on a worker that can serve both. Choosing ecfp4-randomforest (default)
+    with a chemprop-dmpnn baseline (gpu) previously routed to a default-lane
+    worker, which fit the chosen engine and then died in _require_chemprop()."""
+    assert lane_for(_manifest("chosen", "default"), _manifest("base", "gpu")) == "gpu"
+    assert lane_for(_manifest("chosen", "gpu"), _manifest("base", "default")) == "gpu"
+
+
+def test_lane_for_is_stable_when_both_declare_the_same_non_default_lane() -> None:
+    assert lane_for(_manifest("a", "gpu"), _manifest("b", "gpu")) == "gpu"
