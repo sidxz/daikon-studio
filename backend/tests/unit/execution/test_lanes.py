@@ -8,6 +8,7 @@ default lane keeps arq's own queue name so adding lanes needs no drain-and-migra
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any
 
 import polars as pl
@@ -37,7 +38,7 @@ from tests.fakes.auth import FakeAuth
 
 
 class _StubEngine:
-    def __init__(self, engine_id: str, lane: str) -> None:
+    def __init__(self, engine_id: str, lane: str, *, is_baseline: bool = False) -> None:
         self._manifest = EngineManifest(
             id=engine_id,
             version="1.0.0",
@@ -45,6 +46,7 @@ class _StubEngine:
             description="",
             tasks=(TaskType.REGRESSION,),
             lane=lane,
+            is_baseline=is_baseline,
         )
 
     def manifest(self) -> EngineManifest:
@@ -169,7 +171,12 @@ def training_setup() -> Any:
             return dataset
 
     enqueuer = _RecordingEnqueuer()
-    registry = EngineRegistry({"heavy": _StubEngine("heavy", "gpu")})
+    registry = EngineRegistry(
+        {
+            "heavy": _StubEngine("heavy", "gpu"),
+            "plain": _StubEngine("plain", DEFAULT_LANE, is_baseline=True),
+        }
+    )
     use_case = TrainProtocol(_StubDatasets(), _StubRuns(), enqueuer, registry)  # type: ignore[arg-type]
     command = TrainProtocolCommand(
         name="run", dataset_id=dataset_id, engine_id="heavy", conditions={}
@@ -186,6 +193,67 @@ async def test_training_is_enqueued_to_its_engines_lane(training_setup: Any) -> 
 
     assert result.unwrap() is not None
     assert enqueuer.lanes == ["gpu"]
+
+
+async def test_an_absent_baseline_resolves_to_the_registry_default(training_setup: Any) -> None:
+    _enqueuer, command, auth, use_case = training_setup
+
+    run = (await use_case(command, auth)).unwrap()
+
+    assert run.params["baseline_engine_id"] == "plain"
+
+
+async def test_a_named_baseline_is_stored_resolved_never_as_none(training_setup: Any) -> None:
+    """The concrete id, never None: params are write-once, so a Run storing None
+    would be measured against whatever the registry flags at the moment a worker
+    dequeues it -- which may not be what the user was shown."""
+    _enqueuer, command, auth, use_case = training_setup
+
+    run = (
+        await use_case(
+            replace(command, baseline_engine_id="plain", baseline_conditions={"k": 1}), auth
+        )
+    ).unwrap()
+
+    assert run.params["baseline_engine_id"] == "plain"
+    assert run.params["baseline_conditions"] == {"k": 1}
+
+
+async def test_an_unknown_baseline_is_a_404_before_anything_is_enqueued(
+    training_setup: Any,
+) -> None:
+    enqueuer, command, auth, use_case = training_setup
+
+    result = await use_case(replace(command, baseline_engine_id="not-an-engine"), auth)
+
+    assert isinstance(result.failure(), NotFoundError)
+    assert enqueuer.lanes == []
+
+
+async def test_a_gpu_baseline_pulls_a_default_lane_run_onto_the_gpu_queue(
+    training_setup: Any,
+) -> None:
+    """The failure this prevents: a default-lane worker fits the chosen engine
+    fine and then dies in the baseline's _require_chemprop()."""
+    enqueuer, command, auth, use_case = training_setup
+
+    result = await use_case(replace(command, engine_id="plain", baseline_engine_id="heavy"), auth)
+
+    result.unwrap()
+    assert enqueuer.lanes == ["gpu"]
+
+
+async def test_the_baseline_pair_changes_the_cache_key(training_setup: Any) -> None:
+    _enqueuer, command, auth, use_case = training_setup
+
+    first = (await use_case(replace(command, baseline_engine_id="plain"), auth)).unwrap()
+    second = (
+        await use_case(
+            replace(command, baseline_engine_id="plain", baseline_conditions={"k": 1}), auth
+        )
+    ).unwrap()
+
+    assert first.cache_key != second.cache_key
 
 
 @pytest.fixture

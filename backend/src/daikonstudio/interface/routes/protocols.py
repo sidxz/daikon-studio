@@ -74,6 +74,10 @@ class TrainProtocolBody(BaseModel):
     dataset_id: uuid.UUID
     engine_id: str
     conditions: dict[str, Any]
+    # Optional: absent means the registry's flagged default baseline. A
+    # comparison always happens -- this chooses which one, it does not skip it.
+    baseline_engine_id: str | None = None
+    baseline_conditions: dict[str, Any] = Field(default_factory=dict)
 
 
 class ReadoutResponse(BaseModel):
@@ -238,6 +242,8 @@ async def train_protocol(
         dataset_id=body.dataset_id,
         engine_id=body.engine_id,
         conditions=body.conditions,
+        baseline_engine_id=body.baseline_engine_id,
+        baseline_conditions=body.baseline_conditions,
     )
     return RunResponse.from_domain(result_to_response(await service(command, auth=auth)))
 

@@ -47,7 +47,7 @@ import json
 import math
 import time
 import uuid
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from typing import Any
 
 import polars as pl
@@ -69,7 +69,7 @@ from daikonstudio.application.engines.context import (
     TrainContext,
     TrainResult,
 )
-from daikonstudio.application.engines.manifest import TaskType, validate_conditions
+from daikonstudio.application.engines.manifest import TaskType, lane_for, validate_conditions
 from daikonstudio.application.engines.protocol import Engine
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
@@ -285,6 +285,19 @@ class TrainProtocol:
         except UnknownEngineError:
             return Failure(NotFoundError("Engine", command.engine_id))
 
+        # Same argument as `engine_id` above: a registry membership check with
+        # exactly one possible answer, so an unknown baseline is a synchronous
+        # 404 rather than a 202 for a Run that cannot succeed. The *conditions*
+        # stay unvalidated here, for the reason in this class's docstring.
+        try:
+            baseline = (
+                self._engines.get(command.baseline_engine_id)
+                if command.baseline_engine_id
+                else self._engines.baseline()
+            )
+        except UnknownEngineError:
+            return Failure(NotFoundError("Engine", command.baseline_engine_id or "baseline"))
+
         dataset = await self._datasets.get(auth.workspace_id, command.dataset_id)
         if dataset is None:
             return Failure(NotFoundError("Dataset", str(command.dataset_id)))
@@ -293,27 +306,35 @@ class TrainProtocol:
         # hold if a future caller ever hands us a Dataset it fetched elsewhere.
         require_same_workspace(auth, dataset.workspace_id, entity_type="Dataset")
 
+        # Pin the resolved id into what gets persisted. `params` is write-once,
+        # so a Run storing `None` would be measured against whatever the registry
+        # flags at the moment a worker dequeues it -- which may not be what the
+        # user was shown when they submitted.
+        command = replace(command, baseline_engine_id=baseline.manifest().id)
+
         run = Run(
             kind=RunKind.TRAINING,
             workspace_id=auth.workspace_id,
             requested_by=auth.user_id,
             # The Dataset's content hash pins the data *and* the split, so this key
             # identifies "this data, split this way, through this engine, with these
-            # conditions". Nothing reuses a training Run in Phase 1 -- only
-            # predictions are cached (Task 17) -- but the column is what makes
-            # "have we already fitted exactly this?" answerable when that changes.
+            # conditions, measured against this baseline". Nothing reuses a training
+            # Run today -- only predictions are cached -- but fit-result caching is a
+            # live deferred item, and a key omitting the baseline would let it serve
+            # a run whose comparison was against a different model.
             cache_key=compute_cache_key(
                 kind="training",
                 content_hash=dataset.content_hash,
                 engine_id=command.engine_id,
                 conditions=sorted(command.conditions.items()),
+                baseline_engine_id=command.baseline_engine_id,
+                baseline_conditions=sorted(command.baseline_conditions.items()),
             ),
             params=command.to_params(),
         )
         await self._runs.add(run)
-        # Routed by the engine's own declared lane. The engine is already in hand from
-        # the membership check above, so this costs nothing.
-        await self._enqueuer.enqueue(run.id, lane=engine.manifest().lane)
+        # Both engines fit inside this one Run, so the queue has to serve both.
+        await self._enqueuer.enqueue(run.id, lane=lane_for(engine.manifest(), baseline.manifest()))
         return Success(run)
 
 
