@@ -2,7 +2,7 @@
 
 import { useDataset, useDatasets } from "@/features/datasets";
 import type { Condition } from "@/features/engines";
-import { enginesForTargetKind, useEngines } from "@/features/engines";
+import { PINNED_BY_PRETRAINED, enginesForTargetKind, useEngines } from "@/features/engines";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import {
@@ -116,6 +116,28 @@ export function TrainProtocolForm() {
   }, [baselineEngineId, eligible]);
 
   const baselineEngine = eligible.find((candidate) => candidate.id === baselineEngineId);
+
+  // What CheMeleon's checkpoint fixes for each side, so the settings block can
+  // render them disabled with their true value instead of the stale default.
+  const pinned = PINNED_BY_PRETRAINED[String(conditions.pretrained ?? "none")] ?? {};
+  const baselinePinned =
+    PINNED_BY_PRETRAINED[String(baselineConditions.pretrained ?? "none")] ?? {};
+
+  // Keep the submitted record honest with what's displayed: the moment
+  // `pretrained` picks a weight set that fixes settings, merge them into form
+  // state so Train posts the value that actually ran, not whatever the input
+  // was left showing.
+  useEffect(() => {
+    const toPin = PINNED_BY_PRETRAINED[String(conditions.pretrained ?? "none")] ?? {};
+    if (Object.keys(toPin).length === 0) return;
+    setConditions((prev) => ({ ...prev, ...toPin }));
+  }, [conditions.pretrained]);
+
+  useEffect(() => {
+    const toPin = PINNED_BY_PRETRAINED[String(baselineConditions.pretrained ?? "none")] ?? {};
+    if (Object.keys(toPin).length === 0) return;
+    setBaselineConditions((prev) => ({ ...prev, ...toPin }));
+  }, [baselineConditions.pretrained]);
 
   // The Protocol does not exist until training finishes, so the run carries the
   // id back. Before Run gained that column this transition was a dead end.
@@ -294,6 +316,7 @@ export function TrainProtocolForm() {
                 conditions={engine.conditions}
                 values={conditions}
                 onChange={(key, value) => setConditions((prev) => ({ ...prev, [key]: value }))}
+                pinned={pinned}
               />
             </div>
           )}
@@ -313,6 +336,7 @@ export function TrainProtocolForm() {
                   onChange={(key, value) =>
                     setBaselineConditions((prev) => ({ ...prev, [key]: value }))
                   }
+                  pinned={baselinePinned}
                 />
               </CollapsibleContent>
             </Collapsible>

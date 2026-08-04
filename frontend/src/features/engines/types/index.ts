@@ -28,6 +28,25 @@ export const TASK_LABELS: Record<string, string> = {
   binary_classification: "Binary classification",
 };
 
+/**
+ * What each pretrained weight set fixes, mirroring its checkpoint's own saved
+ * `hyper_parameters`.
+ *
+ * The second piece of hardcoded engine knowledge in this app, and it is here
+ * for the same reason as TASK_FOR_TARGET_KIND: the manifest has no way to say
+ * "this condition makes those two inert". Without it the form would accept a
+ * `depth` the fit silently ignores, and the Scorecard would then report a
+ * setting the model never used — the exact dishonesty the Scorecard exists to
+ * prevent. The form submits these values, so the record stays true.
+ *
+ * ponytail: two constants for one weight set. If a second one lands, move this
+ * onto ConditionSpec as a `pinned_by` field so the catalogue stays
+ * self-describing.
+ */
+export const PINNED_BY_PRETRAINED: Record<string, Record<string, number>> = {
+  CheMeleon: { message_hidden_dim: 2048, depth: 6 },
+};
+
 /** Engines that can be trained on a dataset with this target kind. */
 export function enginesForTargetKind(
   engines: Engine[],

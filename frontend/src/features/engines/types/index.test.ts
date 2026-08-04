@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type Engine, TASK_FOR_TARGET_KIND, enginesForTargetKind } from "./index";
+import {
+  type Engine,
+  PINNED_BY_PRETRAINED,
+  TASK_FOR_TARGET_KIND,
+  enginesForTargetKind,
+} from "./index";
 
 function engine(id: string, tasks: string[]): Engine {
   return {
@@ -38,5 +43,21 @@ describe("engine/target-kind translation", () => {
       "classifier",
       "both",
     ]);
+  });
+});
+
+describe("PINNED_BY_PRETRAINED", () => {
+  it("pins the two settings CheMeleon's checkpoint fixes", () => {
+    expect(PINNED_BY_PRETRAINED.CheMeleon).toEqual({
+      message_hidden_dim: 2048,
+      depth: 6,
+    });
+  });
+
+  it("pins values that sit inside the manifest's declared bounds", () => {
+    // Why this matters: the form submits these, so an out-of-bounds pin would
+    // be rejected by validate_conditions on the server.
+    expect(PINNED_BY_PRETRAINED.CheMeleon.depth).toBeLessThanOrEqual(6);
+    expect(PINNED_BY_PRETRAINED.CheMeleon.message_hidden_dim).toBeLessThanOrEqual(2400);
   });
 });

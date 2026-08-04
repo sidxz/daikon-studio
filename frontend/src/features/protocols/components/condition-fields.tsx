@@ -30,10 +30,17 @@ export function ConditionFields({
   conditions,
   values,
   onChange,
+  pinned,
 }: {
   conditions: Condition[];
   values: Record<string, unknown>;
   onChange: (key: string, value: unknown) => void;
+  /**
+   * Settings a chosen pretrained weight set fixes, e.g. `PINNED_BY_PRETRAINED`.
+   * A key present here renders disabled and shows the pinned value instead of
+   * form state, so what the scientist sees matches what the checkpoint ran.
+   */
+  pinned?: Record<string, unknown>;
 }) {
   if (conditions.length === 0) {
     return <p className="text-sm text-muted-foreground">This engine has nothing to configure.</p>;
@@ -43,7 +50,10 @@ export function ConditionFields({
     <div className="space-y-4">
       {conditions.map((condition) => {
         const type = condition.type as ConditionType;
-        const current = values[condition.key] ?? condition.default ?? "";
+        const isPinned = pinned != null && condition.key in pinned;
+        const current = isPinned
+          ? pinned[condition.key]
+          : (values[condition.key] ?? condition.default ?? "");
         const id = `condition-${condition.key}`;
 
         return (
@@ -57,6 +67,7 @@ export function ConditionFields({
               <Select
                 value={String(current)}
                 onValueChange={(value) => onChange(condition.key, value)}
+                disabled={isPinned}
               >
                 <SelectTrigger id={id}>
                   <SelectValue />
@@ -75,6 +86,7 @@ export function ConditionFields({
                   id={id}
                   checked={Boolean(current)}
                   onCheckedChange={(checked) => onChange(condition.key, checked)}
+                  disabled={isPinned}
                 />
               </div>
             ) : (
@@ -85,6 +97,7 @@ export function ConditionFields({
                 min={condition.minimum ?? undefined}
                 max={condition.maximum ?? undefined}
                 step={type === "integer" ? 1 : "any"}
+                disabled={isPinned}
                 onChange={(event) => {
                   const raw = event.target.value;
                   if (type === "integer" || type === "number") {
@@ -96,7 +109,13 @@ export function ConditionFields({
               />
             )}
 
-            {condition.help && <p className="text-xs text-muted-foreground">{condition.help}</p>}
+            {isPinned ? (
+              <p className="text-xs text-muted-foreground">
+                Fixed by the pretrained weights you selected.
+              </p>
+            ) : (
+              condition.help && <p className="text-xs text-muted-foreground">{condition.help}</p>
+            )}
             {(condition.minimum != null || condition.maximum != null) && (
               <p className="font-mono text-xs text-muted-foreground">
                 {condition.minimum ?? "−∞"} to {condition.maximum ?? "∞"}
