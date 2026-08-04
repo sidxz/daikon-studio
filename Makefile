@@ -19,6 +19,12 @@ COMPOSE  := docker compose
 BACKEND  := cd backend
 FRONTEND := cd frontend
 LOGDIR   := .logs
+# Anchored to this Makefile's own directory, not the caller's CWD. `nuke` runs
+# `rm -rf $(BLOBS)`, and a relative path there would resolve against wherever make
+# was invoked from -- `make -f /path/to/daikon-studio/Makefile nuke` run from / would
+# aim it at /.blobs. An absolute path derived from the Makefile cannot drift.
+ROOT     := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
+BLOBS    := $(ROOT)/.blobs
 # Load backend/.env (DATABASE_URL, SENTINEL_*) into the recipe shell.
 BE_ENV   := set -a && . ./.env && set +a
 # arq worker entrypoint (runs the training and prediction jobs the API enqueues).
@@ -161,4 +167,5 @@ nuke: ## Stop containers and DELETE all data volumes + local blobs
 	# Blobs go too, deliberately. A dropped database with the blob store left
 	# behind is the worse of the two inconsistent states: orphaned snapshots and
 	# artifacts nothing references, under ids the fresh database will never mint.
-	rm -rf .blobs
+	rm -rf $(BLOBS)
+	@echo "Nuked: database volume and $(BLOBS). Run 'make up' to recreate."
