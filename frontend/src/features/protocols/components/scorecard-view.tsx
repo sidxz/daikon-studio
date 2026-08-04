@@ -6,7 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui
 import { Progress } from "@/shared/components/ui/progress";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
-import { computeOptimismGap, computeVerdict } from "../lib/verdict";
+import { computeOptimismGap, computeVerdict, describeBaseline } from "../lib/verdict";
 import { metricLabel } from "../types";
 
 function HonestyStat({
@@ -121,7 +121,7 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
 
       {verdict.kind === "is-baseline" ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          You trained ECFP4 + RandomForest, which is what every other model here is measured
+          You trained {scorecard.engine_id}, which is what every other model here is measured
           against. There is nothing to compare it to — a comparison against itself would be a number
           that means nothing.
         </p>
@@ -158,9 +158,17 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
             </p>
           )}
           <p className="mt-2 text-sm text-muted-foreground">
-            The baseline is {scorecard.baseline_engine_id} on the same dataset and the same split.
-            In published benchmarks a fingerprint baseline places mid-field against purpose-built
-            models — a model that cannot beat one has not earned its complexity.
+            The baseline is {describeBaseline(scorecard)} on the same dataset and the same split.
+            {/* This claim is specifically about fingerprint baselines -- it is
+                false about e.g. a chemprop baseline, and this page's whole
+                purpose is to tell a scientist the truth about their model. */}
+            {scorecard.baseline_engine_id.startsWith("ecfp4-") && (
+              <>
+                {" "}
+                In published benchmarks a fingerprint baseline places mid-field against
+                purpose-built models — a model that cannot beat one has not earned its complexity.
+              </>
+            )}
           </p>
         </>
       )}

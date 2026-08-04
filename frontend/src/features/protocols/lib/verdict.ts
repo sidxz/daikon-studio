@@ -107,6 +107,42 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
       };
 }
 
+/**
+ * What to call the baseline in prose, given that it is now choosable.
+ *
+ * When the baseline is a different engine, naming it says everything a
+ * scientist needs. When it is the *same* engine (comparing a pretrained
+ * chemprop run against an unpretrained one, say), naming the engine again
+ * would render "chemprop-dmpnn versus chemprop-dmpnn" -- true but useless.
+ * What actually distinguishes the two runs is their conditions, so this
+ * names whichever keys differ instead.
+ */
+export function describeBaseline(
+  scorecard: Pick<
+    ScorecardResponse,
+    "baseline_engine_id" | "engine_id" | "conditions" | "baseline_conditions"
+  >,
+): string {
+  if (scorecard.baseline_engine_id !== scorecard.engine_id) {
+    return scorecard.baseline_engine_id;
+  }
+
+  const conditions = scorecard.conditions as Record<string, unknown>;
+  const baselineConditions = scorecard.baseline_conditions as Record<string, unknown>;
+  const keys = new Set([...Object.keys(conditions), ...Object.keys(baselineConditions)]);
+  const differing = [...keys].filter((key) => conditions[key] !== baselineConditions[key]).sort();
+
+  if (differing.length === 0) {
+    // Same engine, same conditions -- this is `baseline_is_self`, rendered
+    // through a different verdict branch entirely, but a caller that reaches
+    // here anyway must still say something true rather than an empty phrase.
+    return `the same engine (${scorecard.engine_id}) with the same conditions`;
+  }
+
+  const detail = differing.map((key) => `${key} = ${String(baselineConditions[key])}`).join(", ");
+  return `the same engine with ${detail}`;
+}
+
 export type GapKind = "shown" | "not-applicable" | "unavailable";
 
 export interface OptimismGap {

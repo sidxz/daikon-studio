@@ -1,6 +1,6 @@
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { describe, expect, it } from "vitest";
-import { computeOptimismGap, computeVerdict, higherIsBetter } from "./verdict";
+import { computeOptimismGap, computeVerdict, describeBaseline, higherIsBetter } from "./verdict";
 
 function scorecard(overrides: Partial<ScorecardResponse>): ScorecardResponse {
   return {
@@ -55,6 +55,32 @@ describe("verdict", () => {
 
   it("refuses to guess when a metric is missing", () => {
     expect(computeVerdict(scorecard({ metrics: {} })).kind).toBe("unknown");
+  });
+});
+
+describe("describeBaseline", () => {
+  it("describes a same-engine comparison by what differs, not by the engine id", () => {
+    // Both sides are chemprop-dmpnn. Naming only the engine would render
+    // "chemprop-dmpnn versus chemprop-dmpnn", which explains nothing.
+    expect(
+      describeBaseline({
+        baseline_engine_id: "chemprop-dmpnn",
+        engine_id: "chemprop-dmpnn",
+        conditions: { pretrained: "CheMeleon", epochs: 50 },
+        baseline_conditions: { pretrained: "none", epochs: 50 },
+      }),
+    ).toContain("pretrained");
+  });
+
+  it("names the engine when the two sides are different engines", () => {
+    expect(
+      describeBaseline({
+        baseline_engine_id: "ecfp4-randomforest",
+        engine_id: "chemprop-dmpnn",
+        conditions: {},
+        baseline_conditions: {},
+      }),
+    ).toContain("ecfp4-randomforest");
   });
 });
 
