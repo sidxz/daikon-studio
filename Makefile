@@ -3,8 +3,12 @@
 # First run:
 #   make install      # backend (uv) + frontend (pnpm) deps
 #   make up           # start Postgres + Valkey, run DB migrations
-#   make dev          # start backend (:8002) + frontend (:3003) + job worker in the background
+#   make dev          # start backend (:8002) + frontend (:3003) + both job workers
 #   open http://localhost:3003
+#
+# Two workers, because engines declare which lane they need and a worker serves one
+# lane: the default lane runs the ECFP4 engines, the gpu lane runs chemprop (on CPU
+# here). Set STUDIO_INLINE_JOBS=0 in backend/.env or neither is used.
 #
 # Day to day:  make logs (tail)  ·  make stop (stop servers)  ·  make down (stop containers)
 #
@@ -19,10 +23,18 @@ LOGDIR   := .logs
 BE_ENV   := set -a && . ./.env && set +a
 # arq worker entrypoint (runs the training and prediction jobs the API enqueues).
 WORKER   := uv run arq daikonstudio.infrastructure.worker.WorkerSettings
+# The same entrypoint bound to the `gpu` lane. Engines declare a lane on their
+# manifest (chemprop-dmpnn declares "gpu"); a worker serves exactly one lane, so
+# without this process a chemprop run sits PENDING forever with nothing to pull it.
+# Locally there is no GPU and chemprop falls back to CPU -- slow, but it is the same
+# code path the real GPU worker runs, so the dev loop exercises lane routing,
+# background execution, per-epoch progress and cancellation for real.
+# MAX_JOBS=1 mirrors production, where concurrent fits would exhaust device memory.
+WORKER_GPU := STUDIO_WORKER_LANE=gpu STUDIO_WORKER_MAX_JOBS=1 $(WORKER)
 
 .DEFAULT_GOAL := help
-.PHONY: help up down install dev dev-be dev-fe dev-worker stop logs migrate generate-api \
-        test test-api test-all test-fe lint lint-fe nuke
+.PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
+        generate-api test test-api test-all test-fe lint lint-fe nuke
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -53,15 +65,23 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + job worker in the backgr
 	@echo "Starting frontend on :3003..."
 	@nohup sh -c '$(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
-	@echo "Starting job worker..."
+	@echo "Starting job worker (default lane)..."
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
+	@echo "Starting job worker (gpu lane)..."
+	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec env $(WORKER_GPU)' \
+		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@sleep 1
 	@echo ""
 	@echo "  Backend   http://localhost:8002/docs   (pid $$(cat $(LOGDIR)/backend.pid), log $(LOGDIR)/backend.log)"
 	@echo "  Frontend  http://localhost:3003        (pid $$(cat $(LOGDIR)/frontend.pid), log $(LOGDIR)/frontend.log)"
-	@echo "  Worker    training + prediction jobs                   (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
+	@echo "  Worker    default lane: ecfp4 engines                  (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
+	@echo "  Worker    gpu lane: chemprop (on CPU locally)          (pid $$(cat $(LOGDIR)/worker-gpu.pid), log $(LOGDIR)/worker-gpu.log)"
 	@echo "  make logs — tail all    ·    make stop — stop all"
+	@echo ""
+	@echo "  NOTE: both workers only matter when STUDIO_INLINE_JOBS=0 in backend/.env."
+	@echo "        With inline jobs the API runs the fit inside the HTTP request, which"
+	@echo "        for chemprop means the browser hangs for minutes and times out."
 
 dev-be: ## (Re)start the backend only, in the background
 	@mkdir -p $(LOGDIR)
@@ -77,27 +97,40 @@ dev-fe: ## (Re)start the frontend only, in the background
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
 	@echo "Frontend (re)started on :3003 (log $(LOGDIR)/frontend.log)"
 
-dev-worker: ## (Re)start the job worker only, in the background
+# Both worker targets kill by PID file only, deliberately -- no pkill. The two
+# workers differ solely by the STUDIO_WORKER_LANE in their environment, so their
+# command lines are identical and `pkill -f 'arq ...WorkerSettings'` cannot tell
+# them apart: restarting one would silently kill the other. `make stop` still
+# pkills, because there killing every worker is the intent.
+dev-worker: ## (Re)start the default-lane worker only, in the background
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker.pid ] && kill $$(cat $(LOGDIR)/worker.pid) 2>/dev/null || true
-	@pkill -f 'arq daikonstudio.infrastructure.worker.WorkerSettings' 2>/dev/null || true
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
-	@echo "Import worker (re)started (log $(LOGDIR)/worker.log)"
+	@echo "Default-lane worker (re)started (log $(LOGDIR)/worker.log)"
+
+dev-worker-gpu: ## (Re)start the gpu-lane worker only (chemprop; CPU locally)
+	@mkdir -p $(LOGDIR)
+	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
+	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec env $(WORKER_GPU)' \
+		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
+	@echo "GPU-lane worker (re)started (log $(LOGDIR)/worker-gpu.log)"
 
 stop: ## Stop the backend + frontend + worker dev processes
 	@[ -f $(LOGDIR)/backend.pid ]  && kill $$(cat $(LOGDIR)/backend.pid)  2>/dev/null || true
 	@[ -f $(LOGDIR)/frontend.pid ] && kill $$(cat $(LOGDIR)/frontend.pid) 2>/dev/null || true
 	@[ -f $(LOGDIR)/worker.pid ]   && kill $$(cat $(LOGDIR)/worker.pid)   2>/dev/null || true
+	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
 	@lsof -ti:8002 | xargs kill 2>/dev/null || true
 	@lsof -ti:3003 | xargs kill 2>/dev/null || true
 	@pkill -f 'arq daikonstudio.infrastructure.worker.WorkerSettings' 2>/dev/null || true
-	@rm -f $(LOGDIR)/backend.pid $(LOGDIR)/frontend.pid $(LOGDIR)/worker.pid
+	@rm -f $(LOGDIR)/backend.pid $(LOGDIR)/frontend.pid $(LOGDIR)/worker.pid $(LOGDIR)/worker-gpu.pid
 	@echo "Dev servers stopped."
 
-logs: ## Tail backend + frontend + worker dev logs
-	@mkdir -p $(LOGDIR) && touch $(LOGDIR)/backend.log $(LOGDIR)/frontend.log $(LOGDIR)/worker.log
-	tail -f $(LOGDIR)/backend.log $(LOGDIR)/frontend.log $(LOGDIR)/worker.log
+logs: ## Tail backend + frontend + both worker dev logs
+	@mkdir -p $(LOGDIR) && touch $(LOGDIR)/backend.log $(LOGDIR)/frontend.log \
+		$(LOGDIR)/worker.log $(LOGDIR)/worker-gpu.log
+	tail -f $(LOGDIR)/backend.log $(LOGDIR)/frontend.log $(LOGDIR)/worker.log $(LOGDIR)/worker-gpu.log
 
 generate-api: ## Refresh the OpenAPI snapshot from the backend + regenerate the TS client
 	$(BACKEND) && $(BE_ENV) && uv run python -c \
