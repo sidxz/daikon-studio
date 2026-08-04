@@ -5,6 +5,8 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { TrainProtocolBodyConditions } from './trainProtocolBodyConditions';
+import type { TrainProtocolBodyBaselineEngineId } from './trainProtocolBodyBaselineEngineId';
+import type { TrainProtocolBodyBaselineConditions } from './trainProtocolBodyBaselineConditions';
 
 export interface TrainProtocolBody {
   /** @maxLength 256 */
@@ -12,4 +14,6 @@ export interface TrainProtocolBody {
   dataset_id: string;
   engine_id: string;
   conditions: TrainProtocolBodyConditions;
+  baseline_engine_id?: TrainProtocolBodyBaselineEngineId;
+  baseline_conditions?: TrainProtocolBodyBaselineConditions;
 }

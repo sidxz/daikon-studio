@@ -2159,6 +2159,11 @@
             "type": "string",
             "title": "Baseline Engine Id"
           },
+          "baseline_conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Baseline Conditions"
+          },
           "baseline_metrics": {
             "additionalProperties": {
               "anyOf": [
@@ -2286,6 +2291,7 @@
           "metrics",
           "metrics_undefined",
           "baseline_engine_id",
+          "baseline_conditions",
           "baseline_metrics",
           "baseline_is_self",
           "random_split_metrics",
@@ -2416,6 +2422,22 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Conditions"
+          },
+          "baseline_engine_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Engine Id"
+          },
+          "baseline_conditions": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Baseline Conditions"
           }
         },
         "additionalProperties": false,
