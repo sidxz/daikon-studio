@@ -152,7 +152,7 @@ export function TrainProtocolForm() {
   }
 
   const working = train.isPending || Boolean(runId);
-  const canSubmit = Boolean(name.trim() && datasetId && engineId) && !working;
+  const canSubmit = Boolean(name.trim() && datasetId && engineId && baselineEngineId) && !working;
 
   if (working) {
     return (
@@ -184,8 +184,8 @@ export function TrainProtocolForm() {
       <div>
         <h1 className="text-lg font-semibold">Train a protocol</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          A protocol is a trained model someone else can run. It is scored against a baseline you
-          choose automatically — you do not get to skip that comparison.
+          A protocol is a trained model someone else can run. It is always scored against a baseline
+          — one is chosen for you, and you can change it, but you cannot skip the comparison.
         </p>
       </div>
 
