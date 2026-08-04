@@ -57,3 +57,31 @@ def test_a_corrupt_download_is_rejected_and_not_left_in_the_cache(tmp_path, monk
 def test_an_unknown_weight_set_names_what_is_available(tmp_path):
     with pytest.raises(ValidationError, match="CheMeleon"):
         weights_path("NotAModel", str(tmp_path))
+
+
+def test_a_successful_download_is_verified_and_moved_into_place(tmp_path, monkeypatch):
+    """Protects the success branch: every caller takes this path, and it is the
+    one the rest of the suite covers only by reading the code, not by running
+    it. A swapped `os.replace(src, dst)` argument pair, or a wrong return
+    value, would still pass the cache-hit, corrupt-download and unknown-name
+    tests above."""
+    payload = b"real weights, honest"
+    # setitem, not setattr: WeightSet is frozen, so swap the whole entry.
+    monkeypatch.setitem(
+        WEIGHT_SETS,
+        "CheMeleon",
+        WeightSet(url="https://unused", md5=hashlib.md5(payload).hexdigest(), filename="fake.pt"),
+    )
+
+    def _write_payload(url, filename):
+        Path(filename).write_bytes(payload)
+
+    monkeypatch.setattr(
+        "daikonstudio.infrastructure.engines._pretrained.urlretrieve", _write_payload
+    )
+
+    result = weights_path("CheMeleon", str(tmp_path))
+
+    assert result == tmp_path / "fake.pt"
+    assert result.read_bytes() == payload
+    assert list(tmp_path.glob("*.partial")) == []
