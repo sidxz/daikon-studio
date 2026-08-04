@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import socket
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,10 @@ from urllib.request import urlretrieve
 from daikonstudio.domain.shared.errors import ValidationError
 
 _CHUNK = 1024 * 1024
+# A stalled connection would otherwise hang the worker thread forever: the
+# cooperative deadline in `ctx.report` never fires here (nothing calls it during a
+# download), and `asyncio.to_thread` cannot cancel a thread once it is running.
+_DOWNLOAD_TIMEOUT_SECONDS = 30
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -79,7 +84,17 @@ def weights_path(name: str, directory: str) -> Path:
     os.close(handle)
     staged = Path(staging)
     try:
-        urlretrieve(weight_set.url, staged)
+        # urlretrieve has no timeout parameter of its own; bound every socket it
+        # opens via the (process-global) default instead.
+        # ponytail: global, not scoped to this download. Fine today -- one
+        # weights fetch runs alone on its own worker thread -- revisit if this
+        # module is ever called from a thread doing other I/O concurrently.
+        previous_timeout = socket.getdefaulttimeout()
+        socket.setdefaulttimeout(_DOWNLOAD_TIMEOUT_SECONDS)
+        try:
+            urlretrieve(weight_set.url, staged)
+        finally:
+            socket.setdefaulttimeout(previous_timeout)
         actual = _md5(staged)
         if actual != weight_set.md5:
             raise ValidationError(

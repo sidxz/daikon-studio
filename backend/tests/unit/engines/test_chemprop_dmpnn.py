@@ -180,3 +180,10 @@ def test_chemeleon_builds_a_network_sized_by_the_checkpoint_not_the_conditions()
         output_transform=None,
     )
     assert model.message_passing.output_dim == 2048
+    # The frontend's PINNED_BY_PRETRAINED claims depth=6 for CheMeleon and disables
+    # the field so the form submits it. `message_passing.depth` is set straight from
+    # `checkpoint["hyper_parameters"]` above with nothing in between to override it,
+    # so this is the checkpoint's own saved depth: if it ever drifted from 6, the
+    # fit would still succeed at the checkpoint's real depth while the stored
+    # Protocol went on recording the pinned 6 -- settings the fit never used.
+    assert model.message_passing.depth == 6
