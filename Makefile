@@ -28,7 +28,17 @@ BLOBS    := $(ROOT)/.blobs
 # Load backend/.env (DATABASE_URL, SENTINEL_*) into the recipe shell.
 BE_ENV   := set -a && . ./.env && set +a
 # arq worker entrypoint (runs the training and prediction jobs the API enqueues).
-WORKER   := uv run arq daikonstudio.infrastructure.worker.WorkerSettings
+ARQ      := uv run arq daikonstudio.infrastructure.worker.WorkerSettings
+# OMP_NUM_THREADS=1 is load-bearing, not tuning. torch and scikit-learn each ship
+# their own libomp.dylib, and a training job loads BOTH -- RunTraining fits the
+# chosen engine and the mandatory ECFP4 baseline in one process, by design. Three
+# OpenMP runtimes in one process is undefined behaviour and it segfaults partway
+# through a real chemprop fit (EXC_BAD_ACCESS in __kmp_fork_barrier, reproduced
+# against BBBP). Pinning OpenMP to one thread removes the thread teams they fight
+# over. KMP_DUPLICATE_LIB_OK does NOT fix it -- it was already set when this crashed.
+# ponytail: costs some intra-op parallelism in the ECFP4 baseline's fit. Revisit only
+# with a measurement; a slower baseline beats a worker that dies mid-run.
+WORKER     := env OMP_NUM_THREADS=1 $(ARQ)
 # The same entrypoint bound to the `gpu` lane. Engines declare a lane on their
 # manifest (chemprop-dmpnn declares "gpu"); a worker serves exactly one lane, so
 # without this process a chemprop run sits PENDING forever with nothing to pull it.
@@ -36,7 +46,7 @@ WORKER   := uv run arq daikonstudio.infrastructure.worker.WorkerSettings
 # code path the real GPU worker runs, so the dev loop exercises lane routing,
 # background execution, per-epoch progress and cancellation for real.
 # MAX_JOBS=1 mirrors production, where concurrent fits would exhaust device memory.
-WORKER_GPU := STUDIO_WORKER_LANE=gpu STUDIO_WORKER_MAX_JOBS=1 $(WORKER)
+WORKER_GPU := env OMP_NUM_THREADS=1 STUDIO_WORKER_LANE=gpu STUDIO_WORKER_MAX_JOBS=1 $(ARQ)
 
 .DEFAULT_GOAL := help
 .PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
@@ -75,7 +85,7 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + job worker in the backgr
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
 	@echo "Starting job worker (gpu lane)..."
-	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec env $(WORKER_GPU)' \
+	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@sleep 1
 	@echo ""
@@ -118,7 +128,7 @@ dev-worker: ## (Re)start the default-lane worker only, in the background
 dev-worker-gpu: ## (Re)start the gpu-lane worker only (chemprop; CPU locally)
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
-	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec env $(WORKER_GPU)' \
+	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@echo "GPU-lane worker (re)started (log $(LOGDIR)/worker-gpu.log)"
 

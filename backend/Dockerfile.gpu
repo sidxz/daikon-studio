@@ -60,6 +60,16 @@ ENV PATH="/app/.venv/bin:$PATH" \
 RUN mkdir -p /scratch \
  && useradd --create-home --uid 10001 studio \
  && chown -R studio /app /scratch
+# OMP_NUM_THREADS=1 is load-bearing, not tuning. torch and scikit-learn each ship
+# their own OpenMP runtime, and a training job loads BOTH -- RunTraining fits the
+# chosen engine and the mandatory ECFP4 baseline in one process, by design. Multiple
+# OpenMP runtimes in one process is undefined behaviour; on macOS it segfaults in
+# __kmp_fork_barrier partway through a real chemprop fit. Setting it here so the
+# deployed worker cannot hit the same wall hours into a GPU run.
+# ponytail: costs intra-op parallelism in the baseline fit. Raise it only with a
+# measurement showing this platform does not have the duplicate-runtime problem.
+ENV OMP_NUM_THREADS=1
+
 USER studio
 
 CMD ["arq", "daikonstudio.infrastructure.worker.WorkerSettings"]
