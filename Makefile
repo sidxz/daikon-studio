@@ -155,13 +155,13 @@ generate-api: ## Refresh the OpenAPI snapshot from the backend + regenerate the 
 	$(FRONTEND) && pnpm generate:api
 
 test: ## Backend unit tests + import-linter
-	$(BACKEND) && uv run pytest tests/unit -v && uv run lint-imports
+	$(BACKEND) && env OMP_NUM_THREADS=1 uv run pytest tests/unit -v && uv run lint-imports
 
 test-api: ## Backend API tests
 	$(BACKEND) && uv run pytest tests/api -v
 
 test-all: ## All backend tests + import-linter
-	$(BACKEND) && uv run pytest -v && uv run lint-imports
+	$(BACKEND) && env OMP_NUM_THREADS=1 uv run pytest -v && uv run lint-imports
 
 test-fe: ## Frontend tests (vitest)
 	$(FRONTEND) && pnpm test
