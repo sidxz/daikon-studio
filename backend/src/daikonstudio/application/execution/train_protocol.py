@@ -47,7 +47,7 @@ import json
 import math
 import time
 import uuid
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import polars as pl
@@ -212,6 +212,14 @@ class TrainProtocolCommand:
     dataset_id: uuid.UUID
     engine_id: str
     conditions: dict[str, object]
+    # What this Run is measured against. `None` means "whatever the registry
+    # flags as the default baseline", and survives only until `TrainProtocol`
+    # resolves it -- what lands in `run.params` is always a concrete id, so a
+    # queued Run cannot be silently retargeted by a registry change before a
+    # worker picks it up. It stays `None` when read back off a row written
+    # before the baseline was choosable.
+    baseline_engine_id: str | None = None
+    baseline_conditions: dict[str, object] = field(default_factory=dict)
 
     def to_params(self) -> dict[str, Any]:
         return {
@@ -219,6 +227,8 @@ class TrainProtocolCommand:
             "dataset_id": str(self.dataset_id),
             "engine_id": self.engine_id,
             "conditions": self.conditions,
+            "baseline_engine_id": self.baseline_engine_id,
+            "baseline_conditions": self.baseline_conditions,
         }
 
     @classmethod
@@ -228,6 +238,8 @@ class TrainProtocolCommand:
             dataset_id=uuid.UUID(params["dataset_id"]),
             engine_id=params["engine_id"],
             conditions=params["conditions"],
+            baseline_engine_id=params.get("baseline_engine_id"),
+            baseline_conditions=params.get("baseline_conditions") or {},
         )
 
 
