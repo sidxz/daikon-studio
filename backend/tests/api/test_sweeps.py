@@ -156,3 +156,78 @@ async def test_list_then_read_then_cancel(client, dataset_id) -> None:
 @pytest.mark.asyncio
 async def test_unknown_sweep_is_404(client) -> None:
     assert (await client.get(f"/api/v1/sweeps/{uuid.uuid4()}")).status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_submit_a_sweep(viewer_client, dataset_id) -> None:
+    response = await viewer_client.post(
+        "/api/v1/sweeps",
+        json={
+            "name": "doomed",
+            "dataset_id": str(dataset_id),
+            "configs": [{"engine_id": "ecfp4-randomforest", "conditions": {}}],
+        },
+    )
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_viewer_cannot_cancel_a_sweep(client, viewer_client, dataset_id) -> None:
+    submitted = (
+        await client.post(
+            "/api/v1/sweeps",
+            json={
+                "name": "round trip",
+                "dataset_id": str(dataset_id),
+                "configs": [{"engine_id": "ecfp4-randomforest", "conditions": {}}],
+            },
+        )
+    ).json()
+
+    response = await viewer_client.post(f"/api/v1/sweeps/{submitted['sweep_id']}/cancel")
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_get_sweep_is_scoped_to_the_callers_workspace(
+    client, other_workspace_client, dataset_id
+) -> None:
+    submitted = (
+        await client.post(
+            "/api/v1/sweeps",
+            json={
+                "name": "round trip",
+                "dataset_id": str(dataset_id),
+                "configs": [{"engine_id": "ecfp4-randomforest", "conditions": {}}],
+            },
+        )
+    ).json()
+
+    response = await other_workspace_client.get(f"/api/v1/sweeps/{submitted['sweep_id']}")
+    assert response.status_code == 404, response.text
+
+
+@pytest.mark.asyncio
+async def test_cancel_sweep_is_scoped_to_the_callers_workspace(
+    client, other_workspace_client, dataset_id
+) -> None:
+    submitted = (
+        await client.post(
+            "/api/v1/sweeps",
+            json={
+                "name": "round trip",
+                "dataset_id": str(dataset_id),
+                "configs": [{"engine_id": "ecfp4-randomforest", "conditions": {}}],
+            },
+        )
+    ).json()
+    sweep_id = submitted["sweep_id"]
+
+    response = await other_workspace_client.post(f"/api/v1/sweeps/{sweep_id}/cancel")
+    assert response.status_code == 404, response.text
+
+    # The 404 alone would also be consistent with a silent cross-tenant
+    # cancel -- only reading the runs back through the owning workspace
+    # proves nothing was written.
+    after = (await client.get(f"/api/v1/sweeps/{sweep_id}")).json()
+    assert all(run["status"] == "pending" for run in after["runs"])
