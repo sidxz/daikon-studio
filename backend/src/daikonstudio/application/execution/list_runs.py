@@ -9,10 +9,17 @@ where a scientist closes the tab and comes back.
 Run belongs to its Protocol's history, while prediction Runs are the list a
 user browses. Filtering server-side keeps a client from paging through
 thousands of the wrong kind to assemble one screen.
+
+`protocol_id` is the other half of that sentence, and it went missing until
+now: migration 007 created `ix_runs_workspace_protocol_id` and documented it as
+backing "which runs belong to this Protocol -- the Protocol detail page's run
+history, and the only query this column exists to serve", and no query used it.
+It does now.
 """
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 
 from returns.result import Failure, Result, Success
@@ -32,6 +39,7 @@ from daikonstudio.domain.shared.errors import DomainError, ValidationError
 @dataclass(frozen=True, kw_only=True)
 class ListRunsQuery:
     kind: RunKind | None = None
+    protocol_id: uuid.UUID | None = None
     cursor: str | None = None
     limit: int | None = None
 
@@ -53,7 +61,11 @@ class ListRuns:
         # One more than asked for: if it comes back there is another page, which
         # is cheaper and more truthful than a COUNT over the whole table.
         runs = await self._repository.list(
-            auth.workspace_id, kind=query.kind, cursor=cursor, limit=limit + 1
+            auth.workspace_id,
+            kind=query.kind,
+            protocol_id=query.protocol_id,
+            cursor=cursor,
+            limit=limit + 1,
         )
         next_cursor = None
         if len(runs) > limit:

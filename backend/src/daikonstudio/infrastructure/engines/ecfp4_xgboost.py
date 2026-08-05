@@ -16,7 +16,11 @@ from daikonstudio.application.engines.manifest import (
     validate_conditions,
 )
 from daikonstudio.infrastructure.chem.featurize import ecfp4
-from daikonstudio.infrastructure.engines._scoring import _predict_with_tree_ensemble, _score
+from daikonstudio.infrastructure.engines._scoring import (
+    _predict_with_tree_ensemble,
+    _score,
+    _score_validation,
+)
 
 _MANIFEST = EngineManifest(
     id="ecfp4-xgboost",
@@ -100,6 +104,7 @@ class Ecfp4XGBoost:
         return TrainResult(
             artifact=artifact,
             metrics=_score(model, test_rows, ctx, is_classification),
+            validation_metrics=_score_validation(model, ctx, is_classification),
         )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:

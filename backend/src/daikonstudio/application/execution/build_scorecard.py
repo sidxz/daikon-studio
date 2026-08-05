@@ -18,20 +18,55 @@ port for one more RDKit function would be a needless abstraction split.
 
 from __future__ import annotations
 
+import statistics
 from typing import Any
 
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
-from daikonstudio.domain.execution.scorecard import Scorecard, WorstRow
+from daikonstudio.domain.execution.scorecard import (
+    Bin,
+    Histogram,
+    ParityPoint,
+    ScaffoldError,
+    Scorecard,
+    WorstRow,
+)
 
 _WORST_ROWS_LIMIT = 20
 _APPLICABILITY_THRESHOLD = 0.3
+
+#: Points carried to the client for the parity scatter. Above this the scatter
+#: is over-plotted anyway and the payload stops being free, so it is subsampled
+#: on a deterministic stride and `parity_sampled_from` says so.
+_PARITY_LIMIT = 4000
+
+_RESIDUAL_BINS = 30
+
+#: Equal-*count* bins, not equal-width: ECFP4 similarities cluster low, so
+#: fixed-width bins put nearly every compound in one or two of them and leave
+#: the rest holding a handful of points whose mean error is noise. Equal-count
+#: bins give every point on the curve the same weight of evidence.
+_SIMILARITY_BINS = 8
+
+#: Upper bound. The actual count scales with the test set, because ten equal-
+#: width bins over a 197-compound test set leaves several holding one or two
+#: compounds, and a calibration curve drawn through those reads as wild
+#: miscalibration when it is really just sampling noise.
+_CALIBRATION_BINS = 10
+_MIN_PER_CALIBRATION_BIN = 25
+
+#: A "median error" over one or two compounds is not a median. Families smaller
+#: than this are left out rather than shown with a number that cannot support
+#: the reading the section invites.
+_MIN_SCAFFOLD_GROUP = 3
+_SCAFFOLD_GROUP_LIMIT = 12
 
 
 def build_scorecard(
     *,
     task: TaskType,
     metrics: dict[str, float | None],
+    validation_metrics: dict[str, float | None] | None = None,
     engine_id: str,
     conditions: dict[str, Any],
     baseline_engine_id: str,
@@ -72,13 +107,20 @@ def build_scorecard(
 
     residuals = [abs(a - p) for a, p in zip(actual, predicted, strict=True)]
     worst_order = sorted(range(len(residuals)), key=lambda i: residuals[i], reverse=True)
+
+    # Once for every test structure, then reused by both the worst-rows list and
+    # the per-family error breakdown. Computing them twice would double the
+    # RDKit cost of the most-viewed screen in the product to produce the same
+    # strings.
+    scaffolds = [normalizer.murcko_scaffold(structure) for structure in structures]
+
     worst_rows = [
         WorstRow(
             structure=structures[i],
             actual=actual[i],
             predicted=predicted[i],
             residual=residuals[i],
-            scaffold=normalizer.murcko_scaffold(structures[i]),
+            scaffold=scaffolds[i],
             similarity=similarities[i] if similarities is not None else None,
         )
         for i in worst_order[:_WORST_ROWS_LIMIT]
@@ -88,6 +130,7 @@ def build_scorecard(
         primary_metric="mcc" if is_classification else "rmse",
         prediction_kind="probability" if is_classification else "value",
         metrics=metrics,
+        validation_metrics=validation_metrics,
         metrics_undefined=metrics_undefined,
         engine_id=engine_id,
         conditions=conditions,
@@ -107,4 +150,140 @@ def build_scorecard(
         target_unit=target_unit,
         target_direction=target_direction,
         split_strategy=split_strategy,
+        parity=_parity(actual, predicted, similarities),
+        parity_sampled_from=len(actual) if len(actual) > _PARITY_LIMIT else None,
+        # Signed residuals are a regression reading. For classification `actual`
+        # is a 0/1 label and `predicted` a probability, so their difference is
+        # bounded by construction and its histogram is bimodal by construction
+        # too -- a shape that says nothing about the model. The calibration
+        # curve below is the classification counterpart.
+        residual_histogram=None if is_classification else _residual_histogram(actual, predicted),
+        error_by_similarity=_error_by_similarity(residuals, similarities),
+        scaffold_errors=_scaffold_errors(residuals, scaffolds),
+        calibration=_calibration(actual, predicted) if is_classification else [],
     )
+
+
+def _parity(
+    actual: list[float], predicted: list[float], similarities: list[float] | None
+) -> list[ParityPoint]:
+    # A stride, not a head slice: predictions arrive in test-set order, which for
+    # a scaffold split is grouped by chemical family, so the first N points would
+    # be one corner of the chemistry presented as the whole scatter.
+    stride = max(1, -(-len(actual) // _PARITY_LIMIT))
+    return [
+        ParityPoint(
+            actual=actual[i],
+            predicted=predicted[i],
+            similarity=similarities[i] if similarities is not None else None,
+        )
+        for i in range(0, len(actual), stride)
+    ]
+
+
+def _histogram(values: list[float], bins: int) -> Histogram:
+    """Plain-Python binning, no numpy.
+
+    `application` is free to import numpy -- `build_profile` next door does --
+    but this module deliberately holds no array dependency at all, and one
+    histogram over a few thousand floats does not earn the first one.
+    """
+    if not values:
+        return Histogram(edges=[], counts=[])
+    low, high = min(values), max(values)
+    if low == high:
+        # A degenerate range would make every edge identical and every value land
+        # in no bin. One unit either side keeps the single spike drawable.
+        low, high = low - 0.5, high + 0.5
+    width = (high - low) / bins
+    edges = [low + width * i for i in range(bins + 1)]
+    counts = [0] * bins
+    for value in values:
+        index = min(int((value - low) / width), bins - 1)
+        counts[index] += 1
+    return Histogram(edges=edges, counts=counts)
+
+
+def _residual_histogram(actual: list[float], predicted: list[float]) -> Histogram | None:
+    if not actual:
+        return None
+    # Signed, and predicted minus actual rather than the reverse, so a histogram
+    # sitting right of zero reads as "the model predicts high" in the target's
+    # own direction.
+    return _histogram([p - a for a, p in zip(actual, predicted, strict=True)], _RESIDUAL_BINS)
+
+
+def _error_by_similarity(residuals: list[float], similarities: list[float] | None) -> list[Bin]:
+    if similarities is None or len(residuals) < _SIMILARITY_BINS * 2:
+        # Fewer than two compounds per bin is not a curve. Empty, so the
+        # consumer omits the section rather than drawing eight noisy points.
+        return []
+    order = sorted(range(len(residuals)), key=lambda i: similarities[i])
+    size = len(order) / _SIMILARITY_BINS
+
+    bins = []
+    for index in range(_SIMILARITY_BINS):
+        group = order[int(index * size) : int((index + 1) * size)]
+        if not group:
+            continue
+        bins.append(
+            Bin(
+                lower=similarities[group[0]],
+                upper=similarities[group[-1]],
+                count=len(group),
+                value=sum(residuals[i] for i in group) / len(group),
+            )
+        )
+    return bins
+
+
+def _scaffold_errors(residuals: list[float], scaffolds: list[str]) -> list[ScaffoldError]:
+    grouped: dict[str, list[float]] = {}
+    for scaffold, residual in zip(scaffolds, residuals, strict=True):
+        grouped.setdefault(scaffold, []).append(residual)
+
+    families = [
+        ScaffoldError(
+            scaffold=scaffold,
+            count=len(errors),
+            median_error=statistics.median(errors),
+        )
+        for scaffold, errors in grouped.items()
+        if len(errors) >= _MIN_SCAFFOLD_GROUP
+    ]
+    if len(families) < 2:
+        # One family is not a comparison, and this section exists only to say
+        # which families are worse than which.
+        return []
+    families.sort(key=lambda family: family.median_error, reverse=True)
+    return families[:_SCAFFOLD_GROUP_LIMIT]
+
+
+def _calibration(actual: list[float], predicted: list[float]) -> list[Bin]:
+    if not actual:
+        return []
+    count = max(3, min(_CALIBRATION_BINS, len(actual) // _MIN_PER_CALIBRATION_BIN))
+    bins = []
+    for index in range(count):
+        lower = index / count
+        upper = (index + 1) / count
+        # The last bin closes at 1.0 inclusive, so a confident P=1.0 prediction
+        # is counted rather than dropped.
+        group = [
+            label
+            for label, probability in zip(actual, predicted, strict=True)
+            if lower <= probability < upper or (index == count - 1 and probability == 1.0)
+        ]
+        if not group:
+            # Omitted, not zero-filled: no compound was predicted in this band,
+            # which is not the same as "every compound in this band was negative".
+            continue
+        bins.append(
+            Bin(
+                lower=lower,
+                upper=upper,
+                count=len(group),
+                value=sum(1 for label in group if label > 0.5) / len(group),
+            )
+        )
+    return bins

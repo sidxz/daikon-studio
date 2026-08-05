@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ScorecardResponseMetrics } from './scorecardResponseMetrics';
+import type { ScorecardResponseValidationMetrics } from './scorecardResponseValidationMetrics';
 import type { ScorecardResponseMetricsUndefined } from './scorecardResponseMetricsUndefined';
 import type { ScorecardResponseConditions } from './scorecardResponseConditions';
 import type { ScorecardResponseBaselineConditions } from './scorecardResponseBaselineConditions';
@@ -17,6 +18,11 @@ import type { WorstRowResponse } from './worstRowResponse';
 import type { ScorecardResponseApplicabilityCoverage } from './scorecardResponseApplicabilityCoverage';
 import type { ScorecardResponseUnit } from './scorecardResponseUnit';
 import type { ScorecardResponseDirection } from './scorecardResponseDirection';
+import type { ParityPointResponse } from './parityPointResponse';
+import type { ScorecardResponseParitySampledFrom } from './scorecardResponseParitySampledFrom';
+import type { ScorecardResponseResidualHistogram } from './scorecardResponseResidualHistogram';
+import type { BinResponse } from './binResponse';
+import type { ScaffoldErrorResponse } from './scaffoldErrorResponse';
 
 /**
  * Every field here is load-bearing for honest rendering -- see
@@ -44,6 +50,7 @@ export interface ScorecardResponse {
   primary_metric: string;
   prediction_kind: string;
   metrics: ScorecardResponseMetrics;
+  validation_metrics: ScorecardResponseValidationMetrics;
   metrics_undefined: ScorecardResponseMetricsUndefined;
   engine_id: string;
   conditions: ScorecardResponseConditions;
@@ -60,4 +67,10 @@ export interface ScorecardResponse {
   unit: ScorecardResponseUnit;
   direction: ScorecardResponseDirection;
   split_strategy: string;
+  parity: ParityPointResponse[];
+  parity_sampled_from: ScorecardResponseParitySampledFrom;
+  residual_histogram: ScorecardResponseResidualHistogram;
+  error_by_similarity: BinResponse[];
+  scaffold_errors: ScaffoldErrorResponse[];
+  calibration: BinResponse[];
 }

@@ -8,6 +8,8 @@ import {
   getAuthHeaders,
 } from "@/shared/lib/api/custom-instance";
 import type {
+  CompoundPageResponse,
+  DatasetProfileResponse,
   DatasetResponse,
   PaginatedResponseDatasetResponse,
   UploadResponse,
@@ -15,7 +17,12 @@ import type {
 import { showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dataset } from "../types";
-import { DATASETS_KEY, DATASET_KEY } from "./query-keys";
+import {
+  DATASETS_KEY,
+  DATASET_COMPOUNDS_KEY,
+  DATASET_KEY,
+  DATASET_PROFILE_KEY,
+} from "./query-keys";
 
 export function useDatasets(cursor?: string) {
   return useQuery({
@@ -94,5 +101,55 @@ export function useCreateDataset() {
       queryClient.invalidateQueries({ queryKey: DATASETS_KEY });
       showSuccess("Dataset frozen");
     },
+  });
+}
+
+/**
+ * The Dataset's profile -- what it is made of.
+ *
+ * `staleTime: Infinity`: a Dataset is immutable and content-addressed, so its
+ * profile is a pure function of data that cannot change. The backend caches it
+ * beside the snapshot for the same reason; there is nothing to revalidate.
+ *
+ * `retry: false`: the first request computes the profile and can take seconds
+ * on a large file. Retrying a timeout would start a second identical RDKit pass
+ * rather than wait for the first, which makes a slow page slower.
+ */
+export function useDatasetProfile(id: string | undefined) {
+  return useQuery({
+    queryKey: [...DATASET_PROFILE_KEY, id],
+    queryFn: () =>
+      customInstance<DatasetProfileResponse>({
+        url: `${API_V1}/datasets/${id}/profile`,
+        method: "GET",
+      }),
+    enabled: Boolean(id),
+    staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
+  });
+}
+
+export interface CompoundQuery extends Record<string, unknown> {
+  offset?: number;
+  limit?: number;
+  sort?: "target" | "split";
+  sort_dir?: "asc" | "desc";
+  split?: "train" | "validation" | "test";
+}
+
+/** A page of the frozen snapshot's own rows. Immutable, so the same page is
+ *  the same rows forever -- hence `staleTime: Infinity` here too. */
+export function useDatasetCompounds(id: string | undefined, query: CompoundQuery) {
+  return useQuery({
+    queryKey: [...DATASET_COMPOUNDS_KEY, id, query],
+    queryFn: () =>
+      customInstance<CompoundPageResponse>({
+        url: `${API_V1}/datasets/${id}/compounds`,
+        method: "GET",
+        params: query,
+      }),
+    enabled: Boolean(id),
+    staleTime: Number.POSITIVE_INFINITY,
+    placeholderData: (previous) => previous,
   });
 }

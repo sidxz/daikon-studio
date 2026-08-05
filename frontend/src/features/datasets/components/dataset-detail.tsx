@@ -4,10 +4,13 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
-import { useDataset } from "../hooks/use-datasets";
+import { useDataset, useDatasetProfile } from "../hooks/use-datasets";
 import { SPLIT_COPY } from "../types";
+import { CompoundBrowser } from "./compound-browser";
+import { DatasetProfileSkeleton, DatasetProfileView } from "./dataset-profile-view";
 import { ValidationReportView } from "./validation-report-view";
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
@@ -21,6 +24,11 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export function DatasetDetail({ datasetId }: { datasetId: string }) {
   const { data: dataset, isLoading, isError, error } = useDataset(datasetId);
+  // Fetched alongside the Dataset rather than on tab activation: the profile is
+  // computed on its first ever request and cached forever after, so the one
+  // request that is slow is better spent while the reader is still on the
+  // overview than as a spinner the moment they click "Diversity".
+  const profile = useDatasetProfile(datasetId);
 
   // Declared explicitly so the breadcrumb never prints the id from the URL.
   useBreadcrumbTrail(
@@ -50,7 +58,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
+    <div className="mx-auto w-full max-w-5xl space-y-4 p-2">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold">{dataset.name}</h1>
@@ -64,78 +72,112 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
         </Button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">What this predicts</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <dl className="grid gap-4 sm:grid-cols-4">
-            <Field
-              label="Structures"
-              value={<span className="font-mono">{dataset.structure_column}</span>}
-            />
-            <Field
-              label="Target"
-              value={<span className="font-mono">{dataset.target.column}</span>}
-            />
-            <Field
-              label="Kind"
-              value={dataset.target.kind === "numeric" ? "Measured value" : "Active / inactive"}
-            />
-            <Field
-              label="Unit and direction"
-              value={
-                dataset.target.unit || dataset.target.direction ? (
-                  <span className="font-mono">
-                    {dataset.target.unit ?? "—"}
-                    {dataset.target.direction ? ` · ${dataset.target.direction} is better` : ""}
-                  </span>
-                ) : (
-                  <span className="text-muted-foreground">—</span>
-                )
-              }
-            />
-          </dl>
-        </CardContent>
-      </Card>
+      <Tabs defaultValue="overview">
+        <TabsList>
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="diversity">Diversity</TabsTrigger>
+          <TabsTrigger value="compounds">Compounds</TabsTrigger>
+        </TabsList>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            Split
-            <Badge variant="outline" className="font-normal">
-              {SPLIT_COPY[dataset.split.strategy].title}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-2">
-          <p className="text-sm text-muted-foreground">
-            {SPLIT_COPY[dataset.split.strategy].detail}
-          </p>
-          <dl className="grid gap-4 sm:grid-cols-3">
-            <Field label="Seed" value={<span className="font-mono">{dataset.split.seed}</span>} />
-            <Field
-              label="Train / validation / test"
-              value={
-                <span className="font-mono">
-                  {(dataset.split.fractions ?? [0.8, 0.1, 0.1]).join(" / ")}
-                </span>
-              }
-            />
-            <Field
-              label="Content hash"
-              value={
-                <span className="font-mono text-xs">{dataset.content_hash.slice(0, 16)}…</span>
-              }
-            />
-          </dl>
-        </CardContent>
-      </Card>
+        <TabsContent value="overview" className="space-y-4">
+          <Card>
+            <CardHeader>
+              <CardTitle className="text-base">What this predicts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <dl className="grid gap-4 sm:grid-cols-4">
+                <Field
+                  label="Structures"
+                  value={<span className="font-mono">{dataset.structure_column}</span>}
+                />
+                <Field
+                  label="Target"
+                  value={<span className="font-mono">{dataset.target.column}</span>}
+                />
+                <Field
+                  label="Kind"
+                  value={dataset.target.kind === "numeric" ? "Measured value" : "Active / inactive"}
+                />
+                <Field
+                  label="Unit and direction"
+                  value={
+                    dataset.target.unit || dataset.target.direction ? (
+                      <span className="font-mono">
+                        {dataset.target.unit ?? "—"}
+                        {dataset.target.direction ? ` · ${dataset.target.direction} is better` : ""}
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )
+                  }
+                />
+              </dl>
+            </CardContent>
+          </Card>
 
-      <div>
-        <h2 className="mb-2 text-sm font-medium">What the file contained</h2>
-        <ValidationReportView report={dataset.validation_report} />
-      </div>
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                Split
+                <Badge variant="outline" className="font-normal">
+                  {SPLIT_COPY[dataset.split.strategy].title}
+                </Badge>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                {SPLIT_COPY[dataset.split.strategy].detail}
+              </p>
+              <dl className="grid gap-4 sm:grid-cols-3">
+                <Field
+                  label="Seed"
+                  value={<span className="font-mono">{dataset.split.seed}</span>}
+                />
+                <Field
+                  label="Train / validation / test"
+                  value={
+                    <span className="font-mono">
+                      {(dataset.split.fractions ?? [0.8, 0.1, 0.1]).join(" / ")}
+                    </span>
+                  }
+                />
+                <Field
+                  label="Content hash"
+                  value={
+                    <span className="font-mono text-xs">{dataset.content_hash.slice(0, 16)}…</span>
+                  }
+                />
+              </dl>
+            </CardContent>
+          </Card>
+
+          <div>
+            <h2 className="mb-2 text-sm font-medium">What the file contained</h2>
+            <ValidationReportView report={dataset.validation_report} />
+          </div>
+        </TabsContent>
+
+        <TabsContent value="diversity">
+          {profile.isLoading ? (
+            <DatasetProfileSkeleton />
+          ) : profile.isError || !profile.data ? (
+            <div className="rounded-lg border border-border p-4">
+              <p className="text-sm font-medium">Could not profile this dataset</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {profile.error instanceof Error
+                  ? profile.error.message
+                  : "Its frozen snapshot could not be read."}
+              </p>
+            </div>
+          ) : (
+            <DatasetProfileView dataset={dataset} profile={profile.data} />
+          )}
+        </TabsContent>
+
+        <TabsContent value="compounds">
+          <CompoundBrowser dataset={dataset} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

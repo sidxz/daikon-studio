@@ -3,6 +3,7 @@
 import { API_V1, customInstance } from "@/shared/lib/api/custom-instance";
 import type {
   PaginatedResponseProtocolResponse,
+  PaginatedResponseRunResponse,
   ProtocolResponse,
   RunResponse,
   ScorecardResponse,
@@ -11,7 +12,7 @@ import type {
 import { RUN_POLL_MS, STALE_TIME } from "@/shared/lib/query-defaults";
 import { showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { PROTOCOLS_KEY, PROTOCOL_KEY, SCORECARD_KEY } from "./query-keys";
+import { PROTOCOLS_KEY, PROTOCOL_KEY, PROTOCOL_RUNS_KEY, SCORECARD_KEY } from "./query-keys";
 
 const TERMINAL = new Set(["ready", "failed", "cancelled"]);
 
@@ -96,5 +97,28 @@ export function usePublishProtocol() {
       queryClient.invalidateQueries({ queryKey: [...PROTOCOL_KEY, id] });
       showSuccess("Protocol published — anyone in this workspace can run it now");
     },
+  });
+}
+
+/**
+ * The Runs that belong to this Protocol -- its training Run, and every
+ * prediction made with it.
+ *
+ * Migration 007 created `ix_runs_workspace_protocol_id` and documented it as
+ * backing "the Protocol detail page's run history, and the only query this
+ * column exists to serve". No query used it and this section did not exist;
+ * both are now true.
+ */
+export function useProtocolRuns(protocolId: string | undefined) {
+  return useQuery({
+    queryKey: [...PROTOCOL_RUNS_KEY, protocolId],
+    queryFn: () =>
+      customInstance<PaginatedResponseRunResponse>({
+        url: `${API_V1}/runs`,
+        method: "GET",
+        params: { protocol_id: protocolId },
+      }),
+    enabled: Boolean(protocolId),
+    staleTime: STALE_TIME.SHORT,
   });
 }

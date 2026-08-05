@@ -1,8 +1,13 @@
 import type {
+  ActivityCliffResponse,
+  CompoundPageResponse,
   ConflictRowResponse,
+  DatasetProfileResponse,
   DatasetResponse,
+  DescriptorProfileResponse,
   Direction,
   InvalidRowResponse,
+  ScaffoldProfileResponse,
   SplitBody,
   SplitStrategy,
   TargetBody,
@@ -17,7 +22,34 @@ export type InvalidRow = InvalidRowResponse;
 export type ConflictRow = ConflictRowResponse;
 export type TargetSpec = TargetBody;
 export type SplitSpec = SplitBody;
+export type DatasetProfile = DatasetProfileResponse;
+export type DescriptorProfile = DescriptorProfileResponse;
+export type ScaffoldProfile = ScaffoldProfileResponse;
+export type ActivityCliff = ActivityCliffResponse;
+export type CompoundPage = CompoundPageResponse;
 export type { Direction, SplitStrategy, TargetKind };
+
+/**
+ * Display names for the descriptors the profile computes. The backend emits
+ * machine keys (`fraction_csp3`); a chemist reads "Fraction sp3". Keyed rather
+ * than derived from the string, because "cLogP" and "TPSA" are not what any
+ * title-casing of `clogp`/`tpsa` produces.
+ */
+export const DESCRIPTOR_LABELS: Record<string, string> = {
+  molecular_weight: "Molecular weight",
+  clogp: "cLogP",
+  tpsa: "TPSA",
+  hbd: "H-bond donors",
+  hba: "H-bond acceptors",
+  rotatable_bonds: "Rotatable bonds",
+  aromatic_rings: "Aromatic rings",
+  fraction_csp3: "Fraction sp3",
+  heavy_atoms: "Heavy atoms",
+};
+
+export function descriptorLabel(name: string): string {
+  return DESCRIPTOR_LABELS[name] ?? name;
+}
 
 /** What the wizard accumulates. The file is held client-side until step 4. */
 export interface DatasetDraft {

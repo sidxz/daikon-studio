@@ -238,7 +238,7 @@ class ChempropDMPNN:
         from chemprop.data import MoleculeDataset, build_dataloader
         from chemprop.nn.transforms import UnscaleTransform
         from lightning import pytorch as lightning
-        from lightning.pytorch.callbacks import LambdaCallback
+        from lightning.pytorch.callbacks import Callback, LambdaCallback
 
         from daikonstudio.settings import Settings
 
@@ -271,8 +271,6 @@ class ChempropDMPNN:
                 validation_rows[ctx.target_column].to_list(),
             )
         )
-        test_set = MoleculeDataset(_datapoints(test_rows[ctx.structure_column].to_list()))
-
         output_transform = None
         if not is_classification:
             # Fit the scaler on the training split only, and hand the model its
@@ -300,6 +298,66 @@ class ChempropDMPNN:
         def _report_epoch(trainer: Any, _module: Any) -> None:
             ctx.report((trainer.current_epoch + 1) / epochs, f"training {_MANIFEST.id}")
 
+        # The validation partition selects the epoch.
+        #
+        # Before this, `enable_checkpointing=False` and no monitoring callback meant
+        # Lightning computed `val_loss` every epoch and nothing ever read it: the
+        # weights that got saved were whichever epoch happened to be last. A model
+        # that peaked at epoch 3 and then overfit for two more was shipped in its
+        # overfit state, and the validation split -- ten percent of the dataset --
+        # bought nothing at all.
+        #
+        # Deliberately best-checkpoint selection and NOT early stopping. Early
+        # stopping needs a patience that is meaningful relative to `epochs`, and at
+        # this engine's default of 5 there is no such value; best-checkpoint uses
+        # every epoch the scientist asked for and keeps the best one. Early stopping
+        # is a compute saving, not a correctness fix, and can be added later behind
+        # its own condition.
+        class _KeepBestByValidationLoss(Callback):
+            """Holds the weights of the lowest-`val_loss` epoch, in memory.
+
+            Lightning's own `ModelCheckpoint` would do this by writing every
+            candidate to disk and reading the winner back; the weights are already
+            in memory and the only thing needed is a copy of them, so this skips
+            the filesystem round-trip and the temporary directory that would have
+            to outlive `fit` to make it work.
+
+            `val_loss` is what chemprop's `MPNN` logs (see its `validation_step`),
+            and it is absent when there is no validation dataloader -- in which case
+            nothing is ever recorded and the caller keeps the final epoch.
+            """
+
+            def __init__(self) -> None:
+                self.best_loss = float("inf")
+                self.best_state: dict[str, Any] | None = None
+
+            def on_validation_epoch_end(self, trainer: Any, module: Any) -> None:
+                # Lightning runs a sanity-check validation pass BEFORE training,
+                # and it fires this hook with a perfectly valid `val_loss`
+                # measured on the untrained model (verified: the hook is called
+                # with `sanity_checking=True` at epoch 0 before any optimisation
+                # step). Without this guard those random weights are recorded as
+                # the best epoch, and any run where no real epoch beats them
+                # ships an untrained model with an honest-looking scorecard.
+                if trainer.sanity_checking:
+                    return
+                loss = trainer.callback_metrics.get("val_loss")
+                if loss is None:
+                    return
+                value = float(loss)
+                if value < self.best_loss:
+                    self.best_loss = value
+                    # Detached clones: the live tensors keep training after this.
+                    self.best_state = {
+                        key: tensor.detach().clone() for key, tensor in module.state_dict().items()
+                    }
+
+        selects_best_epoch = len(validation_set) > 0
+        keep_best = _KeepBestByValidationLoss()
+        callbacks: list[Any] = [LambdaCallback(on_train_epoch_end=_report_epoch)]
+        if selects_best_epoch:
+            callbacks.append(keep_best)
+
         trainer = lightning.Trainer(
             accelerator="auto",
             devices=1,
@@ -310,7 +368,7 @@ class ChempropDMPNN:
             # The interruption point. `report` may raise RunInterrupted, which
             # propagates out of `fit` and out of `train` -- the only way to stop work
             # already running on the worker thread.
-            callbacks=[LambdaCallback(on_train_epoch_end=_report_epoch)],
+            callbacks=callbacks,
         )
         trainer.fit(
             model,
@@ -323,27 +381,48 @@ class ChempropDMPNN:
             else None,
         )
 
-        predicted = _forward(trainer, model, test_set)
-        actual = test_rows[ctx.target_column].to_numpy()
-        if is_classification:
-            metrics = classification_metrics(
-                actual,
-                (predicted >= 0.5).astype(float),
-                predicted,
-                train_has_both_classes=train_rows[ctx.target_column].n_unique() >= 2,
-            )
-        else:
-            metrics = regression_metrics(actual, predicted)
+        # Restore the selected epoch before anything is scored or saved, so the
+        # numbers on the Scorecard and the weights in the artifact are the same
+        # model. Restoring in place matters: `trainer.save_checkpoint` below
+        # serializes the module the trainer holds, which is this object.
+        if keep_best.best_state is not None:
+            model.load_state_dict(keep_best.best_state)
+
+        train_has_both_classes = train_rows[ctx.target_column].n_unique() >= 2
+
+        def score(rows: pl.DataFrame) -> dict[str, float]:
+            # A prediction-only dataset, rebuilt from the structures rather than
+            # reusing `validation_set`: for a regression task that set's targets were
+            # scaled in place by `normalize_targets`, while `_forward` returns
+            # predictions already unscaled. Scoring the two against each other would
+            # compare a real value to a standardized one.
+            dataset = MoleculeDataset(_datapoints(rows[ctx.structure_column].to_list()))
+            values = _forward(trainer, model, dataset)
+            truth = rows[ctx.target_column].to_numpy()
+            if is_classification:
+                return classification_metrics(
+                    truth,
+                    (values >= 0.5).astype(float),
+                    values,
+                    train_has_both_classes=train_has_both_classes,
+                )
+            return regression_metrics(truth, values)
+
+        metrics = score(test_rows)
+        validation_metrics = score(validation_rows) if validation_rows.height > 0 else None
 
         # Lightning writes checkpoints to a path, so this round-trips through the
         # filesystem. `tempfile` honours TMPDIR, which is how a deployment points
-        # scratch at a fast local NVMe without a setting of our own.
+        # scratch at a fast local NVMe without a setting of our own. The weights
+        # serialized here are the restored best epoch's, not the last one's.
         with tempfile.TemporaryDirectory() as scratch:
             checkpoint = Path(scratch) / "model.ckpt"
             trainer.save_checkpoint(checkpoint)
             artifact = checkpoint.read_bytes()
 
-        return TrainResult(artifact=artifact, metrics=metrics)
+        return TrainResult(
+            artifact=artifact, metrics=metrics, validation_metrics=validation_metrics
+        )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:
         _require_chemprop()

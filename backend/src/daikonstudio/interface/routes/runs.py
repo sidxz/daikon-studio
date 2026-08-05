@@ -151,6 +151,7 @@ async def list_runs(
     auth: AuthDep,
     service: ListRunsDep,
     kind: RunKind | None = None,
+    protocol_id: uuid.UUID | None = None,
     cursor: str | None = None,
     limit: int | None = None,
 ) -> PaginatedResponse[RunResponse]:
@@ -159,7 +160,10 @@ async def list_runs(
     # `limit` is clamped inside the use case, not here: a worker calling it
     # directly must get the same ceiling as an HTTP caller.
     page = result_to_response(
-        await service(ListRunsQuery(kind=kind, cursor=cursor, limit=limit), auth=auth)
+        await service(
+            ListRunsQuery(kind=kind, protocol_id=protocol_id, cursor=cursor, limit=limit),
+            auth=auth,
+        )
     )
     return PaginatedResponse(
         items=[RunResponse.from_domain(run) for run in page.items],

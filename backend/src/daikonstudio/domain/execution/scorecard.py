@@ -46,6 +46,73 @@ class WorstRow:
 
 
 @dataclass(frozen=True, kw_only=True)
+class ParityPoint:
+    """One test compound's measured value against its predicted one.
+
+    The whole test set, not the worst twenty: a scatter of every point is the
+    only view that shows *regression to the mean* -- a model that predicts
+    everything near the dataset average, scores a respectable R^2, and is
+    useless for ranking compounds. No aggregate metric on this card can express
+    that, and the twenty worst residuals actively hide it.
+
+    `similarity` is the compound's own nearest-neighbour Tanimoto to the
+    training set, carried per point so the scatter can be coloured by it: the
+    claim "errors grow as compounds get less like the training set" becomes
+    visible rather than asserted. `None` when the training set was empty.
+    """
+
+    actual: float
+    predicted: float
+    similarity: float | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class Bin:
+    """A half-open interval and what was measured in it.
+
+    `count` is not decoration: a bin holding three compounds and a bin holding
+    three hundred are drawn the same width, and without the count a reader has
+    no way to tell a trend from a coincidence.
+    """
+
+    lower: float
+    upper: float
+    count: int
+    value: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class Histogram:
+    """`edges` is one longer than `counts`.
+
+    Deliberately a second definition of the same shape that lives in
+    `domain/data/profile.py`, not a shared import: `domain.execution` may not
+    import `domain.data` (the bounded-context independence contract that already
+    forces `split_strategy` to be a bare `str` here rather than the `SplitStrategy`
+    enum). Six lines duplicated is the price of that contract, and it is the
+    contract's own answer, not an oversight.
+    """
+
+    edges: list[float]
+    counts: list[int]
+
+
+@dataclass(frozen=True, kw_only=True)
+class ScaffoldError:
+    """How the model does on one Murcko scaffold family.
+
+    The systematic version of `worst_rows`: twenty bad predictions grouped by
+    scaffold say "these twenty were bad", while a median error per family across
+    the whole test set says "it is worse on the sulfonamides than on anything
+    else", which is a statement a chemist can act on.
+    """
+
+    scaffold: str
+    count: int
+    median_error: float
+
+
+@dataclass(frozen=True, kw_only=True)
 class Scorecard:
     """The head-to-head: this model, the mandatory baseline, and where it fails.
 
@@ -105,6 +172,15 @@ class Scorecard:
     primary_metric: str
     prediction_kind: str
     metrics: dict[str, float | None]
+    #: The same engine scored on the validation partition. This is the number a
+    #: scientist is meant to tune conditions against; `metrics` is the one they
+    #: are judged by. Keeping both visible, and saying which is which, is what
+    #: stops the test partition from being consumed one retrain at a time --
+    #: before this existed the test score was the only feedback available, so
+    #: every hyperparameter decision was made by looking at it. `None` when the
+    #: split declared no validation partition, or when the run predates the
+    #: measurement.
+    validation_metrics: dict[str, float | None] | None
     metrics_undefined: dict[str, str] | None
     engine_id: str
     conditions: dict[str, Any]
@@ -121,3 +197,31 @@ class Scorecard:
     target_unit: str | None
     target_direction: str | None
     split_strategy: str
+
+    # --- Diagnostics -------------------------------------------------------
+    # Everything below is derived from the same `actual`/`predicted`/
+    # `structures` the fields above are derived from -- nothing new is measured
+    # and nothing extra is persisted. They exist because the summary above
+    # answers "how good is this number" and a scientist deciding whether to run
+    # a model needs "where, and on what, is it wrong".
+
+    #: Every test compound, subsampled if there are more than the cap.
+    parity: list[ParityPoint]
+    #: The population `parity` was drawn from, when it was subsampled; `None`
+    #: when every test compound is present. A scatter that silently drops half
+    #: its points reads as the whole test set, so the drop is stated.
+    parity_sampled_from: int | None
+    #: Signed `predicted - actual`, regression only. Centred away from zero is
+    #: bias -- a model that is uniformly optimistic, which RMSE cannot show.
+    residual_histogram: Histogram | None
+    #: Mean absolute error against nearest-neighbour Tanimoto, in equal-count
+    #: bins. This is what turns `applicability_coverage` from an assertion into
+    #: evidence: if error does not rise as similarity falls, the applicability
+    #: domain is not buying this model anything and a reader should know.
+    error_by_similarity: list[Bin]
+    #: Median absolute error per scaffold family, worst first.
+    scaffold_errors: list[ScaffoldError]
+    #: Predicted probability against observed positive rate, classification
+    #: only. A model can rank compounds well and still be badly calibrated, and
+    #: a probability that is not calibrated must not be read as one.
+    calibration: list[Bin]

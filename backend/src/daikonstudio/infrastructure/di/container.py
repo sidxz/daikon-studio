@@ -19,6 +19,8 @@ from daikonstudio.application.data.create_collection import CreateCollection, Ge
 from daikonstudio.application.data.create_dataset import CreateDataset, StoreUpload
 from daikonstudio.application.data.export_collection import ExportCollection
 from daikonstudio.application.data.get_dataset import GetDataset
+from daikonstudio.application.data.get_dataset_compounds import GetDatasetCompounds
+from daikonstudio.application.data.get_dataset_profile import GetDatasetProfile
 from daikonstudio.application.data.list_collections import ListCollections
 from daikonstudio.application.data.list_datasets import ListDatasets
 from daikonstudio.application.engines.registry import EngineRegistry
@@ -98,6 +100,13 @@ def create_container(settings: Settings | None = None) -> Container:
     )
     container.define(GetDataset, lambda c: GetDataset(_datasets(c)))
     container.define(ListDatasets, lambda c: ListDatasets(_datasets(c)))
+    container.define(
+        GetDatasetProfile,
+        lambda c: GetDatasetProfile(_datasets(c), c[BlobStore], c[StructureNormalizer]),
+    )
+    container.define(
+        GetDatasetCompounds, lambda c: GetDatasetCompounds(_datasets(c), c[BlobStore])
+    )
 
     # Only the ArqEnqueuer branch is safe to cache as a Singleton: it depends
     # solely on `resolved.redis_url`, fixed at container-build time, so its

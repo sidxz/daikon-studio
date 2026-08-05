@@ -78,6 +78,7 @@ class GetScorecard:
                 build_scorecard,
                 task=TaskType(inputs.task),
                 metrics=inputs.metrics,
+                validation_metrics=inputs.validation_metrics,
                 engine_id=inputs.engine_id,
                 conditions=inputs.conditions,
                 baseline_engine_id=inputs.baseline_engine_id,

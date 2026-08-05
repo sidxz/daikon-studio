@@ -20,6 +20,7 @@ import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useState } from "react";
 import { useProtocol, usePublishProtocol, useScorecard } from "../hooks/use-protocols";
+import { ProtocolRuns } from "./protocol-runs";
 import { ScorecardView } from "./scorecard-view";
 
 export function ProtocolDetail({ protocolId }: { protocolId: string }) {
@@ -114,6 +115,8 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
 
       {scorecard.isLoading && <Skeleton className="h-64 w-full" />}
       {scorecard.data && <ScorecardView scorecard={scorecard.data} />}
+
+      <ProtocolRuns protocolId={protocol.id} />
 
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>

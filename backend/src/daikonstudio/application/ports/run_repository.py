@@ -43,6 +43,7 @@ class RunRepository(Protocol):
         workspace_id: UUID,
         *,
         kind: RunKind | None = None,
+        protocol_id: UUID | None = None,
         cursor: tuple[datetime, UUID] | None = None,
         limit: int = 50,
     ) -> list[Run]: ...

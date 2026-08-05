@@ -25,8 +25,11 @@ import type {
 
 import type {
   BodyUploadDatasetFileApiV1DatasetsUploadsPost,
+  CompoundPageResponse,
   CreateDatasetBody,
+  DatasetProfileResponse,
   DatasetResponse,
+  GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams,
   HTTPValidationError,
   ListDatasetsApiV1DatasetsGetParams,
   PaginatedResponseDatasetResponse,
@@ -342,6 +345,204 @@ export function useGetDatasetApiV1DatasetsDatasetIdGet<TData = Awaited<ReturnTyp
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetDatasetApiV1DatasetsDatasetIdGetQueryOptions(datasetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
+ * Computed on the first request for a Dataset and cached beside its
+snapshot, so this can take seconds once and is immediate afterwards. See
+`application/data/get_dataset_profile.py` for why it is not written at
+freeze time.
+ * @summary Get Dataset Profile
+ */
+export const getDatasetProfileApiV1DatasetsDatasetIdProfileGet = (
+    datasetId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<DatasetProfileResponse>(
+      {url: `/api/v1/datasets/${datasetId}/profile`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetDatasetProfileApiV1DatasetsDatasetIdProfileGetQueryKey = (datasetId?: string,) => {
+    return [
+    `/api/v1/datasets/${datasetId}/profile`
+    ] as const;
+    }
+
+    
+export const getGetDatasetProfileApiV1DatasetsDatasetIdProfileGetQueryOptions = <TData = Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError = HTTPValidationError>(datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDatasetProfileApiV1DatasetsDatasetIdProfileGetQueryKey(datasetId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>> = ({ signal }) => getDatasetProfileApiV1DatasetsDatasetIdProfileGet(datasetId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(datasetId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetDatasetProfileApiV1DatasetsDatasetIdProfileGetQueryResult = NonNullable<Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>>
+export type GetDatasetProfileApiV1DatasetsDatasetIdProfileGetQueryError = HTTPValidationError
+
+
+export function useGetDatasetProfileApiV1DatasetsDatasetIdProfileGet<TData = Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError = HTTPValidationError>(
+ datasetId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetProfileApiV1DatasetsDatasetIdProfileGet<TData = Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetProfileApiV1DatasetsDatasetIdProfileGet<TData = Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Dataset Profile
+ */
+
+export function useGetDatasetProfileApiV1DatasetsDatasetIdProfileGet<TData = Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetProfileApiV1DatasetsDatasetIdProfileGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetDatasetProfileApiV1DatasetsDatasetIdProfileGetQueryOptions(datasetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
+ * `sort` and `split` are Literals, so FastAPI rejects anything else itself
+-- there is no column name here a client could reach the frame with.
+ * @summary Get Dataset Compounds
+ */
+export const getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet = (
+    datasetId: string,
+    params?: GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<CompoundPageResponse>(
+      {url: `/api/v1/datasets/${datasetId}/compounds`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetQueryKey = (datasetId?: string,
+    params?: GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams,) => {
+    return [
+    `/api/v1/datasets/${datasetId}/compounds`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+    
+export const getGetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetQueryOptions = <TData = Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError = HTTPValidationError>(datasetId: string,
+    params?: GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetQueryKey(datasetId,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>> = ({ signal }) => getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet(datasetId,params, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(datasetId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>>
+export type GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetQueryError = HTTPValidationError
+
+
+export function useGetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet<TData = Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError = HTTPValidationError>(
+ datasetId: string,
+    params: undefined |  GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet<TData = Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError = HTTPValidationError>(
+ datasetId: string,
+    params?: GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet<TData = Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError = HTTPValidationError>(
+ datasetId: string,
+    params?: GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Dataset Compounds
+ */
+
+export function useGetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet<TData = Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError = HTTPValidationError>(
+ datasetId: string,
+    params?: GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetQueryOptions(datasetId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

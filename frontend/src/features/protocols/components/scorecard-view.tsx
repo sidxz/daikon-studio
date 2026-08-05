@@ -8,6 +8,7 @@ import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
 import { computeOptimismGap, computeVerdict, describeBaseline } from "../lib/verdict";
 import { metricLabel } from "../types";
+import { ScorecardDiagnostics, SplitComparison } from "./scorecard-diagnostics";
 
 function HonestyStat({
   label,
@@ -118,6 +119,16 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
   return (
     <div className={cn("rounded-lg border p-5", tone)}>
       <p className="text-lg font-semibold">{verdict.headline}</p>
+      {/* Which split produced these numbers -- `scorecard.py`'s own docstring
+          calls this "the single most important fact about how flattering a
+          number is allowed to be", and it was on the wire and unrendered. It
+          goes directly under the headline because it qualifies the headline. */}
+      <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
+        scored on a {scorecard.split_strategy} split
+        {scorecard.split_strategy === "random"
+          ? " — close analogues of training compounds are in the test set, so this reads high"
+          : " — test compounds have ring systems the model never trained on"}
+      </p>
 
       {verdict.kind === "is-baseline" ? (
         <p className="mt-2 text-sm text-muted-foreground">
@@ -181,6 +192,7 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
 function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
   const metrics = (scorecard.metrics ?? {}) as Record<string, number | null>;
   const baseline = (scorecard.baseline_metrics ?? {}) as Record<string, number | null>;
+  const validation = scorecard.validation_metrics as Record<string, number | null> | null;
   const undefinedReasons = (scorecard.metrics_undefined ?? {}) as Record<string, string>;
   const names = Object.keys(metrics);
 
@@ -188,13 +200,40 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
     <Card>
       <CardHeader>
         <CardTitle className="text-base">All metrics</CardTitle>
+        {/* The validation column is not decoration, it is the point. Every number
+            under "test" is spent the moment it is used to choose between two sets
+            of conditions -- so the page has to offer somewhere else to look, and
+            say plainly which one is which. */}
+        {validation ? (
+          <p className="text-sm text-muted-foreground">
+            Tune conditions against the <span className="font-medium">validation</span> column. The
+            test column is the verdict: every time you retrain and read it, it becomes a little less
+            of a held-out set, and the number it reports drifts upward for reasons that have nothing
+            to do with the model.
+          </p>
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            This run has no validation score — its split declared no validation partition, or it was
+            trained before validation was measured. There is nothing here to tune against except the
+            test column, which is the situation to avoid.
+          </p>
+        )}
       </CardHeader>
       <CardContent>
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="pb-2 pr-4 font-medium">Metric</th>
-              <th className="pb-2 pr-4 font-medium">This model</th>
+              {validation && (
+                <th className="pb-2 pr-4 font-medium">
+                  Validation
+                  <span className="ml-1 normal-case text-[10px]">tune here</span>
+                </th>
+              )}
+              <th className="pb-2 pr-4 font-medium">
+                Test
+                <span className="ml-1 normal-case text-[10px]">the verdict</span>
+              </th>
               <th className="pb-2 font-medium">{scorecard.baseline_is_self ? "" : "Baseline"}</th>
             </tr>
           </thead>
@@ -213,6 +252,11 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
                       </span>
                     )}
                   </td>
+                  {validation && (
+                    <td className="py-2 pr-4">
+                      <ReadoutValue value={validation[name]} />
+                    </td>
+                  )}
                   <td className="py-2 pr-4">
                     {value == null && reason ? (
                       // Never a bare blank where a number belongs. The reason is
@@ -299,6 +343,26 @@ function WorstRows({ scorecard }: { scorecard: ScorecardResponse }) {
                         <ReadoutValue value={Math.abs(row.residual)} precision={2} />
                       </dd>
                     </div>
+                    {/* `WorstRow.similarity` exists, per its own docstring, "so
+                        the triage grid can flag individual out-of-distribution
+                        compounds" -- and nothing read it. A bad prediction on a
+                        compound unlike anything trained on is a different
+                        finding from a bad prediction on a familiar one. */}
+                    {row.similarity != null && (
+                      <div className="flex justify-between gap-2">
+                        <dt className="text-muted-foreground">nearest train</dt>
+                        <dd
+                          className={
+                            row.similarity < 0.3 ? "font-medium text-warning" : "tabular-nums"
+                          }
+                        >
+                          {row.similarity.toFixed(2)}
+                          {row.similarity < 0.3 && (
+                            <span className="ml-1 text-[10px] uppercase">out of domain</span>
+                          )}
+                        </dd>
+                      </div>
+                    )}
                   </dl>
                 </div>
               ))}
@@ -314,12 +378,75 @@ export function ScorecardView({ scorecard }: { scorecard: ScorecardResponse }) {
   return (
     <div className="space-y-4">
       <VerdictBand scorecard={scorecard} />
+      {/* The parity plot sits directly under the verdict because it is the one
+          view that can contradict it: a model can beat its baseline and still
+          be predicting the dataset mean, and only the scatter shows that. */}
+      <ScorecardDiagnostics scorecard={scorecard} />
       {/* Before the metric table: the ESOL run's most actionable finding was
           that 8 of its 20 worst predictions had no ring system at all. An
           aggregate cannot say that, and a table of aggregates should not
           outrank it. */}
       <WorstRows scorecard={scorecard} />
+      <SplitComparison scorecard={scorecard} />
       <MetricTable scorecard={scorecard} />
+      <Conditions scorecard={scorecard} />
     </div>
   );
+}
+
+/**
+ * The hyperparameters that produced this model, and the baseline's.
+ *
+ * Persisted on the Protocol since it was first written and never displayed,
+ * which made a published Protocol less reproducible than the data behind it
+ * already was.
+ */
+function Conditions({ scorecard }: { scorecard: ScorecardResponse }) {
+  const conditions = (scorecard.conditions ?? {}) as Record<string, unknown>;
+  const baseline = (scorecard.baseline_conditions ?? {}) as Record<string, unknown>;
+  const names = [...new Set([...Object.keys(conditions), ...Object.keys(baseline)])].sort();
+  if (names.length === 0) return null;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">How it was trained</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          The resolved settings behind these numbers. Reproducing this Protocol means this engine,
+          these conditions, and the Dataset it cites.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="pb-2 pr-4 font-medium">Setting</th>
+              <th className="pb-2 pr-4 font-medium">{scorecard.engine_id}</th>
+              <th className="pb-2 font-medium">
+                {scorecard.baseline_is_self ? "" : scorecard.baseline_engine_id}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {names.map((name) => (
+              <tr key={name} className="border-b last:border-0">
+                <td className="py-2 pr-4 font-mono text-xs">{name}</td>
+                <td className="py-2 pr-4 tabular-nums">{format(conditions[name])}</td>
+                <td className="py-2 tabular-nums text-muted-foreground">
+                  {scorecard.baseline_is_self ? "—" : format(baseline[name])}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+    </Card>
+  );
+}
+
+function format(value: unknown): string {
+  if (value == null) return "—";
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
 }

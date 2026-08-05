@@ -82,6 +82,7 @@ async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
             primary_metric="rmse",
             prediction_kind="value",
             metrics={},
+            validation_metrics=None,
             metrics_undefined=None,
             engine_id="ecfp4-randomforest",
             conditions={},
@@ -98,6 +99,12 @@ async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
             target_unit="nM",
             target_direction="low",
             split_strategy="random",
+            parity=[],
+            parity_sampled_from=None,
+            residual_histogram=None,
+            error_by_similarity=[],
+            scaffold_errors=[],
+            calibration=[],
         )
 
     monkeypatch.setattr(module, "build_scorecard", fake_build_scorecard)

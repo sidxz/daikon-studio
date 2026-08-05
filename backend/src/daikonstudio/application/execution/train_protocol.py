@@ -158,6 +158,15 @@ class ScorecardInputs:
       find no explanation there at all -- a bare, unexplained null on the exact
       number an optimism-gap comparison exists to justify.
 
+    `validation_metrics` is the chosen engine scored on the *validation*
+    partition by the identical code that produced `metrics` from the test one. It
+    is the number a scientist is meant to tune conditions against, and it exists
+    because until it did there was none: the validation split was assigned and
+    never read, so the only feedback available when choosing between two sets of
+    conditions was the test score -- and a test set consulted once per retrain is
+    no longer held out. `None` when the split declared a zero validation
+    fraction, which is a legitimate choice and not a measurement failure.
+
     `target_unit`/`target_direction` and `split_strategy` are the Dataset's own
     `TargetSpec.unit`/`.direction` and `SplitSpec.strategy.value` at the moment
     this Run trained -- carried through unchanged so `build_scorecard` (Task
@@ -174,6 +183,12 @@ class ScorecardInputs:
     task: str
     conditions: dict[str, Any]
     metrics: dict[str, float | None]
+    # Defaulted for the same reason `baseline_conditions` below is: `from_json` is
+    # `cls(**json.loads(data))`, so a required field here would make every
+    # Scorecard blob written before validation scoring existed unreadable. `None`
+    # therefore means either "this run predates the field" or "the split had no
+    # validation partition" -- both are honestly rendered as "not measured".
+    validation_metrics: dict[str, float | None] | None = None
     actual: list[float]
     predicted: list[float]
     prediction_kind: str
@@ -467,6 +482,11 @@ class RunTraining:
         protocol_id = uuid.uuid4()
         metrics, undefined = _measured(chosen.metrics)
         baseline_metrics, baseline_undefined = _measured(baseline_result.metrics)
+        validation_metrics = (
+            _measured(chosen.validation_metrics)[0]
+            if chosen.validation_metrics is not None
+            else None
+        )
         inputs = ScorecardInputs(
             protocol_id=str(protocol_id),
             run_id=str(run.id),
@@ -475,6 +495,7 @@ class RunTraining:
             task=task.value,
             conditions=conditions,
             metrics=metrics,
+            validation_metrics=validation_metrics,
             actual=[float(value) for value in test_rows[dataset.target.column].to_list()],
             predicted=[float(value) for value in predictions["value"].to_list()],
             prediction_kind=("probability" if task is TaskType.BINARY_CLASSIFICATION else "value"),

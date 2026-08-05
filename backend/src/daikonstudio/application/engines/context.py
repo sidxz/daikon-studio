@@ -64,8 +64,25 @@ class TrainContext:
 
 @dataclass(frozen=True, kw_only=True)
 class TrainResult:
+    """`metrics` are scored on the test partition; `validation_metrics` on the
+    validation one, by the identical scoring code.
+
+    The validation partition existed from the first split and, until this field,
+    no engine read it and nothing downstream reported it -- ten percent of every
+    dataset held out and spent on nothing. That is not merely wasteful, it is the
+    hole that makes model selection dishonest: with no validation number to tune
+    against, the only feedback a scientist has when choosing between two sets of
+    conditions is the *test* score, and a test set consulted once per retrain
+    stops being held out at all.
+
+    `None` means the partition was empty (a split declared with a zero validation
+    fraction), never that scoring was skipped -- an absent number and a zero are
+    different claims and only one of them is true here.
+    """
+
     artifact: bytes
     metrics: dict[str, float]
+    validation_metrics: dict[str, float] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -8,6 +8,7 @@ import type { RunKind } from './runKind';
 
 export type ListRunsApiV1RunsGetParams = {
 kind?: RunKind | null;
+protocol_id?: string | null;
 cursor?: string | null;
 limit?: number | null;
 };

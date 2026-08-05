@@ -269,3 +269,122 @@ def test_baseline_conditions_default_to_empty_for_a_scorecard_written_earlier():
     """Every existing call site omits them, including scorecards read back off
     blobs that predate the field."""
     assert regression_card().baseline_conditions == {}
+
+
+# --- Diagnostics ---------------------------------------------------------
+#
+# These are derived from the same `actual`/`predicted`/`structures` the fields
+# above are, so nothing new is measured and nothing extra is persisted. What can
+# still go wrong is a diagnostic that quietly misrepresents the population it was
+# drawn from, and that is what these cover.
+
+
+def test_parity_carries_every_test_compound_when_it_can():
+    card = regression_card()
+    assert len(card.parity) == 3
+    assert card.parity_sampled_from is None
+    assert [point.actual for point in card.parity] == [1.0, 2.0, 3.0]
+
+
+def test_a_subsampled_parity_scatter_says_that_it_was_subsampled():
+    """A scatter that silently drops points reads as the whole test set. The
+    count it was drawn from is what keeps it honest."""
+    size = 9000
+    card = regression_card(
+        actual=[float(i) for i in range(size)],
+        predicted=[float(i) + 0.1 for i in range(size)],
+        structures=["CCO"] * size,
+    )
+    assert card.parity_sampled_from == size
+    assert 0 < len(card.parity) <= 4000
+
+
+def test_residual_histogram_is_regression_only():
+    """For classification `actual` is a 0/1 label and `predicted` a probability,
+    so their difference is bimodal by construction and says nothing."""
+    assert regression_card().residual_histogram is not None
+    card = build_scorecard(
+        task=TaskType.BINARY_CLASSIFICATION,
+        metrics={"mcc": 0.5},
+        engine_id="ecfp4-randomforest",
+        conditions={},
+        baseline_engine_id="ecfp4-randomforest",
+        baseline_metrics={"mcc": 0.1},
+        baseline_is_self=False,
+        actual=[1.0, 0.0, 1.0, 0.0],
+        predicted=[0.9, 0.2, 0.7, 0.1],
+        structures=["CCO", "CCN", "CCCO", "CCCN"],
+        train_structures=["CCO"],
+        normalizer=NORMALIZER,
+        target_unit=None,
+        target_direction=None,
+        split_strategy="random",
+    )
+    assert card.residual_histogram is None
+    assert card.calibration, "classification gets a calibration curve instead"
+    assert all(0.0 <= entry.value <= 1.0 for entry in card.calibration)
+    assert all(entry.count > 0 for entry in card.calibration)
+
+
+def test_residual_histogram_edges_are_one_longer_than_its_counts():
+    histogram = regression_card().residual_histogram
+    assert histogram is not None
+    assert len(histogram.edges) == len(histogram.counts) + 1
+    assert sum(histogram.counts) == 3
+
+
+def test_error_by_similarity_needs_enough_rows_to_be_a_curve():
+    """Eight bins over three compounds is not a trend, it is eight noisy points
+    with a line through them."""
+    assert regression_card().error_by_similarity == []
+
+
+def test_error_by_similarity_bins_by_equal_count_and_rises_with_distance():
+    """The claim the applicability number makes, turned into evidence: error
+    should grow as compounds get less like the training set."""
+    # Twenty analogues of a training compound predicted well, twenty unrelated
+    # compounds predicted badly.
+    near = ["CCO", "CCCO", "CCCCO", "CCCCCO"] * 5
+    far = ["c1ccc2ccccc2c1", "c1ccc2c(c1)ccc1ccccc12", "C1CCCCC1", "c1ccncc1"] * 5
+    card = regression_card(
+        actual=[1.0] * 40,
+        predicted=[1.05] * 20 + [4.0] * 20,
+        structures=near + far,
+        train_structures=["CCO", "CCCO"],
+    )
+    bins = card.error_by_similarity
+    assert len(bins) == 8
+    assert sum(entry.count for entry in bins) == 40
+    # Bins are ordered by rising similarity, so the far compounds -- the badly
+    # predicted ones -- are at the low-similarity end.
+    assert bins[0].value > bins[-1].value
+
+
+def test_scaffold_errors_need_two_families_to_be_a_comparison():
+    """This section exists only to say which families are worse than which; one
+    family cannot answer that."""
+    card = regression_card(
+        actual=[1.0] * 6,
+        predicted=[2.0] * 6,
+        structures=["c1ccccc1C", "c1ccccc1CC", "c1ccccc1CCC"] * 2,
+    )
+    assert card.scaffold_errors == []
+
+
+def test_scaffold_errors_rank_the_worst_family_first():
+    benzenes = ["c1ccccc1C", "c1ccccc1CC", "c1ccccc1CCC"]
+    pyridines = ["c1ccncc1C", "c1ccncc1CC", "c1ccncc1CCC"]
+    card = regression_card(
+        actual=[1.0] * 6,
+        # The benzenes are off by 3.0, the pyridines by 0.1.
+        predicted=[4.0, 4.0, 4.0, 1.1, 1.1, 1.1],
+        structures=benzenes + pyridines,
+    )
+    assert len(card.scaffold_errors) == 2
+    worst, best = card.scaffold_errors
+    assert worst.median_error > best.median_error
+    assert worst.count == 3
+    # Named, not just ranked: the whole value of this section is that a chemist
+    # can read "it is worse on the benzenes" off it.
+    assert worst.scaffold == NORMALIZER.murcko_scaffold("c1ccccc1C")
+    assert best.scaffold == NORMALIZER.murcko_scaffold("c1ccncc1C")

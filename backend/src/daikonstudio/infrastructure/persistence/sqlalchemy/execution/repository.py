@@ -165,6 +165,7 @@ class SqlAlchemyRunRepository:
         workspace_id: uuid.UUID,
         *,
         kind: RunKind | None = None,
+        protocol_id: uuid.UUID | None = None,
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
     ) -> list[Run]:
@@ -175,6 +176,10 @@ class SqlAlchemyRunRepository:
         )
         if kind is not None:
             statement = statement.where(RunModel.kind == kind.value)
+        if protocol_id is not None:
+            # Served by `ix_runs_workspace_protocol_id`, created by migration 007
+            # for exactly this query and unused until now.
+            statement = statement.where(RunModel.protocol_id == protocol_id)
         if cursor is not None:
             statement = statement.where(tuple_(RunModel.created_at, RunModel.id) < cursor)
         async with self._sessions() as session:

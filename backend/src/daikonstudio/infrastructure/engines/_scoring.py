@@ -133,6 +133,24 @@ def _score(
     )
 
 
+def _score_validation(
+    model: Any, ctx: TrainContext, is_classification: bool
+) -> dict[str, float] | None:
+    """The same `_score`, pointed at the validation partition.
+
+    Identical code to the test scoring on purpose: a validation number a scientist
+    is asked to tune against has to be the same measurement as the one they will
+    eventually be judged by, or tuning against it optimizes the wrong thing.
+
+    `None` when the partition is empty, which a split with a zero validation
+    fraction produces legitimately.
+    """
+    validation_rows = ctx.frame.filter(pl.col("split") == "validation")
+    if validation_rows.height == 0:
+        return None
+    return _score(model, validation_rows, ctx, is_classification)
+
+
 def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
     """Returns row_id (int), value (float), uncertainty (float | null).
 

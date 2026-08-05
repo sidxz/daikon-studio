@@ -16,8 +16,13 @@ export const METRIC_LABELS: Record<string, string> = {
   pearson: "Pearson r",
   mcc: "MCC",
   balanced_accuracy: "Balanced accuracy",
-  roc_auc: "ROC AUC",
-  pr_auc: "PR AUC",
+  // The keys `infrastructure/engines/_scoring.py` actually emits. This map
+  // previously said `roc_auc`/`pr_auc`, which no backend metric is called, so
+  // every classification scorecard rendered the raw keys instead of these
+  // labels. `metricLabel`'s fallback made it a cosmetic bug rather than a
+  // crash, which is exactly why it survived.
+  auroc: "ROC AUC",
+  auprc: "PR AUC",
   f1: "F1",
   precision: "Precision",
   recall: "Recall",

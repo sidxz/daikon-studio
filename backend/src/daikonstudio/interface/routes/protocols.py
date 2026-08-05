@@ -171,6 +171,45 @@ class WorstRowResponse(BaseModel):
         )
 
 
+class ParityPointResponse(BaseModel):
+    actual: float
+    predicted: float
+    similarity: float | None
+
+
+class BinResponse(BaseModel):
+    """A half-open interval, how many rows fell in it, and what was measured.
+
+    `value` is mean absolute error in `error_by_similarity` and observed
+    positive rate in `calibration` -- the owning field says which, the same way
+    `prediction_kind` says what `worst_rows.residual` means.
+    """
+
+    lower: float
+    upper: float
+    count: int
+    value: float
+
+
+class ResidualHistogramResponse(BaseModel):
+    """`edges` is one longer than `counts`.
+
+    Named for what it holds rather than for its shape, because `datasets.py`
+    also declares a `HistogramResponse` and two identically-named schemas in one
+    OpenAPI document generate a client with both of them renamed to their fully
+    qualified module paths.
+    """
+
+    edges: list[float]
+    counts: list[int]
+
+
+class ScaffoldErrorResponse(BaseModel):
+    scaffold: str
+    count: int
+    median_error: float
+
+
 class ScorecardResponse(BaseModel):
     """Every field here is load-bearing for honest rendering -- see
     `domain/execution/scorecard.py`'s docstring for what each one means and
@@ -197,6 +236,9 @@ class ScorecardResponse(BaseModel):
     primary_metric: str
     prediction_kind: str
     metrics: dict[str, float | None]
+    # Tune against this; `metrics` is the verdict. `null` when the split declared
+    # no validation partition or the run predates the measurement.
+    validation_metrics: dict[str, float | None] | None
     metrics_undefined: dict[str, str] | None
     engine_id: str
     conditions: dict[str, Any]
@@ -213,6 +255,15 @@ class ScorecardResponse(BaseModel):
     unit: str | None
     direction: str | None
     split_strategy: str
+    # Diagnostics -- see `domain/execution/scorecard.py` for what each answers.
+    # `residual_histogram` is regression-only and `calibration` is
+    # classification-only; branch on `prediction_kind`, not on emptiness.
+    parity: list[ParityPointResponse]
+    parity_sampled_from: int | None
+    residual_histogram: ResidualHistogramResponse | None
+    error_by_similarity: list[BinResponse]
+    scaffold_errors: list[ScaffoldErrorResponse]
+    calibration: list[BinResponse]
 
     @classmethod
     def from_domain(cls, card: Scorecard) -> ScorecardResponse:
@@ -220,6 +271,7 @@ class ScorecardResponse(BaseModel):
             primary_metric=card.primary_metric,
             prediction_kind=card.prediction_kind,
             metrics=card.metrics,
+            validation_metrics=card.validation_metrics,
             metrics_undefined=card.metrics_undefined,
             engine_id=card.engine_id,
             conditions=card.conditions,
@@ -236,6 +288,34 @@ class ScorecardResponse(BaseModel):
             unit=card.target_unit,
             direction=card.target_direction,
             split_strategy=card.split_strategy,
+            parity=[
+                ParityPointResponse(
+                    actual=point.actual, predicted=point.predicted, similarity=point.similarity
+                )
+                for point in card.parity
+            ],
+            parity_sampled_from=card.parity_sampled_from,
+            residual_histogram=(
+                ResidualHistogramResponse(
+                    edges=card.residual_histogram.edges, counts=card.residual_histogram.counts
+                )
+                if card.residual_histogram
+                else None
+            ),
+            error_by_similarity=[
+                BinResponse(lower=item.lower, upper=item.upper, count=item.count, value=item.value)
+                for item in card.error_by_similarity
+            ],
+            scaffold_errors=[
+                ScaffoldErrorResponse(
+                    scaffold=item.scaffold, count=item.count, median_error=item.median_error
+                )
+                for item in card.scaffold_errors
+            ],
+            calibration=[
+                BinResponse(lower=item.lower, upper=item.upper, count=item.count, value=item.value)
+                for item in card.calibration
+            ],
         )
 
 

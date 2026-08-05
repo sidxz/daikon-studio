@@ -73,3 +73,94 @@ def test_a_single_class_training_split_makes_every_metric_undefined() -> None:
     )
 
     assert all(math.isnan(value) for value in metrics.values())
+
+
+# --- The validation partition ------------------------------------------------
+#
+# It was assigned by every split from the beginning and read by nothing: both
+# fingerprint engines ignored it outright, and chemprop computed a validation loss
+# each epoch that no callback consumed. Ten percent of every dataset held out and
+# spent on nothing -- and, worse, no number for a scientist to tune conditions
+# against except the test score, which is what turns a held-out test set into a
+# selection set one retrain at a time. These pin the fix.
+
+
+def _frame_with_validation():
+    import polars as pl
+
+    # Distinct structures per partition so a leak would be visible, and enough of
+    # each class in every partition that no metric is undefined.
+    actives = ["CCO", "CCCO", "CCCCO", "CCCCCO", "CCN", "CCCN", "CCCCN", "CCCCCN"]
+    inactives = ["c1ccccc1", "c1ccccc1C", "c1ccccc1CC", "c1ccncc1", "C1CCCCC1"]
+    structures = actives + inactives
+    labels = [1.0] * len(actives) + [0.0] * len(inactives)
+    splits = (
+        ["train"] * 5
+        + ["validation"] * 2
+        + ["test"] * 1
+        + ["train"] * 3
+        + ["validation"] * 1
+        + ["test"] * 1
+    )
+    return pl.DataFrame({"smiles": structures, "y": labels, "split": splits})
+
+
+def _train(frame, engine=None):
+    from daikonstudio.application.engines.context import TrainContext
+    from daikonstudio.application.engines.manifest import TaskType
+    from daikonstudio.infrastructure.engines.ecfp4_randomforest import Ecfp4RandomForest
+
+    return (engine or Ecfp4RandomForest()).train(
+        TrainContext(
+            frame=frame,
+            task=TaskType.BINARY_CLASSIFICATION,
+            structure_column="smiles",
+            target_column="y",
+            conditions={"n_estimators": 50},
+            seed=42,
+        )
+    )
+
+
+def test_the_validation_partition_is_actually_scored():
+    """It is the number a scientist is supposed to tune against. If it is absent
+    the only feedback available is the test score, which is the whole problem."""
+    result = _train(_frame_with_validation())
+    assert result.validation_metrics is not None
+    # The same vocabulary as the test metrics, from the same scoring code -- a
+    # validation number measured differently would optimise the wrong thing.
+    assert set(result.validation_metrics) == set(result.metrics)
+
+
+def test_validation_metrics_are_scored_on_validation_not_test():
+    """The two partitions hold different compounds, so a scoring pass pointed at
+    the wrong one is silent -- both dicts would simply be identical."""
+    import polars as pl
+
+    frame = _frame_with_validation()
+    # Make the validation rows unmistakably different from the test rows: flip
+    # every validation label, so a model fit on train cannot score the same on both.
+    flipped = frame.with_columns(
+        pl.when(pl.col("split") == "validation")
+        .then(1.0 - pl.col("y"))
+        .otherwise(pl.col("y"))
+        .alias("y")
+    )
+    result = _train(flipped)
+    assert result.validation_metrics is not None
+    assert result.validation_metrics != result.metrics
+
+
+def test_an_empty_validation_partition_reports_none_not_zero():
+    """A split declared with a zero validation fraction is a legitimate choice.
+    Reporting 0.0 there would render as a measured, catastrophically bad score."""
+    import polars as pl
+
+    frame = _frame_with_validation()
+    no_validation = frame.with_columns(
+        pl.when(pl.col("split") == "validation")
+        .then(pl.lit("train"))
+        .otherwise(pl.col("split"))
+        .alias("split")
+    )
+    assert _train(no_validation).validation_metrics is None

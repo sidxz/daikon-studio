@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, UploadFile
 from pydantic import BaseModel, ConfigDict, Field
@@ -27,8 +27,19 @@ from daikonstudio.application.data.create_dataset import (
     StoreUpload,
 )
 from daikonstudio.application.data.get_dataset import GetDataset, GetDatasetQuery
+from daikonstudio.application.data.get_dataset_compounds import (
+    Compound,
+    CompoundPage,
+    GetDatasetCompounds,
+    GetDatasetCompoundsQuery,
+)
+from daikonstudio.application.data.get_dataset_profile import (
+    GetDatasetProfile,
+    GetDatasetProfileQuery,
+)
 from daikonstudio.application.data.list_datasets import ListDatasets, ListDatasetsQuery
 from daikonstudio.domain.data.dataset import Dataset
+from daikonstudio.domain.data.profile import DatasetProfile, profile_to_dict
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy, split_to_dict
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec, target_to_dict
 from daikonstudio.domain.data.validation import report_to_dict
@@ -49,6 +60,8 @@ StoreUploadDep = Annotated[StoreUpload, Depends(use_case(StoreUpload))]
 CreateDatasetDep = Annotated[CreateDataset, Depends(use_case(CreateDataset))]
 GetDatasetDep = Annotated[GetDataset, Depends(use_case(GetDataset))]
 ListDatasetsDep = Annotated[ListDatasets, Depends(use_case(ListDatasets))]
+GetDatasetProfileDep = Annotated[GetDatasetProfile, Depends(use_case(GetDatasetProfile))]
+GetDatasetCompoundsDep = Annotated[GetDatasetCompounds, Depends(use_case(GetDatasetCompounds))]
 
 
 class TargetBody(BaseModel):
@@ -159,6 +172,141 @@ class DatasetResponse(BaseModel):
         )
 
 
+class HistogramResponse(BaseModel):
+    """`edges` is one longer than `counts`; bin *i* spans `edges[i]`..`edges[i+1]`."""
+
+    edges: list[float]
+    counts: list[int]
+
+
+class SplitHistogramResponse(BaseModel):
+    """Train and test counts over shared edges, so the two can be overlaid."""
+
+    edges: list[float]
+    train: list[int]
+    test: list[int]
+
+
+class NumericSummaryResponse(BaseModel):
+    minimum: float
+    maximum: float
+    mean: float
+    median: float
+    std: float
+
+
+class TargetDistributionResponse(BaseModel):
+    histogram: SplitHistogramResponse
+    train: NumericSummaryResponse
+    test: NumericSummaryResponse
+
+
+class ClassBalanceResponse(BaseModel):
+    split: str
+    positive: int
+    negative: int
+
+
+class SimilarityProfileResponse(BaseModel):
+    histogram: HistogramResponse
+    median: float
+    within_domain: float
+    within_domain_threshold: float
+    near_duplicates: int
+    near_duplicate_threshold: float
+
+
+class ScaffoldEntryResponse(BaseModel):
+    smiles: str
+    count: int
+
+
+class ScaffoldProfileResponse(BaseModel):
+    unique_count: int
+    singleton_count: int
+    largest_fraction: float
+    cumulative_coverage: list[float]
+    top: list[ScaffoldEntryResponse]
+    cross_split_scaffolds: int
+    cross_split_compounds: int
+
+
+class DescriptorProfileResponse(BaseModel):
+    name: str
+    histogram: SplitHistogramResponse
+    median: float
+    target_correlation: float | None
+
+
+class ActivityCliffResponse(BaseModel):
+    left_structure: str
+    right_structure: str
+    left_value: float
+    right_value: float
+    similarity: float
+    delta: float
+
+
+class DatasetProfileResponse(BaseModel):
+    """What the Dataset is made of -- see `domain/data/profile.py` for what each
+    section means and why it is here.
+
+    `target_distribution` and `class_balance` are mutually exclusive: a numeric
+    target populates the first and a binary one the second, so a consumer must
+    branch on `target_kind` rather than render whichever is non-empty.
+
+    `similarity` is `null` only when there was no train/test pair to compare,
+    never an all-zero histogram. `cliffs_sampled_from` is non-null when the
+    pair scan ran on a subsample -- "no cliffs found among 3000 of 12000
+    compounds" is a different claim from "no cliffs", and this is which one
+    was made.
+    """
+
+    compounds: int
+    partition_counts: dict[str, int]
+    target_kind: str
+    target_distribution: TargetDistributionResponse | None
+    class_balance: list[ClassBalanceResponse]
+    similarity: SimilarityProfileResponse | None
+    scaffolds: ScaffoldProfileResponse
+    descriptors: list[DescriptorProfileResponse]
+    best_descriptor: str | None
+    activity_cliffs: list[ActivityCliffResponse]
+    cliffs_sampled_from: int | None
+
+    @classmethod
+    def from_domain(cls, profile: DatasetProfile) -> DatasetProfileResponse:
+        # Through the same `profile_to_dict` the cache blob is written with, so
+        # the wire shape and the stored shape cannot drift apart -- a field
+        # renamed in one is renamed in both or fails validation here.
+        return cls.model_validate(profile_to_dict(profile))
+
+
+class CompoundResponse(BaseModel):
+    structure: str
+    target: float | None
+    split: str
+
+    @classmethod
+    def from_domain(cls, compound: Compound) -> CompoundResponse:
+        return cls(structure=compound.structure, target=compound.target, split=compound.split)
+
+
+class CompoundPageResponse(BaseModel):
+    """`total` is the count *after* the split filter, which is what a pager
+    needs; the Dataset's own `row_count` answers a different question."""
+
+    items: list[CompoundResponse]
+    total: int
+
+    @classmethod
+    def from_domain(cls, page: CompoundPage) -> CompoundPageResponse:
+        return cls(
+            items=[CompoundResponse.from_domain(item) for item in page.items],
+            total=page.total,
+        )
+
+
 @router.post("/uploads", response_model=UploadResponse, status_code=201)
 async def upload_dataset_file(
     auth: AuthDep, service: StoreUploadDep, file: UploadFile
@@ -224,3 +372,46 @@ async def get_dataset(
 ) -> DatasetResponse:
     dataset = result_to_response(await service(GetDatasetQuery(dataset_id=dataset_id), auth=auth))
     return DatasetResponse.from_domain(dataset)
+
+
+@router.get("/{dataset_id}/profile", response_model=DatasetProfileResponse)
+async def get_dataset_profile(
+    dataset_id: uuid.UUID, auth: AuthDep, service: GetDatasetProfileDep
+) -> DatasetProfileResponse:
+    """Computed on the first request for a Dataset and cached beside its
+    snapshot, so this can take seconds once and is immediate afterwards. See
+    `application/data/get_dataset_profile.py` for why it is not written at
+    freeze time."""
+    profile = result_to_response(
+        await service(GetDatasetProfileQuery(dataset_id=dataset_id), auth=auth)
+    )
+    return DatasetProfileResponse.from_domain(profile)
+
+
+@router.get("/{dataset_id}/compounds", response_model=CompoundPageResponse)
+async def get_dataset_compounds(
+    dataset_id: uuid.UUID,
+    auth: AuthDep,
+    service: GetDatasetCompoundsDep,
+    offset: int = 0,
+    limit: int = 50,
+    sort: Literal["target", "split"] | None = None,
+    sort_dir: Literal["asc", "desc"] = "asc",
+    split: Literal["train", "validation", "test"] | None = None,
+) -> CompoundPageResponse:
+    """`sort` and `split` are Literals, so FastAPI rejects anything else itself
+    -- there is no column name here a client could reach the frame with."""
+    page = result_to_response(
+        await service(
+            GetDatasetCompoundsQuery(
+                dataset_id=dataset_id,
+                offset=offset,
+                limit=limit,
+                sort=sort,
+                descending=sort_dir == "desc",
+                split=split,
+            ),
+            auth=auth,
+        )
+    )
+    return CompoundPageResponse.from_domain(page)
