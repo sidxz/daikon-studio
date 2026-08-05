@@ -2,10 +2,10 @@
 
 Every workspace-scoped read filters on `workspace_id` inside the SQL, never
 after it -- a cross-tenant row is not fetched and then discarded, it is never
-selected. `get_by_id` is the one deliberate exception: the arq worker is
-handed a bare `run_id` by the job queue with no tenant context of its own, and
-the Run was already scoped to its workspace when the use case that enqueued it
-created the row. The worker's job is to execute it, not re-authorize it.
+selected. `get_by_id` is the one deliberate exception: a claiming runner is
+handed a bare `run_id` by the claim endpoint with no tenant context of its own,
+and the Run was already scoped to its workspace when the use case that enqueued it
+created the row. The runner's job is to execute it, not re-authorize it.
 
 Like `SqlAlchemyProtocolRepository`, `update()` does optimistic concurrency
 with `UPDATE ... WHERE version = :expected` and raises `ConcurrencyConflictError`

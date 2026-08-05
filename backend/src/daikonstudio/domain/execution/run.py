@@ -50,8 +50,8 @@ def compute_cache_key(**parts: object) -> str:
     re-running the engine.
 
     Deliberately not `hash()`: Python randomises string hashing per process
-    (`PYTHONHASHSEED`), so the same call in the web process and in the arq
-    worker process would produce two different keys for identical inputs.
+    (`PYTHONHASHSEED`), so the same call in the web process and in a
+    runner-agent process would produce two different keys for identical inputs.
     `hashlib.sha256` over a JSON encoding with sorted keys is the same value
     everywhere, forever, given the same `parts` -- which is the entire point
     of a cache key that one process writes and another must look up.
@@ -86,9 +86,9 @@ class Run(AggregateRoot):
         self.requested_by = requested_by
         self.cache_key = cache_key
         # What this Run was asked to do, in whatever shape its kind needs (a
-        # training run: dataset, engine, conditions). arq hands the worker a bare
-        # `run_id`, so without this the handler has no way back to the request
-        # that created the row. Write-once by convention: `update()` never
+        # training run: dataset, engine, conditions). A runner's claim response
+        # hands it a bare `run_id`, so without this the handler has no way back
+        # to the request that created the row. Write-once by convention: `update()` never
         # persists it, so a handler cannot rewrite its own instructions mid-flight.
         self.params: dict[str, Any] = dict(params or {})
         # The Protocol this Run concerns. Known at creation for a prediction
@@ -132,9 +132,9 @@ class Run(AggregateRoot):
 
     def start(self) -> None:
         """`pending -> running` normally. `running -> running` is also legal:
-        arq is at-least-once, so a worker crash mid-job redelivers the same
-        run_id to a fresh process, which lands here with the row already
-        RUNNING. With no checkpoints, restart-from-zero is the designed
+        a lease-expiry requeue is at-least-once, so a runner crash mid-job
+        puts the same run_id back in front of a fresh claimant, which lands
+        here with the row already RUNNING. With no checkpoints, restart-from-zero is the designed
         recovery, so the redelivery restarts the run and wipes the dead
         attempt's stale progress. Terminal runs still refuse -- a redelivery
         for a run that was cancelled (or somehow finished) while queued must
@@ -165,8 +165,9 @@ class Run(AggregateRoot):
 
     def fail(self, message: str) -> None:
         """Allowed from `pending` as well as `running`: an enqueue that never
-        even reaches the worker (e.g. Redis unreachable) is a failure of the
-        Run just as much as a crash mid-execution, and both must be reachable
+        lands (e.g. the write that sets `lane` fails after the Run row itself
+        was created) is a failure of the Run just as much as a crash mid-execution,
+        and both must be reachable
         from whatever status the Run was in when it broke."""
         if self.status in _TERMINAL:
             raise ConflictError(f"Cannot fail run '{self.id}' in terminal status '{self.status}'")
