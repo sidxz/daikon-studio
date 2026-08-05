@@ -21,6 +21,10 @@ from daikonstudio.application.data.create_dataset import (
     StoreUpload,
 )
 from daikonstudio.application.execution.sweeps import (
+    CancelSweep,
+    CancelSweepCommand,
+    GetSweep,
+    GetSweepQuery,
     SubmitSweep,
     SubmitSweepCommand,
     SweepConfig,
@@ -29,7 +33,7 @@ from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
-from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import DbEnqueuer
@@ -132,6 +136,16 @@ async def submit_sweep(
     queue = SqlAlchemyRunQueue(sessions)
     train = TrainProtocol(datasets, runs_repository, DbEnqueuer(queue), engines)
     return SubmitSweep(datasets, engines, train)
+
+
+@pytest_asyncio.fixture
+async def cancel_sweep(runs_repository: SqlAlchemyRunRepository) -> CancelSweep:
+    return CancelSweep(runs_repository)
+
+
+@pytest_asyncio.fixture
+async def get_sweep(runs_repository: SqlAlchemyRunRepository) -> GetSweep:
+    return GetSweep(runs_repository)
 
 
 def _run(*, workspace_id: uuid.UUID, sweep_id: uuid.UUID | None = None, name: str = "s") -> Run:
@@ -295,3 +309,61 @@ async def test_an_empty_config_list_is_rejected(submit_sweep, dataset, auth) -> 
         auth=auth,
     )
     assert isinstance(result, Failure)
+
+
+@pytest.mark.asyncio
+async def test_cancel_sweep_cancels_only_the_non_terminal_runs(
+    sessions, cancel_sweep, auth
+) -> None:
+    repository = SqlAlchemyRunRepository(sessions)
+    sweep_id = uuid.uuid4()
+    queued = _run(workspace_id=auth.workspace_id, sweep_id=sweep_id)
+    done = _run(workspace_id=auth.workspace_id, sweep_id=sweep_id)
+    await repository.add(queued)
+    await repository.add(done)
+    done.start()
+    done.succeed("file:///tmp/x.json")
+    await repository.update(done)
+
+    cancelled = (await cancel_sweep(CancelSweepCommand(sweep_id=sweep_id), auth=auth)).unwrap()
+
+    assert cancelled == 1
+    members = await repository.list_by_sweep(auth.workspace_id, sweep_id)
+    runs = {run.id: run.status for run in members}
+    assert runs[queued.id] is RunStatus.CANCELLED
+    assert runs[done.id] is RunStatus.READY
+
+
+@pytest.mark.asyncio
+async def test_cancel_sweep_is_idempotent(sessions, cancel_sweep, auth) -> None:
+    """A second cancel is not an error. The first one already stopped the
+    work, and a 409 here would make the retry of a dropped request look like
+    a failure."""
+    repository = SqlAlchemyRunRepository(sessions)
+    sweep_id = uuid.uuid4()
+    await repository.add(_run(workspace_id=auth.workspace_id, sweep_id=sweep_id))
+
+    first = (await cancel_sweep(CancelSweepCommand(sweep_id=sweep_id), auth=auth)).unwrap()
+    second = (await cancel_sweep(CancelSweepCommand(sweep_id=sweep_id), auth=auth)).unwrap()
+
+    assert (first, second) == (1, 0)
+
+
+@pytest.mark.asyncio
+async def test_cancel_unknown_sweep_is_not_found(cancel_sweep, auth) -> None:
+    result = await cancel_sweep(CancelSweepCommand(sweep_id=uuid.uuid4()), auth=auth)
+    assert isinstance(result, Failure)
+
+
+@pytest.mark.asyncio
+async def test_get_sweep_returns_members_in_submission_order(sessions, get_sweep, auth) -> None:
+    repository = SqlAlchemyRunRepository(sessions)
+    sweep_id = uuid.uuid4()
+    for index in range(3):
+        await repository.add(
+            _run(workspace_id=auth.workspace_id, sweep_id=sweep_id, name=f"s #{index + 1}")
+        )
+
+    runs = (await get_sweep(GetSweepQuery(sweep_id=sweep_id), auth=auth)).unwrap()
+
+    assert [run.params["name"] for run in runs] == ["s #1", "s #2", "s #3"]

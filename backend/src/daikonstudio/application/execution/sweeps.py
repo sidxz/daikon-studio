@@ -32,6 +32,7 @@ from daikonstudio.application.execution.train_protocol import (
     TrainProtocolCommand,
 )
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.run_repository import RunRepository, SweepSummary
 from daikonstudio.domain.execution.run import Run
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
 
@@ -164,3 +165,77 @@ class SubmitSweep:
                 return result
             runs.append(result.unwrap())
         return Success(SweepResult(sweep_id=sweep_id, runs=runs))
+
+
+class ListSweeps:
+    """The sweeps list page. One grouped query, no cursor -- see
+    `sweep_summaries`."""
+
+    def __init__(self, runs: RunRepository) -> None:
+        self._runs = runs
+
+    async def __call__(
+        self, query: ListSweepsQuery, auth: AuthContext | None = None
+    ) -> Result[list[SweepSummary], DomainError]:
+        require_authenticated(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+        return Success(await self._runs.sweep_summaries(auth.workspace_id, limit=query.limit))
+
+
+class GetSweep:
+    """Every member of one sweep. Unknown or empty is `NotFoundError`, not an
+    empty list: a sweep with no members does not exist, and returning `[]` for
+    a mistyped id would render as a sweep that mysteriously lost its runs."""
+
+    def __init__(self, runs: RunRepository) -> None:
+        self._runs = runs
+
+    async def __call__(
+        self, query: GetSweepQuery, auth: AuthContext | None = None
+    ) -> Result[list[Run], DomainError]:
+        require_authenticated(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+        runs = await self._runs.list_by_sweep(auth.workspace_id, query.sweep_id)
+        if not runs:
+            return Failure(NotFoundError("Sweep", str(query.sweep_id)))
+        return Success(runs)
+
+
+class CancelSweep:
+    """Cancel every member still doing work, and report how many that was.
+
+    `Run.cancel()` owns the rule and the mechanism, unchanged: a pending run
+    never starts, and a running one stops at its next checkpoint because the
+    row is the channel. This use case only decides *which* rows.
+
+    Members that already reached a terminal status are skipped rather than
+    raising, which also makes a second cancel a no-op returning zero. A retry
+    of a dropped request is not a conflict, and a run that succeeded a
+    millisecond before the cancel arrived is not a failure of the cancel.
+    """
+
+    def __init__(self, runs: RunRepository) -> None:
+        self._runs = runs
+
+    async def __call__(
+        self, command: CancelSweepCommand, auth: AuthContext | None = None
+    ) -> Result[int, DomainError]:
+        require_authenticated(auth)
+        require_editor(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+
+        runs = await self._runs.list_by_sweep(auth.workspace_id, command.sweep_id)
+        if not runs:
+            return Failure(NotFoundError("Sweep", str(command.sweep_id)))
+
+        cancelled = 0
+        for run in runs:
+            try:
+                run.cancel()
+            except DomainError:
+                # Already terminal. Not this cancel's problem, and not an error:
+                # the work this call exists to stop is already stopped.
+                continue
+            await self._runs.update(run)
+            cancelled += 1
+        return Success(cancelled)
