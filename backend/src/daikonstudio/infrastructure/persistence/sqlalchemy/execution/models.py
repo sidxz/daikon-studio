@@ -6,7 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, Float, Index, Integer, String, Text, Uuid
+from sqlalchemy import CheckConstraint, DateTime, Float, Index, Integer, String, Text, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,7 +43,9 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
     # NULL until the enqueuer sets it; only laned pending runs are claimable.
     lane: Mapped[str | None] = mapped_column(String(32), nullable=True)
     claimed_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
-    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     __table_args__ = (
@@ -59,4 +61,8 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
         Index("ix_runs_workspace_created_at", "workspace_id", "created_at"),
         # Backs "which runs belong to this Protocol".
         Index("ix_runs_workspace_protocol_id", "workspace_id", "protocol_id"),
+        # Backs the queue: pending runs with a lane set are claimable by runners.
+        Index(
+            "ix_runs_claimable", "lane", "created_at", postgresql_where=text("status = 'pending'")
+        ),
     )

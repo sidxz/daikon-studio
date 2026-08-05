@@ -9,9 +9,8 @@ Revises: 008
 """
 
 import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import JSONB
-
 from alembic import op
+from sqlalchemy.dialects.postgresql import JSONB
 
 revision: str = "009"
 down_revision: str | None = "008"
@@ -27,10 +26,16 @@ def upgrade() -> None:
         sa.Column("lanes", JSONB(), nullable=False),
         sa.Column("token_hash", sa.String(length=64), nullable=False),
         sa.Column(
-            "created_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+            "created_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column(
-            "updated_at", sa.DateTime(timezone=True), server_default=sa.text("now()"), nullable=False
+            "updated_at",
+            sa.DateTime(timezone=True),
+            server_default=sa.text("now()"),
+            nullable=False,
         ),
         sa.Column("last_seen_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
@@ -59,6 +64,8 @@ def upgrade() -> None:
     # sweep requeues them instead of leaving them RUNNING forever.
     op.execute("UPDATE runs SET lane = 'default' WHERE status IN ('pending', 'running')")
     op.execute("UPDATE runs SET lease_expires_at = now() WHERE status = 'running'")
+    # server_default then drop: ORM declares client-side default=0, not server_default.
+    op.alter_column("runs", "attempts", server_default=None)
 
 
 def downgrade() -> None:
