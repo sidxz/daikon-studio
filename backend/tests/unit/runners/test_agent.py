@@ -106,3 +106,41 @@ async def test_a_job_failure_is_caught_and_poll_once_still_returns_true(
     executed = await _poll_against(handler)  # must not raise
 
     assert executed is True
+
+
+async def test_a_500_claim_response_returns_false_and_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[uuid.UUID] = []
+
+    async def fake_run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
+        calls.append(run_id)
+
+    monkeypatch.setattr(jobs, "run_job", fake_run_job)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(500, json={"detail": "studio is restarting"})
+
+    executed = await _poll_against(handler)  # must not raise
+
+    assert executed is False
+    assert calls == []
+
+
+async def test_an_unreachable_studio_returns_false_and_does_not_raise(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[uuid.UUID] = []
+
+    async def fake_run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
+        calls.append(run_id)
+
+    monkeypatch.setattr(jobs, "run_job", fake_run_job)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("connection refused", request=request)
+
+    executed = await _poll_against(handler)  # must not raise
+
+    assert executed is False
+    assert calls == []

@@ -11,10 +11,14 @@ one job at a time, so there is no concurrency knob to set here.
 `run_job` re-raises a handler failure after persisting FAILED on the row
 (see its own docstring); `poll_once` catches that as a plain `Exception` and
 logs it, so one bad job does not end the agent -- the row is already FAILED,
-and the loop moves on to the next claim. `SystemExit`, `KeyboardInterrupt`,
-and `asyncio.CancelledError` are deliberately not caught: those must still
-propagate out of the process for the same shutdown reasons `run_job`'s own
-docstring gives.
+and the loop moves on to the next claim. The claim call itself gets the same
+treatment against `httpx.HTTPError` (a non-2xx response, or the studio being
+unreachable at all): a studio mid-deploy or mid-restart must not take every
+runner attached to it down too, since nothing in this repo supervises or
+restarts this process -- a dead agent stays dead. `SystemExit`,
+`KeyboardInterrupt`, and `asyncio.CancelledError` are deliberately not
+caught anywhere here: those must still propagate out of the process for the
+same shutdown reasons `run_job`'s own docstring gives.
 """
 
 from __future__ import annotations
@@ -48,8 +52,18 @@ async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
     or failed) -- `main()` uses that to skip the poll-interval sleep while
     work keeps arriving.
     """
-    response = await api.post("/api/v1/runner/claim")
-    response.raise_for_status()
+    try:
+        response = await api.post("/api/v1/runner/claim")
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        # HTTPError covers both a non-2xx claim response (HTTPStatusError)
+        # and the studio being unreachable at all (ConnectError, ReadTimeout,
+        # ...). Either way this is a transient poll failure, not a reason to
+        # die: return False so main() falls through to its normal
+        # sleep(poll_seconds) and retries next cycle, same as an empty claim.
+        status = exc.response.status_code if isinstance(exc, httpx.HTTPStatusError) else None
+        _logger.warning("claim failed", error=str(exc), status_code=status)
+        return False
     if response.status_code == 204:
         return False
 
@@ -59,12 +73,11 @@ async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
         settings.url, settings.runner_token, run_id, deadline_seconds=claimed.deadline_seconds
     )
     try:
-        try:
-            await jobs.run_job(ctx, run_id)
-        except Exception:
-            # run_job already persisted FAILED on the row before re-raising --
-            # this is purely so the operator sees it, not a retry path.
-            _logger.exception("runner job failed", run_id=str(run_id))
+        await jobs.run_job(ctx, run_id)
+    except Exception:
+        # run_job already persisted FAILED on the row before re-raising --
+        # this is purely so the operator sees it, not a retry path.
+        _logger.exception("runner job failed", run_id=str(run_id))
     finally:
         await ctx["_client"].aclose()
     return True
