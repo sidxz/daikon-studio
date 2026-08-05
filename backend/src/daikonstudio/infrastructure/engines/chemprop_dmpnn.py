@@ -1,8 +1,9 @@
 """Chemprop D-MPNN: a directed message-passing neural network over the molecular graph.
 
 The first engine that does not run wherever the API runs. Its manifest declares
-`lane="gpu"`, and a deployment satisfies that by running a worker with
-STUDIO_WORKER_LANE=gpu on a machine that has a GPU. Nothing here names a host.
+`lane="gpu"`, and a deployment satisfies that by running a registered runner for
+the "gpu" lane on a machine that has a GPU. Runners are registered in the UI or
+seeded locally with `make seed-runners`. Nothing here names a host.
 
 **Every chemprop, torch and lightning import lives inside a function, never at module
 scope.** That is what lets the API tier and the default-lane worker install without CUDA
@@ -123,9 +124,9 @@ def _require_chemprop() -> None:
     except ImportError as exc:
         raise ValidationError(
             "The chemprop-dmpnn engine needs the 'gpu' extra, which this worker does "
-            "not have installed. This engine declares lane 'gpu': run it on a worker "
-            "started with STUDIO_WORKER_LANE=gpu (see Dockerfile.gpu), or install the "
-            "extra locally with `uv sync --extra gpu`."
+            "not have installed. This engine requires a runner registered for the 'gpu' "
+            "lane (register runners in the Runners page in the UI, or seed locally with "
+            "`make seed-runners`), or install the extra locally with `uv sync --extra gpu`."
         ) from exc
 
 

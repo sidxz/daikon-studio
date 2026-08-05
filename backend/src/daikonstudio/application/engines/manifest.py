@@ -13,7 +13,7 @@ from enum import StrEnum
 
 # The lane an engine runs in when it does not ask for anything special. A lane is a
 # requirement ("this needs a GPU"), not a machine: a deployment satisfies it by running
-# a worker with STUDIO_WORKER_LANE set to that name, on whatever hardware it has.
+# a registered runner for that lane, on whatever hardware it has.
 DEFAULT_LANE = "default"
 
 

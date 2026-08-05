@@ -72,7 +72,7 @@ down: ## Stop containers (keep data)
 	$(COMPOSE) stop
 
 install: ## Install backend (uv) + frontend (pnpm) dependencies
-	$(BACKEND) && uv sync
+	$(BACKEND) && uv sync --extra gpu --extra s3
 	$(FRONTEND) && pnpm install
 
 migrate: ## Apply DB migrations (alembic)

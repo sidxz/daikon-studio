@@ -99,7 +99,6 @@ forbidden_modules = [
     "asyncpg",
     "redis",
     "lagom",
-    "arq",
     "httpx",
     "structlog",
     "polars",
