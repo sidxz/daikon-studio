@@ -180,6 +180,23 @@ async def create_protocol(
     return Response(status_code=201)
 
 
+def _normalize_blob_key(key: str, blob_base_url: str) -> str:
+    """A key a runner sends is sometimes the FULL STORE URI `FsspecBlobStore.
+    put_bytes` returned from an earlier write (e.g. `InSilicoProtocol.
+    artifact_uri`, which `RunPrediction` deliberately reads back BY URI --
+    see `predict_with_protocol.py`'s own comment -- rather than re-deriving a
+    key from ids that may not match a versioned protocol's own), not a bare
+    workspace-relative key. Strip the configured base when it's present so
+    `_guard_workspace_prefix` below always sees a plain `{workspace_id}/...`
+    key, whichever form arrived -- and so the SAME normalized string is what
+    gets checked and what gets used for the store call, which is what keeps
+    this from becoming a check-one-thing-use-another gap (final review,
+    Critical 1).
+    """
+    prefix = f"{blob_base_url.rstrip('/')}/"
+    return key[len(prefix) :] if key.startswith(prefix) else key
+
+
 def _guard_workspace_prefix(workspace_id: uuid.UUID, key: str) -> None:
     """`key.startswith(prefix)` alone is not confinement -- `FsspecBlobStore._path`
     string-concatenates the key onto the base path and the underlying
@@ -193,6 +210,10 @@ def _guard_workspace_prefix(workspace_id: uuid.UUID, key: str) -> None:
     path segment, and (belt-and-braces) a `posixpath.normpath` of the key
     landing outside the prefix -- any one of these tripping is enough to
     refuse, so no single encoding trick can satisfy all three at once.
+
+    Callers pass this the output of `_normalize_blob_key`, never the raw
+    path param -- a full store URI legitimately does not start with
+    `{workspace_id}/` and must not be rejected on that basis alone.
     """
     prefix = f"{workspace_id}/"
     segments = key.split("/")
@@ -208,7 +229,10 @@ def _guard_workspace_prefix(workspace_id: uuid.UUID, key: str) -> None:
 
 
 @router.get("/runs/{run_id}/blobs/{key:path}")
-async def get_blob(run: ClaimedRunRead, key: str, store: BlobStoreDep) -> Response:
+async def get_blob(
+    run: ClaimedRunRead, key: str, store: BlobStoreDep, settings: SettingsDep
+) -> Response:
+    key = _normalize_blob_key(key, settings.blob_base_url)
     _guard_workspace_prefix(run.workspace_id, key)
     try:
         data = store.get_bytes(key)
@@ -225,6 +249,7 @@ async def put_blob(
     store: BlobStoreDep,
     settings: SettingsDep,
 ) -> BlobPutResponse:
+    key = _normalize_blob_key(key, settings.blob_base_url)
     _guard_workspace_prefix(run.workspace_id, key)
 
     # `.isdigit()` rather than a bare `int(...)`: a garbage or negative

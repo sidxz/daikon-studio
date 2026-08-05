@@ -434,6 +434,76 @@ async def test_blob_put_then_get_round_trips_inside_the_prefix(
     assert get.content == b"hello runner"
 
 
+async def test_blob_get_accepts_a_full_store_uri_key_for_its_own_workspace(
+    anonymous_client, app, workspace_id
+):
+    """Final review, Critical 1 -- `FsspecBlobStore.put_bytes` returns the
+    FULL STORE URI, not the bare key, and `RunPrediction` deliberately reads
+    an artifact back BY that URI (`predict_with_protocol.py`). The guard must
+    accept that form for the run's own workspace, not just a bare key."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    key = f"{workspace_id}/runs/{run.id}/artifact.bin"
+    put = await anonymous_client.put(
+        f"/api/v1/runner/runs/{run.id}/blobs/{key}", headers=headers, content=b"model bytes"
+    )
+    assert put.status_code == 200, put.text
+    full_uri = put.json()["uri"]
+    assert full_uri != key  # proves this really is the full store URI, not the bare key
+
+    by_bare_key = await anonymous_client.get(
+        f"/api/v1/runner/runs/{run.id}/blobs/{key}", headers=headers
+    )
+    assert by_bare_key.status_code == 200, by_bare_key.text
+
+    by_full_uri = await anonymous_client.get(
+        f"/api/v1/runner/runs/{run.id}/blobs/{full_uri}", headers=headers
+    )
+    assert by_full_uri.status_code == 200, by_full_uri.text
+    assert by_full_uri.content == by_bare_key.content == b"model bytes"
+
+
+async def test_blob_get_with_a_full_uri_key_for_another_workspace_is_403(
+    anonymous_client, app, workspace_id
+):
+    """Final review, Critical 1 -- normalizing the URI form must not weaken
+    the workspace check: a full URI pointing at a DIFFERENT workspace is
+    still rejected."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    settings = app.state.container[Settings]
+    other_workspace = uuid.uuid4()
+    full_uri = (
+        f"{settings.blob_base_url.rstrip('/')}/{other_workspace}/protocols/x/artifact/model.joblib"
+    )
+    response = await anonymous_client.get(
+        f"/api/v1/runner/runs/{run.id}/blobs/{full_uri}", headers=headers
+    )
+    assert response.status_code == 403, response.text
+
+
+async def test_blob_get_with_a_full_uri_key_containing_traversal_is_403(
+    anonymous_client, app, workspace_id
+):
+    """Final review, Critical 1 -- normalizing the URI form must not weaken
+    the traversal check either: a full URI whose remainder contains `..` is
+    still rejected."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    settings = app.state.container[Settings]
+    full_uri = f"{settings.blob_base_url.rstrip('/')}/{workspace_id}/../../etc/passwd"
+    response = await anonymous_client.get(
+        f"/api/v1/runner/runs/{run.id}/blobs/{full_uri}", headers=headers
+    )
+    assert response.status_code == 403, response.text
+
+
 async def test_blob_get_of_a_missing_key_is_404(anonymous_client, app, workspace_id):
     run = await _seed_run(app, workspace_id)
     _, headers = await _register_runner(app, ["default"])
