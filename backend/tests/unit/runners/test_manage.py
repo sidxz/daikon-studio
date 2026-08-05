@@ -125,6 +125,16 @@ async def test_create_refuses_viewer_role() -> None:
         )
 
 
+async def test_create_refuses_unauthenticated_caller() -> None:
+    """`require_editor(None)` alone would treat `auth=None` as a trusted
+    system/worker call -- `require_authenticated` must run first so an
+    anonymous caller cannot mint a runner token."""
+    use_case = CreateRunner(FakeRunnerRepository())
+
+    with pytest.raises(AuthorizationError):
+        await use_case(CreateRunnerCommand(name="gpu-01", lanes=("default",)), auth=None)
+
+
 # --- ListRunners ---------------------------------------------------------------
 
 
@@ -192,3 +202,13 @@ async def test_revoke_refuses_viewer_role() -> None:
         await use_case(
             RevokeRunnerCommand(runner_id=runner.id), auth=FakeAuth(workspace_role="viewer")
         )
+
+
+async def test_revoke_refuses_unauthenticated_caller() -> None:
+    repo = FakeRunnerRepository()
+    runner = _runner()
+    await repo.add(runner)
+    use_case = RevokeRunner(repo)
+
+    with pytest.raises(AuthorizationError):
+        await use_case(RevokeRunnerCommand(runner_id=runner.id), auth=None)

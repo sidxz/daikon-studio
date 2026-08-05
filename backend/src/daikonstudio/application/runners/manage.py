@@ -53,6 +53,7 @@ class CreateRunner:
     async def __call__(
         self, command: CreateRunnerCommand, *, auth: AuthContext | None
     ) -> Result[CreatedRunner, DomainError]:
+        require_authenticated(auth)
         require_editor(auth)
         if not command.name.strip():
             return Failure(ValidationError("name must not be empty"))
@@ -119,6 +120,7 @@ class RevokeRunner:
     async def __call__(
         self, command: RevokeRunnerCommand, *, auth: AuthContext | None
     ) -> Result[None, DomainError]:
+        require_authenticated(auth)
         require_editor(auth)
         runner = await self._runners.get(command.runner_id)
         if runner is None:
