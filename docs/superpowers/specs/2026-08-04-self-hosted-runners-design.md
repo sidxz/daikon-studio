@@ -90,7 +90,7 @@ at the reverse proxy. Machine tokens are separate from Sentinel user auth.
 |---|---|
 | `POST /api/v1/runner/claim` | Requeue expired leases (lazy sweep, no background task), then `SELECT … FOR UPDATE SKIP LOCKED` one pending run matching the runner's registered lanes, honouring the per-workspace concurrency cap. Sets `claimed_by` + lease, returns run payload, or 204. Plain poll (~3s client-side); no long-poll. |
 | `GET /api/v1/runner/runs/{id}` | Run payload — backs `RunRepository.get_by_id`, which is also how the reporter detects cancellation. |
-| `POST /api/v1/runner/runs/{id}` | Run update — backs `RunRepository.update`. PATCH-like: only the fields present in the request body are applied (a bare status heartbeat must not null out a previously-reported `phase`/`result_uri`/`error_message`); `protocol_id` routes through `Run.link_protocol` (write-once, 409 if already linked elsewhere). Server validates transitions (pending→running, running→terminal) and rejects writes unless the caller holds the current lease (fencing). |
+| `POST /api/v1/runner/runs/{id}` | Run update — backs `RunRepository.update`. PATCH-like: only the fields present in the request body are applied (a bare status heartbeat must not null out a previously-reported `phase`/`result_uri`/`error_message`); `protocol_id` routes through `Run.link_protocol` (write-once, 409 if already linked elsewhere). What's enforced: the caller must hold the current lease (fencing) — 403 otherwise; the run must still be active (status `pending` or `running`) for any write to be accepted at all; `status` must be one of `running`/`ready`/`failed` — `cancelled` is rejected outright, since cancellation is a user action, never a runner-reported one; `expected_version` must match the run's current version or the write is a 409. What's *not* enforced: the full domain transition lattice is not re-validated server-side, so a runner can report `ready` directly without ever having reported `running` first — accepted for phase 1 because the claim-holder could produce the same end state either way; flagged here as the known gap rather than silently relied upon. |
 | `GET /api/v1/runner/runs/{id}/dataset` | Backs `DatasetRepository.get`, scoped to the claimed run's own dataset. |
 | `GET/POST /api/v1/runner/runs/{id}/protocol` | GET backs `ProtocolRepository.get` (prediction's input protocol). POST backs `ProtocolRepository.add` — training *creates* the trained protocol row as its output; its `status` is forced to `DRAFT` server-side regardless of what the envelope carried, since publishing is a human, editor-role action elsewhere. Same run scoping. |
 | `GET/PUT /api/v1/runner/runs/{id}/blobs/{key}` | Backs `BlobStore.get_bytes`/`put_bytes`. Every blob key in the codebase starts with `{workspace_id}/` (snapshot, upload, artifact, scorecard, predictions), and training writes artifact keys addressed by a protocol id it generates mid-job — so the enforceable v1 scope is the workspace prefix: GET and PUT both require `key.startswith(f"{run.workspace_id}/")`, PUT additionally requires the run to still be active, with a server-side size cap. Coarser than per-record ACLs; acceptable under "one lane = one trust domain", tightened by runner groups if lanes ever mix owners. |
@@ -119,7 +119,7 @@ pollers both slip under the cap during that window. The cap is a setting
 
 ## Runner agent
 
-Same backend package, new entrypoint (`python -m daikonstudio.runner`).
+Same backend package, new entrypoint (`python -m daikonstudio.infrastructure.runner`).
 Config is exactly two env vars: `STUDIO_URL`, `STUDIO_RUNNER_TOKEN`. Lanes
 come from the server-side runner record — `STUDIO_WORKER_LANE` is retired,
 along with `STUDIO_WORKER_MAX_JOBS` and `redis_url`. One job at a time
@@ -153,8 +153,9 @@ database; `STUDIO_INLINE_JOBS=1` remains for tests and worker-less dev.
   artifacts are executable (pickles/checkpoints), so whoever runs prediction
   with a protocol must trust whoever trained it. Do not mix owners on a lane.
   Upgrade path: runner groups.
-- Any authenticated studio user can manage runners in v1 (no role system
-  exists to scope it further).
+- Runner management requires the editor role via Sentinel: `CreateRunner`
+  and `RevokeRunner` both call `require_editor`, so an authenticated viewer
+  gets 403. Listing runners only requires an authenticated caller (any role).
 - No rate limiting in v1: authenticated machine endpoints, single-digit
   runner count expected.
 
@@ -169,19 +170,22 @@ button. Uses the existing generated-API-client flow (`make generate-api`).
 
 `arq` dependency; `ArqEnqueuer` and `WorkerSettings` in
 `infrastructure/worker.py`; Valkey service in docker-compose; `redis_url`
-setting; `WORKER`/`WORKER_GPU` Makefile blocks. `test_lanes.py` stays —
-deliberately: it pins lane routing at the use-case/enqueuer layer (which
-engine's manifest routes a run to which lane), which arq's removal doesn't
-touch. Queue-level lane mechanics (a claim only matching a runner's own
-lanes, `set_lane` making a row claimable) went into `test_run_queue.py`
-against the real `SqlAlchemyRunQueue` instead. `InlineEnqueuer` survives
-unchanged.
+setting; `WORKER`/`WORKER_GPU` Makefile blocks. `test_lanes.py` was not
+deleted wholesale (reviewed deviation from the original plan): its
+arq-specific tests were removed and its ~13 use-case lane-routing tests
+(which engine's manifest routes a run to which lane) were kept, since
+queue-level lane mechanics moved to `test_run_queue.py` against the real
+`SqlAlchemyRunQueue` but use-case-layer routing is a different concern arq's
+removal never touched. `InlineEnqueuer` survives unchanged.
 
 ## Testing
 
 - Unit: claim semantics (lane filter, SKIP LOCKED contention, lease expiry →
   requeue, attempts cap, per-workspace fairness cap), stale-lease writes
-  rejected, token auth (hash compare, revocation), run transition validation.
+  rejected, token auth (hash compare, revocation), the update route's actual
+  invariants (lease fencing, active-status requirement, `cancelled` rejected,
+  version match) — not the full domain transition lattice, which phase 1
+  deliberately does not re-derive server-side (see the runner protocol table).
 - Integration: the existing full-loop test runs the agent in-process against
   the test app through the HTTP ports — proving the unmodified-handler claim
   end to end.
@@ -209,4 +213,3 @@ this document covers phase 1 only.
 - Long-polling or websockets — plain 3s poll is noise next to a fit.
 - Public/community runners — needs sandboxing + result verification.
 - Auto-scaling and agent auto-update.
-- Roles/permissions for runner management.
