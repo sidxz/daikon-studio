@@ -44,6 +44,7 @@ import pytest_asyncio
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.infrastructure.jobs import run_job
 from daikonstudio.infrastructure.runner.ports import build_http_ctx
@@ -163,6 +164,21 @@ async def test_a_training_run_executes_through_the_runner_protocol_unmodified(
     card = scorecard_response.json()
     assert card["primary_metric"] == "mcc", card
     assert card["baseline_metrics"]["mcc"] is not None, f"[scorecard] baseline undefined: {card}"
+
+    # --- The headline metric crossed the runner protocol too, not just
+    # result_uri/protocol_id: `HttpRunRepository.update` only puts `metrics` on
+    # the wire when it is set, and the server only applies it when the field was
+    # actually sent -- both have to work for this column to end up non-null on a
+    # run a *real* runner agent executed, as opposed to `InlineEnqueuer`.
+    # `RunResponse` (the human-facing schema `client.get` above returns) doesn't
+    # carry `metrics`, so this reads the row back through the same
+    # `RunRepository` the app itself is wired with. ---
+    domain_run = await app.state.container[RunRepository].get_by_id(uuid.UUID(run_id))
+    assert domain_run is not None
+    assert domain_run.metrics is not None, "metrics never crossed the runner protocol"
+    assert domain_run.metrics["primary_metric"] == "mcc"
+    assert isinstance(domain_run.metrics["value"], float)
+    assert isinstance(domain_run.metrics["baseline_value"], float)
 
     # --- Publish: lock the Protocol so a prediction run can target it ---
     protocol_id = run["protocol_id"]
