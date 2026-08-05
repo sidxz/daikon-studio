@@ -7,8 +7,13 @@ claimable run straight through the app's own container, the way both
 
 from __future__ import annotations
 
+import contextlib
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
+
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.run_repository import RunRepository
@@ -53,3 +58,33 @@ async def claim(anonymous_client, headers: dict[str, str]) -> dict[str, Any]:
     response = await anonymous_client.post("/api/v1/runner/claim", headers=headers)
     assert response.status_code == 200, response.text
     return response.json()
+
+
+@contextlib.asynccontextmanager
+async def cleanup_registered_runners(engine: AsyncEngine) -> AsyncIterator[None]:
+    """Deletes any `runners` row registered during the `yield` -- for a fixture
+    bound straight to the session-scoped `NullPool` engine instead of the
+    savepoint-pinned per-test connection (`test_runner_ports.py`'s `blob_app`,
+    `test_runner_full_loop.py`'s `app`; both need it so `SyncAsgiTransport`'s
+    own event loop can drive a request).
+
+    `runners` is instance-level, not workspace-scoped (`RunnerRepository`'s own
+    docstring), so unlike every other write those fixtures make there is no
+    workspace_id a targeted cleanup could scope by, and the NullPool trade-off
+    already means no savepoint rollback undoes it either. A runner left behind
+    outlives its test and corrupts
+    `test_runner_repository.py::test_list_returns_all`, which asserts `list()`
+    returns *exactly* the rows it just added -- so snapshot `runners` ids
+    before the test body runs, diff after, and delete only what was added.
+    """
+    async with engine.connect() as probe:
+        before = {row[0] for row in (await probe.execute(text("SELECT id FROM runners"))).all()}
+    yield
+    async with engine.connect() as probe:
+        after = {row[0] for row in (await probe.execute(text("SELECT id FROM runners"))).all()}
+    created = after - before
+    if created:
+        async with engine.begin() as conn:
+            await conn.execute(
+                text("DELETE FROM runners WHERE id = ANY(:ids)"), {"ids": list(created)}
+            )

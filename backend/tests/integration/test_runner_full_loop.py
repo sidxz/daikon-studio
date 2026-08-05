@@ -30,7 +30,6 @@ from pathlib import Path
 import httpx
 import pytest_asyncio
 from lagom import Container, Singleton
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from daikonstudio.infrastructure.di.container import create_container
@@ -38,7 +37,7 @@ from daikonstudio.infrastructure.jobs import run_job
 from daikonstudio.infrastructure.runner.ports import build_http_ctx
 from daikonstudio.interface.app import create_app
 from daikonstudio.settings import Settings
-from tests.helpers.runner_fixtures import claim
+from tests.helpers.runner_fixtures import claim, cleanup_registered_runners
 from tests.helpers.sync_asgi import SyncAsgiTransport
 
 _FIXTURE = Path(__file__).parent.parent / "fixtures" / "pains_sample.csv"
@@ -66,28 +65,12 @@ async def app(tmp_path, _migrated_engine: AsyncEngine):
     )
     application.state.container = container
 
-    async with _migrated_engine.connect() as probe:
-        before = {row[0] for row in (await probe.execute(text("SELECT id FROM runners"))).all()}
-
-    yield application
-
-    # `runners` is instance-level, not workspace-scoped (`RunnerRepository`'s own
-    # docstring), so unlike every other write this test makes there is no
-    # workspace_id a targeted cleanup could scope to -- and this fixture's whole
-    # NullPool trade-off (see the module docstring) already means no savepoint
-    # rollback undoes any of it. A runner registered through this fixture and
-    # left behind outlives the test and corrupts
-    # `test_runner_repository.py::test_list_returns_all`, which asserts `list()`
-    # returns *exactly* the rows it just added -- so delete whatever this test
-    # itself created (diffed against the snapshot above), nothing more.
-    async with _migrated_engine.connect() as probe:
-        after = {row[0] for row in (await probe.execute(text("SELECT id FROM runners"))).all()}
-    created = after - before
-    if created:
-        async with _migrated_engine.begin() as conn:
-            await conn.execute(
-                text("DELETE FROM runners WHERE id = ANY(:ids)"), {"ids": list(created)}
-            )
+    # `runners` is instance-level, not workspace-scoped, so this fixture's
+    # NullPool trade-off (see the module docstring) leaves the one runner it
+    # registers behind unless cleaned up explicitly -- see
+    # `cleanup_registered_runners`'s own docstring for why that matters.
+    async with cleanup_registered_runners(_migrated_engine):
+        yield application
 
 
 async def test_a_training_run_executes_through_the_runner_protocol_unmodified(

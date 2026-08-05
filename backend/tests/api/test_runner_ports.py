@@ -15,9 +15,15 @@ import uuid
 
 import httpx
 import pytest
+import pytest_asyncio
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
-from tests.helpers.runner_fixtures import claim, register_runner, seed_run
+from tests.helpers.runner_fixtures import (
+    claim,
+    cleanup_registered_runners,
+    register_runner,
+    seed_run,
+)
 from tests.helpers.sync_asgi import SyncAsgiTransport
 
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
@@ -149,8 +155,8 @@ async def test_update_with_a_stale_local_copy_raises_the_concurrency_error(
 # --------------------------------------------------------------------------
 
 
-@pytest.fixture
-def blob_app(tmp_path, _migrated_engine: AsyncEngine):
+@pytest_asyncio.fixture
+async def blob_app(tmp_path, _migrated_engine: AsyncEngine):
     """A dedicated app instance for `HttpBlobStore`, not the shared `app`
     fixture: `SyncAsgiTransport` runs each request to completion on its own
     fresh event loop (see its docstring), and an asyncpg connection can only
@@ -162,9 +168,12 @@ def blob_app(tmp_path, _migrated_engine: AsyncEngine):
     connection, correctly scoped to whichever loop is asking.
 
     Trade-off: no automatic per-test rollback, unlike every other test's
-    `app`. Acceptable here -- this test's only writes are its own runner/run/
-    blob rows under a fresh random `workspace_id`, and the Postgres
-    testcontainer itself is torn down with the session regardless.
+    `app` -- this test's writes are its own run/blob rows under a fresh
+    random `workspace_id`, and the Postgres testcontainer itself is torn down
+    with the session regardless, so those are fine left behind. The one
+    exception is the runner it registers: `runners` is instance-level, not
+    workspace-scoped, so `cleanup_registered_runners` deletes it explicitly
+    -- see that helper's own docstring for why.
     """
     application = create_app()
     container = Container(
@@ -175,7 +184,8 @@ def blob_app(tmp_path, _migrated_engine: AsyncEngine):
         Singleton(lambda: async_sessionmaker(bind=_migrated_engine, expire_on_commit=False)),
     )
     application.state.container = container
-    return application
+    async with cleanup_registered_runners(_migrated_engine):
+        yield application
 
 
 async def test_blob_put_then_get_round_trips_bytes(blob_app, workspace_id):
