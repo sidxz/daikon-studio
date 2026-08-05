@@ -117,6 +117,12 @@ class HttpRunRepository:
         }
         if run.protocol_id is not None:
             fields["protocol_id"] = run.protocol_id
+        # Conditional for the same reason `protocol_id` is: this is set once,
+        # at the end of a training run, and every progress checkpoint before
+        # that has it None. Sending that None explicitly would tell the server
+        # to clear it on the very next heartbeat.
+        if run.metrics is not None:
+            fields["metrics"] = run.metrics
         envelope = RunUpdateEnvelope(**fields)
 
         response = await self._client._api.post(

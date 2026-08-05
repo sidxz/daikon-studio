@@ -175,6 +175,8 @@ class RunEnvelope(BaseModel):
     created_at: datetime
     updated_at: datetime
     version: int
+    sweep_id: uuid.UUID | None = None
+    metrics: dict[str, Any] | None = None
 
     @classmethod
     def from_domain(cls, run: Run) -> RunEnvelope:
@@ -194,6 +196,8 @@ class RunEnvelope(BaseModel):
             created_at=run.created_at,
             updated_at=run.updated_at,
             version=run.version,
+            sweep_id=run.sweep_id,
+            metrics=run.metrics,
         )
 
     def to_domain(self) -> Run:
@@ -213,6 +217,8 @@ class RunEnvelope(BaseModel):
             created_at=self.created_at,
             updated_at=self.updated_at,
             version=self.version,
+            sweep_id=self.sweep_id,
+            metrics=self.metrics,
         )
 
 
@@ -242,6 +248,7 @@ class RunUpdateEnvelope(BaseModel):
     result_uri: str | None = None
     error_message: str | None = None
     protocol_id: uuid.UUID | None = None
+    metrics: dict[str, Any] | None = None
 
 
 class DatasetEnvelope(BaseModel):

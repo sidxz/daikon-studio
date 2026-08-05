@@ -121,6 +121,8 @@ async def update_run(
         run.result_uri = body.result_uri
     if "error_message" in fields:
         run.error_message = body.error_message
+    if "metrics" in fields:
+        run.metrics = body.metrics
     if "protocol_id" in fields:
         if body.protocol_id is not None:
             # write-once, same as every other caller of link_protocol: raises

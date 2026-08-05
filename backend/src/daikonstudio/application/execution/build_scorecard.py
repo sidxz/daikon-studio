@@ -62,6 +62,16 @@ _MIN_SCAFFOLD_GROUP = 3
 _SCAFFOLD_GROUP_LIMIT = 12
 
 
+def primary_metric_for(task: TaskType) -> str:
+    """The one metric a Scorecard leads with, and the one a sweep ranks on.
+
+    Shared so those two can never disagree about which number is the headline
+    -- a ranked list ordered by a metric the Scorecard does not show is a
+    silent lie about which model won.
+    """
+    return "mcc" if task is TaskType.BINARY_CLASSIFICATION else "rmse"
+
+
 def build_scorecard(
     *,
     task: TaskType,
@@ -127,7 +137,7 @@ def build_scorecard(
     ]
 
     return Scorecard(
-        primary_metric="mcc" if is_classification else "rmse",
+        primary_metric=primary_metric_for(task),
         prediction_kind="probability" if is_classification else "value",
         metrics=metrics,
         validation_metrics=validation_metrics,

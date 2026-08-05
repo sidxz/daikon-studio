@@ -808,3 +808,19 @@ def test_default_registry_has_exactly_one_baseline() -> None:
     """`EngineRegistry.baseline()` raises on zero or two -- this is the assertion
     that the shipped registry is the one it is happy with."""
     assert default_registry().baseline().manifest().id == "ecfp4-randomforest"
+
+
+async def test_training_records_its_headline_metric(studio: Studio) -> None:
+    """The number a sweep ranks on lands on the row, not only in the blob."""
+    # `_alternating_values()`, not a plain alternation: RANDOM split (the
+    # default here) needs both classes present in its 2-row test partition or
+    # mcc comes back undefined (`None`) -- see that fixture's own docstring.
+    dataset = await studio.dataset(kind=TargetKind.BINARY, values=_alternating_values(), unit=None)
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-randomforest", conditions={})
+    await studio.wait(run)
+
+    trained_run = await studio.reload(run)
+    assert trained_run.metrics is not None
+    assert trained_run.metrics["primary_metric"] == "mcc"
+    assert isinstance(trained_run.metrics["value"], float)
+    assert isinstance(trained_run.metrics["baseline_value"], float)

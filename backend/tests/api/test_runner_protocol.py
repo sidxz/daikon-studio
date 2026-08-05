@@ -806,3 +806,63 @@ async def test_runners_management_api_stays_sentinel_protected(anonymous_client)
     assert (await anonymous_client.get("/api/v1/runners")).status_code == 401
     body = {"name": "x", "lanes": ["default"]}
     assert (await anonymous_client.post("/api/v1/runners", json=body)).status_code == 401
+
+
+# --------------------------------------------------------------------------
+# POST /runs/{id} -- metrics
+# --------------------------------------------------------------------------
+
+
+async def test_update_run_applies_metrics(anonymous_client, app, workspace_id):
+    """A runner's terminal update carries the headline metric.
+
+    Without this the column is populated only under InlineEnqueuer -- green in
+    tests, NULL in production.
+    """
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    claimed = await _claim(anonymous_client, headers)
+
+    response = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={
+            "status": "running",
+            "expected_version": claimed["run"]["version"],
+            "metrics": {"primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5},
+        },
+    )
+    assert response.status_code == 200, response.text
+
+
+async def test_update_run_without_metrics_does_not_clear_them(anonymous_client, app, workspace_id):
+    """A bare progress update must not null out a metric a previous update set
+    -- the same failure the security review caught for progress and phase."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    claimed = await _claim(anonymous_client, headers)
+
+    first = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={
+            "status": "running",
+            "expected_version": claimed["run"]["version"],
+            "metrics": {"primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5},
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    second = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={"status": "running", "expected_version": first.json()["version"], "progress": 0.5},
+    )
+    assert second.status_code == 200, second.text
+
+    fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
+    assert fetched.json()["metrics"] == {
+        "primary_metric": "mcc",
+        "value": 0.6,
+        "baseline_value": 0.5,
+    }

@@ -72,6 +72,7 @@ from daikonstudio.application.engines.context import (
 from daikonstudio.application.engines.manifest import TaskType, lane_for, validate_conditions
 from daikonstudio.application.engines.protocol import Engine
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
+from daikonstudio.application.execution.build_scorecard import primary_metric_for
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
@@ -561,6 +562,17 @@ class RunTraining:
         # worker's own `succeed()` + `update()` is what persists it -- both this
         # and `result_uri` ride out on that one write.
         run.link_protocol(protocol_id)
+
+        # Denormalised for ranking. Both dicts are already measured above, so
+        # this is a lookup, not a computation -- and it rides out on the same
+        # `succeed()` + `update()` write that persists `result_uri`, so a run
+        # can never be READY with no metric on it.
+        primary = primary_metric_for(task)
+        run.record_metrics(
+            primary_metric=primary,
+            value=metrics.get(primary),
+            baseline_value=baseline_metrics.get(primary),
+        )
         return result_uri
 
     async def _optimism_gap(
