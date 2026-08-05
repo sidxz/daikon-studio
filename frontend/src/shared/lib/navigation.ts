@@ -6,6 +6,7 @@ import {
   LayoutDashboard,
   type LucideIcon,
   PlayCircle,
+  Server,
 } from "lucide-react";
 
 export interface NavItem {
@@ -49,7 +50,10 @@ export const navigation: NavGroup[] = [
   },
   {
     label: "Catalog",
-    items: [{ title: "Engines", href: "/engines", icon: Cpu }],
+    items: [
+      { title: "Engines", href: "/engines", icon: Cpu },
+      { title: "Runners", href: "/runners", icon: Server },
+    ],
   },
 ];
 

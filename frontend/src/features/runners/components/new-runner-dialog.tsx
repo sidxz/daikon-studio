@@ -1,0 +1,181 @@
+"use client";
+
+import { Button } from "@/shared/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/shared/components/ui/dialog";
+import { Input } from "@/shared/components/ui/input";
+import { Label } from "@/shared/components/ui/label";
+import { getApiBaseUrl } from "@/shared/lib/api/custom-instance";
+import { showSuccess } from "@/shared/lib/toast";
+import { Check, Copy, Plus } from "lucide-react";
+import { useState } from "react";
+import { useCreateRunner } from "../hooks/use-runners";
+import { type CreatedRunner, KNOWN_LANES, LANE_LABELS } from "../types";
+
+/** `getApiBaseUrl()` may carry a path in some deployments; the runner wants only the origin. */
+function apiOrigin(): string {
+  return new URL(getApiBaseUrl()).origin;
+}
+
+function runCommand(created: CreatedRunner): string {
+  const image = created.lanes.includes("gpu") ? "daikon-runner:gpu" : "daikon-runner:cpu";
+  return [
+    "docker run -d --restart unless-stopped \\",
+    `  -e STUDIO_URL=${apiOrigin()} \\`,
+    `  -e STUDIO_RUNNER_TOKEN=${created.token} \\`,
+    `  ${image}`,
+  ].join("\n");
+}
+
+const DEFAULT_LANES: string[] = ["default"];
+
+export function NewRunnerDialog() {
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState("");
+  const [lanes, setLanes] = useState<string[]>(DEFAULT_LANES);
+  const [created, setCreated] = useState<CreatedRunner | null>(null);
+  const [copied, setCopied] = useState(false);
+  const createRunner = useCreateRunner();
+
+  const revealing = created !== null;
+
+  function reset() {
+    setName("");
+    setLanes(DEFAULT_LANES);
+    setCreated(null);
+    setCopied(false);
+    createRunner.reset();
+  }
+
+  function toggleLane(lane: string) {
+    setLanes((current) =>
+      current.includes(lane) ? current.filter((item) => item !== lane) : [...current, lane],
+    );
+  }
+
+  async function copyCommand() {
+    if (!created) return;
+    await navigator.clipboard.writeText(runCommand(created));
+    setCopied(true);
+    showSuccess("Copied to clipboard");
+  }
+
+  return (
+    <>
+      <Button onClick={() => setOpen(true)}>
+        <Plus className="size-4" />
+        Add runner
+      </Button>
+
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          // Closing during the reveal step loses the token for good -- only the
+          // explicit "I've copied it" button below is allowed to do that.
+          if (!next && revealing) return;
+          setOpen(next);
+          if (!next) reset();
+        }}
+      >
+        <DialogContent
+          showCloseButton={!revealing}
+          onEscapeKeyDown={(event) => revealing && event.preventDefault()}
+          onInteractOutside={(event) => revealing && event.preventDefault()}
+        >
+          {!created ? (
+            <>
+              <DialogHeader>
+                <DialogTitle>Add a runner</DialogTitle>
+                <DialogDescription>
+                  Register a machine to run training on your own hardware. You'll get a one-time
+                  token to start it with.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label htmlFor="runner-name">Name</Label>
+                  <Input
+                    id="runner-name"
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="e.g. lab-workstation-1"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Lanes</Label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {KNOWN_LANES.map((lane) => (
+                      <Button
+                        key={lane}
+                        type="button"
+                        variant={lanes.includes(lane) ? "secondary" : "outline"}
+                        size="sm"
+                        onClick={() => toggleLane(lane)}
+                      >
+                        {LANE_LABELS[lane] ?? lane}
+                      </Button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Which queues this runner should pick up work from.
+                  </p>
+                </div>
+              </div>
+              <DialogFooter className="gap-2">
+                <Button variant="outline" onClick={() => setOpen(false)}>
+                  Cancel
+                </Button>
+                <Button
+                  disabled={!name.trim() || lanes.length === 0 || createRunner.isPending}
+                  onClick={() =>
+                    createRunner.mutate(
+                      { name: name.trim(), lanes },
+                      { onSuccess: (runner) => setCreated(runner) },
+                    )
+                  }
+                >
+                  {createRunner.isPending ? "Adding…" : "Add runner"}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle>{created.name} is registered</DialogTitle>
+                <DialogDescription>
+                  This token is shown once. Treat it like a password — if you lose it, revoke this
+                  runner and register a new one.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
+                  {runCommand(created)}
+                </pre>
+                <Button variant="outline" size="sm" onClick={copyCommand}>
+                  {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+                  {copied ? "Copied" : "Copy command"}
+                </Button>
+              </div>
+              <DialogFooter>
+                <Button
+                  onClick={() => {
+                    setOpen(false);
+                    reset();
+                  }}
+                >
+                  I've copied it
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}

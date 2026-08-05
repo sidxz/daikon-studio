@@ -12,3 +12,6 @@ export const STALE_TIME = {
 
 /** Poll interval for a Run, per the design: 202-then-poll, no websockets. */
 export const RUN_POLL_MS = 2_000;
+
+/** Poll interval for the Runners list, so an online dot moves without a reload. */
+export const RUNNER_POLL_MS = 10_000;
