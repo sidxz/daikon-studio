@@ -149,6 +149,21 @@ database; `STUDIO_INLINE_JOBS=1` remains for tests and worker-less dev.
   be active and enforces the upload size cap while streaming, so an
   unbounded chunked body without `Content-Length` still gets cut off.
   Nothing a runner uploads is ever executed on the server.
+  A key may also arrive as a full store URI (`file:///…/{ws}/…`), because
+  `BlobStore.put_bytes` returns one and `Protocol.artifact_uri` stores it
+  verbatim — prediction reads the artifact back by URI, by design. The
+  configured blob-base prefix is stripped in a single non-recursive pass
+  *before* the traversal and workspace checks run, and the same normalized
+  key is what reaches the store, so widening the accepted *shape* leaves the
+  reachable *locations* unchanged.
+
+  **Deployment caveat:** those URIs travel inside the request path, so a
+  reverse proxy that merges duplicate slashes (nginx's `merge_slashes on`,
+  the default) collapses `file:///…` to `file:/…`, the prefix strip misses,
+  and every prediction artifact read 403s. Direct-to-uvicorn runners are
+  unaffected. Before the first runner behind a proxy: disable slash merging
+  for `/api/v1/runner/`, or normalize client-side in `HttpBlobStore` as well
+  (`infrastructure/runner/ports.py`), keeping the server guard authoritative.
 - **Trust rule (documented, not code): one lane = one trust domain.** Trained
   artifacts are executable (pickles/checkpoints), so whoever runs prediction
   with a protocol must trust whoever trained it. Do not mix owners on a lane.
