@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import String, bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 _SWEEP_REQUEUE = text("""
@@ -32,13 +32,21 @@ _SWEEP_FAIL = text("""
 # `lane IN :lanes` (expanding bindparam) instead of `lane = ANY(:lanes)`:
 # asyncpg cannot infer the array element type of a plain `:lanes` bind
 # through text() reliably, and this is the brief's noted equivalent.
+#
+# The cap counts 'running' rows *and* claimed-but-still-pending ones: a claim
+# leaves a run 'pending' with claimed_by set until the runner reports back
+# 'running', so counting only 'running' would let two concurrent pollers both
+# slip under a cap of 1 during that window -- the candidate row itself can
+# never self-count since candidates require claimed_by IS NULL.
 _CLAIM = text("""
     WITH candidate AS (
         SELECT r.id FROM runs r
         WHERE r.status = 'pending' AND r.claimed_by IS NULL
           AND r.lane IN :lanes AND r.attempts < :max_attempts
           AND (SELECT count(*) FROM runs a
-               WHERE a.workspace_id = r.workspace_id AND a.status = 'running')
+               WHERE a.workspace_id = r.workspace_id
+                 AND (a.status = 'running'
+                      OR (a.status = 'pending' AND a.claimed_by IS NOT NULL)))
               < :cap
         ORDER BY r.created_at
         LIMIT 1
@@ -49,7 +57,7 @@ _CLAIM = text("""
         lease_expires_at = now() + make_interval(secs => :lease_seconds)
     FROM candidate WHERE runs.id = candidate.id
     RETURNING runs.id
-""").bindparams(bindparam("lanes", expanding=True))
+""").bindparams(bindparam("lanes", expanding=True, type_=String))
 
 _VERIFY = text("""
     UPDATE runs

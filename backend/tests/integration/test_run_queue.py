@@ -113,6 +113,19 @@ async def test_claim_skips_other_lanes(queue, session_factory):
     assert claimed is None
 
 
+async def test_claim_with_empty_lanes_returns_none(queue, session_factory):
+    """A runner registered with no lanes must get a clean `None`, not a
+    Postgres type error -- `lane IN :lanes` against an empty expanding
+    bindparam only degrades gracefully with an explicit `type_` (asyncpg
+    otherwise guesses `integer` for the empty-list placeholder and
+    `character varying = integer` is a hard DB error, not an empty match)."""
+    await _pending_run(session_factory)
+
+    claimed = await queue.claim_next(runner_id=uuid.uuid4(), **{**_CLAIM_DEFAULTS, "lanes": []})
+
+    assert claimed is None
+
+
 async def test_claim_sets_claimant_lease_and_attempts(queue, session_factory):
     run_id = await _pending_run(session_factory)
     runner_id = uuid.uuid4()
@@ -241,6 +254,24 @@ async def test_workspace_cap_blocks_claim(queue, session_factory):
     assert claimed == other_workspace_run
 
 
+async def test_workspace_cap_counts_claimed_but_still_pending_runs(queue, session_factory):
+    """A claim leaves its run `pending` with `claimed_by` set until the
+    runner reports back `running` -- during that window it must still
+    consume the workspace's fairness slot, or two concurrent pollers could
+    both slip a cap of 1."""
+    workspace_id = uuid.uuid4()
+    await _pending_run(session_factory, workspace_id=workspace_id, claimed_by=uuid.uuid4())
+    capped_pending = await _pending_run(session_factory, workspace_id=workspace_id)
+    other_workspace_run = await _pending_run(session_factory)
+
+    claimed = await queue.claim_next(
+        runner_id=uuid.uuid4(), **{**_CLAIM_DEFAULTS, "max_active_per_workspace": 1}
+    )
+
+    assert claimed == other_workspace_run
+    assert claimed != capped_pending
+
+
 async def test_lane_null_is_never_claimable(queue, session_factory):
     await _pending_run(session_factory, lane=None)
 
@@ -287,6 +318,27 @@ async def test_verify_claim_require_active_false_on_terminal(queue, session_fact
     )
 
     assert ok is True
+
+
+async def test_verify_claim_require_active_true_allows_running_and_rejects_terminal(
+    queue, session_factory
+):
+    runner_id = uuid.uuid4()
+    running_id = await _pending_run(session_factory, status="running", claimed_by=runner_id)
+    terminal_id = await _pending_run(session_factory, status="ready", claimed_by=runner_id)
+
+    assert (
+        await queue.verify_claim(
+            running_id, runner_id=runner_id, lease_seconds=60, require_active=True
+        )
+        is True
+    )
+    assert (
+        await queue.verify_claim(
+            terminal_id, runner_id=runner_id, lease_seconds=60, require_active=True
+        )
+        is False
+    )
 
 
 async def test_set_lane_makes_run_claimable(queue, session_factory):
