@@ -34,6 +34,13 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
     # `execution` are separate bounded contexts and cross-context references are
     # plain ids by contract.
     protocol_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    # NULL for an ordinary solo run. Set at creation and never updated -- see
+    # `Run.sweep_id`. A bare indexed UUID with no `sweeps` table behind it:
+    # the group's only state is its members, and a `GROUP BY` answers every
+    # question the list page asks.
+    sweep_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    # The headline metric, denormalised for ranking -- see `Run.record_metrics`.
+    metrics: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     progress: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
     phase: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -61,6 +68,9 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
         Index("ix_runs_workspace_created_at", "workspace_id", "created_at"),
         # Backs "which runs belong to this Protocol".
         Index("ix_runs_workspace_protocol_id", "workspace_id", "protocol_id"),
+        # Backs both sweep queries: the member list, and the grouped summary
+        # the sweeps list page reads.
+        Index("ix_runs_workspace_sweep_id", "workspace_id", "sweep_id"),
         # Backs the queue: pending runs with a lane set are claimable by runners.
         Index(
             "ix_runs_claimable", "lane", "created_at", postgresql_where=text("status = 'pending'")

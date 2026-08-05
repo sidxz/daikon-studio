@@ -36,6 +36,8 @@ def _to_domain(model: RunModel) -> Run:
         cache_key=model.cache_key,
         params=model.params,
         protocol_id=model.protocol_id,
+        sweep_id=model.sweep_id,
+        metrics=model.metrics,
         status=RunStatus(model.status),
         progress=model.progress,
         phase=model.phase,
@@ -56,6 +58,8 @@ def _to_model(run: Run) -> RunModel:
         cache_key=run.cache_key,
         params=run.params,
         protocol_id=run.protocol_id,
+        sweep_id=run.sweep_id,
+        metrics=run.metrics,
         status=run.status.value,
         progress=run.progress,
         phase=run.phase,
@@ -109,6 +113,10 @@ class SqlAlchemyRunRepository:
                     # Persisted by `update` because it is an *outcome*, unlike
                     # `params` which stays write-once -- see `Run.link_protocol`.
                     protocol_id=model.protocol_id,
+                    # An outcome, like protocol_id above -- see
+                    # `Run.record_metrics`. `sweep_id` is deliberately absent:
+                    # it is an instruction, and stays write-once like `params`.
+                    metrics=model.metrics,
                     status=model.status,
                     progress=model.progress,
                     phase=model.phase,

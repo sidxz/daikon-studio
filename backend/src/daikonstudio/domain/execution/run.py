@@ -70,10 +70,12 @@ class Run(AggregateRoot):
         cache_key: str,
         params: Mapping[str, Any] | None = None,
         protocol_id: uuid.UUID | None = None,
+        sweep_id: uuid.UUID | None = None,
         status: RunStatus = RunStatus.PENDING,
         progress: float = 0.0,
         phase: str | None = None,
         result_uri: str | None = None,
+        metrics: dict[str, Any] | None = None,
         error_message: str | None = None,
         id: uuid.UUID | None = None,
         created_at: datetime | None = None,
@@ -102,6 +104,16 @@ class Run(AggregateRoot):
         # outcome is not an instruction, and needs a field that survives an
         # update.
         self.protocol_id = protocol_id
+        # Which sweep this Run belongs to, or None for an ordinary solo run --
+        # which is nearly every row. Set once, at creation, by `SubmitSweep`;
+        # `update()` never persists it, exactly like `params`, because "which
+        # question was I part of" is an instruction and not an outcome.
+        self.sweep_id = sweep_id
+        # The headline number, denormalised out of the Scorecard blob so that
+        # ranking N runs is a column read. An outcome, so `update()` does
+        # persist it -- the same argument `protocol_id` makes above. None until
+        # a training run reaches `ready`, and forever on a prediction run.
+        self.metrics = metrics
         self.status = status
         self.progress = progress
         self.phase = phase
@@ -128,6 +140,28 @@ class Run(AggregateRoot):
                 f"Run '{self.id}' is already linked to protocol '{self.protocol_id}'"
             )
         self.protocol_id = protocol_id
+        self._touch()
+
+    def record_metrics(
+        self, *, primary_metric: str, value: float | None, baseline_value: float | None
+    ) -> None:
+        """The one number a sweep ranks on, plus what it was measured against.
+
+        Deliberately not the full metric dict: everything else a scientist
+        needs is in the Scorecard, and the reason this lives on the row at all
+        is that building a Scorecard recomputes Tanimoto similarity over
+        train x test. Ranking twenty runs must not pay that twenty times.
+
+        `value` is nullable because a metric can be genuinely undefined -- a
+        single-class test split makes every classification metric meaningless,
+        and the Scorecard already says so. A ranked list shows such a run as
+        unranked rather than as zero.
+        """
+        self.metrics = {
+            "primary_metric": primary_metric,
+            "value": value,
+            "baseline_value": baseline_value,
+        }
         self._touch()
 
     def start(self) -> None:
