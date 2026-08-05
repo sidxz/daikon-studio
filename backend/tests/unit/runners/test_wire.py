@@ -22,9 +22,13 @@ from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ConflictRow, InvalidRow, ValidationReport
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.infrastructure.runner.wire import (
+    BlobPutResponse,
+    ClaimResponse,
     DatasetEnvelope,
     ProtocolEnvelope,
     RunEnvelope,
+    RunUpdateEnvelope,
+    RunUpdateResponse,
 )
 
 _NOW = datetime(2026, 8, 5, 12, 30, tzinfo=UTC)
@@ -158,3 +162,26 @@ def test_protocol_envelope_json_roundtrip() -> None:
     result = ProtocolEnvelope.model_validate_json(envelope.model_dump_json()).to_domain()
     assert result.__dict__ == protocol.__dict__
     assert result.conditions == protocol.conditions
+
+
+def test_bare_dtos_json_roundtrip() -> None:
+    """The four envelopes with no `to_domain` -- unlike the aggregate
+    mirrors above, plain pydantic equality (field-by-field) is exactly
+    right here, since none of these carry an `Entity` with an id-only
+    `__eq__`."""
+    instances = [
+        RunUpdateEnvelope(
+            status="running",
+            progress=0.75,
+            phase="training",
+            result_uri=None,
+            error_message=None,
+            protocol_id=uuid.uuid4(),
+            expected_version=2,
+        ),
+        ClaimResponse(run=RunEnvelope.from_domain(_run()), deadline_seconds=300),
+        BlobPutResponse(uri="s3://bucket/blob/artifact.bin"),
+        RunUpdateResponse(version=5),
+    ]
+    for instance in instances:
+        assert type(instance).model_validate_json(instance.model_dump_json()) == instance
