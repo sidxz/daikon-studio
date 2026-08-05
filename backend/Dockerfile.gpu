@@ -83,4 +83,9 @@ ENV OMP_NUM_THREADS=1
 
 USER studio
 
+# CMD is already the runner agent (unlike backend/Dockerfile, whose default CMD serves
+# the API and needs its own CMD override). Set env vars STUDIO_URL (server address, an
+# address THIS container can reach -- not necessarily the browser's own address the
+# runners UI defaults to) and STUDIO_RUNNER_TOKEN (auth token) at `docker run` time, plus
+# `--gpus all` so the container can see the host GPU.
 CMD ["python", "-m", "daikonstudio.infrastructure.runner"]

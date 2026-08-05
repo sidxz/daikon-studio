@@ -54,7 +54,8 @@ WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 
 .DEFAULT_GOAL := help
 .PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
-        seed-runners generate-api test test-api test-all test-fe lint lint-fe nuke
+        seed-runners generate-api test test-api test-all test-fe lint lint-fe nuke \
+        image-runner-cpu image-runner-gpu
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -179,6 +180,12 @@ lint: ## Backend lint (ruff + mypy)
 
 lint-fe: ## Frontend lint (biome)
 	$(FRONTEND) && pnpm lint
+
+image-runner-cpu: ## Build the daikon-runner:cpu image the runners UI's docker command names
+	docker build -f backend/Dockerfile -t daikon-runner:cpu backend
+
+image-runner-gpu: ## Build the daikon-runner:gpu image (see backend/Dockerfile.gpu -- x86_64 only)
+	docker build -f backend/Dockerfile.gpu -t daikon-runner:gpu backend
 
 nuke: ## Stop containers and DELETE all data volumes + local blobs
 	$(COMPOSE) down -v

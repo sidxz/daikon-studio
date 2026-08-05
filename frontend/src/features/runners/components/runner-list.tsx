@@ -39,7 +39,7 @@ function StatusDot({ runner }: { runner: Runner }) {
   if (runner.online) {
     return (
       <span className="relative inline-flex size-2 shrink-0" aria-hidden>
-        <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75" />
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-success opacity-75 motion-reduce:hidden" />
         <span className="relative inline-flex size-2 rounded-full bg-success" />
       </span>
     );

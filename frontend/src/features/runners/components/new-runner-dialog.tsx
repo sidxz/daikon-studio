@@ -18,18 +18,36 @@ import { useState } from "react";
 import { useCreateRunner } from "../hooks/use-runners";
 import { type CreatedRunner, KNOWN_LANES, LANE_LABELS } from "../types";
 
-/** `getApiBaseUrl()` may carry a path in some deployments; the runner wants only the origin. */
-function apiOrigin(): string {
-  return new URL(getApiBaseUrl()).origin;
+/**
+ * `getApiBaseUrl()` may carry a path in some deployments; the runner wants only the
+ * origin. Must never throw -- a relative base (e.g. `APP_API_BASE_URL=/api`, the case
+ * this comment used to only warn about) fails `new URL()` with no second argument, and
+ * this runs at render during the one-time token reveal below: an uncaught throw here
+ * replaces the whole page (there is no error.tsx) and loses a token that lives only in
+ * component state (Important 5, final review). Fall back to the page's own origin,
+ * which is what a relative base resolves against anyway.
+ */
+export function apiOrigin(): string {
+  const base = getApiBaseUrl();
+  try {
+    return new URL(base).origin;
+  } catch {
+    return typeof window !== "undefined" ? window.location.origin : base;
+  }
 }
 
-function runCommand(created: CreatedRunner): string {
-  const image = created.lanes.includes("gpu") ? "daikon-runner:gpu" : "daikon-runner:cpu";
+export function runCommand(created: CreatedRunner): string {
+  const gpu = created.lanes.includes("gpu");
+  const image = gpu ? "daikon-runner:gpu" : "daikon-runner:cpu";
   return [
     "docker run -d --restart unless-stopped \\",
+    ...(gpu ? ["  --gpus all \\"] : []),
     `  -e STUDIO_URL=${apiOrigin()} \\`,
     `  -e STUDIO_RUNNER_TOKEN=${created.token} \\`,
-    `  ${image}`,
+    // The cpu image's default CMD serves the API, not the runner agent (only
+    // Dockerfile.gpu's CMD is the agent already) -- override it explicitly so the
+    // command this dialog hands out actually starts a runner (Critical 2, final review).
+    ...(gpu ? [`  ${image}`] : [`  ${image} \\`, "  python -m daikonstudio.infrastructure.runner"]),
   ].join("\n");
 }
 
@@ -161,6 +179,12 @@ export function NewRunnerDialog() {
                   {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
                   {copied ? "Copied" : "Copy command"}
                 </Button>
+                <p className="text-xs text-muted-foreground">
+                  STUDIO_URL above is this browser's address. If the runner machine can't reach it
+                  (a local address, a machine behind a firewall), replace it with one that it can —
+                  see <code>make image-runner-cpu</code> / <code>make image-runner-gpu</code> to
+                  build these images.
+                </p>
               </div>
               <DialogFooter>
                 <Button

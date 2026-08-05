@@ -15,7 +15,17 @@ import { defineConfig } from "orval";
  */
 export default defineConfig({
   studio: {
-    input: { target: "./openapi.json" },
+    input: {
+      target: "./openapi.json",
+      // `runner-protocol` is the machine-facing `/api/v1/runner/*` prefix
+      // (backend/src/daikonstudio/interface/routes/runner_api.py): it takes a
+      // runner's bearer token, never Sentinel's, and has no route the app's own
+      // UI ever calls. Generating hooks for it produced dead code that would
+      // send the USER's Sentinel bearer to runner-only machine endpoints if
+      // anything ever imported it (Minor 1, final review) -- exclude the tag so
+      // nothing gets generated for it at all.
+      filters: { mode: "exclude", tags: ["runner-protocol"] },
+    },
     output: {
       target: "src/shared/lib/api/endpoints.ts",
       schemas: "src/shared/lib/api/model",

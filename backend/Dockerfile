@@ -32,4 +32,7 @@ USER studio
 
 # For a worker, override CMD to `["python", "-m", "daikonstudio.infrastructure.runner"]`
 # and set env vars STUDIO_URL (server address) and STUDIO_RUNNER_TOKEN (auth token).
+# Build this image (tagged daikon-runner:cpu, the tag the runners UI's docker command
+# names) with `make image-runner-cpu`; Dockerfile.gpu's own CMD is the agent already,
+# built with `make image-runner-gpu`.
 CMD ["uvicorn", "daikonstudio.interface.app:app", "--host", "0.0.0.0", "--port", "8000"]
