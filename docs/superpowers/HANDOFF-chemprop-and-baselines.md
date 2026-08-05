@@ -104,6 +104,13 @@ frozen progress bar rather than a failure. arq redelivers after `job_timeout` (c
 staleness reaper. The future-seams doc parked one as out of scope; this session is the
 first evidence it's worth building.
 
+*(Update, self-hosted-runners phase: arq/Valkey are gone. The Postgres-backed runner
+queue now self-heals a crashed runner via `RunQueue.sweep`'s lease expiry, not an arq
+hard timeout -- `runner_lease_seconds` (default 600s), independently heartbeated by the
+agent (`infrastructure/runner/agent.py`) so a healthy long job doesn't trip it. The
+staleness-reaper gap this paragraph called out is the one this mechanism was built to
+close; see `docs/superpowers/specs/2026-08-04-self-hosted-runners-design.md`.)*
+
 **`Dockerfile.gpu` has never been built successfully.** This laptop is arm64 and torch's
 cu124 wheels are amd64-only; under emulation the build reached "Prepared 127 packages"
 and was stopped. It must be built on x86 — `docker --context ned build` is cheaper than

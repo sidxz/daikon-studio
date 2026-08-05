@@ -42,7 +42,9 @@ class ClaimRun:
         self._max_attempts = max_attempts
         self._deadline_seconds = deadline_seconds
 
-    async def __call__(self, *, runner: Runner) -> Result[tuple[Run, int] | None, DomainError]:
+    async def __call__(
+        self, *, runner: Runner
+    ) -> Result[tuple[Run, int, int] | None, DomainError]:
         if runner.is_revoked:
             return Failure(AuthorizationError(f"Runner '{runner.id}' is revoked"))
 
@@ -61,4 +63,8 @@ class ClaimRun:
         # The row `claim_next` just claimed cannot have vanished in between --
         # nothing in this codebase deletes a Run.
         assert run is not None, f"claimed run '{run_id}' was not found by get_by_id"
-        return Success((run, self._deadline_seconds))
+        # deadline_seconds (the job's own soft deadline) and lease_seconds (how
+        # long the CLAIM survives unrenewed) are different numbers the runner
+        # must not conflate -- see `ClaimResponse`'s own docstring for why
+        # (Important 1+2, final review).
+        return Success((run, self._deadline_seconds, self._lease_seconds))

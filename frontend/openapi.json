@@ -1800,16 +1800,21 @@
           "deadline_seconds": {
             "type": "integer",
             "title": "Deadline Seconds"
+          },
+          "lease_seconds": {
+            "type": "integer",
+            "title": "Lease Seconds"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
           "run",
-          "deadline_seconds"
+          "deadline_seconds",
+          "lease_seconds"
         ],
         "title": "ClaimResponse",
-        "description": "What a runner gets back for claiming a queued run: the run itself,\nplus how long it has before the server treats the claim as abandoned."
+        "description": "What a runner gets back for claiming a queued run: the run itself,\nplus two DIFFERENT numbers a runner must not conflate (Important 1+2,\nfinal review, after they had been):\n\n- `deadline_seconds`: the JOB's own soft deadline -- `worker_job_timeout`,\n  what `TrainContext.report` checks a fit's elapsed time against\n  (`application/execution/train_protocol.py`) and raises `RunInterrupted`\n  past. A run past this point is considered to have overrun on its own\n  merits, not to have gone silent.\n- `lease_seconds`: how long the runner's CLAIM on this run can go\n  unrenewed before the server treats it as abandoned and requeues it\n  (`RunQueue.claim_next`'s `lease_seconds`, `settings.runner_lease_seconds`).\n  Renewed by any authenticated call against a claimed run (`claimed_run`'s\n  own docstring) -- the agent's heartbeat (`infrastructure/runner/agent.py`)\n  exists so that renewal keeps happening even when the engine executing\n  the job never calls back into `ctx` on its own."
       },
       "ClassBalanceResponse": {
         "properties": {

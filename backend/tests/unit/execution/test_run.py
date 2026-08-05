@@ -105,11 +105,16 @@ def test_relinking_a_different_protocol_raises():
 
 
 def test_start_on_a_running_run_restarts_it():
-    """arq is at-least-once: a worker crash mid-job redelivers the same run_id
-    to a fresh process, which finds the row already RUNNING. With no
-    checkpoints, restart-from-zero is the designed recovery -- so the
-    redelivery is a legitimate restart, and stale progress from the dead
-    attempt is wiped."""
+    """`run_job` (`infrastructure/jobs.py`) calls `start()` unconditionally on
+    whatever it loads, with no separate branch for "already running" --
+    defense against any redelivery of the same run_id into a fresh execution
+    without the row passing back through PENDING first. The runner queue's
+    own redelivery path (`RunQueue.sweep` resetting an expired lease) already
+    flips the row to 'pending' before anyone can reclaim it, so this is a
+    domain-level invariant, not a mechanism this codebase's queue exercises
+    today: with no checkpoints, restart-from-zero is the designed recovery
+    either way, so a call landing on RUNNING is a legitimate restart, and
+    stale progress from whatever produced it is wiped."""
     run = _pending()
     run.start()
     run.report_progress(0.66, phase="training baseline")

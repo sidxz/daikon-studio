@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     # Selects InlineEnqueuer over DbEnqueuer (infrastructure/jobs.py) --
     # runs jobs in-process so tests and local dev need no runner at all.
     inline_jobs: bool = False
+    # Explicit opt-in for `infrastructure/runner/seed.py`'s fixed-token dev
+    # runners -- separate from `inline_jobs` because the runner-backed local
+    # dev flow (`make dev-worker`) runs with `inline_jobs=False` but still
+    # needs those rows seeded. Neither set means seed.py refuses to run
+    # (Important 4, final review): those tokens are public (committed to the
+    # repo) and a shared/staging Postgres must never get them.
+    dev_seed: bool = False
 
     # The SOFT deadline, in seconds, served to a self-hosted runner in the claim
     # response (`POST /api/v1/runner/claim`) and enforced cooperatively inside the

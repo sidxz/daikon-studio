@@ -8,9 +8,24 @@ import type { RunEnvelope } from './runEnvelope';
 
 /**
  * What a runner gets back for claiming a queued run: the run itself,
-plus how long it has before the server treats the claim as abandoned.
+plus two DIFFERENT numbers a runner must not conflate (Important 1+2,
+final review, after they had been):
+
+- `deadline_seconds`: the JOB's own soft deadline -- `worker_job_timeout`,
+  what `TrainContext.report` checks a fit's elapsed time against
+  (`application/execution/train_protocol.py`) and raises `RunInterrupted`
+  past. A run past this point is considered to have overrun on its own
+  merits, not to have gone silent.
+- `lease_seconds`: how long the runner's CLAIM on this run can go
+  unrenewed before the server treats it as abandoned and requeues it
+  (`RunQueue.claim_next`'s `lease_seconds`, `settings.runner_lease_seconds`).
+  Renewed by any authenticated call against a claimed run (`claimed_run`'s
+  own docstring) -- the agent's heartbeat (`infrastructure/runner/agent.py`)
+  exists so that renewal keeps happening even when the engine executing
+  the job never calls back into `ctx` on its own.
  */
 export interface ClaimResponse {
   run: RunEnvelope;
   deadline_seconds: number;
+  lease_seconds: number;
 }

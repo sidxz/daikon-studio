@@ -19,11 +19,25 @@ restarts this process -- a dead agent stays dead. `SystemExit`,
 `KeyboardInterrupt`, and `asyncio.CancelledError` are deliberately not
 caught anywhere here: those must still propagate out of the process for the
 same shutdown reasons `run_job`'s own docstring gives.
+
+Heartbeat (Important 1+2, final review): the lease `claim_next` grants is
+extended only by run-scoped HTTP calls (`claimed_run`'s own docstring), and
+during a fit those come only from `TrainContext.report` -- which only
+chemprop's engine calls at all; ecfp4-xgboost/ecfp4-randomforest never do.
+A healthy fit longer than `lease_seconds` would otherwise have its claim
+expire mid-job, get requeued, and restart from zero on another runner, up to
+`runner_max_attempts` times, for a job that was never broken. `poll_once`
+now runs a background heartbeat for the duration of the job -- a plain
+`GET /runs/{id}` on a timer derived from `lease_seconds`, independent of
+whatever the engine itself does -- cancelled in `finally` so it cannot
+outlive the job.
 """
 
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import uuid
 
 import httpx
 import structlog
@@ -35,6 +49,12 @@ from daikonstudio.infrastructure.runner.wire import ClaimResponse
 
 _logger = structlog.get_logger(__name__)
 
+# The lease is a soft budget, not a hard deadline -- three heartbeats per
+# lease window leaves margin for one missed tick (a slow request, a jittery
+# network) without losing the claim, while still renewing well before it
+# would otherwise expire.
+_HEARTBEATS_PER_LEASE = 3
+
 
 class AgentSettings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="STUDIO_", env_file=".env", extra="ignore")
@@ -42,6 +62,28 @@ class AgentSettings(BaseSettings):
     url: str  # STUDIO_URL, e.g. https://studio.example.org
     runner_token: str  # STUDIO_RUNNER_TOKEN, the drt_... secret this runner claims with
     poll_seconds: float = 3.0
+
+
+async def _heartbeat(api: httpx.AsyncClient, run_id: uuid.UUID, interval: float) -> None:
+    """Runs until cancelled: sleeps `interval`, then a run-scoped read, forever.
+    `claimed_run` (`interface/dependencies/runner_auth.py`) extends the lease
+    as a side effect of ANY authenticated call against a run it holds, so a
+    plain `GET` here is enough -- no dedicated heartbeat endpoint needed.
+
+    A failed tick is logged and swallowed, not raised: this task's only job
+    is to keep the lease alive for `run_job`, which is running concurrently
+    in the same process and must not be disturbed by a transient heartbeat
+    failure. If every tick fails for a whole `lease_seconds`, the claim
+    expires and the run gets requeued the normal way -- exactly the
+    pre-heartbeat behaviour, not a new failure mode.
+    """
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            response = await api.get(f"/api/v1/runner/runs/{run_id}")
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            _logger.warning("heartbeat failed", run_id=str(run_id), error=str(exc))
 
 
 async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
@@ -72,6 +114,9 @@ async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
     ctx = build_http_ctx(
         settings.url, settings.runner_token, run_id, deadline_seconds=claimed.deadline_seconds
     )
+    heartbeat = asyncio.create_task(
+        _heartbeat(api, run_id, claimed.lease_seconds / _HEARTBEATS_PER_LEASE)
+    )
     try:
         await jobs.run_job(ctx, run_id)
     except Exception:
@@ -79,6 +124,9 @@ async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
         # this is purely so the operator sees it, not a retry path.
         _logger.exception("runner job failed", run_id=str(run_id))
     finally:
+        heartbeat.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await heartbeat
         await ctx["_client"].aclose()
     return True
 

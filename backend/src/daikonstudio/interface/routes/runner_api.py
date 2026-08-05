@@ -77,8 +77,12 @@ async def claim(runner: RunnerDep, service: ClaimRunDep) -> Response:
     claimed = result_to_response(await service(runner=runner))
     if claimed is None:
         return Response(status_code=204)
-    run, deadline_seconds = claimed
-    envelope = ClaimResponse(run=RunEnvelope.from_domain(run), deadline_seconds=deadline_seconds)
+    run, deadline_seconds, lease_seconds = claimed
+    envelope = ClaimResponse(
+        run=RunEnvelope.from_domain(run),
+        deadline_seconds=deadline_seconds,
+        lease_seconds=lease_seconds,
+    )
     return JSONResponse(content=envelope.model_dump(mode="json"))
 
 

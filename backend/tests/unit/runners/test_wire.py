@@ -179,7 +179,7 @@ def test_bare_dtos_json_roundtrip() -> None:
             protocol_id=uuid.uuid4(),
             expected_version=2,
         ),
-        ClaimResponse(run=RunEnvelope.from_domain(_run()), deadline_seconds=300),
+        ClaimResponse(run=RunEnvelope.from_domain(_run()), deadline_seconds=300, lease_seconds=60),
         BlobPutResponse(uri="s3://bucket/blob/artifact.bin"),
         RunUpdateResponse(version=5),
     ]

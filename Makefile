@@ -80,7 +80,7 @@ migrate: ## Apply DB migrations (alembic)
 	$(BACKEND) && $(BE_ENV) && uv run alembic upgrade head
 
 seed-runners: ## Ensure the two local dev runners exist
-	$(BACKEND) && $(BE_ENV) && uv run python -m daikonstudio.infrastructure.runner.seed
+	$(BACKEND) && $(BE_ENV) && STUDIO_DEV_SEED=1 uv run python -m daikonstudio.infrastructure.runner.seed
 
 dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in the background
 	@mkdir -p $(LOGDIR)

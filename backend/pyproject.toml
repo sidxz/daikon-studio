@@ -97,7 +97,6 @@ forbidden_modules = [
     "fastapi",
     "sqlalchemy",
     "asyncpg",
-    "redis",
     "lagom",
     "httpx",
     "structlog",

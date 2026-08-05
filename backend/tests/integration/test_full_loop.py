@@ -69,9 +69,10 @@ async def _poll_until_ready(
     The `app` fixture's `InlineEnqueuer` has always finished the job by the
     time the submitting POST returns, so in practice this resolves on the
     first iteration -- but writing it as a poll (rather than one bare GET)
-    means this test is still correct against the real arq-backed worker, and
-    a run stuck mid-pipeline times out with a named stage instead of the
-    suite hanging.
+    means this test is still correct against a real self-hosted runner (see
+    `test_runner_full_loop.py`, which drives this same journey over the
+    runner protocol instead of inline), and a run stuck mid-pipeline times
+    out with a named stage instead of the suite hanging.
     """
     for _ in range(100):
         response = await client.get(f"/api/v1/runs/{run_id}")

@@ -98,6 +98,7 @@ async def test_claim_a_pending_default_lane_run(anonymous_client, app, workspace
     body = await _claim(anonymous_client, headers)
     assert body["run"]["id"] == str(run.id)
     assert body["deadline_seconds"] == Settings().worker_job_timeout
+    assert body["lease_seconds"] == Settings().runner_lease_seconds
 
 
 async def test_claim_ignores_a_run_in_a_lane_the_runner_does_not_serve(

@@ -10,6 +10,7 @@ does an empty claim skip execution entirely.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -76,7 +77,8 @@ async def test_a_200_claim_runs_the_job_with_the_claimed_deadline_and_run_id(
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            200, json={"run": _run_envelope_json(run_id), "deadline_seconds": 42}
+            200,
+            json={"run": _run_envelope_json(run_id), "deadline_seconds": 42, "lease_seconds": 30},
         )
 
     executed = await _poll_against(handler)
@@ -100,12 +102,57 @@ async def test_a_job_failure_is_caught_and_poll_once_still_returns_true(
 
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(
-            200, json={"run": _run_envelope_json(run_id), "deadline_seconds": 10}
+            200,
+            json={"run": _run_envelope_json(run_id), "deadline_seconds": 10, "lease_seconds": 30},
         )
 
     executed = await _poll_against(handler)  # must not raise
 
     assert executed is True
+
+
+async def test_poll_once_heartbeats_a_long_job_and_stops_when_it_finishes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Important 1+2, final review -- the lease is renewed only by run-scoped
+    HTTP calls, which during a fit come only from `ctx.report` (and only
+    chemprop's engine calls that at all). `poll_once` must heartbeat on its
+    own timer so a long, healthy job on any engine doesn't lose its claim."""
+    run_id = uuid.uuid4()
+    heartbeat_calls = 0
+
+    async def slow_run_job(ctx: dict[str, Any], claimed_run_id: uuid.UUID) -> None:
+        await asyncio.sleep(0.5)  # several multiples of the 1/3s heartbeat interval below
+
+    monkeypatch.setattr(jobs, "run_job", slow_run_job)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal heartbeat_calls
+        if request.url.path == "/api/v1/runner/claim":
+            return httpx.Response(
+                200,
+                json={
+                    "run": _run_envelope_json(run_id),
+                    "deadline_seconds": 1800,
+                    "lease_seconds": 1,  # -> a heartbeat every ~0.33s
+                },
+            )
+        assert request.url.path == f"/api/v1/runner/runs/{run_id}"
+        heartbeat_calls += 1
+        return httpx.Response(200, json=_run_envelope_json(run_id))
+
+    executed = await _poll_against(handler)
+
+    assert executed is True
+    assert heartbeat_calls >= 1, "expected at least one heartbeat during the job"
+
+    # The heartbeat task must be cancelled once the job finishes -- give it
+    # several more multiples of the interval and confirm the count doesn't move.
+    calls_at_job_end = heartbeat_calls
+    await asyncio.sleep(0.5)
+    assert heartbeat_calls == calls_at_job_end, (
+        "heartbeat task kept firing after poll_once returned -- not cancelled"
+    )
 
 
 async def test_a_500_claim_response_returns_false_and_does_not_raise(

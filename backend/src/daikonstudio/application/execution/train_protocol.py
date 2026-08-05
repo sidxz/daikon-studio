@@ -718,8 +718,9 @@ class RunTraining:
             now = time.monotonic()
             if self._deadline_at is not None and now > self._deadline_at:
                 raise RunInterrupted(
-                    f"exceeded this worker lane's {self._deadline_seconds:.0f}s deadline; "
-                    "raise STUDIO_WORKER_JOB_TIMEOUT on the lane if the work is legitimate",
+                    f"exceeded the {self._deadline_seconds:.0f}s deadline; raise the server's "
+                    "STUDIO_WORKER_JOB_TIMEOUT if the work is legitimate (applies to every "
+                    "lane -- there is no per-lane override)",
                     cancelled=False,
                 )
             if now - last_written < _PROGRESS_INTERVAL_SECONDS:
