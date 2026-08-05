@@ -30,5 +30,6 @@ ENV OMP_NUM_THREADS=1
 
 USER studio
 
-# Overridden to `arq daikonstudio.infrastructure.worker.WorkerSettings` for a worker.
+# For a worker, override CMD to `["python", "-m", "daikonstudio.infrastructure.runner"]`
+# and set env vars STUDIO_URL (server address) and STUDIO_RUNNER_TOKEN (auth token).
 CMD ["uvicorn", "daikonstudio.interface.app:app", "--host", "0.0.0.0", "--port", "8000"]

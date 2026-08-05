@@ -66,9 +66,7 @@ RUN uv sync --frozen --no-dev --extra gpu --extra s3
 ENV PATH="/app/.venv/bin:$PATH" \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
-    TMPDIR=/scratch \
-    STUDIO_WORKER_LANE=gpu \
-    STUDIO_WORKER_MAX_JOBS=1
+    TMPDIR=/scratch
 
 RUN mkdir -p /scratch \
  && useradd --create-home --uid 10001 studio \
@@ -85,4 +83,4 @@ ENV OMP_NUM_THREADS=1
 
 USER studio
 
-CMD ["arq", "daikonstudio.infrastructure.worker.WorkerSettings"]
+CMD ["python", "-m", "daikonstudio.infrastructure.runner"]
