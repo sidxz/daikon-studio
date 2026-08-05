@@ -15,13 +15,15 @@ stale in-memory copy overwrite a concurrent write instead of raising.
 
 from __future__ import annotations
 
+import builtins
 import uuid
 from datetime import datetime
 
-from sqlalchemy import CursorResult, Select, select, tuple_
+from sqlalchemy import CursorResult, Select, func, select, tuple_
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from daikonstudio.application.ports.run_repository import SweepSummary
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import ConcurrencyConflictError
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.models import RunModel
@@ -193,6 +195,69 @@ class SqlAlchemyRunRepository:
         async with self._sessions() as session:
             result = await session.execute(statement.limit(limit))
             return [_to_domain(model) for model in result.scalars()]
+
+    # `builtins.list[...]`, not the bare generic -- see the matching comment
+    # on the port's `list_by_sweep`: this class already has a method named
+    # `list`, and an unqualified `list[...]` used after it resolves to that
+    # method rather than the builtin under Python 3.14's lazy annotation
+    # evaluation (PEP 649), a landmine mypy also flags statically.
+    async def list_by_sweep(
+        self, workspace_id: uuid.UUID, sweep_id: uuid.UUID
+    ) -> builtins.list[Run]:
+        statement = (
+            select(RunModel)
+            .where(RunModel.workspace_id == workspace_id, RunModel.sweep_id == sweep_id)
+            .order_by(RunModel.created_at, RunModel.id)
+        )
+        async with self._sessions() as session:
+            result = await session.execute(statement)
+            return [_to_domain(model) for model in result.scalars()]
+
+    async def sweep_summaries(
+        self, workspace_id: uuid.UUID, *, limit: int = 50
+    ) -> builtins.list[SweepSummary]:
+        """One row per sweep, via FILTER-ed aggregates so the LIMIT applies to
+        sweeps rather than to (sweep, status) pairs.
+
+        ponytail: no cursor. Sweeps are created by hand, a handful at a time --
+        add keyset pagination here the day a workspace has more than `limit`,
+        the same shape `list()` already uses.
+        """
+        counts = {
+            status: func.count().filter(RunModel.status == status).label(f"n_{status}")
+            for status in ("pending", "running", "ready", "failed", "cancelled")
+        }
+        statement = (
+            select(
+                RunModel.sweep_id,
+                func.min(RunModel.created_at).label("created_at"),
+                func.min(RunModel.params["sweep_name"].astext).label("name"),
+                func.min(RunModel.params["dataset_id"].astext).label("dataset_id"),
+                func.count().label("total"),
+                *counts.values(),
+            )
+            .where(RunModel.workspace_id == workspace_id, RunModel.sweep_id.is_not(None))
+            .group_by(RunModel.sweep_id)
+            .order_by(func.min(RunModel.created_at).desc())
+            .limit(limit)
+        )
+        async with self._sessions() as session:
+            rows = (await session.execute(statement)).all()
+        return [
+            SweepSummary(
+                sweep_id=row.sweep_id,
+                name=row.name,
+                dataset_id=uuid.UUID(row.dataset_id) if row.dataset_id else None,
+                created_at=row.created_at,
+                total=row.total,
+                by_status={
+                    status: getattr(row, f"n_{status}")
+                    for status in counts
+                    if getattr(row, f"n_{status}")
+                },
+            )
+            for row in rows
+        ]
 
     async def _one(self, statement: Select[tuple[RunModel]]) -> Run | None:
         async with self._sessions() as session:

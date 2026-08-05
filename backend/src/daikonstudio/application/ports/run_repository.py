@@ -14,11 +14,36 @@ cases actually call and not one before, exactly as `ProtocolRepository`'s own
 docstring explains.
 """
 
+import builtins
+from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
 from daikonstudio.domain.execution.run import Run, RunKind
+
+
+@dataclass(frozen=True, kw_only=True)
+class SweepSummary:
+    """One row of the sweeps list, assembled by a GROUP BY rather than read
+    from a `sweeps` table -- a sweep's only state is its members.
+
+    `name` and `dataset_id` are read out of any member's `params` (every member
+    of a sweep carries the same two, written once at submission). Both are
+    nullable only to survive a malformed row; a sweep created by `SubmitSweep`
+    always has them.
+
+    `by_status` holds only the statuses actually present, so a caller reads
+    `.get(status, 0)` rather than trusting a fixed key set that a new
+    `RunStatus` member would silently invalidate.
+    """
+
+    sweep_id: UUID
+    name: str | None
+    dataset_id: UUID | None
+    created_at: datetime
+    total: int
+    by_status: dict[str, int]
 
 
 class RunRepository(Protocol):
@@ -47,3 +72,22 @@ class RunRepository(Protocol):
         cursor: tuple[datetime, UUID] | None = None,
         limit: int = 50,
     ) -> list[Run]: ...
+
+    # `builtins.list[...]`, not the bare generic: this Protocol already has a
+    # method named `list` above, and Python 3.14's lazy annotation evaluation
+    # (PEP 649) resolves an unqualified `list` used after that point to the
+    # *method*, not the builtin, raising `TypeError: 'function' object is not
+    # subscriptable` the first time anything introspects these signatures
+    # (mypy catches it statically as "Function ... list is not valid as a
+    # type"; `typing.get_type_hints` would hit it at runtime). Reordering
+    # doesn't help -- both methods share one class-wide annotation scope.
+    async def list_by_sweep(self, workspace_id: UUID, sweep_id: UUID) -> builtins.list[Run]:
+        """Every member of one sweep, oldest first -- submission order, which
+        is the order the configs were given in and therefore the order a user
+        recognises. Unpaginated on purpose: a sweep is bounded by what a human
+        typed into a form, and paging a comparison defeats the comparison."""
+        ...
+
+    async def sweep_summaries(
+        self, workspace_id: UUID, *, limit: int = 50
+    ) -> builtins.list[SweepSummary]: ...

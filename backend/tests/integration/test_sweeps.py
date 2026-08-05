@@ -68,3 +68,61 @@ async def test_solo_run_has_no_sweep_id(sessions) -> None:
     assert stored is not None
     assert stored.sweep_id is None
     assert stored.metrics is None
+
+
+@pytest.mark.asyncio
+async def test_list_by_sweep_returns_only_that_sweep(sessions) -> None:
+    repository = SqlAlchemyRunRepository(sessions)
+    workspace_id = uuid.uuid4()
+    mine, theirs = uuid.uuid4(), uuid.uuid4()
+    for _ in range(3):
+        await repository.add(_run(workspace_id=workspace_id, sweep_id=mine))
+    await repository.add(_run(workspace_id=workspace_id, sweep_id=theirs))
+    await repository.add(_run(workspace_id=workspace_id))
+
+    runs = await repository.list_by_sweep(workspace_id, mine)
+
+    assert len(runs) == 3
+    assert {run.sweep_id for run in runs} == {mine}
+
+
+@pytest.mark.asyncio
+async def test_list_by_sweep_is_workspace_scoped(sessions) -> None:
+    """The filter is in the SQL, not applied after the fetch."""
+    repository = SqlAlchemyRunRepository(sessions)
+    sweep_id = uuid.uuid4()
+    await repository.add(_run(workspace_id=uuid.uuid4(), sweep_id=sweep_id))
+
+    assert await repository.list_by_sweep(uuid.uuid4(), sweep_id) == []
+
+
+@pytest.mark.asyncio
+async def test_sweep_summaries_counts_by_status(sessions) -> None:
+    repository = SqlAlchemyRunRepository(sessions)
+    workspace_id = uuid.uuid4()
+    sweep_id = uuid.uuid4()
+    pending = _run(workspace_id=workspace_id, sweep_id=sweep_id)
+    finished = _run(workspace_id=workspace_id, sweep_id=sweep_id)
+    await repository.add(pending)
+    await repository.add(finished)
+    finished.start()
+    finished.succeed("file:///tmp/x.json")
+    await repository.update(finished)
+
+    summaries = await repository.sweep_summaries(workspace_id)
+
+    assert len(summaries) == 1
+    summary = summaries[0]
+    assert summary.sweep_id == sweep_id
+    assert summary.name == "BBBP comparison"
+    assert summary.total == 2
+    assert summary.by_status == {"pending": 1, "ready": 1}
+
+
+@pytest.mark.asyncio
+async def test_sweep_summaries_ignores_solo_runs(sessions) -> None:
+    repository = SqlAlchemyRunRepository(sessions)
+    workspace_id = uuid.uuid4()
+    await repository.add(_run(workspace_id=workspace_id))
+
+    assert await repository.sweep_summaries(workspace_id) == []
