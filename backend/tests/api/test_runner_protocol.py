@@ -21,15 +21,14 @@ import httpx
 import pytest
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
-from tests.fakes.auth import FakeAuth
+from tests.helpers.runner_fixtures import claim as _claim
+from tests.helpers.runner_fixtures import register_runner as _register_runner
+from tests.helpers.runner_fixtures import seed_run as _seed_run
 
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
-from daikonstudio.application.ports.run_queue import RunQueue
-from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.runner_repository import RunnerRepository
-from daikonstudio.application.runners.manage import CreateRunner, CreateRunnerCommand
 from daikonstudio.domain.catalog.protocol import ProtocolStatus
-from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.domain.execution.run import RunKind
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.interface.app import create_app
 from daikonstudio.settings import Settings
@@ -45,44 +44,6 @@ _UPDATE_BODY: dict[str, Any] = {
     "protocol_id": None,
     "expected_version": 1,
 }
-
-
-async def _register_runner(app, lanes: list[str]) -> tuple[uuid.UUID, dict[str, str]]:
-    """Register a runner via `CreateRunner` resolved from the container, and
-    hand back its id plus a header dict carrying its bearer token."""
-    create_runner = app.state.container[CreateRunner]
-    result = await create_runner(
-        CreateRunnerCommand(name=f"runner-{uuid.uuid4()}", lanes=tuple(lanes)), auth=FakeAuth()
-    )
-    created = result.unwrap()
-    return created.runner.id, {"Authorization": f"Bearer {created.token}"}
-
-
-async def _seed_run(
-    app,
-    workspace_id: uuid.UUID,
-    *,
-    kind: RunKind = RunKind.PREDICTION,
-    lane: str | None = "default",
-    params: dict[str, Any] | None = None,
-) -> Run:
-    run = Run(
-        kind=kind,
-        workspace_id=workspace_id,
-        requested_by=uuid.uuid4(),
-        cache_key=f"runner-protocol-test-{uuid.uuid4()}",
-        params=params or {},
-    )
-    await app.state.container[RunRepository].add(run)
-    if lane is not None:
-        await app.state.container[RunQueue].set_lane(run.id, lane)
-    return run
-
-
-async def _claim(anonymous_client, headers: dict[str, str]) -> dict[str, Any]:
-    response = await anonymous_client.post("/api/v1/runner/claim", headers=headers)
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 # --------------------------------------------------------------------------
