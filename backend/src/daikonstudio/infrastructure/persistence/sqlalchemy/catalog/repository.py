@@ -17,11 +17,12 @@ from typing import Any
 
 from sqlalchemy import CursorResult, Select, select, tuple_
 from sqlalchemy import update as sa_update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
-from daikonstudio.domain.shared.errors import ConcurrencyConflictError
+from daikonstudio.domain.shared.errors import ConcurrencyConflictError, ConflictError
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import (
     InSilicoProtocolModel,
 )
@@ -101,7 +102,11 @@ class SqlAlchemyProtocolRepository:
     async def add(self, protocol: InSilicoProtocol) -> None:
         async with self._sessions() as session:
             session.add(_to_model(protocol))
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError as error:
+                await session.rollback()
+                raise ConflictError(f"Protocol '{protocol.id}' already exists") from error
 
     async def update(self, protocol: InSilicoProtocol) -> None:
         """Optimistic concurrency: the UPDATE only lands if the row's `version`

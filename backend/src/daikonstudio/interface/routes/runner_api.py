@@ -19,7 +19,9 @@ one rule that matters for the security boundary -- a runner can never report
 
 from __future__ import annotations
 
+import posixpath
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
@@ -30,10 +32,12 @@ from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
+from daikonstudio.domain.catalog.protocol import ProtocolStatus
 from daikonstudio.domain.execution.run import RunStatus
 from daikonstudio.domain.shared.errors import (
     AuthorizationError,
     ConcurrencyConflictError,
+    ConflictError,
     NotFoundError,
     ValidationError,
 )
@@ -68,7 +72,7 @@ SettingsDep = Annotated[Settings, Depends(use_case(Settings))]
 _MUTABLE_STATUSES = {"running", "ready", "failed"}
 
 
-@router.post("/claim")
+@router.post("/claim", response_model=ClaimResponse)
 async def claim(runner: RunnerDep, service: ClaimRunDep) -> Response:
     claimed = result_to_response(await service(runner=runner))
     if claimed is None:
@@ -95,14 +99,36 @@ async def update_run(
         raise ConcurrencyConflictError("Run", str(run.id))
 
     # Only the mutable fields -- never params/kind/workspace_id, which stay
-    # exactly what the use case that created the row put there.
+    # exactly what the use case that created the row put there. And only the
+    # fields the caller actually sent: `RunUpdateEnvelope`'s optional fields
+    # default to None, so a bare status-only heartbeat must not null out
+    # whatever a previous update reported (security review, Important 1).
+    fields = body.model_fields_set
     run.status = RunStatus(body.status)
-    run.progress = body.progress
-    run.phase = body.phase
-    run.result_uri = body.result_uri
-    run.error_message = body.error_message
-    run.protocol_id = body.protocol_id
+    if "progress" in fields and body.progress is not None:
+        # Unlike phase/result_uri/error_message, `Run.progress` is a plain
+        # `float` (not nullable) -- an explicit `"progress": null` is nonsense
+        # for a fraction-complete value, so treat it the same as omitted
+        # rather than accept a value the domain type cannot hold.
+        run.progress = body.progress
+    if "phase" in fields:
+        run.phase = body.phase
+    if "result_uri" in fields:
+        run.result_uri = body.result_uri
+    if "error_message" in fields:
+        run.error_message = body.error_message
+    if "protocol_id" in fields:
+        if body.protocol_id is not None:
+            # write-once, same as every other caller of link_protocol: raises
+            # ConflictError (-> 409) if this run is already linked elsewhere.
+            run.link_protocol(body.protocol_id)
+        elif run.protocol_id is not None:
+            raise ConflictError(
+                f"Run '{run.id}' is already linked to protocol '{run.protocol_id}'; "
+                "cannot unlink it"
+            )
     run.version = body.expected_version
+    run.updated_at = datetime.now(UTC)
     await runs.update(run)  # raises ConcurrencyConflictError (-> 409) on a lost race
     return RunUpdateResponse(version=run.version)
 
@@ -112,7 +138,11 @@ async def get_dataset(run: ClaimedRunRead, datasets: DatasetRepositoryDep) -> Da
     raw_dataset_id = run.params.get("dataset_id")
     if raw_dataset_id is None:
         raise NotFoundError("Dataset")
-    dataset = await datasets.get(run.workspace_id, uuid.UUID(str(raw_dataset_id)))
+    try:
+        dataset_id = uuid.UUID(str(raw_dataset_id))
+    except ValueError as error:
+        raise NotFoundError("Dataset", str(raw_dataset_id)) from error
+    dataset = await datasets.get(run.workspace_id, dataset_id)
     if dataset is None:
         raise NotFoundError("Dataset", str(raw_dataset_id))
     return DatasetEnvelope.from_domain(dataset)
@@ -134,12 +164,46 @@ async def create_protocol(
 ) -> Response:
     if body.workspace_id != run.workspace_id:
         raise ValidationError("protocol workspace_id must match the run's workspace_id")
-    await protocols.add(body.to_domain())
+    protocol = body.to_domain()
+    # Publishing is an editor-role, human-facing action (`PublishProtocol`,
+    # `interface/routes/protocols.py`) that also goes through
+    # `InSilicoProtocol.publish()`'s own invariants. A runner reporting the
+    # protocol it just trained must never be able to hand back an envelope
+    # that skips straight to published -- force draft server-side regardless
+    # of what the body carried (security review, Important 2).
+    protocol.status = ProtocolStatus.DRAFT
+    protocol.published_at = None
+    # A duplicate id raises ConflictError (-> 409) from the repository itself
+    # -- same pattern as `SqlAlchemyRunnerRepository.add` -- rather than a raw
+    # IntegrityError surfacing here as a 500 with SQL in the traceback.
+    await protocols.add(protocol)
     return Response(status_code=201)
 
 
 def _guard_workspace_prefix(workspace_id: uuid.UUID, key: str) -> None:
-    if not key.startswith(f"{workspace_id}/"):
+    """`key.startswith(prefix)` alone is not confinement -- `FsspecBlobStore._path`
+    string-concatenates the key onto the base path and the underlying
+    filesystem happily resolves `..` in it, so `{ws}/../../pwned.txt` both
+    starts with `{ws}/` AND escapes the workspace (and the blob root
+    entirely). Security review, Critical 1 -- proven end-to-end with
+    percent-encoded `..` segments in the URL, which arrive here already
+    decoded (ASGI's `scope["path"]` is decoded before routing).
+
+    Reject on three independent grounds: a rooted key, a literal `..`/`.`
+    path segment, and (belt-and-braces) a `posixpath.normpath` of the key
+    landing outside the prefix -- any one of these tripping is enough to
+    refuse, so no single encoding trick can satisfy all three at once.
+    """
+    prefix = f"{workspace_id}/"
+    segments = key.split("/")
+    confined = (
+        not key.startswith("/")
+        and ".." not in segments
+        and "." not in segments
+        and key.startswith(prefix)
+        and posixpath.normpath(key).startswith(prefix)
+    )
+    if not confined:
         raise AuthorizationError(f"Blob key '{key}' is outside this run's workspace")
 
 
@@ -163,16 +227,32 @@ async def put_blob(
 ) -> BlobPutResponse:
     _guard_workspace_prefix(run.workspace_id, key)
 
+    # `.isdigit()` rather than a bare `int(...)`: a garbage or negative
+    # Content-Length (a client can send anything) must not raise and 500 --
+    # treat anything that isn't a plain non-negative integer as absent and
+    # fall through to the streaming check below, which is authoritative
+    # either way.
     content_length = request.headers.get("content-length")
-    if content_length is not None and int(content_length) > settings.runner_upload_max_bytes:
+    if (
+        content_length is not None
+        and content_length.isdigit()
+        and int(content_length) > settings.runner_upload_max_bytes
+    ):
         raise HTTPException(status_code=413, detail="Upload exceeds runner_upload_max_bytes")
 
     # The `BlobStore` port is bytes-in, bytes-out (`application/ports/blob_store.py`),
-    # so buffering the whole body in memory is inherent to this endpoint -- the
-    # Content-Length check above is a fast-fail for an honest client, this is the
-    # real check for one that lies about (or omits) that header.
-    body = await request.body()
-    if len(body) > settings.runner_upload_max_bytes:
-        raise HTTPException(status_code=413, detail="Upload exceeds runner_upload_max_bytes")
+    # so buffering the whole body in memory is inherent to this endpoint -- but
+    # buffering it *unbounded* is not: a chunked request carries no Content-Length
+    # at all, so the fast-fail above never fires for one, and `await request.body()`
+    # would read the whole thing before any check ran. Read the stream instead and
+    # abort the moment the running total crosses the cap.
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in request.stream():
+        total += len(chunk)
+        if total > settings.runner_upload_max_bytes:
+            raise HTTPException(status_code=413, detail="Upload exceeds runner_upload_max_bytes")
+        chunks.append(chunk)
+    body = b"".join(chunks)
 
     return BlobPutResponse(uri=store.put_bytes(key, body))

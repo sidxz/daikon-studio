@@ -221,17 +221,27 @@ class RunUpdateEnvelope(BaseModel):
     flight -- not a full `Run` mirror, so no `to_domain`. `expected_version`
     carries the optimistic-concurrency check the repository's `update()`
     already enforces (see `infrastructure/persistence/sqlalchemy/execution/
-    repository.py`)."""
+    repository.py`).
+
+    `status` and `expected_version` are the only required fields.  Every
+    other field defaults to `None` and is applied only when the caller
+    actually sent it (`interface/routes/runner_api.py` checks
+    `model_fields_set`) -- a required-and-nullable field here would mean any
+    update that legitimately omits `phase`/`progress`/etc. (e.g. a bare
+    heartbeat-style status flip) silently nulls out whatever the previous
+    update had reported, which is what the security review's Important 1
+    finding caught in practice (progress 0.9 -> 0.0, phase "fit" -> None).
+    """
 
     model_config = _FORBID
 
     status: str
-    progress: float
-    phase: str | None
-    result_uri: str | None
-    error_message: str | None
-    protocol_id: uuid.UUID | None
     expected_version: int
+    progress: float | None = None
+    phase: str | None = None
+    result_uri: str | None = None
+    error_message: str | None = None
+    protocol_id: uuid.UUID | None = None
 
 
 class DatasetEnvelope(BaseModel):

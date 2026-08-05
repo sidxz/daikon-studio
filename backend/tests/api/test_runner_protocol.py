@@ -23,10 +23,12 @@ from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
 from tests.fakes.auth import FakeAuth
 
+from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.application.runners.manage import CreateRunner, CreateRunnerCommand
+from daikonstudio.domain.catalog.protocol import ProtocolStatus
 from daikonstudio.domain.execution.run import Run, RunKind
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.interface.app import create_app
@@ -263,6 +265,135 @@ async def test_update_with_a_stale_expected_version_is_409(anonymous_client, app
     assert response.status_code == 409, response.text
 
 
+async def test_update_omitting_progress_and_phase_preserves_them(
+    anonymous_client, app, workspace_id
+):
+    """Security review, Important 1 -- an update that doesn't echo the
+    current progress/phase must not null them out."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    claimed = await _claim(anonymous_client, headers)
+
+    first = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={
+            "status": "running",
+            "progress": 0.9,
+            "phase": "fit",
+            "expected_version": claimed["run"]["version"],
+        },
+    )
+    assert first.status_code == 200, first.text
+
+    second = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={"status": "running", "expected_version": first.json()["version"]},
+    )
+    assert second.status_code == 200, second.text
+
+    fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
+    body = fetched.json()
+    assert body["progress"] == 0.9
+    assert body["phase"] == "fit"
+
+
+async def test_update_advances_updated_at(anonymous_client, app, workspace_id):
+    """Security review, Minor (a)."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    claimed = await _claim(anonymous_client, headers)
+    before = claimed["run"]["updated_at"]
+
+    response = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={"status": "running", "expected_version": claimed["run"]["version"]},
+    )
+    assert response.status_code == 200, response.text
+
+    fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
+    assert fetched.json()["updated_at"] > before
+
+
+async def test_update_omitting_protocol_id_leaves_it_intact(anonymous_client, app, workspace_id):
+    """Security review, Important 1."""
+    run = await _seed_run(app, workspace_id, kind=RunKind.TRAINING)
+    _, headers = await _register_runner(app, ["default"])
+    claimed = await _claim(anonymous_client, headers)
+
+    protocol_id = uuid.uuid4()
+    linked = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={
+            "status": "running",
+            "protocol_id": str(protocol_id),
+            "expected_version": claimed["run"]["version"],
+        },
+    )
+    assert linked.status_code == 200, linked.text
+
+    again = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={"status": "running", "expected_version": linked.json()["version"]},
+    )
+    assert again.status_code == 200, again.text
+
+    fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
+    assert fetched.json()["protocol_id"] == str(protocol_id)
+
+
+async def test_update_cannot_repoint_an_already_linked_protocol_id(
+    anonymous_client, app, workspace_id
+):
+    """Security review, Important 1 -- `Run.link_protocol` is write-once;
+    the update route must route through it, not assign the field directly."""
+    run = await _seed_run(app, workspace_id, kind=RunKind.TRAINING)
+    _, headers = await _register_runner(app, ["default"])
+    claimed = await _claim(anonymous_client, headers)
+
+    first_id = uuid.uuid4()
+    linked = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={
+            "status": "running",
+            "protocol_id": str(first_id),
+            "expected_version": claimed["run"]["version"],
+        },
+    )
+    assert linked.status_code == 200, linked.text
+
+    second_id = uuid.uuid4()
+    conflict = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={
+            "status": "running",
+            "protocol_id": str(second_id),
+            "expected_version": linked.json()["version"],
+        },
+    )
+    assert conflict.status_code == 409, conflict.text
+
+    unlink = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={
+            "status": "running",
+            "protocol_id": None,
+            "expected_version": linked.json()["version"],
+        },
+    )
+    assert unlink.status_code == 409, unlink.text
+
+    fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
+    assert fetched.json()["protocol_id"] == str(first_id)
+
+
 async def test_update_on_a_run_another_runner_claimed_is_403(anonymous_client, app, workspace_id):
     run = await _seed_run(app, workspace_id)
     _, claimant_headers = await _register_runner(app, ["default"])
@@ -291,6 +422,35 @@ async def test_blob_get_outside_the_workspace_prefix_is_403(anonymous_client, ap
     response = await anonymous_client.get(
         f"/api/v1/runner/runs/{run.id}/blobs/{key}", headers=headers
     )
+    assert response.status_code == 403, response.text
+
+
+async def test_blob_put_path_traversal_is_403_and_writes_nothing_outside_the_blob_root(
+    anonymous_client, app, workspace_id, tmp_path
+):
+    """Security review, Critical 1 -- percent-encoded `..` segments, decoded
+    by the ASGI layer before routing, must not let a PUT escape the blob
+    root even though the raw string still starts with `f"{workspace_id}/"`."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    url = f"/api/v1/runner/runs/{run.id}/blobs/{workspace_id}/%2E%2E/%2E%2E/pwned.txt"
+    response = await anonymous_client.put(url, headers=headers, content=b"pwned")
+    assert response.status_code == 403, response.text
+    assert not (tmp_path.parent / "pwned.txt").exists()
+    assert not any(tmp_path.rglob("pwned.txt"))
+
+
+async def test_blob_get_path_traversal_is_403(anonymous_client, app, workspace_id, tmp_path):
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    # Also proves a traversal read of another workspace's blob root is blocked,
+    # not just a write outside the blob root entirely.
+    url = f"/api/v1/runner/runs/{run.id}/blobs/{workspace_id}/%2E%2E/%2E%2E/etc/passwd"
+    response = await anonymous_client.get(url, headers=headers)
     assert response.status_code == 403, response.text
 
 
@@ -389,6 +549,49 @@ async def test_blob_put_over_the_cap_is_413(small_cap_app, workspace_id):
         assert response.status_code == 413, response.text
 
 
+async def test_blob_put_chunked_over_the_cap_is_413(small_cap_app, workspace_id):
+    """Security review, Important 3 -- a chunked request carries no
+    Content-Length at all, so the fast-fail header check can never catch it;
+    only the streaming accumulator can."""
+    run = await _seed_run(small_cap_app, workspace_id)
+    _, headers = await _register_runner(small_cap_app, ["default"])
+
+    async def _chunks():
+        for _ in range(5):
+            yield b"x" * 30  # 150 bytes total, over the 64-byte test cap
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=small_cap_app), base_url="http://testserver"
+    ) as anon:
+        claim = await anon.post("/api/v1/runner/claim", headers=headers)
+        assert claim.status_code == 200, claim.text
+
+        key = f"{workspace_id}/runs/{run.id}/chunked.bin"
+        response = await anon.put(
+            f"/api/v1/runner/runs/{run.id}/blobs/{key}", headers=headers, content=_chunks()
+        )
+        assert response.status_code == 413, response.text
+
+
+async def test_blob_put_with_a_negative_content_length_does_not_500(
+    anonymous_client, app, workspace_id
+):
+    """Security review, Important 3 -- a lying/garbage Content-Length must be
+    treated as absent, not fed straight to `int()`."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    key = f"{workspace_id}/runs/{run.id}/neg.bin"
+    request = anonymous_client.build_request(
+        "PUT", f"/api/v1/runner/runs/{run.id}/blobs/{key}", headers=headers, content=b"hello"
+    )
+    request.headers["content-length"] = "-1"
+    response = await anonymous_client.send(request)
+    assert response.status_code != 500, response.text
+    assert response.status_code == 200, response.text
+
+
 # --------------------------------------------------------------------------
 # GET /runs/{id}/dataset
 # --------------------------------------------------------------------------
@@ -420,6 +623,20 @@ async def test_get_dataset_matches_the_dataset_created_via_the_normal_api(
     response = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}/dataset", headers=headers)
     assert response.status_code == 200, response.text
     assert response.json()["id"] == dataset_id
+
+
+async def test_get_dataset_with_a_non_uuid_dataset_id_is_404_not_500(
+    anonymous_client, app, workspace_id
+):
+    """Security review, Minor (b)."""
+    run = await _seed_run(
+        app, workspace_id, kind=RunKind.TRAINING, params={"dataset_id": "not-a-uuid"}
+    )
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    response = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}/dataset", headers=headers)
+    assert response.status_code == 404, response.text
 
 
 async def test_get_dataset_without_a_dataset_id_is_404(anonymous_client, app, workspace_id):
@@ -499,3 +716,61 @@ async def test_post_protocol_with_a_mismatched_workspace_is_422(
         f"/api/v1/runner/runs/{run.id}/protocol", headers=headers, json=body
     )
     assert response.status_code == 422, response.text
+
+
+async def test_post_protocol_forces_draft_status_regardless_of_the_body(
+    anonymous_client, app, workspace_id
+):
+    """Security review, Important 2 -- a runner reporting the protocol it
+    just trained must never be able to hand back an already-published
+    envelope and skip the editor-role `PublishProtocol` gate."""
+    run = await _seed_run(app, workspace_id, kind=RunKind.TRAINING)
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    body = _protocol_body(workspace_id=workspace_id)
+    body["status"] = "published"
+    body["published_at"] = "2026-01-01T00:00:00Z"
+    response = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}/protocol", headers=headers, json=body
+    )
+    assert response.status_code == 201, response.text
+
+    stored = await app.state.container[ProtocolRepository].get(workspace_id, uuid.UUID(body["id"]))
+    assert stored is not None
+    assert stored.status is ProtocolStatus.DRAFT
+    assert stored.published_at is None
+
+
+async def test_post_protocol_with_a_duplicate_id_is_409_not_500(
+    anonymous_client, app, workspace_id
+):
+    """Security review, Minor (c)."""
+    run = await _seed_run(app, workspace_id, kind=RunKind.TRAINING)
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    body = _protocol_body(workspace_id=workspace_id)
+    first = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}/protocol", headers=headers, json=body
+    )
+    assert first.status_code == 201, first.text
+
+    second = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}/protocol", headers=headers, json=body
+    )
+    assert second.status_code == 409, second.text
+
+
+def test_claim_response_model_reaches_the_openapi_schema(app):
+    """Security review, Minor (d)."""
+    schema = app.openapi()["paths"]["/api/v1/runner/claim"]["post"]["responses"]["200"]
+    assert "ClaimResponse" in schema["content"]["application/json"]["schema"]["$ref"]
+
+
+async def test_runners_management_api_stays_sentinel_protected(anonymous_client):
+    """Security review, Minor (e) -- nobody can widen `exclude_paths` to
+    also swallow the human-facing `/api/v1/runners` unnoticed."""
+    assert (await anonymous_client.get("/api/v1/runners")).status_code == 401
+    body = {"name": "x", "lanes": ["default"]}
+    assert (await anonymous_client.post("/api/v1/runners", json=body)).status_code == 401
