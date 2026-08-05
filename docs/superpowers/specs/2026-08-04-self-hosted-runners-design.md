@@ -35,8 +35,10 @@ nodes.
 ## Architecture: brain and edge
 
 **Edge (phase 1) — HTTPS runner protocol.** The queue is Postgres: a `Run`
-row with `status=QUEUED` and a `lane` column is the queue entry. Runner
-agents poll `/api/runner/*` endpoints to claim a run, fetch its inputs,
+row with `status=pending` and a non-NULL `lane` column is the queue entry
+(there is no separate QUEUED status — `pending` already plays that role in
+the existing lattice, and `lane IS NULL` marks a run not yet enqueued).
+Runner agents poll `/api/v1/runner/*` endpoints to claim a run, fetch its inputs,
 report progress, upload artifacts, and mark it terminal. `RunTraining` and
 `RunPrediction` execute **unmodified** on the runner: they depend only on the
 four ports (`RunRepository`, `DatasetRepository`, `ProtocolRepository`,
@@ -71,12 +73,16 @@ New `runners` table (instance-level, not per-workspace):
 time and passed to arq), `claimed_by` (runner id), `lease_expires_at`,
 `attempts`.
 
-Migration backfills `lane` on existing QUEUED runs from their engine
-manifest; terminal runs get the default lane (value is inert there).
+Migration backfills `lane='default'` on pending and running rows (arq's
+in-flight queue disappears with Valkey; a wrong-lane pending run at cutover
+re-runs on the default lane — slower, not wrong, matching how the gpu lane
+already runs on CPU locally) and stamps running rows with an already-expired
+lease so the first sweep requeues them. Terminal rows keep `lane` NULL (inert).
 
 ## Runner protocol
 
-All endpoints under `/api/runner/*`, authenticated by per-runner bearer token
+All endpoints under `/api/v1/runner/*` (matching the codebase's `/api/v1`
+route convention), authenticated by per-runner bearer token
 (constant-time hash compare, revocation checked per request). TLS terminates
 at the reverse proxy. Machine tokens are separate from Sentinel user auth.
 
@@ -87,7 +93,7 @@ at the reverse proxy. Machine tokens are separate from Sentinel user auth.
 | `POST /api/runner/runs/{id}` | Run update — backs `RunRepository.update`. Server validates transitions (QUEUED→RUNNING, RUNNING→terminal) and rejects writes unless the caller holds the current lease (fencing). |
 | `GET /api/runner/runs/{id}/dataset` | Backs `DatasetRepository.get`, scoped to the claimed run's own dataset. |
 | `GET/POST /api/runner/runs/{id}/protocol` | GET backs `ProtocolRepository.get` (prediction's input protocol). POST backs `ProtocolRepository.add` — training *creates* the trained protocol row as its output. Same run scoping. |
-| `GET/PUT /api/runner/runs/{id}/blobs/{key}` | Backs `BlobStore.get_bytes`/`put_bytes`. GET only for keys referenced by the claimed run's own records (its command payload — e.g. a prediction's `upload_ref` — its dataset snapshot, and its protocol's artifact/scorecard keys); PUT only under the run's own namespace, streamed, server-side size cap. |
+| `GET/PUT /api/v1/runner/runs/{id}/blobs/{key}` | Backs `BlobStore.get_bytes`/`put_bytes`. Every blob key in the codebase starts with `{workspace_id}/` (snapshot, upload, artifact, scorecard, predictions), and training writes artifact keys addressed by a protocol id it generates mid-job — so the enforceable v1 scope is the workspace prefix: GET and PUT both require `key.startswith(f"{run.workspace_id}/")`, PUT additionally requires the run to still be active, with a server-side size cap. Coarser than per-record ACLs; acceptable under "one lane = one trust domain", tightened by runner groups if lanes ever mix owners. |
 
 The runner-side port surface was verified against the handlers:
 `RunRepository.get_by_id`/`update`, `DatasetRepository.get`,
