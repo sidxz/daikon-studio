@@ -33,6 +33,12 @@ from daikonstudio.application.execution.predict_with_protocol import (
     GetRun,
     PredictWithProtocol,
 )
+from daikonstudio.application.execution.sweeps import (
+    CancelSweep,
+    GetSweep,
+    ListSweeps,
+    SubmitSweep,
+)
 from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
@@ -183,6 +189,13 @@ def create_container(settings: Settings | None = None) -> Container:
         TrainProtocol,
         lambda c: TrainProtocol(_datasets(c), _runs(c), c[JobEnqueuer], c[EngineRegistry]),
     )
+    container.define(
+        SubmitSweep,
+        lambda c: SubmitSweep(_datasets(c), c[EngineRegistry], c[TrainProtocol]),
+    )
+    container.define(ListSweeps, lambda c: ListSweeps(_runs(c)))
+    container.define(GetSweep, lambda c: GetSweep(_runs(c)))
+    container.define(CancelSweep, lambda c: CancelSweep(_runs(c)))
     container.define(PublishProtocol, lambda c: PublishProtocol(_protocols(c)))
     container.define(
         GetScorecard,

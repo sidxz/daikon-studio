@@ -9,6 +9,8 @@ import type { RunEnvelopeProtocolId } from './runEnvelopeProtocolId';
 import type { RunEnvelopePhase } from './runEnvelopePhase';
 import type { RunEnvelopeResultUri } from './runEnvelopeResultUri';
 import type { RunEnvelopeErrorMessage } from './runEnvelopeErrorMessage';
+import type { RunEnvelopeSweepId } from './runEnvelopeSweepId';
+import type { RunEnvelopeMetrics } from './runEnvelopeMetrics';
 
 /**
  * Mirrors every `Run.__init__` kwarg (`domain/execution/run.py`).
@@ -29,4 +31,6 @@ export interface RunEnvelope {
   created_at: string;
   updated_at: string;
   version: number;
+  sweep_id?: RunEnvelopeSweepId;
+  metrics?: RunEnvelopeMetrics;
 }

@@ -9,6 +9,7 @@ import type { RunUpdateEnvelopePhase } from './runUpdateEnvelopePhase';
 import type { RunUpdateEnvelopeResultUri } from './runUpdateEnvelopeResultUri';
 import type { RunUpdateEnvelopeErrorMessage } from './runUpdateEnvelopeErrorMessage';
 import type { RunUpdateEnvelopeProtocolId } from './runUpdateEnvelopeProtocolId';
+import type { RunUpdateEnvelopeMetrics } from './runUpdateEnvelopeMetrics';
 
 /**
  * Only the mutable fields a handler writes back while a run is in
@@ -34,4 +35,5 @@ export interface RunUpdateEnvelope {
   result_uri?: RunUpdateEnvelopeResultUri;
   error_message?: RunUpdateEnvelopeErrorMessage;
   protocol_id?: RunUpdateEnvelopeProtocolId;
+  metrics?: RunUpdateEnvelopeMetrics;
 }
