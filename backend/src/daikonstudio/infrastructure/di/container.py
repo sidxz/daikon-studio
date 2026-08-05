@@ -34,9 +34,12 @@ from daikonstudio.application.execution.predict_with_protocol import (
 )
 from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.run_queue import RunQueue
+from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
+from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
 from daikonstudio.infrastructure.persistence.session import create_session_factory
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
@@ -47,11 +50,14 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.data.collection_reposito
 from daikonstudio.infrastructure.persistence.sqlalchemy.data.repository import (
     SqlAlchemyDatasetRepository,
 )
+from daikonstudio.infrastructure.persistence.sqlalchemy.execution.queue import SqlAlchemyRunQueue
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
 )
+from daikonstudio.infrastructure.persistence.sqlalchemy.runners.repository import (
+    SqlAlchemyRunnerRepository,
+)
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
-from daikonstudio.infrastructure.worker import ArqEnqueuer, InlineEnqueuer
 from daikonstudio.settings import Settings
 
 
@@ -108,31 +114,34 @@ def create_container(settings: Settings | None = None) -> Container:
         GetDatasetCompounds, lambda c: GetDatasetCompounds(_datasets(c), c[BlobStore])
     )
 
-    # Only the ArqEnqueuer branch is safe to cache as a Singleton: it depends
-    # solely on `resolved.redis_url`, fixed at container-build time, so its
-    # Redis pool is genuinely process-wide and worth reusing. InlineEnqueuer
-    # depends on `c[async_sessionmaker]`, which a test container overrides per
-    # test (see tests/api/conftest.py) -- wrapping the *whole* JobEnqueuer
-    # binding in a Singleton, as an earlier version of this file did, caches
-    # whichever sessionmaker happened to resolve it first and hands that same
-    # InlineEnqueuer to every later child container's requests too, silently
-    # writing through another test's (rolled-back) session. So `JobEnqueuer`
-    # itself stays a plain factory, re-run on every resolution against
-    # whichever container is actually asking; only the Redis pool is memoized.
-    container.define(ArqEnqueuer, Singleton(lambda: ArqEnqueuer(resolved.redis_url)))
-
-    # Chosen once, at container-build time, from STUDIO_INLINE_JOBS: tests and
-    # local dev run the job in-process (no Valkey needed at all), a real
-    # deployment pushes it to Redis for the arq worker to pick up. See
-    # `infrastructure/worker.py`'s module docstring for both implementations.
+    container.define(
+        RunQueue,  # type: ignore[type-abstract]
+        lambda c: SqlAlchemyRunQueue(c[async_sessionmaker]),
+    )
+    # Plain factory, NOT Singleton: both branches depend on c[async_sessionmaker],
+    # which tests override per test -- see the InlineEnqueuer caching incident
+    # documented in the JobEnqueuer comment this replaces.
+    #
+    # Chosen once per resolution, from STUDIO_INLINE_JOBS: tests and local dev run
+    # the job in-process (no runner needed at all), a real deployment leaves it on
+    # the row for a self-hosted runner to claim. See `infrastructure/jobs.py`'s
+    # module docstring for both implementations.
     container.define(
         JobEnqueuer,  # type: ignore[type-abstract]
         lambda c: (
             InlineEnqueuer(c[async_sessionmaker], c[BlobStore])
             if resolved.inline_jobs
-            else c[ArqEnqueuer]
+            else DbEnqueuer(c[RunQueue])
         ),
     )
+
+    container.define(
+        RunnerRepository,  # type: ignore[type-abstract]
+        lambda c: SqlAlchemyRunnerRepository(c[async_sessionmaker]),
+    )
+    # Resolved settings, for interface dependencies that need config values
+    # directly rather than through a use case (e.g. lease-extension seconds).
+    container.define(Settings, Singleton(lambda: resolved))
 
     container.define(
         TrainProtocol,

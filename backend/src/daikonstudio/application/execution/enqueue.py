@@ -9,10 +9,10 @@ several contexts use. Either location satisfies the layering contract --
 `application` still never imports `infrastructure` -- so this is a naming/
 grouping choice, not an architectural one.
 
-Two implementations sit behind this Protocol (`infrastructure/worker.py`):
-`ArqEnqueuer` pushes to Redis for a separate worker process to pick up;
-`InlineEnqueuer` runs the job in the caller's own process, selected by
-`STUDIO_INLINE_JOBS=1` so tests and local dev need no Valkey at all -- the
+Two implementations sit behind this Protocol (`infrastructure/jobs.py`):
+`DbEnqueuer` sets the run's lane in the database for a self-hosted runner to
+claim; `InlineEnqueuer` runs the job in the caller's own process, selected by
+`STUDIO_INLINE_JOBS=1` so tests and local dev need no runner at all -- the
 same dual-implementation trick as chem-cellar's `NullJobOrchestrator`.
 """
 

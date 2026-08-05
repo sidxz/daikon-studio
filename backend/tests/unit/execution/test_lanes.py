@@ -1,8 +1,11 @@
 """Lane routing: an engine says what it needs, a deployment says where that runs.
 
 These tests pin the seam, not the queue. What matters is that the lane on the
-manifest is the lane the job is enqueued to -- for both run kinds -- and that the
-default lane keeps arq's own queue name so adding lanes needs no drain-and-migrate.
+manifest is the lane the job is enqueued to -- for both run kinds. Queue-level
+lane mechanics (a claim only matching a runner's own lanes, `set_lane` making a
+row claimable) live in `tests/integration/test_run_queue.py` against a real
+`SqlAlchemyRunQueue`; this file stays at the use-case layer, against a fake
+enqueuer, and never touches arq.
 """
 
 from __future__ import annotations
@@ -33,7 +36,6 @@ from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ValidationReport
 from daikonstudio.domain.shared.errors import NotFoundError
-from daikonstudio.infrastructure.worker import ArqEnqueuer, queue_for
 from tests.fakes.auth import FakeAuth
 
 
@@ -57,51 +59,6 @@ class _StubEngine:
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:  # pragma: no cover
         raise NotImplementedError
-
-
-class _RecordingPool:
-    """Stands in for an ArqRedis pool; records the queue each job was routed to."""
-
-    def __init__(self) -> None:
-        self.calls: list[dict[str, Any]] = []
-
-    async def enqueue_job(self, function: str, *args: Any, **kwargs: Any) -> None:
-        self.calls.append({"function": function, "args": args, "kwargs": kwargs})
-
-
-def test_default_lane_keeps_arqs_own_queue_name() -> None:
-    """Renaming the default queue would strand every job already sitting in it."""
-    assert queue_for(DEFAULT_LANE) == "arq:queue"
-
-
-def test_a_named_lane_gets_its_own_queue() -> None:
-    assert queue_for("gpu") == "arq:queue:gpu"
-
-
-async def test_arq_enqueuer_routes_to_the_lanes_queue() -> None:
-    enqueuer = ArqEnqueuer("redis://unused")
-    pool = _RecordingPool()
-    enqueuer._pool = pool  # type: ignore[assignment]
-    run_id = uuid.uuid4()
-
-    await enqueuer.enqueue(run_id, lane="gpu")
-
-    assert pool.calls == [
-        {"function": "run_job", "args": (run_id,), "kwargs": {"_queue_name": "arq:queue:gpu"}}
-    ]
-
-
-async def test_arq_enqueuer_carries_only_the_run_id() -> None:
-    """The load-bearing invariant: all job state lives on the Run row. A payload in
-    the queue message is what makes the orchestrator un-swappable."""
-    enqueuer = ArqEnqueuer("redis://unused")
-    pool = _RecordingPool()
-    enqueuer._pool = pool  # type: ignore[assignment]
-    run_id = uuid.uuid4()
-
-    await enqueuer.enqueue(run_id)
-
-    assert pool.calls[0]["args"] == (run_id,)
 
 
 def test_registry_exposes_the_lane_for_routing() -> None:

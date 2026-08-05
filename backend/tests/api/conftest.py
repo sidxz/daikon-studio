@@ -156,8 +156,9 @@ def app(tmp_path, session_factory):
     """
     application = create_app()
     # inline_jobs=True: training runs in-process via InlineEnqueuer rather than
-    # pushing to arq/Redis, so `POST /api/v1/protocols` needs no Valkey in tests
-    # (see infrastructure/worker.py's module docstring for both implementations).
+    # waiting for a self-hosted runner to claim it, so `POST /api/v1/protocols`
+    # needs no runner in tests (see infrastructure/jobs.py's module docstring
+    # for both implementations).
     container = Container(
         create_container(Settings(blob_base_url=f"file://{tmp_path}", inline_jobs=True))
     )

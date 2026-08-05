@@ -62,6 +62,7 @@ from daikonstudio.domain.data.target import (
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
+from daikonstudio.infrastructure.jobs import InlineEnqueuer
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
 )
@@ -72,7 +73,6 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository imp
     SqlAlchemyRunRepository,
 )
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
-from daikonstudio.infrastructure.worker import InlineEnqueuer
 from tests.fakes.auth import FakeAuth
 
 # Twenty compounds to train on -- the same shape `test_train_protocol.py` uses

@@ -22,8 +22,8 @@ class Settings(BaseSettings):
     cors_origins: list[str] = ["http://localhost:3002"]
     service_name: str = "daikon-studio"
 
-    # Selects InlineEnqueuer over ArqEnqueuer (infrastructure/worker.py) --
-    # runs jobs in-process so tests and local dev need no Valkey at all.
+    # Selects InlineEnqueuer over DbEnqueuer (infrastructure/jobs.py) --
+    # runs jobs in-process so tests and local dev need no runner at all.
     inline_jobs: bool = False
 
     # Which lane's queue this worker process pulls. Engines declare a lane on their
@@ -31,13 +31,12 @@ class Settings(BaseSettings):
     # codebase names a host. See
     # docs/superpowers/specs/2026-07-30-remote-engines-chemprop-design.md.
     worker_lane: str = "default"
-    # arq's own default is 10. A GPU worker MUST set this to 1 (or run one process per
-    # device with CUDA_VISIBLE_DEVICES pinned): concurrent fits on one device exhaust
-    # its memory, and arq will happily start ten.
+    # A GPU worker MUST set this to 1 (or run one process per device with
+    # CUDA_VISIBLE_DEVICES pinned): concurrent fits on one device exhaust its memory,
+    # and an unbounded poller will happily start ten.
     worker_max_jobs: int = 10
     # The SOFT deadline, in seconds, enforced cooperatively inside the engine through
-    # TrainContext.report. arq's hard job_timeout is derived from this with a margin;
-    # see infrastructure/worker.py. Raise this on a GPU lane, not the hard timeout.
+    # TrainContext.report. Raise this on a GPU lane.
     worker_job_timeout: int = 1800
 
     # Sentinel (authz mode) — same realm as prot-cellar, chem-cellar, daikon-gen3,

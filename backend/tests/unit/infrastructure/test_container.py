@@ -2,16 +2,15 @@
 Important 2): `JobEnqueuer` must not cache the sessionmaker of whichever
 container resolves it first.
 
-`ArqEnqueuer` is the only right thing to cache as a `Singleton` -- its Redis
-pool depends only on `settings.redis_url`, fixed at container-build time, so
-it is genuinely process-wide. `InlineEnqueuer` depends on `c[async_sessionmaker]`,
-which a test harness overrides per child container (`tests/api/conftest.py`
-builds a fresh child container per test); wrapping the whole `JobEnqueuer`
-binding in a `Singleton`, as an earlier version of `container.py` did, caches
-whichever sessionmaker resolved it *first* and hands that same `InlineEnqueuer`
-to every later child container too -- silently writing through another test's
-(rolled-back) session. `JobEnqueuer` must instead be a plain factory, re-run
-per resolution against whichever container is actually asking.
+Both `JobEnqueuer` branches depend on `c[async_sessionmaker]` -- `InlineEnqueuer`
+directly, `DbEnqueuer` through the `RunQueue` it wraps -- and a test harness
+overrides that binding per child container (`tests/api/conftest.py` builds a
+fresh child container per test). Wrapping `JobEnqueuer` (or `RunQueue`) in a
+`Singleton`, as an earlier version of `container.py` did for the arq-backed
+enqueuer, caches whichever sessionmaker resolved it *first* and hands that same
+instance to every later child container too -- silently writing through another
+test's (rolled-back) session. Both bindings must instead be plain factories,
+re-run per resolution against whichever container is actually asking.
 
 No database or network needed: `async_sessionmaker` is overridden with a
 plain sentinel object per child, and nothing here ever calls it.
@@ -24,7 +23,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.infrastructure.di.container import create_container
-from daikonstudio.infrastructure.worker import InlineEnqueuer
+from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
 from daikonstudio.settings import Settings
 
 
@@ -46,16 +45,22 @@ def test_two_child_containers_get_job_enqueuers_bound_to_their_own_sessionmaker(
 
     assert isinstance(enqueuer_a, InlineEnqueuer)
     assert isinstance(enqueuer_b, InlineEnqueuer)
-    assert enqueuer_a._ctx["sessions"] is sessions_a
-    assert enqueuer_b._ctx["sessions"] is sessions_b
+    assert enqueuer_a._ctx["runs"]._sessions is sessions_a  # type: ignore[attr-defined]
+    assert enqueuer_b._ctx["runs"]._sessions is sessions_b  # type: ignore[attr-defined]
 
 
-def test_the_redis_pool_backed_enqueuer_is_still_cached_process_wide() -> None:
-    """The fix must not throw the caching out entirely -- `ArqEnqueuer`'s own
-    binding is a `Singleton` (see `container.py`), and two containers built
-    from the same parent (neither in inline mode) must share one instance."""
+def test_the_db_enqueuer_branch_also_binds_to_its_own_containers_sessionmaker() -> None:
+    """Same bug, other branch: `DbEnqueuer` wraps a `RunQueue` built from
+    `c[async_sessionmaker]`, so it must track a child container's override too,
+    not the parent's -- there is no Redis pool left to justify caching either
+    branch as a `Singleton` (see `container.py`)."""
     parent = create_container(Settings(inline_jobs=False))
-    child_a = Container(parent)
-    child_b = Container(parent)
+    sessions_a, sessions_b = object(), object()
 
-    assert child_a[JobEnqueuer] is child_b[JobEnqueuer]
+    enqueuer_a = _child_with_sessionmaker(parent, sessions_a)[JobEnqueuer]
+    enqueuer_b = _child_with_sessionmaker(parent, sessions_b)[JobEnqueuer]
+
+    assert isinstance(enqueuer_a, DbEnqueuer)
+    assert isinstance(enqueuer_b, DbEnqueuer)
+    assert enqueuer_a._queue._sessions is sessions_a  # type: ignore[attr-defined]
+    assert enqueuer_b._queue._sessions is sessions_b  # type: ignore[attr-defined]
