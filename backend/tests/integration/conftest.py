@@ -14,6 +14,7 @@ if they were declared in this file.
 
 from tests.api.conftest import (  # noqa: F401
     _resolve_jwks_locally,
+    anonymous_client,
     app,
     auth_headers,
     client,

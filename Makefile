@@ -2,13 +2,13 @@
 #
 # First run:
 #   make install      # backend (uv) + frontend (pnpm) deps
-#   make up           # start Postgres + Valkey, run DB migrations
-#   make dev          # start backend (:8002) + frontend (:3003) + both job workers
+#   make up           # start Postgres, run DB migrations, seed the dev runners
+#   make dev          # start backend (:8002) + frontend (:3003) + both runner agents
 #   open http://localhost:3003
 #
-# Two workers, because engines declare which lane they need and a worker serves one
-# lane: the default lane runs the ECFP4 engines, the gpu lane runs chemprop (on CPU
-# here). Set STUDIO_INLINE_JOBS=0 in backend/.env or neither is used.
+# Two runner agents, because engines declare which lane they need and a runner serves
+# the lanes on its own row: the default lane runs the ECFP4 engines, the gpu lane runs
+# chemprop (on CPU here). Set STUDIO_INLINE_JOBS=0 in backend/.env or neither is used.
 #
 # Day to day:  make logs (tail)  ·  make stop (stop servers)  ·  make down (stop containers)
 #
@@ -27,41 +27,46 @@ ROOT     := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 BLOBS    := $(ROOT)/.blobs
 # Load backend/.env (DATABASE_URL, SENTINEL_*) into the recipe shell.
 BE_ENV   := set -a && . ./.env && set +a
-# arq worker entrypoint (runs the training and prediction jobs the API enqueues).
-ARQ      := uv run arq daikonstudio.infrastructure.worker.WorkerSettings
-# OMP_NUM_THREADS=1 is load-bearing, not tuning. torch and scikit-learn each ship
-# their own libomp.dylib, and a training job loads BOTH -- RunTraining fits the
-# chosen engine and the mandatory ECFP4 baseline in one process, by design. Three
-# OpenMP runtimes in one process is undefined behaviour and it segfaults partway
-# through a real chemprop fit (EXC_BAD_ACCESS in __kmp_fork_barrier, reproduced
-# against BBBP). Pinning OpenMP to one thread removes the thread teams they fight
-# over. KMP_DUPLICATE_LIB_OK does NOT fix it -- it was already set when this crashed.
+# Runner agents replace the arq workers: same jobs, but claimed over the HTTP
+# runner protocol (see docs/superpowers/specs/2026-08-04-self-hosted-runners-design.md).
+# Lanes live on the server-side runner rows that `make seed-runners` ensures.
+# OMP_NUM_THREADS=1 is load-bearing -- see the original explanation below (kept).
+RUNNER     := env OMP_NUM_THREADS=1 STUDIO_URL=http://localhost:8002 uv run python -m daikonstudio.infrastructure.runner
+# torch and scikit-learn each ship their own libomp.dylib, and a training job loads
+# BOTH -- RunTraining fits the chosen engine and the mandatory ECFP4 baseline in one
+# process, by design. Three OpenMP runtimes in one process is undefined behaviour and
+# it segfaults partway through a real chemprop fit (EXC_BAD_ACCESS in
+# __kmp_fork_barrier, reproduced against BBBP). Pinning OpenMP to one thread removes
+# the thread teams they fight over. KMP_DUPLICATE_LIB_OK does NOT fix it -- it was
+# already set when this crashed.
 # ponytail: costs some intra-op parallelism in the ECFP4 baseline's fit. Revisit only
-# with a measurement; a slower baseline beats a worker that dies mid-run.
-WORKER     := env OMP_NUM_THREADS=1 $(ARQ)
-# The same entrypoint bound to the `gpu` lane. Engines declare a lane on their
-# manifest (chemprop-dmpnn declares "gpu"); a worker serves exactly one lane, so
-# without this process a chemprop run sits PENDING forever with nothing to pull it.
-# Locally there is no GPU and chemprop falls back to CPU -- slow, but it is the same
-# code path the real GPU worker runs, so the dev loop exercises lane routing,
-# background execution, per-epoch progress and cancellation for real.
-# MAX_JOBS=1 mirrors production, where concurrent fits would exhaust device memory.
-WORKER_GPU := env OMP_NUM_THREADS=1 STUDIO_WORKER_LANE=gpu STUDIO_WORKER_MAX_JOBS=1 $(ARQ)
+# with a measurement; a slower baseline beats an agent that dies mid-run.
+WORKER     := env STUDIO_RUNNER_TOKEN=drt_dev_default $(RUNNER)
+# The same entrypoint carrying the `dev-local-gpu` runner's token, which registered
+# only the `gpu` lane (see `infrastructure/runner/seed.py`). Engines declare a lane on
+# their manifest (chemprop-dmpnn declares "gpu"); a runner only claims the lanes on
+# its own row, so without this process a chemprop run sits PENDING forever with
+# nothing to claim it. Locally there is no GPU and chemprop falls back to CPU --
+# slow, but it is the same code path a real GPU runner executes, so the dev loop
+# exercises lane routing, background execution, per-epoch progress and cancellation
+# for real.
+WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 
 .DEFAULT_GOAL := help
 .PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
-        generate-api test test-api test-all test-fe lint lint-fe nuke
+        seed-runners generate-api test test-api test-all test-fe lint lint-fe nuke
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN{FS=":.*?## "}{printf "  \033[36m%-13s\033[0m %s\n", $$1, $$2}'
 
-up: ## Start Postgres + Valkey, wait for readiness, run migrations
-	$(COMPOSE) up -d postgres valkey
+up: ## Start Postgres, wait for readiness, run migrations, seed the dev runners
+	$(COMPOSE) up -d postgres
 	@echo "Waiting for Postgres on :5435..."
 	@until $(COMPOSE) exec -T postgres pg_isready -U studio -q 2>/dev/null; do sleep 1; done
 	@$(MAKE) --no-print-directory migrate
-	@echo "Infra ready: Postgres :5435, Valkey :6381."
+	@$(MAKE) --no-print-directory seed-runners
+	@echo "Infra ready: Postgres :5435."
 
 down: ## Stop containers (keep data)
 	$(COMPOSE) stop
@@ -73,7 +78,10 @@ install: ## Install backend (uv) + frontend (pnpm) dependencies
 migrate: ## Apply DB migrations (alembic)
 	$(BACKEND) && $(BE_ENV) && uv run alembic upgrade head
 
-dev: stop ## Start backend (:8002) + frontend (:3003) + job worker in the background
+seed-runners: ## Ensure the two local dev runners exist
+	$(BACKEND) && $(BE_ENV) && uv run python -m daikonstudio.infrastructure.runner.seed
+
+dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in the background
 	@mkdir -p $(LOGDIR)
 	@echo "Starting backend on :8002..."
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec uv run uvicorn daikonstudio.interface.app:app --reload --port 8002' \
@@ -81,21 +89,21 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + job worker in the backgr
 	@echo "Starting frontend on :3003..."
 	@nohup sh -c '$(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
-	@echo "Starting job worker (default lane)..."
+	@echo "Starting runner agent (default lane)..."
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
-	@echo "Starting job worker (gpu lane)..."
+	@echo "Starting runner agent (gpu lane)..."
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@sleep 1
 	@echo ""
 	@echo "  Backend   http://localhost:8002/docs   (pid $$(cat $(LOGDIR)/backend.pid), log $(LOGDIR)/backend.log)"
 	@echo "  Frontend  http://localhost:3003        (pid $$(cat $(LOGDIR)/frontend.pid), log $(LOGDIR)/frontend.log)"
-	@echo "  Worker    default lane: ecfp4 engines                  (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
-	@echo "  Worker    gpu lane: chemprop (on CPU locally)          (pid $$(cat $(LOGDIR)/worker-gpu.pid), log $(LOGDIR)/worker-gpu.log)"
+	@echo "  Runner    default lane: ecfp4 engines                  (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
+	@echo "  Runner    gpu lane: chemprop (on CPU locally)          (pid $$(cat $(LOGDIR)/worker-gpu.pid), log $(LOGDIR)/worker-gpu.log)"
 	@echo "  make logs — tail all    ·    make stop — stop all"
 	@echo ""
-	@echo "  NOTE: both workers only matter when STUDIO_INLINE_JOBS=0 in backend/.env."
+	@echo "  NOTE: both runner agents only matter when STUDIO_INLINE_JOBS=0 in backend/.env."
 	@echo "        With inline jobs the API runs the fit inside the HTTP request, which"
 	@echo "        for chemprop means the browser hangs for minutes and times out."
 
@@ -113,33 +121,33 @@ dev-fe: ## (Re)start the frontend only, in the background
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
 	@echo "Frontend (re)started on :3003 (log $(LOGDIR)/frontend.log)"
 
-# Both worker targets kill by PID file only, deliberately -- no pkill. The two
-# workers differ solely by the STUDIO_WORKER_LANE in their environment, so their
-# command lines are identical and `pkill -f 'arq ...WorkerSettings'` cannot tell
-# them apart: restarting one would silently kill the other. `make stop` still
-# pkills, because there killing every worker is the intent.
-dev-worker: ## (Re)start the default-lane worker only, in the background
+# Both runner-agent targets kill by PID file only, deliberately -- no pkill. The two
+# agents differ solely by the STUDIO_RUNNER_TOKEN in their environment, so their
+# command lines are identical and `pkill -f 'daikonstudio.infrastructure.runner'`
+# cannot tell them apart: restarting one would silently kill the other. `make stop`
+# still pkills, because there killing every agent is the intent.
+dev-worker: ## (Re)start the default-lane runner agent only, in the background
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker.pid ] && kill $$(cat $(LOGDIR)/worker.pid) 2>/dev/null || true
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
-	@echo "Default-lane worker (re)started (log $(LOGDIR)/worker.log)"
+	@echo "Default-lane runner agent (re)started (log $(LOGDIR)/worker.log)"
 
-dev-worker-gpu: ## (Re)start the gpu-lane worker only (chemprop; CPU locally)
+dev-worker-gpu: ## (Re)start the gpu-lane runner agent only (chemprop; CPU locally)
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
-	@echo "GPU-lane worker (re)started (log $(LOGDIR)/worker-gpu.log)"
+	@echo "GPU-lane runner agent (re)started (log $(LOGDIR)/worker-gpu.log)"
 
-stop: ## Stop the backend + frontend + worker dev processes
+stop: ## Stop the backend + frontend + runner-agent dev processes
 	@[ -f $(LOGDIR)/backend.pid ]  && kill $$(cat $(LOGDIR)/backend.pid)  2>/dev/null || true
 	@[ -f $(LOGDIR)/frontend.pid ] && kill $$(cat $(LOGDIR)/frontend.pid) 2>/dev/null || true
 	@[ -f $(LOGDIR)/worker.pid ]   && kill $$(cat $(LOGDIR)/worker.pid)   2>/dev/null || true
 	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
 	@lsof -ti:8002 | xargs kill 2>/dev/null || true
 	@lsof -ti:3003 | xargs kill 2>/dev/null || true
-	@pkill -f 'arq daikonstudio.infrastructure.worker.WorkerSettings' 2>/dev/null || true
+	@pkill -f 'daikonstudio.infrastructure.runner' 2>/dev/null || true
 	@rm -f $(LOGDIR)/backend.pid $(LOGDIR)/frontend.pid $(LOGDIR)/worker.pid $(LOGDIR)/worker-gpu.pid
 	@echo "Dev servers stopped."
 

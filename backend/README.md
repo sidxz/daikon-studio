@@ -15,7 +15,7 @@ otherwise. `make help` lists every target with a one-line description.
 ```bash
 cp backend/.env.example backend/.env   # see the note on STUDIO_CORS_ORIGINS below
 make install                           # backend deps; frontend half fails today, see below
-make up                                # start Postgres + Valkey, run migrations
+make up                                # start Postgres, run migrations, seed the dev runners
 make dev-be                            # backend only, on :8002
 ```
 
@@ -61,30 +61,30 @@ just don't strip the quotes when you edit it.
 |------------|------|---------------------------------------------------|
 | Backend    | 8002 | `uvicorn`, `--reload`; http://localhost:8002/docs |
 | Postgres   | 5435 | not 5432/5434 -- those are taken by sibling projects on this machine |
-| Valkey     | 6381 | not 6379/6380, same reason                        |
 | Frontend   | 3003+ | 3002 is occupied; the frontend (once scaffolded) picks 3003 or later |
 
 ## Day to day
 
 ```bash
-make dev            # backend + frontend + import worker, backgrounded
+make dev            # backend + frontend + both runner agents, backgrounded
 make dev-be          # (re)start just the backend
-make dev-worker       # (re)start just the arq import worker
-make logs            # tail all three logs
+make dev-worker       # (re)start just the default-lane runner agent
+make logs            # tail all logs
 make stop             # stop the backgrounded dev processes
 make migrate          # apply alembic migrations
 ```
 
-## Running without Valkey
+## Running without a runner agent
 
-Training and prediction runs normally go through an arq worker backed by
-Valkey (`make dev-worker`). Set `STUDIO_INLINE_JOBS=1` (already the default
-in `.env.example`) to run those jobs in-process instead, synchronously,
-inside the same request/test that submitted them -- no Redis connection
-needed at all. This is what the test suite uses (`tests/api/conftest.py`'s
-`app` fixture always sets `inline_jobs=True`); it's also the fastest way to
-run the backend locally without `docker compose up valkey`. Unset it (or set
-it to `0`) to exercise the real arq-backed path.
+Training and prediction runs normally go through a self-hosted runner agent
+that claims work over HTTP (`make dev-worker`/`make dev-worker-gpu`; see
+`docs/superpowers/specs/2026-08-04-self-hosted-runners-design.md`). Set
+`STUDIO_INLINE_JOBS=1` (already the default in `.env.example`) to run those
+jobs in-process instead, synchronously, inside the same request/test that
+submitted them -- no runner needed at all. This is what the test suite uses
+(`tests/api/conftest.py`'s `app` fixture always sets `inline_jobs=True`);
+it's also the fastest way to run the backend locally with no agent process
+running. Unset it (or set it to `0`) to exercise the real runner-backed path.
 
 ## Tests
 
