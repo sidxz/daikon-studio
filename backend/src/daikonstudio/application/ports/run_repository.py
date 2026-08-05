@@ -71,7 +71,7 @@ class RunRepository(Protocol):
         protocol_id: UUID | None = None,
         cursor: tuple[datetime, UUID] | None = None,
         limit: int = 50,
-    ) -> list[Run]: ...
+    ) -> builtins.list[Run]: ...
 
     # `builtins.list[...]`, not the bare generic: this Protocol already has a
     # method named `list` above, and Python 3.14's lazy annotation evaluation

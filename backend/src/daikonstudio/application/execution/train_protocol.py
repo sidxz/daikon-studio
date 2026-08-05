@@ -242,6 +242,11 @@ class TrainProtocolCommand:
     # before the baseline was choosable.
     baseline_engine_id: str | None = None
     baseline_conditions: dict[str, object] = field(default_factory=dict)
+    # The sweep's own name, repeated on every member. A label, not a grouping:
+    # the id is a column precisely because `params` is write-once, and this
+    # rides along so the sweeps list can title a group without a second table
+    # or a second query. `None` on a solo run.
+    sweep_name: str | None = None
 
     def to_params(self) -> dict[str, Any]:
         return {
@@ -251,6 +256,7 @@ class TrainProtocolCommand:
             "conditions": self.conditions,
             "baseline_engine_id": self.baseline_engine_id,
             "baseline_conditions": self.baseline_conditions,
+            "sweep_name": self.sweep_name,
         }
 
     @classmethod
@@ -262,6 +268,7 @@ class TrainProtocolCommand:
             conditions=params["conditions"],
             baseline_engine_id=params.get("baseline_engine_id"),
             baseline_conditions=params.get("baseline_conditions") or {},
+            sweep_name=params.get("sweep_name"),
         )
 
 
@@ -281,6 +288,11 @@ class TrainProtocol:
     there is nothing the worker could compute differently. Rejecting an
     unknown engine here means the request fails synchronously with a 404
     instead of returning a 202 for a Run that cannot possibly succeed.
+
+    `sweep_id` is the one thing a caller may add to an otherwise identical
+    request. It is stamped on the row rather than folded into `params` because
+    `params` is write-once and unindexed: a mistyped grouping could never be
+    corrected, and the cancel cascade and the sweeps list both filter on it.
     """
 
     def __init__(
@@ -296,7 +308,11 @@ class TrainProtocol:
         self._engines = engines
 
     async def __call__(
-        self, command: TrainProtocolCommand, auth: AuthContext | None = None
+        self,
+        command: TrainProtocolCommand,
+        auth: AuthContext | None = None,
+        *,
+        sweep_id: uuid.UUID | None = None,
     ) -> Result[Run, DomainError]:
         require_authenticated(auth)
         require_editor(auth)
@@ -353,6 +369,11 @@ class TrainProtocol:
                 baseline_conditions=sorted(command.baseline_conditions.items()),
             ),
             params=command.to_params(),
+            # Which sweep asked for this run, or None for a solo request. The
+            # only difference between the two, deliberately: a sweep child is
+            # the same object, with the same cache key, baseline resolution and
+            # lane, produced by this same code path.
+            sweep_id=sweep_id,
         )
         await self._runs.add(run)
         # Both engines fit inside this one Run, so the queue has to serve both.

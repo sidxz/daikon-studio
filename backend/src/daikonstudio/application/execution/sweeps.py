@@ -1,0 +1,166 @@
+"""Fan-out: N training configs submitted as one named group.
+
+A sweep is not a workflow. Nothing here waits for anything, nothing consumes
+another run's output, and no step must survive a crash to be correct -- which
+is precisely why this is a `sweep_id` column and a loop over the existing
+`TrainProtocol` rather than an orchestration engine. See
+`docs/superpowers/specs/2026-08-05-fanout-sweeps-design.md` for the trigger
+that would change that.
+
+Each child run keeps its own mandatory baseline. Twenty configs against one
+shared baseline would mean nineteen runs waiting on a twentieth's output, and
+that dependency is exactly what this feature was scoped to avoid. The honest
+cost is a repeated baseline fit; the real fix is the deferred fit-result cache,
+not a sweep-level special case.
+"""
+
+from __future__ import annotations
+
+import uuid
+from dataclasses import dataclass, field
+
+from returns.result import Failure, Result, Success
+
+from daikonstudio.application.auth import (
+    AuthContext,
+    require_authenticated,
+    require_editor,
+)
+from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
+from daikonstudio.application.execution.train_protocol import (
+    TrainProtocol,
+    TrainProtocolCommand,
+)
+from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.domain.execution.run import Run
+from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
+
+# A hand-built comparison, not a search. The cap exists so one request cannot
+# queue unbounded work; the per-workspace concurrency cap already governs how
+# fast it drains.
+MAX_CONFIGS = 50
+
+
+@dataclass(frozen=True, kw_only=True)
+class SweepConfig:
+    """One point in the comparison. The engine varies as freely as its
+    conditions do -- "chemprop versus ECFP4" and "depth 3 versus depth 5" are
+    the same request shape, which is why there is no grid to expand."""
+
+    engine_id: str
+    conditions: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class SubmitSweepCommand:
+    """The dataset and the baseline are declared once, for the whole sweep.
+    Configs measured on different data, or against different baselines, are not
+    a comparison -- and a form that lets you build one silently produces a
+    ranking that means nothing."""
+
+    name: str
+    dataset_id: uuid.UUID
+    configs: list[SweepConfig]
+    baseline_engine_id: str | None = None
+    baseline_conditions: dict[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, kw_only=True)
+class SweepResult:
+    sweep_id: uuid.UUID
+    runs: list[Run]
+
+
+@dataclass(frozen=True, kw_only=True)
+class ListSweepsQuery:
+    limit: int = 50
+
+
+@dataclass(frozen=True, kw_only=True)
+class GetSweepQuery:
+    sweep_id: uuid.UUID
+
+
+@dataclass(frozen=True, kw_only=True)
+class CancelSweepCommand:
+    sweep_id: uuid.UUID
+
+
+class SubmitSweep:
+    """Creates N training runs sharing one `sweep_id`.
+
+    Everything is validated before anything is created. A failure discovered
+    halfway through the loop would leave a half-submitted sweep -- runs that
+    will consume the fleet, appear in the ranking, and be indistinguishable
+    from a sweep the user actually asked for. Conditions stay unvalidated, for
+    the reason `TrainProtocol`'s own docstring gives: an invalid hyperparameter
+    fails its own Run visibly, and only the engine's manifest can resolve a
+    condition's default.
+    """
+
+    def __init__(
+        self,
+        datasets: DatasetRepository,
+        engines: EngineRegistry,
+        train: TrainProtocol,
+    ) -> None:
+        self._datasets = datasets
+        self._engines = engines
+        self._train = train
+
+    async def __call__(
+        self, command: SubmitSweepCommand, auth: AuthContext | None = None
+    ) -> Result[SweepResult, DomainError]:
+        require_authenticated(auth)
+        require_editor(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+
+        if not command.configs:
+            return Failure(ValidationError("A sweep needs at least one config"))
+        if len(command.configs) > MAX_CONFIGS:
+            return Failure(
+                ValidationError(
+                    f"A sweep is limited to {MAX_CONFIGS} configs; got {len(command.configs)}"
+                )
+            )
+
+        dataset = await self._datasets.get(auth.workspace_id, command.dataset_id)
+        if dataset is None:
+            return Failure(NotFoundError("Dataset", str(command.dataset_id)))
+
+        for engine_id in {config.engine_id for config in command.configs}:
+            try:
+                self._engines.get(engine_id)
+            except UnknownEngineError:
+                return Failure(NotFoundError("Engine", engine_id))
+        if command.baseline_engine_id:
+            try:
+                self._engines.get(command.baseline_engine_id)
+            except UnknownEngineError:
+                return Failure(NotFoundError("Engine", command.baseline_engine_id))
+
+        sweep_id = uuid.uuid4()
+        runs: list[Run] = []
+        for index, config in enumerate(command.configs, start=1):
+            result = await self._train(
+                TrainProtocolCommand(
+                    # Indexed rather than named after the engine: two configs
+                    # can share an engine and differ only in conditions, and an
+                    # index never collides. The config itself is on the row.
+                    name=f"{command.name} #{index}",
+                    dataset_id=command.dataset_id,
+                    engine_id=config.engine_id,
+                    conditions=config.conditions,
+                    baseline_engine_id=command.baseline_engine_id,
+                    baseline_conditions=command.baseline_conditions,
+                    sweep_name=command.name,
+                ),
+                auth=auth,
+                sweep_id=sweep_id,
+            )
+            if isinstance(result, Failure):
+                # Only reachable if the database itself fails: every domain
+                # reason `TrainProtocol` can refuse for was checked above.
+                return result
+            runs.append(result.unwrap())
+        return Success(SweepResult(sweep_id=sweep_id, runs=runs))
