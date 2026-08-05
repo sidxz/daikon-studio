@@ -31,10 +31,16 @@ from daikonstudio.application.execution.train_protocol import (
     TrainProtocol,
     TrainProtocolCommand,
 )
+from daikonstudio.application.pagination import clamp_limit
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.run_repository import RunRepository, SweepSummary
 from daikonstudio.domain.execution.run import Run
-from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
+from daikonstudio.domain.shared.errors import (
+    ConcurrencyConflictError,
+    DomainError,
+    NotFoundError,
+    ValidationError,
+)
 
 # A hand-built comparison, not a search. The cap exists so one request cannot
 # queue unbounded work; the per-workspace concurrency cap already governs how
@@ -179,7 +185,8 @@ class ListSweeps:
     ) -> Result[list[SweepSummary], DomainError]:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
-        return Success(await self._runs.sweep_summaries(auth.workspace_id, limit=query.limit))
+        limit = clamp_limit(query.limit)
+        return Success(await self._runs.sweep_summaries(auth.workspace_id, limit=limit))
 
 
 class GetSweep:
@@ -212,6 +219,19 @@ class CancelSweep:
     raising, which also makes a second cancel a no-op returning zero. A retry
     of a dropped request is not a conflict, and a run that succeeded a
     millisecond before the cancel arrived is not a failure of the cancel.
+
+    A running member's own worker writes checkpoints on its own schedule --
+    a progress update every few seconds, plus unthrottled writes at fit-leg
+    boundaries -- so `self._runs.update(run)` below can lose the optimistic-
+    concurrency race even though `run.cancel()` itself never raised. That is
+    a `ConcurrencyConflictError`, not a terminal-status `DomainError`, and it
+    must not abort the walk: a cascade that stops at the first member whose
+    checkpoint won the race would cancel everything visited so far and leave
+    every remaining member -- including still-pending ones -- running. On
+    that race, re-read the row and retry the cancel exactly once; a member
+    that turned terminal in the meantime is this cascade's success (the work
+    is stopped), not its failure, so either outcome of the retry lets the
+    loop move on to the next member.
     """
 
     def __init__(self, runs: RunRepository) -> None:
@@ -236,6 +256,23 @@ class CancelSweep:
                 # Already terminal. Not this cancel's problem, and not an error:
                 # the work this call exists to stop is already stopped.
                 continue
-            await self._runs.update(run)
+            try:
+                await self._runs.update(run)
+            except ConcurrencyConflictError:
+                current = await self._runs.get(auth.workspace_id, run.id)
+                if current is None:
+                    continue
+                try:
+                    current.cancel()
+                except DomainError:
+                    # Went terminal between our read and this retry -- the
+                    # work is stopped either way, just not by us.
+                    continue
+                try:
+                    await self._runs.update(current)
+                except ConcurrencyConflictError:
+                    # Lost the race twice. One retry is the contract; move on
+                    # rather than let this member hold up the rest of the sweep.
+                    continue
             cancelled += 1
         return Success(cancelled)

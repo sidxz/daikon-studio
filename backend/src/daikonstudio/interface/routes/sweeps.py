@@ -163,6 +163,9 @@ async def submit_sweep(
 
 @router.get("", response_model=SweepListResponse)
 async def list_sweeps(auth: AuthDep, service: ListSweepsDep, limit: int = 50) -> SweepListResponse:
+    # `limit` is clamped inside the use case, not here -- same pattern as
+    # `list_runs`, so a zero or negative value never reaches Postgres as
+    # `LIMIT -1`.
     summaries = result_to_response(await service(ListSweepsQuery(limit=limit), auth=auth))
     return SweepListResponse(items=[SweepResponse.from_domain(s) for s in summaries])
 

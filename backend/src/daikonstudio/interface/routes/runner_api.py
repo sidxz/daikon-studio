@@ -122,7 +122,11 @@ async def update_run(
     if "error_message" in fields:
         run.error_message = body.error_message
     if "metrics" in fields:
-        run.metrics = body.metrics
+        # `Run.metrics` is the plain dict the repository/wire round-trip
+        # already expects (`_to_model`, `RunEnvelope.metrics`) -- `body.metrics`
+        # is the typed `RunMetricsWire` pydantic validated it into, not that
+        # dict itself.
+        run.metrics = body.metrics.model_dump() if body.metrics is not None else None
     if "protocol_id" in fields:
         if body.protocol_id is not None:
             # write-once, same as every other caller of link_protocol: raises

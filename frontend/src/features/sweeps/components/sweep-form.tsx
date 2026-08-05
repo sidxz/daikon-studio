@@ -244,7 +244,12 @@ export function SweepForm() {
         <Button type="button" variant="ghost" onClick={() => router.push("/sweeps")}>
           Cancel
         </Button>
-        <Button type="submit" disabled={submit.isPending || !datasetId || !name}>
+        <Button
+          type="submit"
+          disabled={
+            submit.isPending || !datasetId || !name || !configs.every((row) => row.engineId)
+          }
+        >
           Submit sweep
         </Button>
       </div>

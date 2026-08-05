@@ -9,6 +9,17 @@ import type { SweepRun } from "../types";
 const LOWER_IS_BETTER = new Set(["rmse", "mae"]);
 
 /**
+ * A run's metric is rankable exactly when its value is a real number.
+ * Exported so `sweep-detail.tsx`'s rank cell can use the exact same test
+ * `rankRuns` buckets on for the same `unknown`-typed field, rather than a
+ * second predicate (`== null`) that happens to agree today but has no reason
+ * to keep agreeing tomorrow.
+ */
+export function isRankable(metrics: SweepRun["metrics"]): boolean {
+  return typeof metrics?.value === "number";
+}
+
+/**
  * Best first; anything unrankable last, in submission order.
  *
  * Unrankable is not the same as bad: a run still training has no number yet,
@@ -16,10 +27,15 @@ const LOWER_IS_BETTER = new Set(["rmse", "mae"]);
  * makes every classification metric meaningless) has none either. Sorting
  * those as zero would rank a pending run above a real one on an RMSE sweep
  * and below it on an MCC sweep, which is a ranking that says nothing true.
+ *
+ * Reads the metric direction off the LEFT operand only -- correct only
+ * because one sweep has one dataset, hence one task type, hence one primary
+ * metric for every member (`SubmitSweepCommand`); a mixed-direction list
+ * would sort non-transitively and silently.
  */
 export function rankRuns(runs: SweepRun[]): SweepRun[] {
-  const scored = runs.filter((run) => typeof run.metrics?.value === "number");
-  const unscored = runs.filter((run) => typeof run.metrics?.value !== "number");
+  const scored = runs.filter((run) => isRankable(run.metrics));
+  const unscored = runs.filter((run) => !isRankable(run.metrics));
   scored.sort((a, b) => {
     const lower = LOWER_IS_BETTER.has(String(a.metrics?.primary_metric ?? ""));
     const left = a.metrics?.value as number;
@@ -31,8 +47,8 @@ export function rankRuns(runs: SweepRun[]): SweepRun[] {
 
 /** The headline number, or why there isn't one. */
 export function formatMetric(metrics: SweepRun["metrics"]): string {
-  if (typeof metrics?.value !== "number") return "—";
-  return `${String(metrics.primary_metric).toUpperCase()} ${metrics.value.toFixed(3)}`;
+  if (!isRankable(metrics)) return "—";
+  return `${String(metrics?.primary_metric).toUpperCase()} ${(metrics?.value as number).toFixed(3)}`;
 }
 
 /**

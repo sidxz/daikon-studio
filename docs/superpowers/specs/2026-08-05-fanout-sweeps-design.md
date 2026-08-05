@@ -151,10 +151,19 @@ against different baselines, or trained on different data, are not a comparison.
 Each child Protocol is named `{name} #{i+1}` — the index never collides, and the
 config itself is visible on the row.
 
-**The queue, the runner protocol, and the runner agents learn nothing about
-sweeps.** `_CLAIM` sees an ordinary pending row with a lane, and no runner-facing
-endpoint gains a field. That machinery is inside the adversarially-reviewed
-security boundary and every line added there is a line to re-review.
+**The queue and the runner agents learn nothing about sweeps.** `_CLAIM` sees
+an ordinary pending row with a lane -- claiming, leasing, and requeuing are
+unchanged. That machinery is inside the adversarially-reviewed security
+boundary and every line added there is a line to re-review.
+
+**The runner protocol itself does gain a field, but only to read.**
+`RunEnvelope` mirrors every `Run.__init__` kwarg (that is its whole contract),
+so once `Run` gained `sweep_id`, the claim response and `GET /runner/runs/{id}`
+carry it too -- a runner sees which sweep, if any, its claimed run belongs to.
+It cannot write it back: `RunUpdateEnvelope`, the only body a runner ever
+POSTs, has no `sweep_id` field, so there is no path from a runner back to that
+column. `sweep_id` stays exactly as write-once as `params` -- set once by
+`SubmitSweep`/`TrainProtocol` at creation, never touched again.
 
 ## Frontend
 

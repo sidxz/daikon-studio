@@ -866,3 +866,26 @@ async def test_update_run_without_metrics_does_not_clear_them(anonymous_client, 
         "value": 0.6,
         "baseline_value": 0.5,
     }
+
+
+async def test_update_run_rejects_a_malformed_metrics_payload(anonymous_client, app, workspace_id):
+    """`metrics` is `RunMetricsWire`, not a free `dict[str, Any]` -- an
+    unknown key, or a missing required one, is a 422 at the edge rather than
+    arbitrary JSON landing verbatim in the `runs.metrics` column."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    claimed = await _claim(anonymous_client, headers)
+
+    response = await anonymous_client.post(
+        f"/api/v1/runner/runs/{run.id}",
+        headers=headers,
+        json={
+            "status": "running",
+            "expected_version": claimed["run"]["version"],
+            "metrics": {"primary_metric": "mcc", "value": 0.6, "not_a_real_field": "x"},
+        },
+    )
+    assert response.status_code == 422, response.text
+
+    fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
+    assert fetched.json()["metrics"] is None

@@ -222,6 +222,24 @@ class RunEnvelope(BaseModel):
         )
 
 
+class RunMetricsWire(BaseModel):
+    """Mirrors the exact three keys `Run.record_metrics` writes
+    (`domain/execution/run.py`) -- the only shape a runner-reported `metrics`
+    payload is allowed to take.
+
+    A free `dict[str, Any]` here would let a self-hosted runner store
+    arbitrary JSON verbatim in the `runs.metrics` column, inside the same
+    security boundary the module docstring calls out. Pinning the shape
+    means a malformed payload is a 422 at the edge, not a write.
+    """
+
+    model_config = _FORBID
+
+    primary_metric: str
+    value: float | None
+    baseline_value: float | None
+
+
 class RunUpdateEnvelope(BaseModel):
     """Only the mutable fields a handler writes back while a run is in
     flight -- not a full `Run` mirror, so no `to_domain`. `expected_version`
@@ -248,7 +266,7 @@ class RunUpdateEnvelope(BaseModel):
     result_uri: str | None = None
     error_message: str | None = None
     protocol_id: uuid.UUID | None = None
-    metrics: dict[str, Any] | None = None
+    metrics: RunMetricsWire | None = None
 
 
 class DatasetEnvelope(BaseModel):

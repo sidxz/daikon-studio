@@ -212,11 +212,20 @@ plainly rather than left buried in a ledger:
   call, unchanged from every previous handoff on this branch.
 - **Do not start Temporal because sweeps exist now.** Section 2 restates the actual trigger;
   sweeps are evidence the trigger has *not* fired yet, not evidence it's close.
-- **Do not teach the queue, the runner protocol, or the runner agents about sweeps.** They
-  still don't know sweeps exist, and that was the entire point — `_CLAIM` in
+- **Do not teach the queue or the runner agents about sweeps.** They still don't know sweeps
+  exist, and that was the entire point — `_CLAIM` in
   `infrastructure/persistence/sqlalchemy/execution/queue.py` is inside an
   adversarially-reviewed security boundary that this plan was explicitly told to leave
   alone, and did.
+- **The runner protocol is a partial exception, and that's fine — don't "fix" it.**
+  `RunEnvelope` (`infrastructure/runner/wire.py`) mirrors every `Run.__init__` kwarg by
+  contract, so it picked up `sweep_id` for free the moment `Run` gained the column: the claim
+  response and `GET /runner/runs/{id}` now carry it. A runner can only *read* that field,
+  never write it — `RunUpdateEnvelope`, the only body a runner ever POSTs back, has no
+  `sweep_id` field, so the column stays exactly as write-once from the runner's side as
+  `params` already is. Do not add one "so the mirror is complete" — that would let a
+  compromised or buggy runner re-point a run at a different sweep after the fact, which is
+  the write-once property this is supposed to protect.
 - **Do not "fix" `STUDIO_WORKSPACE_MAX_ACTIVE_RUNS`** because a 50-config sweep feels slow
   against it. That cap is the fairness predicate stopping one sweep from starving every
   other workspace on the instance; Task 8's UI makes the cap visible rather than raising it,

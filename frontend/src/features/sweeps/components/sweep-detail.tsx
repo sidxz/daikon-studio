@@ -3,6 +3,7 @@
 import { RUN_STATUS_COPY, isTerminal } from "@/features/runs";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
+import { Progress } from "@/shared/components/ui/progress";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import {
   Table,
@@ -17,7 +18,7 @@ import Link from "next/link";
 // Deep imports, not the feature barrel: `index.ts` re-exports this component,
 // so importing from it here would be a cycle.
 import { useCancelSweep, useSweep } from "../hooks/use-sweeps";
-import { baselineDelta, formatMetric, rankRuns } from "../lib/rank";
+import { baselineDelta, formatMetric, isRankable, rankRuns } from "../lib/rank";
 import type { SweepRun } from "../types";
 
 function SweepDetailSkeleton() {
@@ -99,7 +100,7 @@ export function SweepDetail({ id }: { id: string }) {
                   {/* Rank, not submission index -- the table is sorted, and
                       numbering it by position is the whole point. */}
                   <TableCell className="text-muted-foreground">
-                    {run.metrics?.value == null ? "—" : index + 1}
+                    {isRankable(run.metrics) ? index + 1 : "—"}
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">
@@ -123,6 +124,15 @@ export function SweepDetail({ id }: { id: string }) {
                     >
                       {RUN_STATUS_COPY[run.status] ?? run.status}
                     </Badge>
+                    {/* Same idiom as `RunDetail`'s progress card -- phase text
+                        over a `Progress` bar -- so a chemprop sweep shows
+                        which of ten identical "Running" rows is nearly done. */}
+                    {!isTerminal(run.status) && (
+                      <div className="mt-1.5 w-28 space-y-0.5">
+                        <Progress value={Math.round(run.progress * 100)} />
+                        <p className="text-xs text-muted-foreground">{run.phase ?? "Starting…"}</p>
+                      </div>
+                    )}
                   </TableCell>
                   <TableCell>{formatMetric(run.metrics)}</TableCell>
                   <TableCell>

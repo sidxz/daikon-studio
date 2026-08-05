@@ -110,3 +110,41 @@ describe("submit resolves conditions against manifest defaults", () => {
     expect(payload.configs).toEqual([{ engine_id: "ecfp4-rf", conditions: { n_estimators: 500 } }]);
   });
 });
+
+// --- Submit is blocked while any config row has no engine picked ---
+//
+// A config row with `engine_id: ""` posts to a server that pre-flights
+// nothing wrong with an empty string, creates no runs, and returns "Engine
+// not found" with no indication of which of N rows was the empty one.
+
+describe("submit requires an engine on every config row", () => {
+  afterEach(() => mutateAsync.mockClear());
+
+  it("disables submit while the only config row has no engine", async () => {
+    render(<SweepForm />, { wrapper: Wrapper });
+
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByRole("option", { name: /Solubility/ }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sweep" } });
+
+    expect(screen.getByText("Submit sweep")).toBeDisabled();
+    fireEvent.click(screen.getByText("Submit sweep"));
+    expect(mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("re-disables submit when a newly added row has no engine yet", async () => {
+    render(<SweepForm />, { wrapper: Wrapper });
+
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByRole("option", { name: /Solubility/ }));
+    fireEvent.click(screen.getByText("Choose an engine"));
+    fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sweep" } });
+
+    await waitFor(() => expect(screen.getByText("Submit sweep")).not.toBeDisabled());
+
+    fireEvent.click(screen.getByRole("button", { name: /add config/i }));
+
+    expect(screen.getByText("Submit sweep")).toBeDisabled();
+  });
+});

@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from returns.result import Failure
+from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from daikonstudio.application.data.create_dataset import (
@@ -25,6 +26,8 @@ from daikonstudio.application.execution.sweeps import (
     CancelSweepCommand,
     GetSweep,
     GetSweepQuery,
+    ListSweeps,
+    ListSweepsQuery,
     SubmitSweep,
     SubmitSweepCommand,
     SweepConfig,
@@ -40,6 +43,7 @@ from daikonstudio.infrastructure.jobs import DbEnqueuer
 from daikonstudio.infrastructure.persistence.sqlalchemy.data.repository import (
     SqlAlchemyDatasetRepository,
 )
+from daikonstudio.infrastructure.persistence.sqlalchemy.execution.models import RunModel
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.queue import SqlAlchemyRunQueue
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
@@ -148,6 +152,11 @@ async def get_sweep(runs_repository: SqlAlchemyRunRepository) -> GetSweep:
     return GetSweep(runs_repository)
 
 
+@pytest_asyncio.fixture
+async def list_sweeps(runs_repository: SqlAlchemyRunRepository) -> ListSweeps:
+    return ListSweeps(runs_repository)
+
+
 def _run(*, workspace_id: uuid.UUID, sweep_id: uuid.UUID | None = None, name: str = "s") -> Run:
     return Run(
         kind=RunKind.TRAINING,
@@ -253,6 +262,23 @@ async def test_sweep_summaries_ignores_solo_runs(sessions) -> None:
 
 
 @pytest.mark.asyncio
+async def test_list_sweeps_clamps_a_nonpositive_limit(sessions, list_sweeps, auth) -> None:
+    """`limit=0` would otherwise render an empty page, and a negative value
+    reaches Postgres as `LIMIT -1`, which it rejects with a 500 -- this
+    codebase's convention is a clamped value instead, same as `ListRuns`
+    (`application/pagination.py`'s `clamp_limit`)."""
+    repository = SqlAlchemyRunRepository(sessions)
+    for _ in range(2):
+        await repository.add(_run(workspace_id=auth.workspace_id, sweep_id=uuid.uuid4()))
+
+    zero = (await list_sweeps(ListSweepsQuery(limit=0), auth=auth)).unwrap()
+    negative = (await list_sweeps(ListSweepsQuery(limit=-5), auth=auth)).unwrap()
+
+    assert len(zero) == 1
+    assert len(negative) == 1
+
+
+@pytest.mark.asyncio
 async def test_submit_creates_one_run_per_config_sharing_a_sweep_id(
     submit_sweep, dataset, auth
 ) -> None:
@@ -347,6 +373,66 @@ async def test_cancel_sweep_is_idempotent(sessions, cancel_sweep, auth) -> None:
     second = (await cancel_sweep(CancelSweepCommand(sweep_id=sweep_id), auth=auth)).unwrap()
 
     assert (first, second) == (1, 0)
+
+
+@pytest.mark.asyncio
+async def test_cancel_sweep_survives_a_version_race_on_one_member(sessions, auth) -> None:
+    """The real failure mode: a running member's own worker writes a
+    checkpoint in the window between `CancelSweep`'s read (`list_by_sweep`)
+    and its write (`update`), so `update` loses the optimistic-concurrency
+    race with a `ConcurrencyConflictError` -- even though `run.cancel()`
+    itself never raised. Before the fix, that exception escaped
+    `CancelSweep.__call__` unhandled and the walk stopped there, leaving
+    every member after the raced one (in submission order) still running.
+
+    Forced here by bumping one member's `version` in the database directly,
+    inside a `list_by_sweep` override, landing squarely in that window --
+    the honest way to reproduce the race without depending on a real fit
+    finishing at the wrong instant (Task 10 tried that and couldn't).
+    """
+    repository = SqlAlchemyRunRepository(sessions)
+    sweep_id = uuid.uuid4()
+    members = [_run(workspace_id=auth.workspace_id, sweep_id=sweep_id) for _ in range(3)]
+    for member in members:
+        await repository.add(member)
+    raced = members[1]  # not first, not last: proves the walk doesn't stop here
+
+    class _RepositoryRacedOnRead:
+        """Delegates everything to the real repository except the one
+        `list_by_sweep` call `CancelSweep` makes: right after it reads, bump
+        `raced`'s version in the database -- simulating a worker's checkpoint
+        landing before `CancelSweep`'s own `update(raced)` gets there."""
+
+        def __init__(self, inner: SqlAlchemyRunRepository) -> None:
+            self._inner = inner
+
+        async def list_by_sweep(self, workspace_id: uuid.UUID, sweep_id: uuid.UUID):
+            runs = await self._inner.list_by_sweep(workspace_id, sweep_id)
+            async with sessions() as session:
+                await session.execute(
+                    sa_update(RunModel)
+                    .where(RunModel.id == raced.id)
+                    .values(version=RunModel.version + 1)
+                )
+                await session.commit()
+            return runs
+
+        def __getattr__(self, name: str):
+            return getattr(self._inner, name)
+
+    cancel_sweep = CancelSweep(_RepositoryRacedOnRead(repository))
+
+    result = await cancel_sweep(CancelSweepCommand(sweep_id=sweep_id), auth=auth)
+
+    # No exception escaped -- `.unwrap()` on a Failure would raise, so
+    # reaching this line at all is part of what this test proves.
+    cancelled = result.unwrap()
+    assert cancelled == 3
+
+    final = await repository.list_by_sweep(auth.workspace_id, sweep_id)
+    assert {run.id: run.status for run in final} == {
+        member.id: RunStatus.CANCELLED for member in members
+    }
 
 
 @pytest.mark.asyncio
