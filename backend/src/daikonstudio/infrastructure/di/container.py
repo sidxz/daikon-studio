@@ -37,6 +37,7 @@ from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.application.runners.manage import CreateRunner, ListRunners, RevokeRunner
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
@@ -142,6 +143,17 @@ def create_container(settings: Settings | None = None) -> Container:
     # Resolved settings, for interface dependencies that need config values
     # directly rather than through a use case (e.g. lease-extension seconds).
     container.define(Settings, Singleton(lambda: resolved))
+
+    container.define(CreateRunner, lambda c: CreateRunner(c[RunnerRepository]))
+    container.define(
+        ListRunners,
+        lambda c: ListRunners(
+            c[RunnerRepository],
+            c[RunQueue],
+            online_threshold_seconds=resolved.runner_online_threshold_seconds,
+        ),
+    )
+    container.define(RevokeRunner, lambda c: RevokeRunner(c[RunnerRepository]))
 
     container.define(
         TrainProtocol,

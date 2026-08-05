@@ -58,3 +58,22 @@ class Settings(BaseSettings):
     idp_jwks_url: str = "https://www.googleapis.com/oauth2/v3/certs"
     idp_audience: str = ""
     idp_issuer: str = "https://accounts.google.com"
+
+    # Self-hosted runners (2026-08-04 spec). Gates `RunQueue.claim_next`'s per-workspace
+    # concurrency cap: no single workspace can starve every other tenant's runs off a
+    # shared runner fleet.
+    workspace_max_active_runs: int = 10
+    # How long a runner's claim on a run holds before `RunQueue.sweep` requeues it --
+    # covers a runner that crashes or loses connectivity mid-job. Consumed by
+    # `claim_next`/`verify_claim`'s `lease_seconds` and extended on every heartbeat.
+    runner_lease_seconds: int = 600
+    # How many times `claim_next` will hand the same run to a (possibly different)
+    # runner before `sweep` gives up and fails it outright -- caps a poison-pill job
+    # from cycling through the fleet forever.
+    runner_max_attempts: int = 3
+    # Ceiling on a runner's artifact/log upload for one run, enforced by the upload
+    # endpoint a later task adds. Default 1 GiB.
+    runner_upload_max_bytes: int = 1_073_741_824
+    # How recently a runner must have heartbeated (`touch_last_seen`) to show as
+    # `online` in `ListRunners` -- see `application/runners/manage.py`.
+    runner_online_threshold_seconds: int = 15
