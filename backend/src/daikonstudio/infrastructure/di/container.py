@@ -24,6 +24,7 @@ from daikonstudio.application.data.get_dataset_profile import GetDatasetProfile
 from daikonstudio.application.data.list_collections import ListCollections
 from daikonstudio.application.data.list_datasets import ListDatasets
 from daikonstudio.application.engines.registry import EngineRegistry
+from daikonstudio.application.execution.claim_run import ClaimRun
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.list_runs import ListRuns
 from daikonstudio.application.execution.predict_with_protocol import (
@@ -34,7 +35,10 @@ from daikonstudio.application.execution.predict_with_protocol import (
 )
 from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
+from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.application.runners.manage import CreateRunner, ListRunners, RevokeRunner
@@ -92,6 +96,15 @@ def create_container(settings: Settings | None = None) -> Container:
 
     def _runs(c: Container) -> SqlAlchemyRunRepository:
         return SqlAlchemyRunRepository(c[async_sessionmaker])
+
+    # Bound as container keys (not just the private helpers above) so the
+    # runner-protocol routes -- which resolve every collaborator through the
+    # container rather than constructing one in a route, like every other
+    # route -- can depend on `RunRepository`/`DatasetRepository`/
+    # `ProtocolRepository` directly (`interface/routes/runner_api.py`).
+    container.define(RunRepository, lambda c: _runs(c))  # type: ignore[type-abstract]
+    container.define(DatasetRepository, lambda c: _datasets(c))  # type: ignore[type-abstract]
+    container.define(ProtocolRepository, lambda c: _protocols(c))  # type: ignore[type-abstract]
 
     def _collections(c: Container) -> SqlAlchemyCollectionRepository:
         return SqlAlchemyCollectionRepository(c[async_sessionmaker])
@@ -154,6 +167,17 @@ def create_container(settings: Settings | None = None) -> Container:
         ),
     )
     container.define(RevokeRunner, lambda c: RevokeRunner(c[RunnerRepository]))
+    container.define(
+        ClaimRun,
+        lambda c: ClaimRun(
+            c[RunQueue],
+            _runs(c),
+            lease_seconds=resolved.runner_lease_seconds,
+            max_active_per_workspace=resolved.workspace_max_active_runs,
+            max_attempts=resolved.runner_max_attempts,
+            deadline_seconds=resolved.worker_job_timeout,
+        ),
+    )
 
     container.define(
         TrainProtocol,

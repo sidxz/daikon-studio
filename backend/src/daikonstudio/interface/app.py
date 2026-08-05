@@ -11,6 +11,7 @@ from daikonstudio.interface.routes.collections import router as collections_rout
 from daikonstudio.interface.routes.datasets import router as datasets_router
 from daikonstudio.interface.routes.engines import router as engines_router
 from daikonstudio.interface.routes.protocols import router as protocols_router
+from daikonstudio.interface.routes.runner_api import router as runner_api_router
 from daikonstudio.interface.routes.runners import router as runners_router
 from daikonstudio.interface.routes.runs import router as runs_router
 from daikonstudio.settings import Settings
@@ -54,7 +55,17 @@ def create_app() -> FastAPI:
     # outer layer: a 401 raised by auth still passes back out through CORS and
     # keeps its headers. Reversed, the browser sees an opaque network error
     # instead of a 401 — do not "tidy" this order.
-    sentinel.protect(app, exclude_paths=["/health", "/version", "/docs", "/openapi.json"])
+    # "/api/v1/runner" is the self-hosted-runner protocol -- authenticated by
+    # its own runner-token dependency (interface/dependencies/runner_auth.py),
+    # not Sentinel: a runner process carries no IdP/Sentinel token pair at
+    # all. exclude_paths matches on a path-segment boundary (exact match or
+    # `path + "/"` prefix -- see sentinel_auth.authz_middleware), so this
+    # cannot also swallow "/api/v1/runners" (human-facing runner management,
+    # `interface/routes/runners.py`), which stays Sentinel-protected.
+    sentinel.protect(
+        app,
+        exclude_paths=["/health", "/version", "/docs", "/openapi.json", "/api/v1/runner"],
+    )
 
     app.add_middleware(
         CORSMiddleware,
@@ -78,6 +89,7 @@ def create_app() -> FastAPI:
     app.include_router(datasets_router)
     app.include_router(engines_router)
     app.include_router(protocols_router)
+    app.include_router(runner_api_router)
     app.include_router(runners_router)
     app.include_router(runs_router)
 
