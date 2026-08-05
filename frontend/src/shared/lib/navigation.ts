@@ -3,6 +3,7 @@ import {
   Cpu,
   Database,
   FlaskConical,
+  Layers,
   LayoutDashboard,
   type LucideIcon,
   PlayCircle,
@@ -39,6 +40,7 @@ export const navigation: NavGroup[] = [
     items: [
       { title: "Datasets", href: "/datasets", icon: Database },
       { title: "Protocols", href: "/protocols", icon: FlaskConical },
+      { title: "Sweeps", href: "/sweeps", icon: Layers },
     ],
   },
   {
