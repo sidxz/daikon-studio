@@ -14,4 +14,4 @@ export { ConditionFields } from "./components/condition-fields";
 export { ProtocolDetail } from "./components/protocol-detail";
 export { ProtocolList } from "./components/protocol-list";
 export { ScorecardView } from "./components/scorecard-view";
-export { TrainProtocolForm } from "./components/train-protocol-form";
+export { resolveConditions, TrainProtocolForm } from "./components/train-protocol-form";
