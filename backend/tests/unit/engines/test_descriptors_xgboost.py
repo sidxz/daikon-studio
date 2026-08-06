@@ -75,6 +75,39 @@ def test_no_infinities_survive_the_featurizer():
     assert not np.isinf(x).any()
 
 
+#: Ivermectin, row 826 of the BBBP dataset. Its `Ipc` is 6.5e39 -- an ordinary float64
+#: and `inf` the instant XGBoost casts it to the float32 it stores features as.
+_FLOAT32_OVERFLOWING_SMILES = (
+    r"CCC(C)[C@H]1O[C@]2(CC[C@@H]1C)CC3C[C@@H](C\C=C(C)\[C@@H](O[C@H]4C[C@H](OC)"
+    r"[C@@H](O[C@H]5C[C@H](OC)[C@@H](O)[C@H](C)O5)[C@H](C)O4)[C@@H](C)\C=C\C=C6/"
+    r"CO[C@@H]7[C@H](O)C(C)=C[C@@H](C(=O)O3)[C@]67O)O2"
+)
+
+
+def test_a_descriptor_too_large_for_float32_is_swept_even_though_float64_holds_it():
+    """The gap the first version of this sweep missed, found by running the engine on
+    real BBBP data rather than on synthetic shapes. `np.isfinite` is true for 6.5e39, so
+    the value passed through and killed the fit inside XGBoost with the very error the
+    sweep exists to prevent. The ceiling that binds is float32's, not float64's."""
+    x = rdkit_descriptors([_FLOAT32_OVERFLOWING_SMILES, "CCO"])
+    assert not np.isinf(x).any()
+    assert not np.isinf(x.astype(np.float32)).any()
+    assert np.isfinite(x[1]).any(), "the ordinary molecule must survive the sweep"
+
+
+def test_the_engine_trains_on_a_molecule_that_overflows_float32():
+    """End to end, because the featurizer assertion above would still pass if XGBoost
+    rejected the data for some other reason. This is the failure as a user met it."""
+    rows = pl.DataFrame(
+        {
+            "smiles": [_FLOAT32_OVERFLOWING_SMILES, *SMILES[:7]],
+            "y": VALUES[:8],
+            "split": ["train"] * 6 + ["test"] * 2,
+        }
+    )
+    assert "rmse" in DescriptorsXGBoost().train(context(frame=rows)).metrics
+
+
 def test_descriptors_differ_from_the_fingerprint_representation():
     """Cheap guard that the engine is not quietly the ECFP4 one under a new name."""
     assert rdkit_descriptors(SMILES).shape[1] != ecfp4(SMILES).shape[1]

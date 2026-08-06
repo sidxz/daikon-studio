@@ -18,6 +18,10 @@ _GENERATOR = rdFingerprintGenerator.GetMorganGenerator(radius=2, fpSize=2048)
 #: trusting the count to have stayed put.
 DESCRIPTOR_NAMES: tuple[str, ...] = tuple(name for name, _ in Descriptors.descList)
 
+#: The largest descriptor value `rdkit_descriptors` will pass through. Not float64's
+#: limit: XGBoost stores features as float32, so this is the ceiling that actually binds.
+_FLOAT32_MAX = float(np.finfo(np.float32).max)
+
 
 def ecfp4(smiles_list: list[str]) -> np.ndarray:
     """ECFP4 (Morgan radius 2, 2048 bits). Invalid SMILES yield an all-zero row."""
@@ -43,10 +47,16 @@ def rdkit_descriptors(smiles_list: list[str]) -> np.ndarray:
     descriptors on exotic elements), and a descriptor that overflows to +/-inf (`Ipc`
     does this on larger molecules).
 
-    The inf sweep is not optional: XGBoost accepts NaN natively and learns a split
+    The overflow sweep is not optional: XGBoost accepts NaN natively and learns a split
     direction for it, but rejects inf outright with "Input data contains `inf`". So the
     consumer this featurizer exists for fails loudly on the one value we would otherwise
     pass through.
+
+    The sweep is against **float32** range, not float64's. XGBoost stores features as
+    float32, so it is its cast that overflows, not ours -- and `Ipc` lands in the gap
+    between the two on real datasets (measured 6.5e39 on two BBBP molecules, finite as a
+    float64 and `inf` the moment XGBoost touches it). Testing `np.isfinite` here would
+    pass those through and fail inside the fit, which is exactly what it did.
 
     No scaling, deliberately. Gradient boosting is scale-invariant, so the raw values
     are the honest input; a featurizer that normalised here would be silently wrong for
@@ -64,5 +74,7 @@ def rdkit_descriptors(smiles_list: list[str]) -> np.ndarray:
             mol, missingVal=float("nan"), silent=True
         )
         rows[index] = list(values.values())
-    rows[~np.isfinite(rows)] = np.nan
+    # Catches all three at once: inf compares greater, NaN compares false and stays NaN,
+    # and a merely huge float64 is swept for the reason in the docstring.
+    rows[np.abs(rows) > _FLOAT32_MAX] = np.nan
     return rows
