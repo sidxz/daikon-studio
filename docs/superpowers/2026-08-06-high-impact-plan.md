@@ -88,22 +88,26 @@ Adding three CPU engines is a realistic near-term goal, not a quarter of work.
 
 ## The holes in the current roster
 
-Today: ECFP4+RandomForest (baseline, CPU), ECFP4+XGBoost (CPU), Chemprop D-MPNN ±CheMeleon
-(GPU). Every engine sees either hashed Morgan bits or the raw graph. `TaskType` is
+As written 2026-08-06, before items 1 and 2 shipped. Struck items are now closed; the
+list is left intact because the ones remaining are the argument for what comes next.
+
+Then: ECFP4+RandomForest (baseline, CPU), ECFP4+XGBoost (CPU), Chemprop D-MPNN ±CheMeleon
+(GPU). Every engine saw either hashed Morgan bits or the raw graph. `TaskType` is
 `REGRESSION` and `BINARY_CLASSIFICATION`.
 
-What a user cannot do at all right now:
+What a user could not do at all:
 
-1. Run a **descriptor-based** model. Every reproducible top entry on the TDC audit —
-   CaliciBoost, MapLight, MapLight+GNN — is descriptors plus boosting. The platform cannot
-   express the recipe that actually wins.
-2. Model a **small dataset** well. At n≈200, the realistic size of an in-house assay,
-   chemprop is hopeless and RF is mediocre. Nothing in the roster targets this regime.
-3. Get **principled uncertainty** from any engine. Covered separately, but note that one
-   engine below solves it by construction rather than by bolting a head on.
-4. Use a **sequence** model. Everything is graph or fingerprint.
+1. ~~Run a **descriptor-based** model.~~ **Closed by #1.** Every reproducible top entry on
+   the TDC audit — CaliciBoost, MapLight, MapLight+GNN — is descriptors plus boosting.
+2. ~~Model a **small dataset** well.~~ **Addressed by #2**, with the caveat measured there:
+   the GP opens the regime and is by far the cheapest engine in it, but did not beat the
+   baseline on accuracy at n=200–1000 on BBBP.
+3. ~~Get **principled uncertainty** from any engine.~~ **Partly closed by #2** — posterior
+   variance, but on the regression path only. Classification still has no principled
+   spread from any engine.
+4. Use a **sequence** model. Everything is graph or fingerprint. Still open (#5).
 5. Train **one model across several endpoints**. Chemprop supports `n_tasks > 1` natively;
-   the platform hard-codes 1.
+   the platform hard-codes 1. Still open, and now the largest remaining gap.
 
 ---
 
@@ -139,9 +143,43 @@ What landed:
 
 11 new tests; full suite green (238 unit, 190 api), ruff/mypy/import-linter clean.
 
-### 2. Tanimoto-kernel Gaussian Process — CPU, small-n, uncertainty by construction
+### 2. Tanimoto-kernel Gaussian Process — **SHIPPED 2026-08-06**
 
-Absent from both earlier lists and arguably the best value in this document.
+`tanimoto-gp`, on the default lane. `GaussianProcessRegressor` / `GaussianProcessClassifier`
+over a ~40-line `Kernel` subclass, no new dependency, one condition (`n_restarts_optimizer`).
+
+What landed, and what measurement changed about the pitch below:
+
+- **The uncertainty claim holds; the accuracy claim was never made and should not be.**
+  On BBBP with scaffold splits over three seeds, MCC was 0.394 (n=200), 0.450 (n=500),
+  0.547 (n=1000) against the baseline's 0.527 / 0.460 / 0.580. The GP does **not** beat
+  the baseline here, and every gap in that table is inside the ±0.14 MCC bootstrap noise
+  §"Deferred" already documents. What it does win: it was the fastest engine at every
+  size (0.1–1.2s vs the forest's 0.5–0.9s and descriptors' 1.3–6.9s), and its uncertainty
+  ranks best — restricting to its most-confident half lifts accuracy 0.794 → 0.889,
+  against the forest's 0.794 → 0.841.
+- **Posterior variance is regression-only.** `GaussianProcessClassifier` uses a Laplace
+  approximation that exposes no latent variance, so the classification path reports the
+  same distance-from-the-boundary the forest does. The genuine posterior std — in the
+  target's units, via `normalize_y` — exists only on the regression path. The engine adds
+  a *sixth* meaning to `uncertainty`, not a resolution of the existing five.
+- **The float32 cast in the kernel is load-bearing.** `ecfp4` returns uint8 and sklearn's
+  `dtype="numeric"` validation preserves it into the kernel (verified by instrumenting a
+  real fit). Without the cast, `x_norm + y_norm` wraps past 255 for a pair of large
+  molecules — silently — and the divide cannot write float output into a uint8 `out`.
+- **A hard training-size ceiling**, not just documentation: 10,000 rows, refused with a
+  message naming the reason. Past that the failure mode is an OOM-killed worker with no
+  message. The manifest tells users 5,000, where it is still comfortable.
+- **Single-class training splits are refused explicitly.** The tree engines fit happily
+  on one class and let `_score` report undefined metrics; `GaussianProcessClassifier`
+  raises, and its own message names neither the engine nor the fix.
+
+The predict path did not collapse into `_predict_with_tree_ensemble`: the two share the
+bundle shape and output schema (now `_load_bundle` and `_prediction_frame`) and differ on
+exactly the thing that distinguishes the engines. Routing a GP through the tree function
+would find no `estimators_` and report `None` — discarding the one property it exists for.
+
+Original rationale, which still stands:
 
 - **Opens the small-data regime.** GPs are the classic n<1000 method, which is where most
   in-house assays live.
@@ -160,6 +198,23 @@ the representation natively, where a descriptor GP would need scaling and a diff
 
 Declare the ceiling in the manifest help text: the fit is O(n³) and memory O(n²), so this
 engine is honest up to roughly n≈5,000 and should say so rather than quietly thrashing.
+
+### 1b. `rdkit_descriptors` swept the wrong overflow ceiling — **FIXED 2026-08-06**
+
+Not a plan item; a live bug in #1, found the first time that engine ran on a real dataset
+rather than on test fixtures. `descriptors-xgboost` died on BBBP with `Input data contains
+inf` — precisely the error the featurizer's sweep was written to prevent.
+
+RDKit's `Ipc` returns **6.5e39** on molecules like ivermectin. That is an ordinary
+float64, so `np.isfinite` passed it through; XGBoost stores features as float32, whose
+maximum is 3.4e38, and *its* cast produced the `inf`. The binding ceiling was never
+float64's. One line in `chem/featurize.py` (`np.abs(rows) > _FLOAT32_MAX`, which catches
+inf, NaN and the gap together), plus two regression tests carrying the actual molecule.
+Two of three seeds at n=1000 crashed before; all three train after.
+
+Worth generalising: the synthetic shapes the original tests used (`"C"*60`, a fused
+polycyclic) overflow float64 and were caught. The molecules that actually break it sit in
+the band between the two ceilings, and only real data contains them.
 
 ### 3. Frozen CheMeleon + TabPFN — foundation-model representation at small n
 
