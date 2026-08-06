@@ -33,10 +33,11 @@ dependencies = [
 s3 = ["s3fs>=2024.10"]
 azure = ["adlfs>=2024.7"]
 # The GPU lane. chemprop pulls torch, lightning and rdkit itself, so listing them
-# again here would only create a second place for their floors to drift. The CUDA
-# build of torch is selected in Dockerfile.gpu, deliberately NOT in [tool.uv.sources]:
-# pinning a cu124 index here would break `uv sync --extra gpu` on a developer's Mac,
-# and running the chemprop tests locally on CPU torch is what makes this engine testable.
+# again here would only create a second place for their floors to drift. No CUDA index
+# is pinned in [tool.uv.sources] on purpose: it would break `uv sync --extra gpu` on a
+# developer's Mac, where the ordinary PyPI wheel is the one that reaches the Mac's own
+# GPU through MPS -- which is how these engines are exercised on real GPU hardware
+# locally rather than only in the CUDA image.
 gpu = ["chemprop>=2.2,<3"]
 
 [dependency-groups]

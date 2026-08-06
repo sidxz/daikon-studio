@@ -77,8 +77,7 @@ make migrate          # apply alembic migrations
 ## Running without a runner agent
 
 Training and prediction runs normally go through a self-hosted runner agent
-that claims work over HTTP (`make dev-worker`/`make dev-worker-gpu`; see
-`docs/superpowers/specs/2026-08-04-self-hosted-runners-design.md`). Set
+that claims work over HTTP (`make dev-worker`/`make dev-worker-gpu`). Set
 `STUDIO_INLINE_JOBS=1` (already the default in `.env.example`) to run those
 jobs in-process instead, synchronously, inside the same request/test that
 submitted them -- no runner needed at all. This is what the test suite uses

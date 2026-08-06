@@ -35,8 +35,9 @@ human reads. The split is on purpose: this file owns "what was actually
 measured", `build_scorecard` owns "how it is presented".
 
 # ponytail: three fits per training request is free at ECFP4 speeds and will not be
-# for GPU engines. When Phase 2 lands, make the random-split comparison opt-out for
-# expensive engines. The baseline stays mandatory regardless.
+# once an engine's own fit is slow -- which is a property of the fit, not of the lane
+# it runs on. Make the random-split comparison opt-out on measured fit cost when one
+# engine actually crosses that line. The baseline stays mandatory regardless.
 """
 
 from __future__ import annotations
@@ -708,8 +709,9 @@ class RunTraining:
         frame: pl.DataFrame,
         span: tuple[float, float],
     ) -> TrainResult:
-        # train() is synchronous and CPU-bound by contract (see engines/protocol.py):
-        # the worker offloads it so engine authors never have to think about threads.
+        # train() is synchronous and blocking by contract, whichever device it resolves
+        # to (see engines/protocol.py): the worker offloads it so engine authors never
+        # have to think about threads.
         # `run` is threaded through only so the reporter can reach the row -- the
         # engine never sees it.
         return await asyncio.to_thread(

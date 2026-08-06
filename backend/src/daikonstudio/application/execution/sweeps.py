@@ -3,9 +3,10 @@
 A sweep is not a workflow. Nothing here waits for anything, nothing consumes
 another run's output, and no step must survive a crash to be correct -- which
 is precisely why this is a `sweep_id` column and a loop over the existing
-`TrainProtocol` rather than an orchestration engine. See
-`docs/superpowers/specs/2026-08-05-fanout-sweeps-design.md` for the trigger
-that would change that.
+`TrainProtocol` rather than an orchestration engine. The trigger that would
+change that is named and unchanged: the first time one step consumes another
+step's output, dependent state exists and a workflow engine starts earning
+its keep.
 
 Each child run keeps its own mandatory baseline. Twenty configs against one
 shared baseline would mean nineteen runs waiting on a twentieth's output, and

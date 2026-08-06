@@ -146,7 +146,22 @@ A condition on the existing engine, not a new engine. Verified compatible with C
 (§1). No new dependency — RDKit is already a core dep. Costs 3.41 ms/mol, single-threaded.
 This is the ADMET-AI / MapLight+GNN recipe and the highest-evidence configuration found.
 
-### 3.2 Frozen CheMeleon + TabPFN — *removes a fit*
+### 3.2 Frozen CheMeleon + TabPFN — **BUILT AND REMOVED 2026-08-06. Do not re-propose.**
+
+The literature case below still stands and is left intact, because it is what made this
+look like the obvious next engine. It was implemented, tested green, and then removed.
+The reasons are in `roadmap.md` under "Explicitly not doing"; the decisive one is that
+**inference did not scale the way an isolated probe suggested** — a 450-molecule spot
+check implied ~10s, and the finished engine then stalled for minutes on 750 molecules
+inside the real training path, against a global 1800s deadline. The other two are that
+every non-superseded model version is gated behind a Prior Labs `TABPFN_TOKEN`, and that
+the licence permanently constrains engine naming and UI copy.
+
+**The transferable lesson: time the candidate on a realistic dataset inside the real
+`train()` path before writing the engine, not on a hand-rolled probe.** A probe that
+skips the platform's own scoring path measured roughly a third of the real work.
+
+The original case, unedited:
 
 No backprop at all: one encoder forward pass, then in-context inference. It **replaces**
 a fine-tune rather than adding one, while beating fine-tuned CheMeleon 86.2% to 41.4%
@@ -213,23 +228,22 @@ unrelated *crystal-structure* diffusion model that happens to share the name, an
 
 ---
 
-## 5. Sequencing — read before implementing any of the above
+## 5. Sequencing — superseded, and the reason it was wrong
 
-Everything here lands on a lane that **has never executed**. Per the open remaining-work
-notes:
+**This section originally said the gpu lane "has never executed" and that adding engines
+to it stacks unverified on unverified. That was false when written, and it cost time.**
 
-1. `Dockerfile.gpu` **has never been built once.** Needs one real x86 build
-   (`docker --context ned build`); this laptop is arm64 and the emulated build stalls.
-2. `STUDIO_WORKER_JOB_TIMEOUT` needs raising on the gpu lane before a real BBBP run —
-   the branch made the three-fit case the default one.
-3. There is no CI building the GPU image.
+The gpu lane runs on this machine's own GPU. `lightning`'s `accelerator="auto"` resolves
+to `MPSAccelerator` / `mps:0` on Apple Silicon, and a full chemprop fit *and* predict both
+complete there. The lane was never gated on the CUDA image; it was gated on somebody
+running it. `Dockerfile.gpu` has since built and been verified on `ned` as well, so both
+backends are real.
 
-Adding engines to an unproven lane stacks unverified on unverified. The first move is
-not an engine.
-
-Suggested order once unblocked: **3.1** (free, best evidence) → **3.3** (free, closes a
-product gap, needs the `_forward` fix) → **3.2** (removes a fit) → raise timeout, build
-image → **3.4** → **3.5**.
+The generalisable error: "we have no GPU" was inherited as an assumption from the first
+phase and then used to *rank* work, so engines were ordered by how little GPU they needed
+rather than by what they let a scientist do. Anything in this document that reads as
+"prefer the CPU path" is that same assumption and should be discounted. The current
+ranking lives in `roadmap.md` and is by capability.
 
 ---
 

@@ -143,7 +143,6 @@ def test_every_registered_manifest_round_trips_through_json():
     data. This trips the moment someone adds a non-serializable field -- an
     infrastructure object, a callable, a custom type -- to EngineManifest or
     ConditionSpec. If it fails, fix the field, not this test.
-    (Spec: docs/superpowers/specs/2026-07-30-future-seams-alignment-design.md)
     """
     import json
     from dataclasses import asdict

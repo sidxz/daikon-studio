@@ -29,7 +29,7 @@ BLOBS    := $(ROOT)/.blobs
 # Load backend/.env (DATABASE_URL, SENTINEL_*) into the recipe shell.
 BE_ENV   := set -a && . ./.env && set +a
 # Runner agents replace the arq workers: same jobs, but claimed over the HTTP
-# runner protocol (see docs/superpowers/specs/2026-08-04-self-hosted-runners-design.md).
+# runner protocol (see backend/README.md).
 # Lanes live on the server-side runner rows that `make seed-runners` ensures.
 # OMP_NUM_THREADS=1 is load-bearing -- see the original explanation below (kept).
 RUNNER     := env OMP_NUM_THREADS=1 STUDIO_URL=http://localhost:8002 uv run python -m daikonstudio.infrastructure.runner

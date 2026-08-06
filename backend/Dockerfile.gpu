@@ -62,10 +62,10 @@ WORKDIR /app
 # It is not needed either. PyPI's linux torch wheels vendor their own CUDA userspace as
 # the nvidia-*-cu13 dependency wheels, so the runtime CUDA that matters is bundled, not
 # inherited from the base image. What the HOST must supply is a driver new enough for
-# the CUDA major the locked torch was built against -- see the CUDA note in the plan's
-# Deployment notes. Keeping the cu124 index out of pyproject.toml is still right, for
+# the CUDA major the locked torch was built against -- see the CUDA note in
+# docs/roadmap.md. Keeping the cu124 index out of pyproject.toml is still right, for
 # the reason recorded there: it would break `uv sync --extra gpu` on a developer's Mac,
-# and CPU torch locally is what makes this engine testable without a GPU.
+# where the plain PyPI wheel is what reaches the Mac's own GPU through MPS.
 
 # Both extras in ONE sync. Extras are not additive across separate `uv sync` runs --
 # a second `uv sync --extra gpu` uninstalls what `--extra s3` put there.
