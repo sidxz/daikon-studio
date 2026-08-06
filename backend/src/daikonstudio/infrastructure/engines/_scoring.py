@@ -1,10 +1,12 @@
-"""The shared metric vocabulary, plus ensemble-uncertainty prediction for the ECFP4 pair.
+"""The shared metric vocabulary, plus ensemble-uncertainty prediction for the tree engines.
 
 `regression_metrics` and `classification_metrics` are engine-agnostic and imported by
 every engine, chemprop included: a Scorecard comparing "your model" against "the
 baseline" is only meaningful while both numbers come from literally the same code.
 `_score` and `_predict_with_tree_ensemble` below are sklearn-shaped and stay private to
-the two ECFP4 engines.
+the three tree engines -- the two ECFP4 ones and the descriptor one. Those three differ
+only in how a structure becomes a feature matrix, which is why the featurizer is a
+parameter here rather than three near-copies of the same scoring code.
 
 Plain accuracy is never computed here -- not even as an unused local. A dataset
 that is 99.9% negative yields a 99.9%-accurate model that predicts nothing
@@ -15,6 +17,7 @@ never calculate it in the first place.
 from __future__ import annotations
 
 import pickle
+from collections.abc import Callable
 from typing import Any
 
 import numpy as np
@@ -30,7 +33,23 @@ from sklearn.metrics import (  # type: ignore[import-untyped]
 )
 
 from daikonstudio.application.engines.context import PredictContext, TrainContext
-from daikonstudio.infrastructure.chem.featurize import ecfp4
+from daikonstudio.domain.shared.errors import ValidationError
+from daikonstudio.infrastructure.chem.featurize import (
+    DESCRIPTOR_NAMES,
+    ecfp4,
+    rdkit_descriptors,
+)
+
+#: How a fitted artifact names the representation it was trained on. `predict` reads the
+#: name off the bundle rather than taking it as an argument, because nothing at the
+#: predict call site knows which engine produced the artifact -- `_predict_with_tree_
+#: ensemble` is reached through `Engine.predict`, which only has bytes and a frame.
+Featurizer = Callable[[list[str]], np.ndarray]
+_FEATURIZERS: dict[str, Featurizer] = {"ecfp4": ecfp4, "rdkit_descriptors": rdkit_descriptors}
+
+#: Only for featurizers whose columns are named and can drift; see
+#: `_require_matching_features`. ECFP4's hashed bits are deliberately absent.
+_FEATURE_NAMES: dict[str, tuple[str, ...]] = {"rdkit_descriptors": DESCRIPTOR_NAMES}
 
 # `model` is `Any` throughout this module: it is either a scikit-learn estimator
 # (no py.typed marker, so mypy already erases it to Any -- see the import above) or
@@ -110,10 +129,20 @@ def classification_metrics(
 
 
 def _score(
-    model: Any, test_rows: pl.DataFrame, ctx: TrainContext, is_classification: bool
+    model: Any,
+    test_rows: pl.DataFrame,
+    ctx: TrainContext,
+    is_classification: bool,
+    featurizer: Featurizer = ecfp4,
 ) -> dict[str, float]:
-    """RMSE/MAE/R2 for regression; MCC/balanced accuracy/AUROC/AUPRC for classification."""
-    x_test = ecfp4(test_rows[ctx.structure_column].to_list())
+    """RMSE/MAE/R2 for regression; MCC/balanced accuracy/AUROC/AUPRC for classification.
+
+    `featurizer` defaults to `ecfp4` so the two ECFP4 engines read unchanged; the
+    descriptor engine passes its own. It must be the same one `train` fitted on --
+    scoring a model against a different representation than it learned produces
+    numbers rather than an error.
+    """
+    x_test = featurizer(test_rows[ctx.structure_column].to_list())
     y_test = test_rows[ctx.target_column].to_numpy()
 
     if not is_classification:
@@ -134,7 +163,10 @@ def _score(
 
 
 def _score_validation(
-    model: Any, ctx: TrainContext, is_classification: bool
+    model: Any,
+    ctx: TrainContext,
+    is_classification: bool,
+    featurizer: Featurizer = ecfp4,
 ) -> dict[str, float] | None:
     """The same `_score`, pointed at the validation partition.
 
@@ -148,7 +180,34 @@ def _score_validation(
     validation_rows = ctx.frame.filter(pl.col("split") == "validation")
     if validation_rows.height == 0:
         return None
-    return _score(model, validation_rows, ctx, is_classification)
+    return _score(model, validation_rows, ctx, is_classification, featurizer)
+
+
+def _require_matching_features(bundle: dict[str, Any]) -> None:
+    """Refuse to predict through a featurizer that has changed shape since the fit.
+
+    `Descriptors.descList` is a property of the installed RDKit, not a constant --
+    RDKit adds descriptors between releases. Upgrading it under a stored model shifts
+    every column by one, which no estimator can detect: XGBoost sees the right number
+    of floats and returns confident nonsense. This is the one failure mode in the
+    predict path that is silent, so it is the one worth an explicit check.
+
+    Artifacts written before this key existed carry no names and are not checked; they
+    are ECFP4 models, whose 2048 hashed bits have no names to drift.
+    """
+    stored = bundle.get("feature_names")
+    if stored is None:
+        return
+    current = _FEATURE_NAMES.get(bundle.get("featurizer", "ecfp4"))
+    if current is None or tuple(stored) == tuple(current):
+        return
+    raise ValidationError(
+        "This model was fitted against a different set of molecular descriptors than "
+        f"this worker computes ({len(stored)} then, {len(current)} now) -- most likely "
+        "RDKit was upgraded since it was trained. Retrain the protocol on this worker; "
+        "predicting through the mismatch would silently read every descriptor as the "
+        "wrong one."
+    )
 
 
 def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
@@ -166,7 +225,12 @@ def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
     model: Any = bundle["model"]
     is_classification: bool = bundle["is_classification"]
 
-    x = ecfp4(ctx.frame[ctx.structure_column].to_list())
+    # Default, not `bundle["featurizer"]`: every artifact written before the descriptor
+    # engine existed is an ECFP4 one and has no such key. Those models still predict.
+    featurizer = _FEATURIZERS[bundle.get("featurizer", "ecfp4")]
+    _require_matching_features(bundle)
+
+    x = featurizer(ctx.frame[ctx.structure_column].to_list())
     row_ids = list(range(x.shape[0]))
     has_ensemble_spread: bool = hasattr(model, "estimators_")
     uncertainty: list[float | None]
