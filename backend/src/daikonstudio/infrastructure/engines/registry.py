@@ -23,11 +23,13 @@ from daikonstudio.infrastructure.engines.chemprop_dmpnn import ChempropDMPNN
 from daikonstudio.infrastructure.engines.descriptors_xgboost import DescriptorsXGBoost
 from daikonstudio.infrastructure.engines.ecfp4_randomforest import Ecfp4RandomForest
 from daikonstudio.infrastructure.engines.ecfp4_xgboost import Ecfp4XGBoost
+from daikonstudio.infrastructure.engines.tanimoto_gp import TanimotoGP
 
 _ENGINES: tuple[Engine, ...] = (
     Ecfp4RandomForest(),
     Ecfp4XGBoost(),
     DescriptorsXGBoost(),
+    TanimotoGP(),
     ChempropDMPNN(),
 )
 

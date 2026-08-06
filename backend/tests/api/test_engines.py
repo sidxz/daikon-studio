@@ -16,6 +16,7 @@ async def test_engines_are_listed_with_their_conditions(client):
         "ecfp4-xgboost",
         "ecfp4-randomforest",
         "descriptors-xgboost",
+        "tanimoto-gp",
         "chemprop-dmpnn",
     }
     xgb = next(e for e in engines if e["id"] == "ecfp4-xgboost")

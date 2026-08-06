@@ -3,10 +3,15 @@
 `regression_metrics` and `classification_metrics` are engine-agnostic and imported by
 every engine, chemprop included: a Scorecard comparing "your model" against "the
 baseline" is only meaningful while both numbers come from literally the same code.
-`_score` and `_predict_with_tree_ensemble` below are sklearn-shaped and stay private to
-the three tree engines -- the two ECFP4 ones and the descriptor one. Those three differ
-only in how a structure becomes a feature matrix, which is why the featurizer is a
-parameter here rather than three near-copies of the same scoring code.
+`_score` below is sklearn-shaped and stays private to the four sklearn-API engines --
+the two ECFP4 ones, the descriptor one and the Gaussian process. Those differ only in
+how a structure becomes a feature matrix, which is why the featurizer is a parameter
+here rather than four near-copies of the same scoring code.
+
+The two `_predict_with_*` functions do not collapse the same way: they share everything
+except how uncertainty is obtained, and that is exactly what distinguishes the engines
+from each other. What they do share -- the artifact bundle's shape and the output
+schema -- lives in `_prediction_frame` and the featurizer lookup below.
 
 Plain accuracy is never computed here -- not even as an unused local. A dataset
 that is 99.9% negative yields a 99.9%-accurate model that predicts nothing
@@ -17,7 +22,7 @@ never calculate it in the first place.
 from __future__ import annotations
 
 import pickle
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import numpy as np
@@ -210,6 +215,43 @@ def _require_matching_features(bundle: dict[str, Any]) -> None:
     )
 
 
+def _load_bundle(ctx: PredictContext) -> tuple[dict[str, Any], np.ndarray]:
+    """The artifact bundle and the feature matrix it expects, from bytes alone.
+
+    Shared by both predict paths because both read the same bundle shape; they diverge
+    only after this, on where uncertainty comes from.
+    """
+    # pickle.loads executes arbitrary code for a crafted payload. Safe here:
+    # `ctx.artifact` is never user-supplied bytes -- it is produced exclusively by
+    # an engine's own `train()` and round-tripped through our own blob storage,
+    # never accepted from an external upload.
+    bundle: dict[str, Any] = pickle.loads(ctx.artifact)
+
+    # Default, not `bundle["featurizer"]`: every artifact written before the descriptor
+    # engine existed is an ECFP4 one and has no such key. Those models still predict.
+    featurizer = _FEATURIZERS[bundle.get("featurizer", "ecfp4")]
+    _require_matching_features(bundle)
+    return bundle, featurizer(ctx.frame[ctx.structure_column].to_list())
+
+
+def _prediction_frame(value: np.ndarray, uncertainty: Sequence[float | None]) -> pl.DataFrame:
+    """row_id (int), value (float), uncertainty (float | null) -- the `predict` contract.
+
+    Explicit dtypes, not inferred: an all-None `uncertainty` (the XGBoost case) infers
+    as polars' Null dtype rather than a nullable Float64, which would make two engines'
+    `predict()` outputs schema-incompatible for a caller that concatenates or persists
+    results across engines. One function so that invariant holds for every engine
+    rather than for whichever ones remembered it.
+    """
+    return pl.DataFrame(
+        {
+            "row_id": pl.Series(list(range(len(value))), dtype=pl.Int64),
+            "value": pl.Series([float(v) for v in value], dtype=pl.Float64),
+            "uncertainty": pl.Series(list(uncertainty), dtype=pl.Float64),
+        }
+    )
+
+
 def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
     """Returns row_id (int), value (float), uncertainty (float | null).
 
@@ -217,20 +259,10 @@ def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
     wrapper does not, so that attribute is used to tell the two apart rather than
     threading an extra "which engine" flag through the artifact.
     """
-    # pickle.loads executes arbitrary code for a crafted payload. Safe here:
-    # `ctx.artifact` is never user-supplied bytes -- it is produced exclusively by
-    # this engine's own `train()` and round-tripped through our own blob storage,
-    # never accepted from an external upload.
-    bundle: dict[str, Any] = pickle.loads(ctx.artifact)
+    bundle, x = _load_bundle(ctx)
     model: Any = bundle["model"]
     is_classification: bool = bundle["is_classification"]
 
-    # Default, not `bundle["featurizer"]`: every artifact written before the descriptor
-    # engine existed is an ECFP4 one and has no such key. Those models still predict.
-    featurizer = _FEATURIZERS[bundle.get("featurizer", "ecfp4")]
-    _require_matching_features(bundle)
-
-    x = featurizer(ctx.frame[ctx.structure_column].to_list())
     row_ids = list(range(x.shape[0]))
     has_ensemble_spread: bool = hasattr(model, "estimators_")
     uncertainty: list[float | None]
@@ -253,14 +285,31 @@ def _predict_with_tree_ensemble(ctx: PredictContext) -> pl.DataFrame:
         else:
             uncertainty = [None] * len(row_ids)
 
-    # Explicit dtypes, not inferred: an all-None `uncertainty` list (the XGBoost case)
-    # infers as polars' Null dtype rather than a nullable Float64, which would make
-    # the two engines' predict() outputs schema-incompatible for a caller that
-    # concatenates or persists results across engines.
-    return pl.DataFrame(
-        {
-            "row_id": pl.Series(row_ids, dtype=pl.Int64),
-            "value": pl.Series([float(v) for v in value], dtype=pl.Float64),
-            "uncertainty": pl.Series(uncertainty, dtype=pl.Float64),
-        }
-    )
+    return _prediction_frame(value, uncertainty)
+
+
+def _predict_with_gaussian_process(ctx: PredictContext) -> pl.DataFrame:
+    """Same contract as `_predict_with_tree_ensemble`, different source of uncertainty.
+
+    Separate rather than another branch inside that function, because a GP's uncertainty
+    is not a proxy derived from its outputs -- it is a second thing the model returns.
+    Routing a GP through the tree path would find no `estimators_` and report `None`,
+    throwing away the one property the engine exists for.
+    """
+    bundle, x = _load_bundle(ctx)
+    model: Any = bundle["model"]
+
+    if bundle["is_classification"]:
+        # GaussianProcessClassifier's Laplace approximation exposes no latent variance,
+        # so this is the same distance-from-the-boundary the forest reports for a class
+        # probability: 0.5 is a coin flip, 0.0/1.0 is certain. Honest, but a different
+        # quantity from the regression branch's posterior std -- which is the roster's
+        # existing "uncertainty means several things" problem, not a new one.
+        value = _positive_class_probability(model, x)
+        spread = 1.0 - 2.0 * np.abs(value - 0.5)
+    else:
+        # `normalize_y=True` at fit time means sklearn un-scales both of these, so the
+        # standard deviation comes back in the target's own units.
+        value, spread = model.predict(x, return_std=True)
+
+    return _prediction_frame(value, [float(v) for v in spread])
