@@ -8,7 +8,8 @@
 #
 # Two runner agents, because engines declare which lane they need and a runner serves
 # the lanes on its own row: the default lane runs the ECFP4 engines, the gpu lane runs
-# chemprop (on CPU here). Set STUDIO_INLINE_JOBS=0 in backend/.env or neither is used.
+# chemprop (on the Mac GPU via MPS here). Set STUDIO_INLINE_JOBS=0 in backend/.env or
+# neither is used.
 #
 # Day to day:  make logs (tail)  ·  make stop (stop servers)  ·  make down (stop containers)
 #
@@ -46,10 +47,17 @@ WORKER     := env STUDIO_RUNNER_TOKEN=drt_dev_default $(RUNNER)
 # only the `gpu` lane (see `infrastructure/runner/seed.py`). Engines declare a lane on
 # their manifest (chemprop-dmpnn declares "gpu"); a runner only claims the lanes on
 # its own row, so without this process a chemprop run sits PENDING forever with
-# nothing to claim it. Locally there is no GPU and chemprop falls back to CPU --
-# slow, but it is the same code path a real GPU runner executes, so the dev loop
-# exercises lane routing, background execution, per-epoch progress and cancellation
-# for real.
+# nothing to claim it.
+#
+# On Apple Silicon this really is GPU-backed: lightning's `accelerator="auto"`
+# resolves to MPSAccelerator (verified -- a full chemprop fit and predict both run on
+# `mps:0` with no `PYTORCH_ENABLE_MPS_FALLBACK` and no unimplemented-op errors). It is
+# NOT a container: Docker Desktop runs a Linux VM that cannot see Metal, so there is
+# no Mac equivalent of `--gpus all` and no Mac GPU image to build. The Mac GPU path is
+# this native process; `Dockerfile.gpu` is the CUDA path and is a different machine.
+#
+# The run's phase names the device it resolved to, so a runner registered for the gpu
+# lane that is quietly on CPU says so rather than just being slow.
 WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 
 .DEFAULT_GOAL := help
@@ -101,7 +109,7 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in th
 	@echo "  Backend   http://localhost:8002/docs   (pid $$(cat $(LOGDIR)/backend.pid), log $(LOGDIR)/backend.log)"
 	@echo "  Frontend  http://localhost:3003        (pid $$(cat $(LOGDIR)/frontend.pid), log $(LOGDIR)/frontend.log)"
 	@echo "  Runner    default lane: ecfp4 engines                  (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
-	@echo "  Runner    gpu lane: chemprop (on CPU locally)          (pid $$(cat $(LOGDIR)/worker-gpu.pid), log $(LOGDIR)/worker-gpu.log)"
+	@echo "  Runner    gpu lane: chemprop (Mac GPU via MPS)         (pid $$(cat $(LOGDIR)/worker-gpu.pid), log $(LOGDIR)/worker-gpu.log)"
 	@echo "  make logs — tail all    ·    make stop — stop all"
 	@echo ""
 	@echo "  NOTE: both runner agents only matter when STUDIO_INLINE_JOBS=0 in backend/.env."
@@ -134,7 +142,7 @@ dev-worker: ## (Re)start the default-lane runner agent only, in the background
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
 	@echo "Default-lane runner agent (re)started (log $(LOGDIR)/worker.log)"
 
-dev-worker-gpu: ## (Re)start the gpu-lane runner agent only (chemprop; CPU locally)
+dev-worker-gpu: ## (Re)start the gpu-lane runner agent only (chemprop; Mac GPU via MPS)
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \

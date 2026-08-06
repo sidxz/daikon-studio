@@ -1,15 +1,19 @@
-"""The chemprop engine's contract, exercised on CPU.
+"""The chemprop engine's contract, on whatever device this machine has.
 
 Skipped unless chemprop imports, because the default-lane worker and the API tier
 deliberately install without it. Two epochs on twenty molecules: this is not a test of
 whether a D-MPNN learns anything, it is a test that the adapter honours the Engine
 contract -- metric names the Scorecard can compare, and a predict frame whose dtypes
 line up with every other engine's.
+
+Nothing here pins the device. `accelerator="auto"` resolves to MPS on Apple Silicon,
+CUDA on a GPU runner and CPU in CI, and all three must satisfy the same contract.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 
 import polars as pl
@@ -144,7 +148,14 @@ def test_report_is_called_once_per_epoch() -> None:
 
     assert len(calls) == 2
     assert calls[-1][0] == pytest.approx(1.0)
-    assert calls[-1][1] == "training chemprop-dmpnn"
+    # The device is named but NOT asserted to a fixed value: `accelerator="auto"`
+    # legitimately resolves to mps on this Mac, cuda on a CUDA runner and cpu in CI,
+    # and pinning one of those here would fail on the other two machines. What must
+    # hold everywhere is that a device is reported at all -- an empty or absent
+    # suffix means a finished run cannot say what it ran on.
+    phase = calls[-1][1]
+    assert phase.startswith("training chemprop-dmpnn on ")
+    assert re.fullmatch(r"cpu|mps(:\d+)?|cuda(:\d+)?", phase.rsplit(" ", 1)[-1]), phase
 
 
 def test_the_manifest_offers_pretrained_weights():

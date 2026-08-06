@@ -1,4 +1,12 @@
-# GPU-lane worker.
+# GPU-lane worker, CUDA. There is deliberately no sibling "Dockerfile.mps".
+#
+# The gpu lane has two backends and only one of them is an image. Docker Desktop on
+# macOS runs a Linux VM that cannot see Metal -- there is no Mac equivalent of
+# `--gpus all` -- so a Mac "GPU image" would silently train on CPU inside the
+# container, strictly worse than the native path. On Apple Silicon the gpu lane is a
+# native runner agent (`make dev-worker-gpu`), where lightning's `accelerator="auto"`
+# resolves to MPS and a real chemprop fit runs on `mps:0`. This file is the CUDA
+# backend for the same lane; the engines and the lane routing are identical.
 #
 # Build this on x86_64 (CI or a swarm node), not on an Apple Silicon Mac. The target is
 # linux/amd64, so a Mac must build it under `--platform linux/amd64` QEMU emulation,
@@ -13,11 +21,30 @@
 # CUDA runtime is the cleaner floor.
 FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-# No apt step on purpose. The base image already ships ca-certificates, uv arrives by
-# COPY rather than by curl, and neither image defines a HEALTHCHECK -- so an
-# `apt-get update` here would buy nothing while making every build depend on
-# developer.download.nvidia.com's apt mirror, which is exactly what failed the first
-# time this was built ("File has unexpected size ... Mirror sync in progress?").
+# There IS an apt step, and it is not optional -- an earlier revision of this file said
+# "no apt step on purpose" and that was wrong. chemprop 2.3's featurizer imports
+# `cuik_molmaker`, whose bundled libcuik_molmaker_core.so links libXrender, libXext and
+# libexpat, and this base image ships none of them. Without these packages the image
+# builds perfectly and then dies on the first chemprop run with `ImportError:
+# libXrender.so.1: cannot open shared object file`. A GPU image that cannot import the
+# only engine it exists to run is worse than no image, and a green build says nothing
+# about it -- this was found by running the first successful build, not by reading it.
+#
+# The list is exactly what `ldd` reports as missing, resolved iteratively in a throwaway
+# container until `import chemprop` succeeded, rather than guessed. Verified 2026-08-06
+# against chemprop 2.3.0. If a future chemprop bumps cuik_molmaker, re-run:
+#   ldd /app/.venv/lib/python3.13/site-packages/cuik_molmaker/lib/libcuik_molmaker_core.so | grep 'not found'
+#
+# The nvidia list is removed first, deliberately. The original objection to apt was real:
+# `apt-get update` made the build depend on developer.download.nvidia.com's mirror, which
+# is exactly what failed the first time ("File has unexpected size ... Mirror sync in
+# progress?"). Dropping the cuda source keeps that mirror out of the build while still
+# reaching Ubuntu's own archive, so the objection is answered rather than ignored.
+RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends libxrender1 libxext6 libexpat1 \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/opt/uv-python
 RUN uv python install 3.13

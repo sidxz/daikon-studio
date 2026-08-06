@@ -297,7 +297,15 @@ class ChempropDMPNN:
         )
 
         def _report_epoch(trainer: Any, _module: Any) -> None:
-            ctx.report((trainer.current_epoch + 1) / epochs, f"training {_MANIFEST.id}")
+            # Naming the device is not decoration. `accelerator="auto"` resolves to
+            # cuda, mps or cpu depending on what the runner it landed on actually has,
+            # nothing validates that a runner registered for the "gpu" lane owns a GPU,
+            # and the three do not produce identical numbers. Without this the only
+            # honest thing anybody could say about a finished run is "some device".
+            ctx.report(
+                (trainer.current_epoch + 1) / epochs,
+                f"training {_MANIFEST.id} on {trainer.strategy.root_device}",
+            )
 
         # The validation partition selects the epoch.
         #
