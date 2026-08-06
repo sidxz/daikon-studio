@@ -44,6 +44,7 @@ import structlog
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from daikonstudio.infrastructure import jobs
+from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.runner.ports import build_http_ctx
 from daikonstudio.infrastructure.runner.wire import ClaimResponse
 
@@ -141,7 +142,16 @@ async def main() -> None:
         headers={"Authorization": f"Bearer {settings.runner_token}"},
         timeout=60.0,
     ) as api:
-        _logger.info("runner agent started", url=settings.url)
+        # The engine ids are logged because this process does not hot-reload: it holds
+        # whatever `_ENGINES` contained when it imported, and adding an engine without
+        # restarting it fails the run with a bare `UnknownEngineError(<id>)` after the
+        # API -- which does reload -- has already listed and accepted that engine. One
+        # line of log turns that into a diagnosis you can read instead of infer.
+        _logger.info(
+            "runner agent started",
+            url=settings.url,
+            engines=sorted(m.id for m in default_registry().manifests()),
+        )
         while True:
             executed = await poll_once(api, settings)
             if not executed:
