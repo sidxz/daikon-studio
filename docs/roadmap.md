@@ -1,7 +1,9 @@
 # Roadmap — capability first
 
-**Last updated:** 2026-08-06. Companion: `engine-research.md`, which holds the external
-evidence (licences, refuted models, what not to add) and is not re-derived here.
+**Last updated:** 2026-08-06. Companions: `engine-research.md`, which holds the external
+evidence (licences, refuted models, what not to add) and is not re-derived here; and
+`study-replication.md`, which measures the platform against one real completed study
+(Mtb ERA → SAC3) and ranks what it would take to host one.
 
 The goal is **expanding what the platform can do by bringing in more models**, ranked by
 what a scientist can do after each one that they could not before — not by expected
@@ -48,23 +50,37 @@ and the three devices do not produce identical numbers.
 |---|---|---|---|
 | `ecfp4-randomforest` | default | 2048 Morgan bits | the mandatory baseline |
 | `ecfp4-xgboost` | default | 2048 Morgan bits | boosting on fingerprints |
+| `ecfp4-lightgbm` | default | 2048 Morgan bits | leaf-wise boosting, sparse-feature bundling, the fastest fit here |
 | `descriptors-xgboost` | default | 217 RDKit descriptors | the recipe behind every reproducible TDC entry |
 | `tanimoto-gp` | default | 2048 Morgan bits | small n, posterior variance (regression only) |
 | `chemprop-dmpnn` | gpu | learned graph | learned representations, ±CheMeleon |
+| `molformer-xl` | gpu | SMILES tokens | the sequence family, frozen or fine-tuned |
+
+Added 2026-08-06 on request, to replicate the Mtb ERA → SAC3 study — see
+`study-replication.md` for what that study needed and what is still missing.
+`ecfp4-lightgbm` stands in for its LightGBM member; `molformer-xl` is the same
+architecture family as its MolFormer-XL member. Note that study's own re-analysis found
+MoLFormer-XL had the **best** global AUROC (0.556) and the **worst** top-100 behaviour
+(20 hits against LightGBM's 37) — it raises the number in the paper while lowering the
+number that matters. There is no `descriptors-lightgbm`: on dense descriptors LightGBM
+and XGBoost converge to near-identical models, and the sparse fingerprint is where the
+two libraries actually diverge.
 
 ### What the roster still cannot do
 
-1. **A sequence model.** Everything is graph, fingerprint or descriptor. Open — MoLFormer-XL.
-2. **One model across several endpoints.** chemprop supports `n_tasks > 1` natively; the
+1. **One model across several endpoints.** chemprop supports `n_tasks > 1` natively; the
    platform hard-codes one target column (`y=np.array([float(target)])`, and `_forward`'s
    `reshape(-1)`). Largest remaining gap, and a domain/schema change rather than a new file.
-3. **Principled uncertainty on the classification path.** The GP gives a real posterior
+2. **Principled uncertainty on the classification path.** The GP gives a real posterior
    for regression. Every classification engine reports distance-from-the-boundary, which
    is a proxy.
-4. **Start from a prior run's artifact.** "Train from the model I fitted on my other
+3. **Start from a prior run's artifact.** "Train from the model I fitted on my other
    assay." Artifacts are already stored and addressable, so this is a condition pointing at
    a previous run rather than new science — and it is worth more at n=200 than any
    architecture choice on this list.
+4. **Combine two engines' predictions.** No averaging, no stacking, no meta-learner
+   anywhere. The roster can now cover a study's members but not its ensemble; see
+   `study-replication.md` for why the fan-out comparison is worth more than the stacker.
 
 ---
 
@@ -88,11 +104,7 @@ context and the Scorecard.
 
 The cheapest large capability left. No new science, no new dependency.
 
-### 4. Fine-tuned MoLFormer-XL
-
-The missing architectural family on a platform whose pitch is honest cross-engine
-comparison. Apache-2.0, 187 MB, `transformers`-native. Expect no average accuracy gain;
-the capability is the family itself, plus the low-label and structure-separated regimes.
+*(Fine-tuned MoLFormer-XL was #4 here and shipped on 2026-08-06.)*
 
 ---
 
@@ -121,6 +133,24 @@ Carried forward deliberately — each of these has already cost a session.
   the baseline's 0.514 sits inside a CI of [0.487, 0.764]. A false claim on screen for
   single runs, and every added engine multiplies where it appears. This is the one
   measurement item that is live independently of sweeps.
+- **The whole test suite segfaults locally once the gpu extra is installed.** Exit 139,
+  in `tests/unit/engines`, and it is the dual-OpenMP collision `Dockerfile.gpu` already
+  sets `OMP_NUM_THREADS=1` for — RDKit, sklearn, LightGBM and torch each vendor their
+  own libomp on macOS. Verified pre-existing on 2026-08-06 by stashing every change and
+  reproducing it on a clean checkout, so it is **not** caused by any one engine, and it
+  is not memory (the largest model here is 182 MB against 16 GB, and macOS OOM sends
+  SIGKILL/137, not SIGSEGV/139). `OMP_NUM_THREADS=1` pushes the crash later but does not
+  remove it. Until someone fixes it properly, verify engine work by running each test
+  file in its own process; they all pass that way.
+- **MoLFormer's default configuration is not reproducible.** Its linear attention draws
+  random Fourier features and `MolformerFeatureMap.forward` redraws them on *every*
+  forward pass unless `deterministic_eval=True` is passed to `from_pretrained` — so the
+  same molecule scores differently on each call, silently. The flag is set and there is
+  a test that fails if it is dropped.
+- **`molformer-xl` executes code downloaded from the Hugging Face Hub.** The architecture
+  is not in `transformers`; `trust_remote_code=True` is mandatory. `_REVISION` pins it to
+  one immutable commit so what runs on a worker cannot change under a published Protocol.
+  Bump it having read the diff, never to a branch name.
 - **`ned` and `orca` are remote university machines over SSH.** Builds there are real
   resource use on someone else's infrastructure.
 - **The runner agent does not hot-reload.** `make dev-worker` / `make dev-worker-gpu`

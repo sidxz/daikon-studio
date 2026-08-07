@@ -23,6 +23,7 @@ dependencies = [
     "rdkit>=2024.09",
     "scikit-learn>=1.6",
     "xgboost>=2.1",
+    "lightgbm>=4.5",
     "fsspec>=2024.10",
     "joblib>=1.4",
     "openpyxl>=3.1",
@@ -38,7 +39,7 @@ azure = ["adlfs>=2024.7"]
 # developer's Mac, where the ordinary PyPI wheel is the one that reaches the Mac's own
 # GPU through MPS -- which is how these engines are exercised on real GPU hardware
 # locally rather than only in the CUDA image.
-gpu = ["chemprop>=2.2,<3"]
+gpu = ["chemprop>=2.2,<3", "transformers>=4.44"]
 
 [dependency-groups]
 dev = [
@@ -105,6 +106,7 @@ forbidden_modules = [
     "rdkit",
     "sklearn",
     "xgboost",
+    "lightgbm",
     "fsspec",
     "numpy",
 ]

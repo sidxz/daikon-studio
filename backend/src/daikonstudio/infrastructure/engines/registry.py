@@ -21,16 +21,20 @@ from daikonstudio.application.engines.protocol import Engine
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.infrastructure.engines.chemprop_dmpnn import ChempropDMPNN
 from daikonstudio.infrastructure.engines.descriptors_xgboost import DescriptorsXGBoost
+from daikonstudio.infrastructure.engines.ecfp4_lightgbm import Ecfp4LightGBM
 from daikonstudio.infrastructure.engines.ecfp4_randomforest import Ecfp4RandomForest
 from daikonstudio.infrastructure.engines.ecfp4_xgboost import Ecfp4XGBoost
+from daikonstudio.infrastructure.engines.molformer_xl import MolformerXL
 from daikonstudio.infrastructure.engines.tanimoto_gp import TanimotoGP
 
 _ENGINES: tuple[Engine, ...] = (
     Ecfp4RandomForest(),
     Ecfp4XGBoost(),
+    Ecfp4LightGBM(),
     DescriptorsXGBoost(),
     TanimotoGP(),
     ChempropDMPNN(),
+    MolformerXL(),
 )
 
 

@@ -161,13 +161,14 @@ def test_every_registered_manifest_round_trips_through_json():
 
 
 def test_the_registry_loads_with_no_gpu_extra_installed():
-    """The API tier and the default-lane worker install without chemprop, torch or
-    CUDA, and must still serve every manifest -- otherwise the engine picker differs
-    per deployment and Task 6's two-image split does not work.
+    """The API tier and the default-lane worker install without chemprop, transformers,
+    torch or CUDA, and must still serve every manifest -- otherwise the engine picker
+    differs per deployment and Task 6's two-image split does not work.
 
     A subprocess, not a monkeypatched `sys.modules`: what this guards against is an
-    import hoisted to *module* scope in `chemprop_dmpnn.py`, and by the time this test
-    runs the registry is long since imported. Only a fresh interpreter can tell.
+    import hoisted to *module* scope in `chemprop_dmpnn.py` or `molformer_xl.py`, and
+    by the time this test runs the registry is long since imported. Only a fresh
+    interpreter can tell.
     """
     import subprocess
     import sys
@@ -177,18 +178,22 @@ def test_the_registry_loads_with_no_gpu_extra_installed():
         """
         import sys
 
-        class _NoChemprop:
+        BLOCKED = ("chemprop", "transformers")
+
+        class _NoGpuExtra:
             def find_spec(self, name, path=None, target=None):
-                if name == "chemprop" or name.startswith("chemprop."):
+                root = name.split(".")[0]
+                if root in BLOCKED:
                     raise ImportError("blocked")
                 return None
 
-        sys.meta_path.insert(0, _NoChemprop())
+        sys.meta_path.insert(0, _NoGpuExtra())
 
         from daikonstudio.infrastructure.engines.registry import default_registry
 
         ids = sorted(m.id for m in default_registry().manifests())
         assert "chemprop-dmpnn" in ids, ids
+        assert "molformer-xl" in ids, ids
         assert "torch" not in sys.modules, "torch imported at module scope"
         print("ok")
         """

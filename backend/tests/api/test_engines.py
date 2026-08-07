@@ -15,9 +15,11 @@ async def test_engines_are_listed_with_their_conditions(client):
     assert ids == {
         "ecfp4-xgboost",
         "ecfp4-randomforest",
+        "ecfp4-lightgbm",
         "descriptors-xgboost",
         "tanimoto-gp",
         "chemprop-dmpnn",
+        "molformer-xl",
     }
     xgb = next(e for e in engines if e["id"] == "ecfp4-xgboost")
     keys = {c["key"] for c in xgb["conditions"]}

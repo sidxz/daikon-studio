@@ -35,6 +35,7 @@ from daikonstudio.application.engines.manifest import (
     validate_conditions,
 )
 from daikonstudio.domain.shared.errors import ValidationError
+from daikonstudio.infrastructure.engines._lightning import keep_best_by_validation_loss
 from daikonstudio.infrastructure.engines._scoring import (
     classification_metrics,
     regression_metrics,
@@ -239,7 +240,7 @@ class ChempropDMPNN:
         from chemprop.data import MoleculeDataset, build_dataloader
         from chemprop.nn.transforms import UnscaleTransform
         from lightning import pytorch as lightning
-        from lightning.pytorch.callbacks import Callback, LambdaCallback
+        from lightning.pytorch.callbacks import LambdaCallback
 
         from daikonstudio.settings import Settings
 
@@ -307,62 +308,11 @@ class ChempropDMPNN:
                 f"training {_MANIFEST.id} on {trainer.strategy.root_device}",
             )
 
-        # The validation partition selects the epoch.
-        #
-        # Before this, `enable_checkpointing=False` and no monitoring callback meant
-        # Lightning computed `val_loss` every epoch and nothing ever read it: the
-        # weights that got saved were whichever epoch happened to be last. A model
-        # that peaked at epoch 3 and then overfit for two more was shipped in its
-        # overfit state, and the validation split -- ten percent of the dataset --
-        # bought nothing at all.
-        #
-        # Deliberately best-checkpoint selection and NOT early stopping. Early
-        # stopping needs a patience that is meaningful relative to `epochs`, and at
-        # this engine's default of 5 there is no such value; best-checkpoint uses
-        # every epoch the scientist asked for and keeps the best one. Early stopping
-        # is a compute saving, not a correctness fix, and can be added later behind
-        # its own condition.
-        class _KeepBestByValidationLoss(Callback):
-            """Holds the weights of the lowest-`val_loss` epoch, in memory.
-
-            Lightning's own `ModelCheckpoint` would do this by writing every
-            candidate to disk and reading the winner back; the weights are already
-            in memory and the only thing needed is a copy of them, so this skips
-            the filesystem round-trip and the temporary directory that would have
-            to outlive `fit` to make it work.
-
-            `val_loss` is what chemprop's `MPNN` logs (see its `validation_step`),
-            and it is absent when there is no validation dataloader -- in which case
-            nothing is ever recorded and the caller keeps the final epoch.
-            """
-
-            def __init__(self) -> None:
-                self.best_loss = float("inf")
-                self.best_state: dict[str, Any] | None = None
-
-            def on_validation_epoch_end(self, trainer: Any, module: Any) -> None:
-                # Lightning runs a sanity-check validation pass BEFORE training,
-                # and it fires this hook with a perfectly valid `val_loss`
-                # measured on the untrained model (verified: the hook is called
-                # with `sanity_checking=True` at epoch 0 before any optimisation
-                # step). Without this guard those random weights are recorded as
-                # the best epoch, and any run where no real epoch beats them
-                # ships an untrained model with an honest-looking scorecard.
-                if trainer.sanity_checking:
-                    return
-                loss = trainer.callback_metrics.get("val_loss")
-                if loss is None:
-                    return
-                value = float(loss)
-                if value < self.best_loss:
-                    self.best_loss = value
-                    # Detached clones: the live tensors keep training after this.
-                    self.best_state = {
-                        key: tensor.detach().clone() for key, tensor in module.state_dict().items()
-                    }
-
+        # The validation partition selects the epoch. `val_loss` is what chemprop's
+        # `MPNN` logs (see its `validation_step`); the callback's reasoning, and the
+        # sanity-check trap it guards against, live in `_lightning.py`.
         selects_best_epoch = len(validation_set) > 0
-        keep_best = _KeepBestByValidationLoss()
+        keep_best = keep_best_by_validation_loss()
         callbacks: list[Any] = [LambdaCallback(on_train_epoch_end=_report_epoch)]
         if selects_best_epoch:
             callbacks.append(keep_best)
