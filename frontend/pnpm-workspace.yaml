@@ -10,3 +10,8 @@ allowBuilds:
   '@scarf/scarf': false
   esbuild: true
   sharp: true
+
+# Our own packages: no supply-chain quarantine (pnpm 11 defaults to a 24h
+# minimumReleaseAge, which fails Docker builds right after a Duar SDK release).
+minimumReleaseAgeExclude:
+  - "@duar-auth/*"
