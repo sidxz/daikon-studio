@@ -793,6 +793,7 @@ source = { editable = "." }
 dependencies = [
     { name = "alembic" },
     { name = "asyncpg" },
+    { name = "duar-auth" },
     { name = "fastapi" },
     { name = "fsspec" },
     { name = "httpx" },
@@ -809,7 +810,6 @@ dependencies = [
     { name = "rdkit" },
     { name = "returns" },
     { name = "scikit-learn" },
-    { name = "sentinel-auth-sdk" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
     { name = "uvicorn", extra = ["standard"] },
@@ -848,6 +848,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14.0" },
     { name = "asyncpg", specifier = ">=0.30.0" },
     { name = "chemprop", marker = "extra == 'gpu'", specifier = ">=2.2,<3" },
+    { name = "duar-auth", specifier = ">=1.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "fsspec", specifier = ">=2024.10" },
     { name = "httpx", specifier = ">=0.28.0" },
@@ -865,7 +866,6 @@ requires-dist = [
     { name = "returns", specifier = ">=0.23.0" },
     { name = "s3fs", marker = "extra == 's3'", specifier = ">=2024.10" },
     { name = "scikit-learn", specifier = ">=1.6" },
-    { name = "sentinel-auth-sdk", specifier = ">=0.17.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
     { name = "structlog", specifier = ">=24.4.0" },
     { name = "transformers", marker = "extra == 'gpu'", specifier = ">=4.44" },
@@ -932,6 +932,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/88/7f/731ff914b0255d3d065f45fd4e626d4b8c95dbcbaada049f337a6ac16410/docker-7.2.0.tar.gz", hash = "sha256:cebb93773d334f778e023a7ee352a8d6e13ab1bd3b863a4d4a59dec897df43ac", size = 118731, upload-time = "2026-07-09T14:53:46.39Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/75/23/529140fe1aab80fc6992f93a706deec709140a6397439139a054e1515c45/docker-7.2.0-py3-none-any.whl", hash = "sha256:a3f45fdeb9165e2d25d9a1d02ddf3bc70fb572cf5ebbf9b58558c22caf29b71f", size = 148775, upload-time = "2026-07-09T14:53:45.224Z" },
+]
+
+[[package]]
+name = "duar-auth"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cryptography" },
+    { name = "fastapi" },
+    { name = "httpx" },
+    { name = "pydantic" },
+    { name = "pyjwt", extra = ["crypto"] },
+    { name = "starlette" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/04/ca/9bfb152d869025502640c4bb3f166fcf1748364df9ad8855b6032c803ba7/duar_auth-1.0.0.tar.gz", hash = "sha256:76d1b94046914904cf16ff6b278dc7497b03401c61de4a145075ccc5b4af0a02", size = 35968, upload-time = "2026-08-15T22:18:29.788Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/5e/d5/6804bfbc306bcebc439125b27b91c83e6f42b3a1e171932b465e256a3396/duar_auth-1.0.0-py3-none-any.whl", hash = "sha256:118be7466b2f36bec254ae970d564a1491cf35fc1865982cc8b6515d1a35ef6a", size = 27174, upload-time = "2026-08-15T22:18:28.506Z" },
 ]
 
 [[package]]
@@ -2920,23 +2937,6 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/f7/86/5185061a1fcc41d18c5dc2463969b3a3964b31d9ac67b2fb05d4c7ff7670/scipy-1.18.0-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:9aac6192fac56bf2ca534389d24623f07b39ff83317d58287285e7fbd622ff76", size = 37472480, upload-time = "2026-06-19T15:01:35.136Z" },
     { url = "https://files.pythonhosted.org/packages/31/8e/f04c68e39919a010d34f2ee1367fd705b0a25a02f609d755f0bfbc0a15fc/scipy-1.18.0-cp314-cp314t-win_amd64.whl", hash = "sha256:e40baea28ae7f5475c779741e2d90b1247c78531207b49c7030e698ff81cee3f", size = 37365390, upload-time = "2026-06-19T15:01:38.091Z" },
     { url = "https://files.pythonhosted.org/packages/d5/19/969dc072906c84dd0a3b05dcf57ea750936087d7873549e408b35cfc3f97/scipy-1.18.0-cp314-cp314t-win_arm64.whl", hash = "sha256:368e0a705903c466aa5f08eefb39e6b1b6b2d659e7352a31fd9e2438365be0f8", size = 25279661, upload-time = "2026-06-19T15:01:40.817Z" },
-]
-
-[[package]]
-name = "sentinel-auth-sdk"
-version = "0.17.2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "cryptography" },
-    { name = "fastapi" },
-    { name = "httpx" },
-    { name = "pydantic" },
-    { name = "pyjwt", extra = ["crypto"] },
-    { name = "starlette" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/2a/33/2f21e4f271bb5d84f8c7c6778cf806228a55df95020513711429ce61fbad/sentinel_auth_sdk-0.17.2.tar.gz", hash = "sha256:91fe62db6c22052ea3816a42a3f96bcb594a6faba6253838b9f53670a396ac16", size = 32485, upload-time = "2026-07-20T14:17:10.143Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/09/d4/0b8d78cc6b45c8358b8d72ea3ef5608cbb29636309e70c893da80516e290/sentinel_auth_sdk-0.17.2-py3-none-any.whl", hash = "sha256:4091fd5d4371db7a9ec3eb15a28e18c2fbf78de1a2933a24578df8b8d9b1f9a2", size = 25054, upload-time = "2026-07-20T14:17:09.059Z" },
 ]
 
 [[package]]

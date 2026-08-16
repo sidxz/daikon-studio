@@ -13,8 +13,8 @@
 #
 # Day to day:  make logs (tail)  ·  make stop (stop servers)  ·  make down (stop containers)
 #
-# Auth uses the shared Sentinel identity-service (configured in backend/.env + frontend/.env.local).
-# No local Sentinel is needed when SENTINEL_URL points at the remote service.
+# Auth uses the shared Duar identity-service (configured in backend/.env + frontend/.env.local).
+# No local Duar is needed when DUAR_URL points at the remote service.
 
 COMPOSE  := docker compose
 BACKEND  := cd backend
@@ -26,7 +26,7 @@ LOGDIR   := .logs
 # aim it at /.blobs. An absolute path derived from the Makefile cannot drift.
 ROOT     := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 BLOBS    := $(ROOT)/.blobs
-# Load backend/.env (DATABASE_URL, SENTINEL_*) into the recipe shell.
+# Load backend/.env (DATABASE_URL, DUAR_*) into the recipe shell.
 BE_ENV   := set -a && . ./.env && set +a
 # Runner agents replace the arq workers: same jobs, but claimed over the HTTP
 # runner protocol (see backend/README.md).

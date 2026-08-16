@@ -5,23 +5,23 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from daikonstudio.domain.shared.errors import ServiceUnavailableError
-from daikonstudio.infrastructure.sentinel import auth as sentinel_auth
+from daikonstudio.infrastructure.duar import auth as duar_auth
 from daikonstudio.interface.dependencies import _core
 
 
-async def test_sentinel_not_configured_stub_rejects_never_bypasses():
+async def test_duar_not_configured_stub_rejects_never_bypasses():
     """The stub raises on its own. Necessary but not sufficient: this alone
     would still pass even if the *selection* logic below (which decides
     whether this stub gets wired in at all) were broken. See the end-to-end
     test below for that.
     """
     with pytest.raises(ServiceUnavailableError):
-        await _core._sentinel_not_configured()
+        await _core._duar_not_configured()
 
 
-def test_auth_dep_rejects_end_to_end_when_sentinel_unconfigured(monkeypatch):
+def test_auth_dep_rejects_end_to_end_when_duar_unconfigured(monkeypatch):
     """Force _core.py's real module-level selection (the try/except around
-    get_sentinel()) to hit the unconfigured branch, then prove a route wired
+    get_duar()) to hit the unconfigured branch, then prove a route wired
     with the public AuthDep actually rejects through FastAPI's real dependency
     resolution — not just that the stub function raises in isolation.
 
@@ -30,10 +30,10 @@ def test_auth_dep_rejects_end_to_end_when_sentinel_unconfigured(monkeypatch):
     """
 
     def _raise_unconfigured() -> object:
-        raise ValueError("service_key is required")  # matches Sentinel.__init__'s own message
+        raise ValueError("service_key is required")  # matches Duar.__init__'s own message
 
-    monkeypatch.setattr(sentinel_auth, "get_sentinel", _raise_unconfigured)
-    importlib.reload(_core)  # re-run the try/except under the patched get_sentinel
+    monkeypatch.setattr(duar_auth, "get_duar", _raise_unconfigured)
+    importlib.reload(_core)  # re-run the try/except under the patched get_duar
     try:
         app = FastAPI()
 

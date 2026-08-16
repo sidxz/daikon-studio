@@ -3,8 +3,8 @@ import {
   AuthzLocalStorageStore,
   type IdpConfig,
   IdpConfigs,
-  SentinelAuthz,
-} from "@sentinel-auth/js";
+  DuarAuthz,
+} from "@duar-auth/js";
 
 function buildIdps(config: AppConfig): Record<string, IdpConfig> {
   const idps: Record<string, IdpConfig> = {};
@@ -17,20 +17,20 @@ function buildIdps(config: AppConfig): Record<string, IdpConfig> {
   return idps;
 }
 
-let _client: SentinelAuthz | null = null;
+let _client: DuarAuthz | null = null;
 
 /**
- * The one Sentinel client. Takes runtime `AppConfig` so no `process.env` is
+ * The one Duar client. Takes runtime `AppConfig` so no `process.env` is
  * read at module load -- that is what lets a single Docker image serve every
  * environment.
  */
-export function getSentinelClient(config?: AppConfig): SentinelAuthz {
+export function getDuarClient(config?: AppConfig): DuarAuthz {
   if (!_client) {
-    _client = new SentinelAuthz({
-      sentinelUrl: config?.sentinelUrl ?? "http://localhost:9003",
+    _client = new DuarAuthz({
+      duarUrl: config?.duarUrl ?? "http://localhost:9003",
       idps: config ? buildIdps(config) : {},
       redirectUri: `${config?.appUrl ?? "http://localhost:3003"}/auth/callback`,
-      // Required since Sentinel 0.11.0: the browser no longer mints authz
+      // Required since Duar 0.11.0: the browser no longer mints authz
       // tokens directly, because minting needs a service key that must stay
       // server-side. It POSTs to this same-origin route instead.
       mintEndpoint: "/api/auth/mint",

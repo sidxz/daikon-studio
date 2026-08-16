@@ -39,11 +39,11 @@ export default defineConfig({
       // Unresolvable on purpose -- see the note above.
       APP_API_BASE_URL: "http://e2e.invalid",
       APP_URL: "http://localhost:3103",
-      APP_SENTINEL_URL: "http://sentinel.e2e.invalid",
-      APP_SENTINEL_GOOGLE_CLIENT_ID: "e2e-client-id",
+      APP_DUAR_URL: "http://duar.e2e.invalid",
+      APP_DUAR_GOOGLE_CLIENT_ID: "e2e-client-id",
       // The mint route refuses to run without this. Its value is never used:
-      // `auth.ts` intercepts the route before it can reach any Sentinel.
-      APP_SENTINEL_SERVICE_KEY: "e2e-not-a-real-key",
+      // `auth.ts` intercepts the route before it can reach any Duar.
+      APP_DUAR_SERVICE_KEY: "e2e-not-a-real-key",
     },
   },
 });

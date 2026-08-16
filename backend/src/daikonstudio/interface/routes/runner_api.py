@@ -1,6 +1,6 @@
 """The machine-facing runner protocol: `/api/v1/runner/*`.
 
-No `AuthDep` anywhere in this module -- Sentinel does not run on this prefix
+No `AuthDep` anywhere in this module -- Duar does not run on this prefix
 at all (see `app.py`), and every route instead depends on `RunnerDep` /
 `ClaimedRunRead` / `ClaimedRunWrite` from `interface/dependencies/runner_auth.py`.
 That is the entire security boundary this module sits behind, so every route

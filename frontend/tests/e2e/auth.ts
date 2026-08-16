@@ -1,7 +1,7 @@
 import type { Page } from "@playwright/test";
 
 /**
- * Getting past Sentinel auth without a real Google login.
+ * Getting past Duar auth without a real Google login.
  *
  * ## These tokens are not credentials
  *
@@ -102,9 +102,9 @@ export async function installAuth(page: Page): Promise<void> {
     });
   });
 
-  // Hop 3: the same-origin BFF that would otherwise forward to Sentinel with a
+  // Hop 3: the same-origin BFF that would otherwise forward to Duar with a
   // service key. Answering it here is what keeps the real service key — and the
-  // real Sentinel — out of the test entirely.
+  // real Duar — out of the test entirely.
   await page.route("**/api/auth/mint", async (route) => {
     await route.fulfill({
       status: 200,
@@ -116,7 +116,7 @@ export async function installAuth(page: Page): Promise<void> {
           wid: WORKSPACE_ID,
           wslug: "e2e-workspace",
           wrole: "editor",
-          aud: "sentinel:authz",
+          aud: "duar:authz",
         }),
         user: { email: USER_EMAIL, name: USER_NAME },
       }),

@@ -1,8 +1,8 @@
 // Fetch wrapper backing the generated API client and every hand-written hook.
 // Base URL is resolved at runtime from /api/config (see AuthProvider), never
-// baked at build time. Auth headers come from the shared Sentinel singleton.
+// baked at build time. Auth headers come from the shared Duar singleton.
 
-import { getSentinelClient } from "@/shared/lib/auth/config";
+import { getDuarClient } from "@/shared/lib/auth/config";
 
 let _baseUrl = "http://localhost:8002";
 
@@ -46,12 +46,12 @@ export function getApiBaseUrl(): string {
 }
 
 /**
- * Sentinel auth headers for direct `fetch` calls. Returns `{}` on the server or
+ * Duar auth headers for direct `fetch` calls. Returns `{}` on the server or
  * when unauthenticated, so the same guard applies everywhere instead of being
  * re-derived per call site.
  */
 export function getAuthHeaders(): Record<string, string> {
-  const client = typeof window !== "undefined" ? getSentinelClient() : null;
+  const client = typeof window !== "undefined" ? getDuarClient() : null;
   return client?.isAuthenticated ? client.getHeaders() : {};
 }
 

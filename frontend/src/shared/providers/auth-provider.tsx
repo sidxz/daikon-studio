@@ -3,16 +3,16 @@
 import { setApiBaseUrl } from "@/shared/lib/api/custom-instance";
 import { type AppConfig, AppConfigProvider, fetchAppConfig } from "@/shared/lib/app-config";
 import { shouldAutoReauth } from "@/shared/lib/auth/auto-reauth";
-import { getSentinelClient } from "@/shared/lib/auth/config";
-import type { SentinelAuthz } from "@sentinel-auth/js";
-import { AuthzProvider } from "@sentinel-auth/nextjs";
+import { getDuarClient } from "@/shared/lib/auth/config";
+import type { DuarAuthz } from "@duar-auth/js";
+import { AuthzProvider } from "@duar-auth/nextjs";
 import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const clientRef = useRef<SentinelAuthz | null>(null);
+  const clientRef = useRef<DuarAuthz | null>(null);
   const configRef = useRef<AppConfig | null>(null);
   const pathname = usePathname();
 
@@ -25,7 +25,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         // Before anything can fetch. This is why QueryProvider nests inside
         // AuthProvider rather than beside it.
         setApiBaseUrl(config.apiBaseUrl);
-        clientRef.current = getSentinelClient(config);
+        clientRef.current = getDuarClient(config);
         configRef.current = config;
         setMounted(true);
       })

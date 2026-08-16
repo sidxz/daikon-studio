@@ -8,6 +8,15 @@ importers:
 
   .:
     dependencies:
+      '@duar-auth/js':
+        specifier: ^1.0.0
+        version: 1.0.0
+      '@duar-auth/nextjs':
+        specifier: ^1.0.0
+        version: 1.0.0(@duar-auth/js@1.0.0)(@duar-auth/react@1.0.0(@duar-auth/js@1.0.0)(react@19.2.8))(next@16.2.12(@babel/core@7.29.7)(@playwright/test@1.62.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
+      '@duar-auth/react':
+        specifier: ^1.0.0
+        version: 1.0.0(@duar-auth/js@1.0.0)(react@19.2.8)
       '@hookform/resolvers':
         specifier: ^5.0.0
         version: 5.5.7(ajv-errors@3.0.0(ajv@8.20.0))(ajv-formats@2.1.1(ajv@8.20.0))(ajv@8.20.0)(react-hook-form@7.83.0(react@19.2.8))(zod@3.25.76)
@@ -17,15 +26,6 @@ importers:
       '@rdkit/rdkit':
         specifier: 2025.3.4-1.0.0
         version: 2025.3.4-1.0.0
-      '@sentinel-auth/js':
-        specifier: ^0.17.0
-        version: 0.17.2
-      '@sentinel-auth/nextjs':
-        specifier: ^0.17.0
-        version: 0.17.2(@sentinel-auth/js@0.17.2)(@sentinel-auth/react@0.17.2(@sentinel-auth/js@0.17.2)(react@19.2.8))(next@16.2.12(@babel/core@7.29.7)(@playwright/test@1.62.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)
-      '@sentinel-auth/react':
-        specifier: ^0.17.0
-        version: 0.17.2(@sentinel-auth/js@0.17.2)(react@19.2.8)
       '@structflo/daikon-design-tokens':
         specifier: ^1.0.0
         version: 1.0.0
@@ -343,6 +343,23 @@ packages:
   '@csstools/css-tokenizer@3.0.4':
     resolution: {integrity: sha512-Vd/9EVDiu6PPJt9yAh6roZP6El1xHrdvIVGjyBsHR0RYwNHgL7FJPyIIW4fANJNG6FtyZfvlRPpFI4ZM/lubvw==}
     engines: {node: '>=18'}
+
+  '@duar-auth/js@1.0.0':
+    resolution: {integrity: sha512-/6CKD3JAjaD+phEzw3V8T613VSUN9Q/yqUCsLrfrWHeRe1hj27SQBEOlkiNwYyX58tKnv6MEuMW0zML6OTEh9g==}
+
+  '@duar-auth/nextjs@1.0.0':
+    resolution: {integrity: sha512-4mXfy74b5jWi8KG4TMD04H9u2Kyi4R5hIYO+n+QEbI5JGf1YPIWC6knnL9BF8qQfxntqMK/qWC4eYzN00kEWlA==}
+    peerDependencies:
+      '@duar-auth/js': ^1.0.0
+      '@duar-auth/react': ^1.0.0
+      next: ^14.0.0 || ^15.0.0 || ^16.0.0
+      react: ^18.0.0 || ^19.0.0
+
+  '@duar-auth/react@1.0.0':
+    resolution: {integrity: sha512-gbkAyWkkD62i150Gz//A6v8X9/VJDZ7lBBz01ulCmkdxB2NxA+WYc3Adyjy4Uu6fExLVMR0exl7fDUgSOwA0Vw==}
+    peerDependencies:
+      '@duar-auth/js': ^1.0.0
+      react: ^18.0.0 || ^19.0.0
 
   '@emnapi/runtime@1.11.3':
     resolution: {integrity: sha512-Xz4Tpyki7XyrpbUK1jR1AhdAdaXyhhY4lZ3neLodmhpuWfy2PAQN5B46sAiU4liOXGLkHypn/qU+jvfWSCYYLA==}
@@ -1895,23 +1912,6 @@ packages:
 
   '@scarf/scarf@1.4.0':
     resolution: {integrity: sha512-xxeapPiUXdZAE3che6f3xogoJPeZgig6omHEy1rIY5WVsB3H2BHNnZH+gHG6x91SCWyQCzWGsuL2Hh3ClO5/qQ==}
-
-  '@sentinel-auth/js@0.17.2':
-    resolution: {integrity: sha512-S/cNpRrYMSqN5GuSRInIdth2vx6P6pvyw4rktLwatXQV8Uj/UfRNyWnC1cFAwFF4mpHhJbOCQxbbdsvyvsn/JQ==}
-
-  '@sentinel-auth/nextjs@0.17.2':
-    resolution: {integrity: sha512-NtxZ+2OvSyPYhUUKDRvOJGAmS74kUFSzatnZr4VVaNewR8LCaLz8PCY5x8VX+7b1Li1fLDIKWfkGW7I5L6gzvg==}
-    peerDependencies:
-      '@sentinel-auth/js': ^0.17.2
-      '@sentinel-auth/react': ^0.17.2
-      next: ^14.0.0 || ^15.0.0 || ^16.0.0
-      react: ^18.0.0 || ^19.0.0
-
-  '@sentinel-auth/react@0.17.2':
-    resolution: {integrity: sha512-wpjI0klj+lkTEQO8omMZoS0KQ2FEui3heYk9lMGJAoffA9zxe7L6Uqyw4cascgsV7T7HgF4+JF4e5CkfrR4hTA==}
-    peerDependencies:
-      '@sentinel-auth/js': ^0.17.2
-      react: ^18.0.0 || ^19.0.0
 
   '@shikijs/engine-oniguruma@3.23.0':
     resolution: {integrity: sha512-1nWINwKXxKKLqPibT5f4pAFLej9oZzQTsby8942OTlsJzOBZ0MWKiwzMsd+jhzu8YPCHAswGnnN1YtQfirL35g==}
@@ -4388,6 +4388,22 @@ snapshots:
 
   '@csstools/css-tokenizer@3.0.4': {}
 
+  '@duar-auth/js@1.0.0':
+    dependencies:
+      jose: 5.10.0
+
+  '@duar-auth/nextjs@1.0.0(@duar-auth/js@1.0.0)(@duar-auth/react@1.0.0(@duar-auth/js@1.0.0)(react@19.2.8))(next@16.2.12(@babel/core@7.29.7)(@playwright/test@1.62.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
+    dependencies:
+      '@duar-auth/js': 1.0.0
+      '@duar-auth/react': 1.0.0(@duar-auth/js@1.0.0)(react@19.2.8)
+      next: 16.2.12(@babel/core@7.29.7)(@playwright/test@1.62.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      react: 19.2.8
+
+  '@duar-auth/react@1.0.0(@duar-auth/js@1.0.0)(react@19.2.8)':
+    dependencies:
+      '@duar-auth/js': 1.0.0
+      react: 19.2.8
+
   '@emnapi/runtime@1.11.3':
     dependencies:
       tslib: 2.8.1
@@ -5731,22 +5747,6 @@ snapshots:
     optional: true
 
   '@scarf/scarf@1.4.0': {}
-
-  '@sentinel-auth/js@0.17.2':
-    dependencies:
-      jose: 5.10.0
-
-  '@sentinel-auth/nextjs@0.17.2(@sentinel-auth/js@0.17.2)(@sentinel-auth/react@0.17.2(@sentinel-auth/js@0.17.2)(react@19.2.8))(next@16.2.12(@babel/core@7.29.7)(@playwright/test@1.62.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react@19.2.8)':
-    dependencies:
-      '@sentinel-auth/js': 0.17.2
-      '@sentinel-auth/react': 0.17.2(@sentinel-auth/js@0.17.2)(react@19.2.8)
-      next: 16.2.12(@babel/core@7.29.7)(@playwright/test@1.62.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      react: 19.2.8
-
-  '@sentinel-auth/react@0.17.2(@sentinel-auth/js@0.17.2)(react@19.2.8)':
-    dependencies:
-      '@sentinel-auth/js': 0.17.2
-      react: 19.2.8
 
   '@shikijs/engine-oniguruma@3.23.0':
     dependencies:

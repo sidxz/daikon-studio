@@ -13,8 +13,8 @@ the app then runs on the *test's* event loop, so the asyncpg connection the
 database fixture opens is usable from inside a request handler. ``TestClient``
 would run the app on its own portal thread/loop and the connection would belong
 to the wrong loop. A side effect worth naming: ASGITransport does not run the
-lifespan, so the lifespan's ``fetch_sentinel_public_key()`` — which would hang
-against a dead ``sentinel_url`` — never fires. Nothing in the request path needs
+lifespan, so the lifespan's ``fetch_duar_public_key()`` — which would hang
+against a dead ``duar_url`` — never fires. Nothing in the request path needs
 it: ``AuthzMiddleware`` resolves keys per request, and the DI container is built
 in ``create_app()``, not in the lifespan.
 """
@@ -39,7 +39,7 @@ from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.interface.app import create_app
 from daikonstudio.settings import Settings
 
-_AUTHZ_AUDIENCE = "sentinel:authz"
+_AUTHZ_AUDIENCE = "duar:authz"
 
 
 @pytest.fixture(scope="session")
@@ -61,7 +61,7 @@ def signing_key() -> tuple[str, str]:
 
 @pytest.fixture(autouse=True)
 def _resolve_jwks_locally(monkeypatch, signing_key) -> None:
-    """Point both PyJWKClients (IdP and Sentinel) at the test keypair.
+    """Point both PyJWKClients (IdP and Duar) at the test keypair.
 
     Only key *lookup* is replaced. Signature, audience, issuer, expiry, the
     idp_sub binding and the svc binding are all still enforced by the real
@@ -82,7 +82,7 @@ def auth_headers(
     role: str = "editor",
     user_id: uuid.UUID | None = None,
 ) -> dict[str, str]:
-    """Mint the IdP + Sentinel authz token pair AuthzMiddleware expects."""
+    """Mint the IdP + Duar authz token pair AuthzMiddleware expects."""
     settings = Settings()
     now = dt.datetime.now(dt.UTC)
     expires = now + dt.timedelta(minutes=5)
@@ -107,12 +107,12 @@ def auth_headers(
             "wid": str(workspace_id),
             "wslug": "test-workspace",
             "wrole": role,
-            # Must resolve the same way build_sentinel() does. Using `service_name`
+            # Must resolve the same way build_duar() does. Using `service_name`
             # alone mints a token for the display name, so any deployment that
-            # registers under a different Sentinel identity (a `-dev` instance in the
+            # registers under a different Duar identity (a `-dev` instance in the
             # shared realm, say) gets 403 "Authz token was issued for a different
             # service" on every request -- the harness would be testing the wrong app.
-            "svc": settings.sentinel_service_name or settings.service_name,
+            "svc": settings.duar_service_name or settings.service_name,
             "aud": _AUTHZ_AUDIENCE,
             "iat": now,
             "exp": expires,

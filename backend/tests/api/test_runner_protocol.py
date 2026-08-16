@@ -2,7 +2,7 @@
 
 This module is the security-boundary proof for the whole self-hosted-runner
 feature, so it deliberately does NOT use the `client` fixture: that fixture
-carries a Sentinel token pair, and every route under test here must work with
+carries a Duar token pair, and every route under test here must work with
 *only* a runner bearer token (and must reject everything else). `anonymous_client`
 carries no default headers at all, so each request below states its own.
 
@@ -47,7 +47,7 @@ _UPDATE_BODY: dict[str, Any] = {
 
 
 # --------------------------------------------------------------------------
-# Auth: no Sentinel headers required, and only a live non-revoked token works.
+# Auth: no Duar headers required, and only a live non-revoked token works.
 # --------------------------------------------------------------------------
 
 
@@ -72,7 +72,7 @@ async def test_claim_with_a_revoked_token_is_401(anonymous_client, app):
     assert response.status_code == 401, response.text
 
 
-async def test_claim_needs_no_sentinel_headers(anonymous_client, app):
+async def test_claim_needs_no_duar_headers(anonymous_client, app):
     """The exclude_paths proof: the request carries only the runner token."""
     _, headers = await _register_runner(app, ["default"])
     response = await anonymous_client.post("/api/v1/runner/claim", headers=headers)
@@ -800,7 +800,7 @@ def test_claim_response_model_reaches_the_openapi_schema(app):
     assert "ClaimResponse" in schema["content"]["application/json"]["schema"]["$ref"]
 
 
-async def test_runners_management_api_stays_sentinel_protected(anonymous_client):
+async def test_runners_management_api_stays_duar_protected(anonymous_client):
     """Security review, Minor (e) -- nobody can widen `exclude_paths` to
     also swallow the human-facing `/api/v1/runners` unnoticed."""
     assert (await anonymous_client.get("/api/v1/runners")).status_code == 401

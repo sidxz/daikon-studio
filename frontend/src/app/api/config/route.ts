@@ -14,12 +14,12 @@ export function GET() {
   return Response.json({
     apiBaseUrl: process.env.APP_API_BASE_URL ?? "http://localhost:8002",
     appUrl: process.env.APP_URL ?? "http://localhost:3003",
-    sentinelUrl: process.env.APP_SENTINEL_URL ?? "http://localhost:9003",
-    serviceName: process.env.APP_SENTINEL_SERVICE_NAME ?? "daikon-studio",
+    duarUrl: process.env.APP_DUAR_URL ?? "http://localhost:9003",
+    serviceName: process.env.APP_DUAR_SERVICE_NAME ?? "daikon-studio",
     idp: {
-      googleClientId: process.env.APP_SENTINEL_GOOGLE_CLIENT_ID ?? "",
-      entraClientId: process.env.APP_SENTINEL_ENTRA_CLIENT_ID ?? "",
-      entraTenantId: process.env.APP_SENTINEL_ENTRA_TENANT_ID ?? "",
+      googleClientId: process.env.APP_DUAR_GOOGLE_CLIENT_ID ?? "",
+      entraClientId: process.env.APP_DUAR_ENTRA_CLIENT_ID ?? "",
+      entraTenantId: process.env.APP_DUAR_ENTRA_TENANT_ID ?? "",
     },
     uiVersion: process.env.APP_VERSION || "0.0.0+dev",
     uiGitSha: process.env.APP_GIT_SHA || "unknown",

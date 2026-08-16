@@ -3,7 +3,7 @@
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { rememberWorkspace, rememberedWorkspace } from "@/shared/lib/auth/workspace-memory";
-import type { AuthzWorkspaceSelectorProps } from "@sentinel-auth/nextjs";
+import type { AuthzWorkspaceSelectorProps } from "@duar-auth/nextjs";
 import { useEffect, useRef, useState } from "react";
 
 type Decision = { kind: "pending" } | { kind: "picker" } | { kind: "auto"; id: string };

@@ -1,4 +1,4 @@
-"""Workspace guards. Structural typing so the app never imports Sentinel SDK types."""
+"""Workspace guards. Structural typing so the app never imports Duar SDK types."""
 
 from __future__ import annotations
 

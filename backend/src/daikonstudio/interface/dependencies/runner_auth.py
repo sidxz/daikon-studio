@@ -1,8 +1,8 @@
 """Runner-token auth dependencies -- the machine-facing counterpart to
-Sentinel's human-facing `AuthDep`.
+Duar's human-facing `AuthDep`.
 
 `get_runner` is the entire authentication boundary for `/api/v1/runner/*`:
-Sentinel does not run on that prefix at all (see `app.py`'s `exclude_paths`),
+Duar does not run on that prefix at all (see `app.py`'s `exclude_paths`),
 so a request that clears this dependency has proven nothing except that it
 carries a live, non-revoked runner token -- no workspace, no user, no role.
 

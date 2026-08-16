@@ -5,7 +5,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from daikonstudio.infrastructure.di.container import create_container
-from daikonstudio.infrastructure.sentinel.auth import get_sentinel, register_service_actions
+from daikonstudio.infrastructure.duar.auth import get_duar, register_service_actions
 from daikonstudio.interface.error_handlers import register_error_handlers
 from daikonstudio.interface.routes.collections import router as collections_router
 from daikonstudio.interface.routes.datasets import router as datasets_router
@@ -20,17 +20,17 @@ from daikonstudio.settings import Settings
 
 def create_app() -> FastAPI:
     settings = Settings()
-    # get_sentinel() is the one process-wide Sentinel instance (shared with
-    # interface/dependencies/_core.py's get_auth — see get_sentinel's docstring
+    # get_duar() is the one process-wide Duar instance (shared with
+    # interface/dependencies/_core.py's get_auth — see get_duar's docstring
     # for why two instances would silently check permissions under the wrong
-    # realm scope). Unconfigured/misconfigured Sentinel settings raise ValueError
+    # realm scope). Unconfigured/misconfigured Duar settings raise ValueError
     # here, deliberately: a service that can't authenticate must fail at boot,
     # not boot healthy with the auth middleware silently absent.
-    sentinel = get_sentinel()
+    duar = get_duar()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        # sentinel.lifespan fetches the JWKS signing key — fatal if it fails,
+        # duar.lifespan fetches the JWKS signing key — fatal if it fails,
         # since auth cannot work at all without it. Action registration is
         # best-effort and must never block boot (see register_service_actions).
         #
@@ -38,10 +38,10 @@ def create_app() -> FastAPI:
         # returning Callable[[FastAPI], AsyncIterator[None]] — the undecorated
         # inner function's own signature — without accounting for the
         # @asynccontextmanager decorator that actually wraps it into something
-        # `async with`-able. Confirmed against the installed sentinel_auth 0.17.2
+        # `async with`-able. Confirmed against the installed duar_auth 0.17.2
         # source: a type-annotation bug in the SDK, not a real incompatibility.
-        async with sentinel.lifespan(app):  # type: ignore[attr-defined]
-            await register_service_actions(sentinel)
+        async with duar.lifespan(app):  # type: ignore[attr-defined]
+            await register_service_actions(duar)
             yield
 
     app = FastAPI(title="daikon-studio", version="0.1.0", lifespan=lifespan)
@@ -51,19 +51,19 @@ def create_app() -> FastAPI:
     # started (a test driving it over ASGITransport) still resolves use cases.
     app.state.container = create_container(settings)
 
-    # sentinel.protect() MUST be added before CORSMiddleware. Starlette applies
+    # duar.protect() MUST be added before CORSMiddleware. Starlette applies
     # middleware LIFO (last added = outermost), so this order makes CORS the
     # outer layer: a 401 raised by auth still passes back out through CORS and
     # keeps its headers. Reversed, the browser sees an opaque network error
     # instead of a 401 — do not "tidy" this order.
     # "/api/v1/runner" is the self-hosted-runner protocol -- authenticated by
     # its own runner-token dependency (interface/dependencies/runner_auth.py),
-    # not Sentinel: a runner process carries no IdP/Sentinel token pair at
+    # not Duar: a runner process carries no IdP/Duar token pair at
     # all. exclude_paths matches on a path-segment boundary (exact match or
-    # `path + "/"` prefix -- see sentinel_auth.authz_middleware), so this
+    # `path + "/"` prefix -- see duar_auth.authz_middleware), so this
     # cannot also swallow "/api/v1/runners" (human-facing runner management,
-    # `interface/routes/runners.py`), which stays Sentinel-protected.
-    sentinel.protect(
+    # `interface/routes/runners.py`), which stays Duar-protected.
+    duar.protect(
         app,
         exclude_paths=["/health", "/version", "/docs", "/openapi.json", "/api/v1/runner"],
     )
@@ -100,7 +100,7 @@ def create_app() -> FastAPI:
 
 # The ASGI entry point: `uvicorn daikonstudio.interface.app:app` (make dev) and
 # the OpenAPI snapshot (make generate-api) both import this name. Constructing at
-# import time means an unconfigured Sentinel raises here rather than at first
+# import time means an unconfigured Duar raises here rather than at first
 # request, which is the intended behaviour — a service that cannot authenticate
 # must fail at boot, not serve traffic unprotected. Both Makefile targets source
 # backend/.env first. Same shape as prot-cellar's interface/app.py.

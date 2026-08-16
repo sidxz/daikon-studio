@@ -12,7 +12,7 @@ import {
   SidebarRail,
   SidebarTrigger,
 } from "@/shared/components/ui/sidebar";
-import { useAuthz } from "@sentinel-auth/nextjs";
+import { useAuthz } from "@duar-auth/nextjs";
 import { Settings } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";

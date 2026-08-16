@@ -5,7 +5,7 @@ import { type ReactNode, createContext, useContext } from "react";
 export interface AppConfig {
   apiBaseUrl: string;
   appUrl: string;
-  sentinelUrl: string;
+  duarUrl: string;
   serviceName: string;
   idp: {
     googleClientId: string;
@@ -21,7 +21,7 @@ export interface AppConfig {
 const defaultConfig: AppConfig = {
   apiBaseUrl: "http://localhost:8002",
   appUrl: "http://localhost:3003",
-  sentinelUrl: "http://localhost:9003",
+  duarUrl: "http://localhost:9003",
   serviceName: "daikon-studio",
   idp: { googleClientId: "", entraClientId: "", entraTenantId: "" },
   uiVersion: "0.0.0+dev",

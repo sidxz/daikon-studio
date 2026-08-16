@@ -13,7 +13,7 @@ import {
 import { Separator } from "@/shared/components/ui/separator";
 import { forgetWorkspace } from "@/shared/lib/auth/workspace-memory";
 import { useCommandPaletteStore } from "@/shared/lib/stores/command-palette-store";
-import { useAuthz } from "@sentinel-auth/nextjs";
+import { useAuthz } from "@duar-auth/nextjs";
 import { Building2, ChevronDown, LogOut, Search } from "lucide-react";
 import { Breadcrumbs } from "./breadcrumbs";
 import { FontSizeControl } from "./font-size-control";
