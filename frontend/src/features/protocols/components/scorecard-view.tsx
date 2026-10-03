@@ -1,7 +1,6 @@
 "use client";
 
 import { useEngines } from "@/features/engines";
-import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
 import { BootstrapExplainer } from "@/shared/components/explainers/figures/bootstrap";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
@@ -10,6 +9,7 @@ import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
 import { type Verdict, computeOptimismGap, computeVerdict, describeBaseline } from "../lib/verdict";
 import { metricLabel } from "../types";
+import { LargestErrors } from "./largest-errors";
 import { ScorecardDiagnostics, SplitComparison } from "./scorecard-diagnostics";
 
 function HonestyStat({
@@ -308,96 +308,6 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
   );
 }
 
-function WorstRows({ scorecard }: { scorecard: ScorecardResponse }) {
-  if (scorecard.worst_rows.length === 0) return null;
-
-  // Grouped by Murcko scaffold, so the answer reads "it fails on the
-  // sulfonamides" rather than as twenty unrelated misses.
-  const byScaffold = new Map<string, typeof scorecard.worst_rows>();
-  for (const row of scorecard.worst_rows) {
-    const existing = byScaffold.get(row.scaffold);
-    if (existing) existing.push(row);
-    else byScaffold.set(row.scaffold, [row]);
-  }
-  const groups = [...byScaffold.entries()].sort((a, b) => b[1].length - a[1].length);
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Largest prediction errors</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          The {scorecard.worst_rows.length} test compounds with the largest absolute error, grouped
-          by Bemis–Murcko scaffold. Clusters point to chemical series the model predicts poorly.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        {groups.map(([scaffold, rows]) => (
-          <div key={scaffold}>
-            <div className="mb-2 flex items-baseline gap-2">
-              <span className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                {rows.length} compound{rows.length === 1 ? "" : "s"}
-              </span>
-              <span className="truncate font-mono text-xs text-muted-foreground">
-                {scaffold || "no ring system"}
-              </span>
-            </div>
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              {rows.map((row) => (
-                <div
-                  key={row.structure}
-                  className="flex h-full flex-col items-center gap-2 rounded-lg border border-border p-3"
-                >
-                  <StructureThumbnail smiles={row.structure} size={110} />
-                  <dl className="w-full space-y-0.5 text-xs">
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-muted-foreground">measured</dt>
-                      <dd>
-                        <ReadoutValue value={row.actual} unit={scorecard.unit} precision={2} />
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2">
-                      <dt className="text-muted-foreground">predicted</dt>
-                      <dd>
-                        <ReadoutValue value={row.predicted} unit={scorecard.unit} precision={2} />
-                      </dd>
-                    </div>
-                    <div className="flex justify-between gap-2 border-t pt-0.5">
-                      <dt className="text-muted-foreground">Abs. error</dt>
-                      <dd className="font-medium text-warning">
-                        <ReadoutValue value={Math.abs(row.residual)} precision={2} />
-                      </dd>
-                    </div>
-                    {/* `WorstRow.similarity` exists, per its own docstring, "so
-                        the triage grid can flag individual out-of-distribution
-                        compounds" -- and nothing read it. A bad prediction on a
-                        compound unlike anything trained on is a different
-                        finding from a bad prediction on a familiar one. */}
-                    {row.similarity != null && (
-                      <div className="flex justify-between gap-2">
-                        <dt className="text-muted-foreground">nearest train</dt>
-                        <dd
-                          className={
-                            row.similarity < 0.3 ? "font-medium text-warning" : "tabular-nums"
-                          }
-                        >
-                          {row.similarity.toFixed(2)}
-                          {row.similarity < 0.3 && (
-                            <span className="ml-1 text-[10px] uppercase">out of domain</span>
-                          )}
-                        </dd>
-                      </div>
-                    )}
-                  </dl>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  );
-}
-
 export function ScorecardView({ scorecard }: { scorecard: ScorecardResponse }) {
   return (
     <div className="space-y-4">
@@ -410,7 +320,7 @@ export function ScorecardView({ scorecard }: { scorecard: ScorecardResponse }) {
           that 8 of its 20 worst predictions had no ring system at all. An
           aggregate cannot say that, and a table of aggregates should not
           outrank it. */}
-      <WorstRows scorecard={scorecard} />
+      <LargestErrors scorecard={scorecard} />
       <SplitComparison scorecard={scorecard} />
       <MetricTable scorecard={scorecard} />
       <Conditions scorecard={scorecard} />
