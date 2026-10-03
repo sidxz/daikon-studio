@@ -39,8 +39,8 @@ export function ProfileComputing({
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           Computing physicochemical descriptors, Bemis–Murcko scaffolds, test-to-training
-          similarity, and activity cliffs. This runs once per dataset; the result is saved, and later visits open
-          instantly.
+          similarity, and activity cliffs. This runs once per dataset; the result is saved, and
+          later visits open instantly.
         </p>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">
