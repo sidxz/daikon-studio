@@ -9,7 +9,9 @@ export function saveBlob(blob: Blob, filename: string): void {
   document.body.appendChild(anchor);
   anchor.click();
   document.body.removeChild(anchor);
-  URL.revokeObjectURL(blobUrl);
+  // Not synchronously: some browsers (Firefox, older Safari) start reading the
+  // blob after click() returns, and an immediate revoke cancels the download.
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }
 
 /** Save in-memory text -- how every "Download template" button works. */
