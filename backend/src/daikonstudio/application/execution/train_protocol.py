@@ -332,7 +332,7 @@ class TrainProtocol:
         assert auth is not None  # require_authenticated has already rejected None
 
         try:
-            engine = self._engines.get(command.engine_id)
+            self._engines.get(command.engine_id)
         except UnknownEngineError:
             return Failure(NotFoundError("Engine", command.engine_id))
 
