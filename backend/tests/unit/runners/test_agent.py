@@ -232,4 +232,4 @@ async def test_a_job_past_its_deadline_and_grace_is_failed_and_the_agent_exits(
 
     assert executed is True
     assert exits == [3]
-    assert failed and "gave up" in failed[0]
+    assert failed and "stopped by the runner" in failed[0]

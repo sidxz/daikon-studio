@@ -30,7 +30,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setMounted(true);
       })
       .catch((err) => {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Failed to load config");
+        if (!cancelled)
+          setError(err instanceof Error ? err.message : "Could not load configuration");
       });
 
     return () => {

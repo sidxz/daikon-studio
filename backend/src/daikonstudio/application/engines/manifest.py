@@ -55,7 +55,7 @@ class EngineManifest:
     is_baseline: bool = False
 
 
-def _coerce(key: str, condition_type: ConditionType, value: object) -> object:
+def _coerce(label: str, condition_type: ConditionType, value: object) -> object:
     """Coerce `value` to the Python type `condition_type` declares.
 
     Values arrive over JSON from a form, where a numeric field can legitimately show
@@ -64,28 +64,33 @@ def _coerce(key: str, condition_type: ConditionType, value: object) -> object:
     int)` is `True` in Python, so without this check a stray boolean would silently
     pass as a number.
     """
+    article = "an" if condition_type is ConditionType.INTEGER else "a"
     if condition_type in (ConditionType.INTEGER, ConditionType.NUMBER):
         if isinstance(value, bool):
-            raise ValueError(f"{key} must be a {condition_type.value}, got {value!r}")
+            raise ValueError(
+                f"{label} must be {article} {condition_type.value} (received {value})."
+            )
         if isinstance(value, int | float):
             if condition_type is ConditionType.NUMBER:
                 return float(value)
             if isinstance(value, float) and not value.is_integer():
-                raise ValueError(f"{key} must be an integer, got {value!r}")
+                raise ValueError(f"{label} must be an integer (received {value}).")
             return int(value)
         if isinstance(value, str):
             try:
                 return int(value) if condition_type is ConditionType.INTEGER else float(value)
             except ValueError as exc:
-                raise ValueError(f"{key} must be a {condition_type.value}, got {value!r}") from exc
-        raise ValueError(f"{key} must be a {condition_type.value}, got {value!r}")
+                raise ValueError(
+                    f"{label} must be {article} {condition_type.value} (received {value})."
+                ) from exc
+        raise ValueError(f"{label} must be {article} {condition_type.value} (received {value}).")
     if condition_type in (ConditionType.STRING, ConditionType.ENUM):
         if isinstance(value, str):
             return value
-        raise ValueError(f"{key} must be a string, got {value!r}")
+        raise ValueError(f"{label} must be a string (received {value}).")
     if isinstance(value, bool):
         return value
-    raise ValueError(f"{key} must be a boolean, got {value!r}")
+    raise ValueError(f"{label} must be a boolean (received {value}).")
 
 
 def validate_conditions(
@@ -95,7 +100,9 @@ def validate_conditions(
     known = {c.key: c for c in manifest.conditions}
     unknown = set(supplied) - set(known)
     if unknown:
-        raise ValueError(f"unknown conditions for {manifest.id}: {sorted(unknown)}")
+        raise ValueError(
+            f"{manifest.name} does not accept these settings: {', '.join(sorted(unknown))}."
+        )
 
     resolved: dict[str, object] = {}
     for key, spec in known.items():
@@ -104,21 +111,21 @@ def validate_conditions(
         elif spec.default is not None:
             value = spec.default
         elif spec.required:
-            raise ValueError(f"{key} is required for {manifest.id}")
+            raise ValueError(f"{spec.label} is required for {manifest.name}.")
         else:
             continue
 
-        value = _coerce(key, spec.type, value)
+        value = _coerce(spec.label, spec.type, value)
 
         if spec.minimum is not None or spec.maximum is not None:
             if not isinstance(value, int | float) or isinstance(value, bool):
                 raise ValueError(f"{key} must be numeric to enforce bounds, got {value!r}")
             if spec.minimum is not None and value < spec.minimum:
-                raise ValueError(f"{key} below minimum {spec.minimum}")
+                raise ValueError(f"{spec.label} must be at least {spec.minimum:g}.")
             if spec.maximum is not None and value > spec.maximum:
-                raise ValueError(f"{key} above maximum {spec.maximum}")
+                raise ValueError(f"{spec.label} must be at most {spec.maximum:g}.")
         if spec.options and value not in spec.options:
-            raise ValueError(f"{key} must be one of {spec.options}")
+            raise ValueError(f"{spec.label} must be one of: {', '.join(spec.options)}.")
         resolved[key] = value
     return resolved
 

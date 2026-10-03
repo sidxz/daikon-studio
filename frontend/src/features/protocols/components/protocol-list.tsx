@@ -22,8 +22,8 @@ export function ProtocolList() {
         <div>
           <h1 className="text-lg font-semibold">Protocols</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            A trained model, scored against a fingerprint baseline. Drafts are yours alone;
-            publishing locks one and makes it runnable by the whole workspace.
+            Trained models, each scored against a baseline. Drafts are private; publishing locks a
+            protocol and makes it available to the workspace.
           </p>
         </div>
         <Button asChild>

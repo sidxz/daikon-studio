@@ -207,11 +207,10 @@ def _require_matching_features(bundle: dict[str, Any]) -> None:
     if current is None or tuple(stored) == tuple(current):
         return
     raise ValidationError(
-        "This model was fitted against a different set of molecular descriptors than "
-        f"this worker computes ({len(stored)} then, {len(current)} now) -- most likely "
-        "RDKit was upgraded since it was trained. Retrain the protocol on this worker; "
-        "predicting through the mismatch would silently read every descriptor as the "
-        "wrong one."
+        "This model was trained on a different RDKit descriptor set "
+        f"({len(stored)} descriptors) from the one this runner computes "
+        f"({len(current)}), probably because RDKit was upgraded. Retrain the protocol "
+        "before predicting."
     )
 
 

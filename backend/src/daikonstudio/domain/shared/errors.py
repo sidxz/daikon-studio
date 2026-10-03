@@ -44,10 +44,8 @@ class NotFoundError(DomainError):
     ) -> None:
         self.entity_type = entity_type
         self.entity_id = entity_id
-        msg = f"{entity_type} not found"
-        if entity_id:
-            msg = f"{entity_type} '{entity_id}' not found"
-        super().__init__(msg, detail=detail)
+        # The id stays an attribute for logs and handlers; the message is user-facing.
+        super().__init__(f"{entity_type} not found.", detail=detail)
 
 
 class ConflictError(DomainError):
@@ -67,8 +65,7 @@ class ConcurrencyConflictError(DomainError):
         self.entity_type = entity_type
         self.entity_id = entity_id
         super().__init__(
-            f"Concurrency conflict on {entity_type} '{entity_id}': "
-            "entity was modified by another transaction",
+            f"This {entity_type.lower()} was changed by another request. Reload and try again.",
             detail=detail,
         )
 

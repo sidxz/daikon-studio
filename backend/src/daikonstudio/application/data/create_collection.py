@@ -96,18 +96,18 @@ class CreateCollection:
         if run.status is not RunStatus.READY:
             return Failure(
                 ConflictError(
-                    f"Run '{run.id}' is not ready (status: '{run.status.value}'); "
-                    "only a ready run's results can be saved into a Collection",
+                    "Only a completed run's results can be saved to a collection; "
+                    f"this run is {run.status.label}.",
                     detail=run.error_message if run.status is RunStatus.FAILED else None,
                 )
             )
 
         if not command.row_ids:
-            return Failure(ValidationError("row_ids must not be empty"))
+            return Failure(ValidationError("Select at least one compound."))
         if any(row_id < 0 for row_id in command.row_ids):
-            return Failure(ValidationError("row_ids must not be negative"))
+            return Failure(ValidationError("Row indices must be non-negative."))
         if len(set(command.row_ids)) != len(command.row_ids):
-            return Failure(ValidationError("row_ids must not contain duplicates"))
+            return Failure(ValidationError("Each compound can be selected only once."))
 
         protocol_id = uuid.UUID(run.params["protocol_id"])
         protocol = await self._protocols.get(auth.workspace_id, protocol_id)
@@ -124,7 +124,8 @@ class CreateCollection:
         if out_of_range:
             return Failure(
                 ValidationError(
-                    f"row_ids out of range for this run's results: {out_of_range}",
+                    "Some selected rows are outside this run's results: "
+                    f"{', '.join(map(str, out_of_range))}.",
                     detail=f"This run has {frame.height} result row(s): 0-{frame.height - 1}.",
                 )
             )

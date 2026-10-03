@@ -86,7 +86,7 @@ test("a selection survives filtering the rows out from under it", async ({ page 
 
   // Turning the switch on refetches with an applicability floor, which drops
   // the ticked row from the view entirely.
-  await page.getByLabel(/in domain only/i).click();
+  await page.getByLabel(/within applicability domain/i).click();
   await expect(page.getByText("CCF", { exact: true })).toBeHidden();
 
   await page.getByRole("button", { name: /save 1 as collection/i }).click();

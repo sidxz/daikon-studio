@@ -40,8 +40,7 @@ function LaneHint({ lane }: { lane: string }) {
   }
   return (
     <p className="text-sm text-warning">
-      Waiting for a runner that serves the "{LANE_LABELS[lane] ?? lane}" lane. None is online right
-      now.
+      Waiting for a runner on the "{LANE_LABELS[lane] ?? lane}" lane. None is currently online.
     </p>
   );
 }
@@ -141,10 +140,10 @@ export function RunDetail({ runId }: { runId: string }) {
               client-side parse: it includes the rows that did not parse. */}
           {scored != null && uploaded != null ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              Scored {scored.toLocaleString()} of {uploaded.toLocaleString()} uploaded row
+              Predicted {scored.toLocaleString()} of {uploaded.toLocaleString()} uploaded row
               {uploaded === 1 ? "" : "s"}
               {uploaded !== scored &&
-                ` · ${(uploaded - scored).toLocaleString()} did not parse as ${
+                ` · ${(uploaded - scored).toLocaleString()} could not be parsed as ${
                   uploaded - scored === 1 ? "a structure" : "structures"
                 }`}
             </p>
@@ -191,8 +190,8 @@ export function RunDetail({ runId }: { runId: string }) {
 
       {fromCache && run.status === "ready" && (
         <div className="rounded-lg border border-border bg-muted/30 p-3 text-sm text-muted-foreground">
-          These compounds had already been scored by this protocol — these results came from cache,
-          not a new run.
+          These compounds were previously predicted with this protocol. Results were loaded from the
+          cache; no new run was started.
         </div>
       )}
 
@@ -205,17 +204,17 @@ export function RunDetail({ runId }: { runId: string }) {
             <p className="mt-1 text-muted-foreground">
               {run.protocol_id ? (
                 <>
-                  Its Scorecard is on the{" "}
+                  Its scorecard is on the{" "}
                   <Link
                     href={`/protocols/${run.protocol_id}`}
                     className="underline underline-offset-2"
                   >
-                    Protocol page
+                    protocol page
                   </Link>
                   .
                 </>
               ) : (
-                "It produced no Protocol."
+                "No protocol was produced."
               )}
             </p>
           </CardContent>
@@ -242,8 +241,8 @@ export function RunDetail({ runId }: { runId: string }) {
               {pendingRows?.length === 1 ? "" : "s"} as a collection
             </DialogTitle>
             <DialogDescription>
-              A collection is a frozen copy of these rows, marked as AI-predicted. It keeps its own
-              snapshot, so it survives whatever happens to this run.
+              A collection stores a fixed copy of these rows, labeled AI-predicted. It is stored
+              independently of this run.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-1.5">

@@ -43,7 +43,9 @@ export function ConditionFields({
   pinned?: Record<string, unknown>;
 }) {
   if (conditions.length === 0) {
-    return <p className="text-sm text-muted-foreground">This engine has nothing to configure.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">This engine has no configurable settings.</p>
+    );
   }
 
   return (

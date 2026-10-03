@@ -124,11 +124,12 @@ class SubmitSweep:
         assert auth is not None  # require_authenticated has already rejected None
 
         if not command.configs:
-            return Failure(ValidationError("A sweep needs at least one config"))
+            return Failure(ValidationError("A sweep requires at least one configuration."))
         if len(command.configs) > MAX_CONFIGS:
             return Failure(
                 ValidationError(
-                    f"A sweep is limited to {MAX_CONFIGS} configs; got {len(command.configs)}"
+                    f"A sweep can contain at most {MAX_CONFIGS} configurations "
+                    f"({len(command.configs)} submitted)."
                 )
             )
 

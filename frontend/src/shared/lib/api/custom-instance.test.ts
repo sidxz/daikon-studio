@@ -61,7 +61,7 @@ describe("error messages", () => {
       ),
     );
     await expect(customInstance({ url: "/api/v1/runners", method: "POST" })).rejects.toMatchObject({
-      message: "API error: 422 — body.name: too long",
+      message: "Request failed (422): body.name: too long",
     });
   });
 });

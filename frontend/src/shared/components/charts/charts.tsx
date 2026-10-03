@@ -240,7 +240,7 @@ export function ParityChart({
             type: "linear",
             domain: [0, 1],
             range: (theme as ChartTheme).sequential,
-            label: "similarity to training set",
+            label: "Tanimoto similarity to nearest training compound",
             legend: true,
           }
         : undefined,

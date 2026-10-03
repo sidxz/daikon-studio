@@ -103,6 +103,6 @@ def apply_result_view(
 
 def _unknown(column: str, columns: Collection[str], *, verb: str) -> DomainError:
     return ValidationError(
-        f"Cannot {verb} '{column}'",
+        f"Cannot {verb} '{column}': this column is not in the results.",
         detail=f"Available columns: {', '.join(sorted(columns))}.",
     )

@@ -21,7 +21,7 @@ __all__ = ["AuthDep", "get_auth"]
 async def _duar_not_configured() -> AuthContext:
     """Reject every request when Duar is not configured. Never a bypass."""
     raise ServiceUnavailableError(
-        "Duar auth is not configured",
+        "Authentication is not configured on this server.",
         detail="Set STUDIO_DUAR_SERVICE_KEY to enable authentication.",
     )
 

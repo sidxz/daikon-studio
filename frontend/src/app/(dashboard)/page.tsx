@@ -14,8 +14,8 @@ export default function DashboardPage() {
       <div>
         <h1 className="text-lg font-semibold">DAIKON Studio</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Upload data, train a protocol, read its scorecard, then run it across a compound set and
-          triage what comes back.
+          Upload a dataset, train a protocol, review its scorecard, then apply it to new compounds
+          and triage the predictions.
         </p>
       </div>
 

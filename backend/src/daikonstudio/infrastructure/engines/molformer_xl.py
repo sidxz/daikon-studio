@@ -78,8 +78,8 @@ _MANIFEST = EngineManifest(
     name="MoLFormer-XL",
     description=(
         "A transformer pretrained on ~1.1 billion molecules that reads the SMILES "
-        "string directly instead of the molecular graph. Fine-tunes on your data in "
-        "minutes to hours on a GPU; freeze it to train just the output layer in a "
+        "string directly instead of the molecular graph. Fine-tuning takes minutes to "
+        "hours on a GPU; freezing the encoder trains only the output layer, in a "
         "fraction of the time."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
@@ -91,9 +91,9 @@ _MANIFEST = EngineManifest(
             default=10,
             minimum=1,
             maximum=200,
-            help="How many passes over the training set. A pretrained transformer "
-            "adapts quickly; 10 is usually enough and more risks overwriting what the "
-            "model already knows.",
+            help="Number of passes over the training set. A pretrained transformer "
+            "adapts quickly; longer training risks degrading the pretrained "
+            "representation.",
         ),
         ConditionSpec(
             key="batch_size",
@@ -102,8 +102,8 @@ _MANIFEST = EngineManifest(
             default=32,
             minimum=8,
             maximum=256,
-            help="How many molecules are scored before the weights update. Lower it "
-            "if training runs out of GPU memory.",
+            help="Number of molecules per gradient update. Reduce it if training runs "
+            "out of GPU memory.",
         ),
         ConditionSpec(
             key="learning_rate",
@@ -112,9 +112,9 @@ _MANIFEST = EngineManifest(
             default=3e-5,
             minimum=1e-6,
             maximum=1e-2,
-            help="How far the weights move per update. Fine-tuning a pretrained "
-            "transformer wants a small value (around 0.00003); raise it towards 0.001 "
-            "when the encoder is frozen, since only the output layer is learning.",
+            help="Step size of each weight update. Fine-tuning a pretrained transformer "
+            "needs a small value (about 3 × 10⁻⁵); increase it toward 10⁻³ when the "  # noqa: RUF001
+            "encoder is frozen, because only the output layer is trained.",
         ),
         ConditionSpec(
             key="freeze_encoder",
@@ -123,8 +123,8 @@ _MANIFEST = EngineManifest(
             default=False,
             help="Train only the output layer on top of the frozen pretrained "
             "representation. Much faster and far harder to overfit, which makes it the "
-            "better choice on small assays; fine-tuning the whole model usually wins "
-            "once there are thousands of measurements.",
+            "better choice on small assays; fine-tuning the whole model usually performs "
+            "better with thousands of measurements.",
         ),
     ),
     lane="gpu",
@@ -145,10 +145,9 @@ def _require_transformers(weights_dir: str) -> None:
         import transformers  # noqa: F401
     except ImportError as exc:
         raise ValidationError(
-            "The molformer-xl engine needs the 'gpu' extra, which this worker does "
-            "not have installed. This engine requires a runner registered for the 'gpu' "
-            "lane (register runners in the Runners page in the UI, or seed locally with "
-            "`make seed-runners`), or install the extra locally with `uv sync --extra gpu`."
+            "This runner does not have the GPU dependencies that MoLFormer-XL requires. "
+            "An administrator can register a runner for the 'gpu' lane on the Runners "
+            "page."
         ) from exc
 
 
@@ -407,7 +406,7 @@ class MolformerXL:
             # running on the worker thread.
             ctx.report(
                 (trainer.current_epoch + 1) / epochs,
-                f"training {_MANIFEST.id} on {trainer.strategy.root_device}",
+                f"Training {_MANIFEST.name} on {trainer.strategy.root_device}",
             )
 
         keep_best = keep_best_by_validation_loss()

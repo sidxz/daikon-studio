@@ -78,7 +78,7 @@ export function useCancelRun() {
       customInstance<void>({ url: `${API_V1}/runs/${id}/cancel`, method: "POST" }),
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: [...RUN_KEY, id] });
-      showSuccess("Run cancelled");
+      showSuccess("Run canceled");
     },
   });
 }
@@ -91,7 +91,7 @@ export function useRetryRun() {
       customInstance<void>({ url: `${API_V1}/runs/${id}/retry`, method: "POST" }),
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: [...RUN_KEY, id] });
-      showSuccess("Run queued again");
+      showSuccess("Run requeued");
     },
   });
 }

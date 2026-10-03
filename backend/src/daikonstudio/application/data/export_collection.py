@@ -144,8 +144,8 @@ class ExportCollection:
         if duplicates:
             return Failure(
                 ValidationError(
-                    f"Cannot export as {query.format.value}: rendering these readouts would "
-                    f"produce duplicate column/tag name(s): {duplicates}",
+                    f"Cannot export as {query.format.value.upper()}: these readouts would "
+                    f"produce duplicate column names: {', '.join(duplicates)}.",
                     detail=(
                         "Rename the colliding readout, or give it a unit/direction so it "
                         "renders to a distinct name."
@@ -156,7 +156,7 @@ class ExportCollection:
         try:
             raw = self._store.get_bytes(collection.snapshot_uri)
         except FileNotFoundError:
-            return Failure(NotFoundError("Collection snapshot", str(collection.id)))
+            return Failure(NotFoundError("Stored collection file", str(collection.id)))
         # ponytail: reads and holds the entire snapshot Parquet in memory --
         # `GetPredictionResults` carries this exact note for the same
         # `pl.read_parquet` shape. Fine at today's per-Collection sizes (a

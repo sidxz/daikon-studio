@@ -238,7 +238,7 @@ async def test_sweep_fails_run_after_max_attempts(queue, session_factory):
     fetched = await _fetch(session_factory, run_id)
     assert fetched.status == "failed"
     assert fetched.error_message is not None
-    assert "lease" in fetched.error_message
+    assert "No runner completed this run" in fetched.error_message
 
 
 async def test_workspace_cap_blocks_claim(queue, session_factory):
@@ -363,7 +363,7 @@ async def test_set_lane_hands_a_retried_run_back_to_the_queue_clean(queue, sessi
     """A run that failed on a runner keeps that runner's claim, a live lease and
     its used-up attempts on the row. Retry re-enqueues through `set_lane`, which
     must clear all three -- otherwise the sweep fails it again on the next poll
-    ("lease expired after 3 attempts") and nothing ever claims it."""
+    ("No runner completed this run after 3 attempts") and nothing ever claims it."""
     run_id = await _pending_run(
         session_factory,
         attempts=3,

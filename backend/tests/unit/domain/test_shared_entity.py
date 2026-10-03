@@ -22,12 +22,13 @@ def test_aggregate_collects_and_clears_events():
 
 def test_not_found_error_names_the_entity():
     error = NotFoundError("Dataset", "abc")
-    assert error.message == "Dataset 'abc' not found"
+    assert error.message == "Dataset not found."
+    assert error.entity_id == "abc"
 
 
 def test_concurrency_error_is_a_domain_error():
     error = ConcurrencyConflictError("Protocol", "abc")
-    assert "modified by another transaction" in error.message
+    assert error.message == "This protocol was changed by another request. Reload and try again."
 
 
 def test_global_workspace_is_the_nil_uuid():

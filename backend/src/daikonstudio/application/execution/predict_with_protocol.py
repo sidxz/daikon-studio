@@ -172,15 +172,17 @@ class PredictWithProtocol:
         if not protocol.is_locked:
             return Failure(
                 ConflictError(
-                    f"Protocol '{protocol.id}' is not published; only a published "
-                    "Protocol can be run"
+                    "Only a published protocol can be used for prediction. "
+                    "Publish this protocol first."
                 )
             )
 
         try:
             upload_ref = uuid.UUID(command.upload_ref)
         except ValueError:
-            return Failure(ValidationError("upload_ref is not a valid upload reference"))
+            return Failure(
+                ValidationError("The upload reference is invalid. Upload the file again.")
+            )
         key = upload_key(auth.workspace_id, upload_ref)
         if not self._store.exists(key):
             return Failure(NotFoundError("Upload", str(upload_ref)))
@@ -280,8 +282,8 @@ class RunPrediction:
         frame = read_csv_upload(raw)
         if command.structure_column not in frame.columns:
             raise ValidationError(
-                f"Column '{command.structure_column}' not present in the uploaded file: "
-                f"available columns: {', '.join(frame.columns)}"
+                f"Column '{command.structure_column}' is not in the uploaded file. "
+                f"Available columns: {', '.join(frame.columns)}."
             )
 
         raw_structures = [str(value) for value in frame[command.structure_column].to_list()]
@@ -292,7 +294,7 @@ class RunPrediction:
             pl.Series(command.structure_column, [s for s in canonical if s is not None])
         )
         if valid_frame.height == 0:
-            raise ValidationError("No valid structures in the uploaded file")
+            raise ValidationError("No SMILES in the uploaded file could be parsed.")
 
         # 1-based data-row positions in the uploaded file, the same convention
         # `InvalidRow.row_number` uses. A dropped (unparseable) row leaves a gap,
@@ -302,8 +304,8 @@ class RunPrediction:
         if command.id_column is not None:
             if command.id_column not in frame.columns:
                 raise ValidationError(
-                    f"Identifier column '{command.id_column}' not present in the uploaded "
-                    f"file: available columns: {', '.join(frame.columns)}"
+                    f"Identifier column '{command.id_column}' is not in the uploaded file. "
+                    f"Available columns: {', '.join(frame.columns)}."
                 )
             # Verbatim text, nullable, never a key: blanks become null and
             # duplicates both survive, because the file is the scientist's.
@@ -540,7 +542,8 @@ class GetPredictionResults:
             detail = run.error_message if run.status is RunStatus.FAILED else None
             return Failure(
                 ConflictError(
-                    f"Run '{run.id}' has no results yet (status: '{run.status.value}')",
+                    "Results are available only for completed runs; "
+                    f"this run is {run.status.label}.",
                     detail=detail,
                 )
             )

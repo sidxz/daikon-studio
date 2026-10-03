@@ -155,11 +155,13 @@ export const customInstance = async <T>({
         // A handler that returns nothing is taken to have started the renewal.
         _unauthorizedNotified = _onUnauthorized() !== false;
       }
-      throw new ApiError("Your session expired; signing you back in", 401, body, true);
+      throw new ApiError("Session expired. Signing in again…", 401, body, true);
     }
     throw new ApiError(
       message ??
-        (detail ? `API error: ${response.status} — ${detail}` : `API error: ${response.status}`),
+        (detail
+          ? `Request failed (${response.status}): ${detail}`
+          : `Request failed (${response.status})`),
       response.status,
       body,
     );

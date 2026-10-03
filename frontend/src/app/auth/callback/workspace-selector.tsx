@@ -39,7 +39,7 @@ export function WorkspaceSelector({
     return (
       <div>
         <h2 className="text-sm font-medium text-muted-foreground">
-          {workspace ? `Entering ${workspace.name}…` : "Signing in…"}
+          {workspace ? `Opening ${workspace.name}…` : "Signing in…"}
         </h2>
         <div className="mt-4 space-y-3">
           <Skeleton className="h-4 w-full" />
@@ -51,7 +51,7 @@ export function WorkspaceSelector({
 
   return (
     <div>
-      <h2 className="text-sm font-medium text-muted-foreground">Select workspace to continue</h2>
+      <h2 className="text-sm font-medium text-muted-foreground">Select a workspace to continue</h2>
       <div className="mt-4 space-y-2">
         {workspaces.map((workspace) => (
           <Button

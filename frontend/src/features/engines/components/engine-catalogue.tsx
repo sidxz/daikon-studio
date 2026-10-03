@@ -15,8 +15,7 @@ export function EngineCatalogue() {
       <div>
         <h1 className="text-lg font-semibold">Engines</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          What a Protocol can be trained with. Every engine describes its own settings, so this list
-          stays true without anyone updating it.
+          Engines available for training protocols, with their settings.
         </p>
       </div>
 
@@ -45,7 +44,7 @@ export function EngineCatalogue() {
                   <CardTitle className="text-base">{engine.name}</CardTitle>
                   {engine.is_baseline && (
                     <Badge variant="secondary" className="shrink-0">
-                      Baseline
+                      Default baseline
                     </Badge>
                   )}
                 </div>

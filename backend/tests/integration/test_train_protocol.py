@@ -365,7 +365,7 @@ async def test_a_metric_undefined_only_on_the_random_split_carries_its_own_reaso
     assert scorecard.random_split_unavailable is None  # it WAS computed, just undefined
     assert scorecard.random_split_metrics_undefined is not None
     assert set(scorecard.random_split_metrics_undefined) == set(scorecard.random_split_metrics)
-    assert "test split" in scorecard.random_split_metrics_undefined["mcc"]
+    assert "test-set" in scorecard.random_split_metrics_undefined["mcc"]
 
 
 async def test_invalid_conditions_fail_the_run_with_a_useful_message(studio: Studio) -> None:
@@ -378,7 +378,7 @@ async def test_invalid_conditions_fail_the_run_with_a_useful_message(studio: Stu
     failed = await studio.reload(run)
     assert failed.status.value == "failed"
     assert failed.error_message is not None
-    assert "max_depth" in failed.error_message
+    assert "Maximum tree depth" in failed.error_message
     # Failed before any compute: no protocol, no artifact, no scorecard.
     assert not (studio.blobs / str(studio.auth.workspace_id) / "protocols").exists()
 
@@ -609,7 +609,7 @@ async def test_progress_is_reported_through_the_named_phases(studio: Studio) -> 
 
     done = await studio.reload(run)
     assert done.progress == 1.0
-    assert done.phase == "training baseline"
+    assert done.phase == "Training baseline model"
 
 
 async def test_training_another_workspaces_dataset_is_a_not_found(studio: Studio) -> None:
@@ -650,7 +650,7 @@ async def test_an_unknown_engine_is_rejected_before_a_run_is_ever_created(
     )
 
     assert result.failure().__class__.__name__ == "NotFoundError"
-    assert "nope" in result.failure().message
+    assert result.failure().entity_id == "nope"
 
 
 async def test_a_failed_scorecard_write_leaves_no_protocol_behind(studio: Studio) -> None:
@@ -745,7 +745,7 @@ async def test_the_stored_scorecard_is_valid_json_even_when_a_metric_is_undefine
         "balanced_accuracy",
         "mcc",
     }
-    assert "test split" in card.random_split_metrics_undefined["mcc"]
+    assert "test-set" in card.random_split_metrics_undefined["mcc"]
 
 
 async def test_a_defined_metric_carries_no_undefined_reason(studio: Studio) -> None:
@@ -802,8 +802,7 @@ async def test_a_dataset_predating_the_structure_column_migration_fails_readably
     failed = await studio.reload(run)
     assert failed.status is RunStatus.FAILED
     assert failed.error_message is not None
-    assert str(dataset.id) in failed.error_message
-    assert "predates the structure_column migration" in failed.error_message
+    assert "created before its structure column was recorded" in failed.error_message
 
 
 def test_default_registry_has_exactly_one_baseline() -> None:

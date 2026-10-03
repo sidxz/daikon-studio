@@ -26,8 +26,8 @@ _MANIFEST = EngineManifest(
     id="ecfp4-xgboost",
     version="1.0.0",
     name="ECFP4 + XGBoost",
-    description="Morgan fingerprints with gradient-boosted trees. Often sharper than "
-    "the random forest baseline, at the cost of being more sensitive to its settings.",
+    description="Morgan fingerprints with gradient-boosted trees. Often more accurate "
+    "than the random-forest baseline, but more sensitive to hyperparameters.",
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(
         ConditionSpec(

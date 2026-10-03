@@ -49,17 +49,17 @@ def test_conditions_fill_in_defaults():
 
 
 def test_conditions_reject_out_of_range():
-    with pytest.raises(ValueError, match="n_estimators"):
+    with pytest.raises(ValueError, match="Trees"):
         validate_conditions(MANIFEST, {"n_estimators": 5000})
 
 
 def test_conditions_reject_unknown_keys():
-    with pytest.raises(ValueError, match="unknown"):
+    with pytest.raises(ValueError, match="does not accept these settings"):
         validate_conditions(MANIFEST, {"learning_rate": 0.1})
 
 
 def test_conditions_reject_value_that_cannot_coerce():
-    with pytest.raises(ValueError, match="n_estimators"):
+    with pytest.raises(ValueError, match="Trees"):
         validate_conditions(MANIFEST, {"n_estimators": "lots"})
 
 
@@ -70,12 +70,12 @@ def test_conditions_coerce_numeric_string():
 
 
 def test_conditions_reject_bool_for_numeric_condition():
-    with pytest.raises(ValueError, match="n_estimators"):
+    with pytest.raises(ValueError, match="Trees"):
         validate_conditions(MANIFEST, {"n_estimators": True})
 
 
 def test_conditions_reject_non_integral_float_for_integer_condition():
-    with pytest.raises(ValueError, match="n_estimators"):
+    with pytest.raises(ValueError, match="Trees"):
         validate_conditions(MANIFEST, {"n_estimators": 500.5})
 
 
@@ -109,7 +109,7 @@ def _baseline_engine(engine_id: str):
 
 def test_registry_raises_for_multiple_baselines():
     registry = EngineRegistry({"a": _baseline_engine("a"), "b": _baseline_engine("b")})
-    with pytest.raises(UnknownEngineError, match="multiple baseline"):
+    with pytest.raises(UnknownEngineError, match="More than one baseline"):
         registry.baseline()
 
 

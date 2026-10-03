@@ -44,9 +44,9 @@ _MANIFEST = EngineManifest(
     id="ecfp4-lightgbm",
     version="1.0.0",
     name="ECFP4 + LightGBM",
-    description="Morgan fingerprints with leaf-wise gradient boosting. Grows trees "
-    "towards whichever split helps most rather than to a fixed depth, and handles the "
-    "sparseness of a fingerprint natively -- usually the fastest engine here on large "
+    description="Morgan fingerprints with leaf-wise gradient boosting. Trees grow toward "
+    "the split with the largest gain rather than to a fixed depth, and sparse "
+    "fingerprint input is handled natively. Usually the fastest engine on large "
     "datasets.",
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(

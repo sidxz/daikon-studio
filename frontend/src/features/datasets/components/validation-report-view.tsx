@@ -76,8 +76,8 @@ export function ValidationReportView({
               average.
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
-              That spread is free information: no model trained on this data can honestly beat it,
-              so it becomes the floor your scorecard is measured against.
+              Model error below this level is within experimental error. The scorecard reports it as
+              the noise floor.
             </p>
           </CardContent>
         </Card>
@@ -91,9 +91,8 @@ export function ValidationReportView({
               {report.invalid.length === 1 ? "" : "s"} could not be used
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Structures that did not parse, and target values that are empty, not a number, or not
-              0/1. Rejected rather than dropped quietly. Row numbers are positions in the file you
-              uploaded.
+              Unparseable structures, and target values that are empty, non-numeric, or not 0/1.
+              These rows are excluded. Row numbers refer to the uploaded file.
             </p>
           </CardHeader>
           <CardContent className="max-h-96 overflow-y-auto">
@@ -102,7 +101,7 @@ export function ValidationReportView({
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="pb-2 pr-4 font-medium">Row</th>
                   <th className="pb-2 pr-4 font-medium">Value</th>
-                  <th className="pb-2 font-medium">Why</th>
+                  <th className="pb-2 font-medium">Reason</th>
                 </tr>
               </thead>
               <tbody>
@@ -124,12 +123,11 @@ export function ValidationReportView({
           <CardHeader>
             <CardTitle className="text-base">
               {report.conflicting.length.toLocaleString()} compound
-              {report.conflicting.length === 1 ? "" : "s"} labelled both ways
+              {report.conflicting.length === 1 ? "" : "s"} with conflicting labels
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              The same structure appears as active and inactive. That is a decision about your data,
-              not one a majority vote should make silently — so the file is refused until you
-              resolve it.
+              Each structure is labeled both active and inactive. Conflicts are not resolved
+              automatically; correct them and upload again.
             </p>
           </CardHeader>
           <CardContent className="max-h-96 overflow-y-auto">

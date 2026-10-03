@@ -94,7 +94,9 @@ def register_error_handlers(app: FastAPI, *, cors_origins: list[str] | None = No
             status_code=500,
             content={
                 "error": "InternalError",
-                "message": "Something went wrong on the server",
+                "message": (
+                    "An unexpected server error occurred. Include the request ID if you report it."
+                ),
                 "request_id": request_id,
             },
             headers=headers,

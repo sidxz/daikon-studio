@@ -64,7 +64,7 @@ export function RunnerList() {
         <div>
           <h1 className="text-lg font-semibold">Runners</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Machines that run training on your own hardware, outside the hosted queue.
+            Self-hosted machines that run training outside the hosted queue.
           </p>
         </div>
         <NewRunnerDialog />
@@ -163,8 +163,9 @@ export function RunnerList() {
           <AlertDialogHeader>
             <AlertDialogTitle>Revoke {revokeTarget?.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              This runner's token stops working immediately. It will not pick up new work, and
-              cannot be reconnected -- register a new runner if you need this hardware again.
+              The runner's token is invalidated immediately, and the runner will not accept new
+              jobs. A revoked runner cannot be reconnected. To use this machine again, register a
+              new runner.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

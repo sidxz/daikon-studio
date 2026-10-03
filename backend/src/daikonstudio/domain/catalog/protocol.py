@@ -89,7 +89,7 @@ class InSilicoProtocol(AggregateRoot):
         no-op'ing, because a caller retrying a publish should learn the protocol is
         already locked, not be quietly told it succeeded again."""
         if self.status is ProtocolStatus.PUBLISHED:
-            raise DataLockedError(f"Protocol '{self.id}' is already published")
+            raise DataLockedError("This protocol is already published.")
         self.status = ProtocolStatus.PUBLISHED
         self.published_at = datetime.now(UTC)
         self.updated_at = self.published_at

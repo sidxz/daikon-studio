@@ -70,15 +70,15 @@ describe("SweepForm", () => {
 
   it("adds and removes config rows", () => {
     render(<SweepForm />, { wrapper: Wrapper });
-    fireEvent.click(screen.getByRole("button", { name: /add config/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add configuration/i }));
     expect(screen.getAllByTestId("sweep-config-row")).toHaveLength(2);
-    fireEvent.click(screen.getAllByRole("button", { name: /remove config/i })[0]);
+    fireEvent.click(screen.getAllByRole("button", { name: /remove configuration/i })[0]);
     expect(screen.getAllByTestId("sweep-config-row")).toHaveLength(1);
   });
 
   it("will not remove the last config row", () => {
     render(<SweepForm />, { wrapper: Wrapper });
-    expect(screen.queryByRole("button", { name: /remove config/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /remove configuration/i })).toBeNull();
   });
 });
 
@@ -103,7 +103,7 @@ describe("submit resolves conditions against manifest defaults", () => {
     fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sweep" } });
-    fireEvent.click(screen.getByText("Submit sweep"));
+    fireEvent.click(screen.getByText("Start sweep"));
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
     const payload = mutateAsync.mock.calls[0][0];
@@ -127,8 +127,8 @@ describe("submit requires an engine on every config row", () => {
     fireEvent.click(await screen.findByRole("option", { name: /Solubility/ }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sweep" } });
 
-    expect(screen.getByText("Submit sweep")).toBeDisabled();
-    fireEvent.click(screen.getByText("Submit sweep"));
+    expect(screen.getByText("Start sweep")).toBeDisabled();
+    fireEvent.click(screen.getByText("Start sweep"));
     expect(mutateAsync).not.toHaveBeenCalled();
   });
 
@@ -141,10 +141,10 @@ describe("submit requires an engine on every config row", () => {
     fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sweep" } });
 
-    await waitFor(() => expect(screen.getByText("Submit sweep")).not.toBeDisabled());
+    await waitFor(() => expect(screen.getByText("Start sweep")).not.toBeDisabled());
 
-    fireEvent.click(screen.getByRole("button", { name: /add config/i }));
+    fireEvent.click(screen.getByRole("button", { name: /add configuration/i }));
 
-    expect(screen.getByText("Submit sweep")).toBeDisabled();
+    expect(screen.getByText("Start sweep")).toBeDisabled();
   });
 });

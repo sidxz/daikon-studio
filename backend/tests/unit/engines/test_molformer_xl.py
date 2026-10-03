@@ -235,5 +235,5 @@ def test_report_is_called_once_per_epoch() -> None:
     # The device is named but NOT asserted to a fixed value: `accelerator="auto"`
     # legitimately resolves to mps here, cuda on a CUDA runner and cpu in CI.
     phase = calls[-1][1]
-    assert phase.startswith("training molformer-xl on ")
+    assert phase.startswith("Training MoLFormer-XL on ")
     assert re.fullmatch(r"cpu|mps(:\d+)?|cuda(:\d+)?", phase.rsplit(" ", 1)[-1]), phase

@@ -65,20 +65,20 @@ def _validate_target(
     empty = text == ""
     if target.kind is TargetKind.BINARY:
         ok = numeric.is_in([0.0, 1.0]).fill_null(False) & ~empty
-        reason = "binary target must be 0 or 1, got '{raw}'"
+        reason = "Binary target must be 0 or 1 (found '{raw}')"
         cast_to: pl.DataType = pl.Int64()
     else:
         # is_finite, not is_not_null: polars parses "nan" and "inf" to floats that
         # are not null, and either one is the `Input y contains NaN` failure this
         # gate exists to stop.
         ok = numeric.is_finite().fill_null(False) & ~empty
-        reason = "target is not a number: '{raw}'"
+        reason = "Target value is not numeric: '{raw}'"
         cast_to = pl.Float64()
     invalid = [
         InvalidRow(
             row_number=row_numbers[index],
             value=text[index],
-            reason="empty target value" if empty[index] else reason.format(raw=text[index]),
+            reason="Missing target value" if empty[index] else reason.format(raw=text[index]),
         )
         for index in range(frame.height)
         if not ok[index]
@@ -106,7 +106,9 @@ def prepare_frame(
     canonical = [normalizer.canonicalize(smiles) for smiles in raw_structures]
 
     invalid = [
-        InvalidRow(row_number=index + 1, value=raw_structures[index], reason="invalid structure")
+        InvalidRow(
+            row_number=index + 1, value=raw_structures[index], reason="SMILES could not be parsed"
+        )
         for index, smiles in enumerate(canonical)
         if smiles is None
     ]

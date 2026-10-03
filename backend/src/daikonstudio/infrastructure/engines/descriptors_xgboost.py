@@ -42,11 +42,10 @@ _MANIFEST = EngineManifest(
     version="1.0.0",
     name="RDKit descriptors + XGBoost",
     description=(
-        "Gradient-boosted trees over the full set of RDKit physicochemical descriptors "
-        "-- size, lipophilicity, polarity, topology and charge -- rather than a hashed "
-        "structural fingerprint. This is the configuration behind most published ADMET "
-        "leaderboard results, and it is usually the strongest option on datasets of a "
-        "few hundred to a few thousand compounds."
+        "Gradient-boosted trees on RDKit 2D descriptors (size, lipophilicity, polarity, "
+        "topology and charge) instead of a hashed fingerprint. A strong, widely used "
+        "configuration for ADMET endpoints, particularly on datasets of a few hundred to "
+        "a few thousand compounds."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(

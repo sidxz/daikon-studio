@@ -28,8 +28,8 @@ export function RunList() {
         <div>
           <h1 className="text-lg font-semibold">Runs</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            A published protocol scoring a set of compounds. Training runs live on their protocol
-            instead.
+            Prediction runs apply a published protocol to a set of compounds. Training runs are
+            listed on their protocol.
           </p>
         </div>
         <Button asChild>

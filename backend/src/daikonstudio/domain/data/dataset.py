@@ -75,12 +75,8 @@ class DuplicateDatasetError(ConflictError):
     def __init__(self, existing_dataset_id: uuid.UUID) -> None:
         self.existing_dataset_id = existing_dataset_id
         super().__init__(
-            "This data, split this way, is already stored in this workspace",
-            detail=(
-                "Datasets are content-addressed over the split snapshot: the same data "
-                "under the same split is one Dataset. "
-                f"Use dataset {existing_dataset_id}, or change the data or the split."
-            ),
+            "A dataset with identical data and split already exists in this workspace.",
+            detail="Open the existing dataset, or change the data or the split settings.",
         )
 
     def body_extras(self) -> dict[str, Any]:

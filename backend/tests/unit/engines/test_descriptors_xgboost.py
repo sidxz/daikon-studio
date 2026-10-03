@@ -163,7 +163,7 @@ def test_predicting_through_drifted_descriptors_refuses_instead_of_guessing():
     bundle = pickle.loads(artifact)
     bundle["feature_names"] = DESCRIPTOR_NAMES[:-1]
 
-    with pytest.raises(ValidationError, match="different set of molecular descriptors"):
+    with pytest.raises(ValidationError, match="different RDKit descriptor set"):
         DescriptorsXGBoost().predict(
             PredictContext(
                 frame=pl.DataFrame({"smiles": ["CCO"]}),

@@ -54,7 +54,7 @@ export async function downloadFile({
   });
 
   if (!response.ok) {
-    throw new Error(`Download failed: ${response.status}`);
+    throw new Error(`Download failed (${response.status})`);
   }
 
   saveBlob(

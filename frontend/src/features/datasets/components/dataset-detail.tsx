@@ -104,7 +104,9 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
                     dataset.target.unit || dataset.target.direction ? (
                       <span className="font-mono">
                         {dataset.target.unit ?? "—"}
-                        {dataset.target.direction ? ` · ${dataset.target.direction} is better` : ""}
+                        {dataset.target.direction
+                          ? ` · ${dataset.target.direction === "high" ? "higher" : "lower"} is better`
+                          : ""}
                       </span>
                     ) : (
                       <span className="text-muted-foreground">—</span>
@@ -152,7 +154,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
           </Card>
 
           <div>
-            <h2 className="mb-2 text-sm font-medium">What the file contained</h2>
+            <h2 className="mb-2 text-sm font-medium">Validation report</h2>
             <ValidationReportView report={dataset.validation_report} />
           </div>
         </TabsContent>
@@ -162,7 +164,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
             <DatasetProfileSkeleton />
           ) : profile.isError || !profile.data ? (
             <div className="rounded-lg border border-border p-4">
-              <p className="text-sm font-medium">Could not profile this dataset</p>
+              <p className="text-sm font-medium">Could not load the dataset profile</p>
               <p className="mt-1 text-sm text-muted-foreground">
                 {profile.error instanceof Error
                   ? profile.error.message

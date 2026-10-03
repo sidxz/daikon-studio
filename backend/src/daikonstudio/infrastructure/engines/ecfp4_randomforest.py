@@ -47,8 +47,8 @@ _MANIFEST = EngineManifest(
             default=500,
             minimum=10,
             maximum=2000,
-            help="How many decision trees to average over. More trees give steadier "
-            "predictions but take longer to train. 500 is a good default.",
+            help="Number of decision trees in the ensemble. More trees give more stable "
+            "predictions but take longer to train.",
         ),
     ),
     is_baseline=True,

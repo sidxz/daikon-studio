@@ -105,8 +105,8 @@ function TargetSection({
         <CardTitle className="text-base">What you are predicting</CardTitle>
         <p className="text-sm text-muted-foreground">
           {distribution
-            ? "The measured values, train against test. A narrow range makes an impressive-looking error meaningless, and a test partition sitting somewhere else in the range is a shift the model will pay for."
-            : "How the two classes fall across the partitions. A split that leaves the test set badly unbalanced makes MCC unstable, whatever the model does."}
+            ? "Target values by partition. Read errors against the range; a shift between training and test sets lowers test performance."
+            : "Class balance in each partition. A strongly imbalanced test set makes MCC unstable."}
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -121,7 +121,7 @@ function TargetSection({
                     <ReadoutValue value={distribution.train.maximum} unit={unit} precision={2} />
                   </>
                 }
-                detail="Any error has to be read against this span — the same RMSE is excellent across six log units and meaningless across half of one."
+                detail="Interpret RMSE relative to this range: the same value is small across six log units but large across half of one."
               />
               <Stat
                 label="Train median"
@@ -133,8 +133,8 @@ function TargetSection({
                 detail={
                   Math.abs(distribution.test.median - distribution.train.median) >
                   distribution.train.std
-                    ? "More than one standard deviation from the train median. The partitions are not measuring the same population."
-                    : "In line with the train partition."
+                    ? "More than one training-set standard deviation from the training median, indicating a shift between partitions."
+                    : "Within one standard deviation of the training median."
                 }
               />
             </div>
@@ -173,9 +173,8 @@ function TargetSection({
               );
             })}
             <p className="text-xs text-muted-foreground">
-              Bars are active (coloured) against inactive. A partition under 10% active is flagged:
-              MCC and AUPRC both get unstable there, and the number that comes back will move a lot
-              between seeds.
+              Colored segment: active. Partitions below 10% or above 90% active are flagged; MCC and
+              AUPRC vary substantially between seeds at that imbalance.
             </p>
           </div>
         )}
@@ -206,9 +205,9 @@ function SplitHonestySection({
       <CardHeader>
         <CardTitle className="text-base">Is this split a real test?</CardTitle>
         <p className="text-sm text-muted-foreground">
-          How far each test compound sits from the nearest thing the model will train on. This is
-          the applicability question asked before training rather than after it — a test set that is
-          close to the training set will produce a flattering score no matter which engine runs.
+          Tanimoto similarity of each test compound to its nearest training compound: an
+          applicability-domain check before training. A test set close to the training set inflates
+          scores for any engine.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -223,7 +222,7 @@ function SplitHonestySection({
               <Stat
                 label="Within domain"
                 value={percent(similarity.within_domain)}
-                detail={`Test compounds within ${similarity.within_domain_threshold} Tanimoto of the training set. The rest is extrapolation.`}
+                detail={`Test compounds with similarity ≥ ${similarity.within_domain_threshold}. The rest lie outside the applicability domain.`}
               />
               <Stat
                 label="Near-duplicates"
@@ -231,8 +230,8 @@ function SplitHonestySection({
                 tone={similarity.near_duplicates > 0 ? "warning" : undefined}
                 detail={
                   similarity.near_duplicates > 0
-                    ? `Test compounds at or above ${similarity.near_duplicate_threshold} Tanimoto to something in training. The model has effectively already seen these, and every metric is flattered by them.`
-                    : `No test compound is within ${similarity.near_duplicate_threshold} Tanimoto of a training compound.`
+                    ? `Test compounds with Tanimoto similarity ≥ ${similarity.near_duplicate_threshold} to a training compound. These are effectively seen in training and inflate every metric.`
+                    : `No test compound has Tanimoto similarity ≥ ${similarity.near_duplicate_threshold} to a training compound.`
                 }
               />
             </>
@@ -242,15 +241,15 @@ function SplitHonestySection({
             </p>
           )}
           <Stat
-            label="Scaffolds on both sides"
+            label="Scaffolds shared by training and test sets"
             value={scaffolds.cross_split_scaffolds.toLocaleString()}
             tone={isScaffoldSplit && leaked ? "warning" : undefined}
             detail={
               isScaffoldSplit
                 ? leaked
-                  ? `${scaffolds.cross_split_compounds.toLocaleString()} compounds share a scaffold across train and test, which a scaffold split is supposed to prevent.`
-                  : "Zero, which is what a scaffold split promises. Train and test share no ring system."
-                : `${scaffolds.cross_split_compounds.toLocaleString()} compounds share a scaffold across train and test. Expected for a random split — and exactly what makes its scores optimistic.`
+                  ? `${scaffolds.cross_split_compounds.toLocaleString()} compounds have a scaffold present in both training and test sets. A scaffold split should prevent this.`
+                  : "As expected for a scaffold split: the training and test sets share no Bemis–Murcko scaffold."
+                : `${scaffolds.cross_split_compounds.toLocaleString()} compounds have a scaffold present in both training and test sets. Expected for a random split, and one reason its scores are optimistic.`
             }
           />
         </div>
@@ -258,12 +257,12 @@ function SplitHonestySection({
         {similarity && (
           <HistogramChart
             bins={similarity.histogram}
-            xLabel="nearest-neighbour Tanimoto to the training set"
+            xLabel="Tanimoto similarity to nearest training compound"
             reference={{
               at: similarity.within_domain_threshold,
-              label: "domain edge",
+              label: "Domain threshold",
             }}
-            caption="Mass piled to the right means the test set looks like the training set, and the benchmark is easier than it appears. Mass to the left means genuine extrapolation — a lower score there is worth more than a higher one on the right."
+            caption="Mass to the right indicates a test set similar to the training set, so the benchmark is easier than it appears. Mass to the left indicates extrapolation, where a lower score is more informative."
           />
         )}
       </CardContent>
@@ -283,9 +282,9 @@ function ScaffoldSection({ profile }: { profile: DatasetProfile }) {
       <CardHeader>
         <CardTitle className="text-base">Chemical diversity</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Bemis-Murcko scaffolds. Hundreds of analogues of one core is a congeneric series: a model
-          will interpolate across it beautifully and generalize nowhere. A long tail of singletons
-          is a diverse deck, which is harder to fit and worth more when fitted.
+          Bemis–Murcko scaffold distribution. A congeneric series is easy to interpolate within but
+          says little about generalization. A set with many singleton scaffolds is harder to fit and
+          more informative.
         </p>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -296,20 +295,20 @@ function ScaffoldSection({ profile }: { profile: DatasetProfile }) {
             detail={`${(profile.compounds / scaffolds.unique_count).toFixed(1)} compounds per scaffold on average.`}
           />
           <Stat
-            label="Largest family"
+            label="Most common scaffold"
             value={percent(scaffolds.largest_fraction)}
-            detail="Share of the dataset sitting on its single most common scaffold."
+            detail="Fraction of compounds with the most common scaffold."
           />
           <Stat
-            label="One-off scaffolds"
+            label="Singleton scaffolds"
             value={percent(singletonShare)}
-            detail="Scaffolds represented by exactly one compound. A high share means little for a model to generalize from within any family."
+            detail="Scaffolds with exactly one compound. A high fraction leaves little within-scaffold SAR to learn from."
           />
         </div>
 
         <CoverageCurveChart
           coverage={scaffolds.cumulative_coverage}
-          caption="A curve that jumps to the top-left is a congeneric series; one that climbs gradually is a diverse deck."
+          caption="A steep initial rise indicates a congeneric series; a gradual rise, a diverse set."
         />
 
         {scaffolds.top.length > 0 && (
@@ -327,7 +326,7 @@ function ScaffoldSection({ profile }: { profile: DatasetProfile }) {
                     <StructureThumbnail smiles={entry.smiles} size={110} />
                   ) : (
                     <div className="flex h-[110px] w-[110px] items-center justify-center text-center text-xs text-muted-foreground">
-                      no ring system
+                      Acyclic (no scaffold)
                     </div>
                   )}
                   <p className="text-xs text-muted-foreground">
@@ -364,8 +363,8 @@ function DescriptorSection({ profile }: { profile: DatasetProfile }) {
       <CardHeader>
         <CardTitle className="text-base">Physicochemical space</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Where this dataset sits in property space, and whether one ordinary descriptor already
-          explains the target.
+          Descriptor distributions by partition, and how strongly each descriptor alone correlates
+          with the target.
         </p>
       </CardHeader>
       <CardContent className="space-y-5">
@@ -379,10 +378,10 @@ function DescriptorSection({ profile }: { profile: DatasetProfile }) {
             </p>
             <p className="mt-1 text-sm text-muted-foreground">
               {Math.abs(strongest.value) >= 0.7
-                ? "That is most of the signal. A model that beats the baseline here has not yet shown it learned any chemistry beyond this one property — check it against the parity plot on the trained protocol before believing the headline."
+                ? "A strong monotonic relationship. Part of any model's apparent performance may come from this property alone; interpret scores with this in mind."
                 : Math.abs(strongest.value) >= 0.4
-                  ? "A real but partial trend. Some of any model's score on this dataset is this property rather than chemistry."
-                  : "Weak, which is good news: no single ordinary property explains this target, so a model has something genuine to learn."}
+                  ? "A moderate correlation. Part of any model's performance may reflect this property alone."
+                  : "A weak correlation: no single descriptor explains the target."}
             </p>
           </div>
         )}
@@ -393,7 +392,7 @@ function DescriptorSection({ profile }: { profile: DatasetProfile }) {
             xLabel="Spearman correlation with the target"
             diverging
             height={Math.max(160, correlated.length * 26 + 50)}
-            caption="Sign is direction, length is strength. Descriptors that correlate negatively are exactly as informative as ones that correlate positively."
+            caption="Bar length shows strength; sign shows direction. Negative and positive correlations are equally informative."
           />
         )}
 
@@ -411,9 +410,8 @@ function DescriptorSection({ profile }: { profile: DatasetProfile }) {
           ))}
         </div>
         <p className="text-xs text-muted-foreground">
-          Train and test are drawn as shares of their own partitions, so the shapes stay comparable
-          despite the partitions being very different sizes. Two distributions that barely overlap
-          are a covariate shift the split introduced.
+          Histograms are normalized within each partition, so training and test sets are comparable
+          despite different sizes. Little overlap indicates covariate shift.
         </p>
       </CardContent>
     </Card>
@@ -441,11 +439,11 @@ function CliffSection({
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">
-            No near-identical pair disagrees about the target
+            No activity cliffs found (similar pairs with differing target values)
             {profile.cliffs_sampled_from
-              ? ` among the sample scanned of ${profile.cliffs_sampled_from.toLocaleString()} compounds`
+              ? `, in a subsample of the ${profile.cliffs_sampled_from.toLocaleString()} compounds`
               : ""}
-            . Nothing here puts an extra ceiling on what a model can achieve.
+            .
           </p>
         </CardContent>
       </Card>
@@ -457,11 +455,10 @@ function CliffSection({
       <CardHeader>
         <CardTitle className="text-base">Activity cliffs</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Near-identical structures the assay disagrees about. Any featurization that maps these two
-          molecules to nearly the same point cannot predict both — collectively they are a second
-          ceiling on accuracy, alongside the assay noise floor.
+          Close structural analogs with different measured values. A model that represents both
+          almost identically cannot predict both, which limits accuracy alongside assay noise.
           {profile.cliffs_sampled_from
-            ? ` Scanned on a sample of ${profile.cliffs_sampled_from.toLocaleString()} compounds.`
+            ? ` Scanned on a subsample of the ${profile.cliffs_sampled_from.toLocaleString()} compounds.`
             : ""}
         </p>
       </CardHeader>
@@ -491,18 +488,18 @@ function CliffSection({
             </div>
             <dl className="w-full max-w-[16rem] space-y-0.5 text-xs sm:w-auto sm:min-w-[12rem]">
               <div className="flex justify-between gap-2">
-                <dt className="text-muted-foreground">similarity</dt>
+                <dt className="text-muted-foreground">Similarity</dt>
                 <dd className="tabular-nums">{cliff.similarity.toFixed(2)}</dd>
               </div>
               <div className="flex justify-between gap-2 border-t pt-0.5">
-                <dt className="text-muted-foreground">differ by</dt>
+                <dt className="text-muted-foreground">Difference</dt>
                 <dd className="font-medium text-warning">
                   <ReadoutValue value={cliff.delta} unit={unit} precision={2} />
                 </dd>
               </div>
               {noiseFloor != null && (
                 <div className="flex justify-between gap-2">
-                  <dt className="text-muted-foreground">assay noise</dt>
+                  <dt className="text-muted-foreground">Assay noise</dt>
                   <dd className="tabular-nums">
                     <ReadoutValue value={noiseFloor} precision={2} />
                   </dd>
@@ -513,9 +510,8 @@ function CliffSection({
         ))}
         {noiseFloor != null && (
           <p className="text-xs text-muted-foreground">
-            A gap far larger than the assay noise floor is a real structure-activity relationship. A
-            gap close to it is two measurements that disagree, which is a data question rather than
-            a chemistry one.
+            A difference well above the assay noise floor likely reflects a genuine SAR effect; one
+            close to it may be measurement error.
           </p>
         )}
       </CardContent>

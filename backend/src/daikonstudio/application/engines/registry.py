@@ -21,7 +21,7 @@ class UnknownEngineError(NotFoundError):
     Deliberately calls `DomainError.__init__` rather than
     `NotFoundError.__init__`: the two call sites below don't share
     `NotFoundError`'s `(entity_type, entity_id)` shape -- `.get()`'s message
-    is a bare engine id, `.baseline()`'s is a sentence describing the
+    names the missing engine id, `.baseline()`'s is a sentence describing the
     registry's own misconfiguration (no baseline registered, or more than
     one) -- and forcing the second through `"{entity_type} '{entity_id}' not
     found"` would misdescribe it. Inheriting from `NotFoundError` is only so
@@ -45,7 +45,9 @@ class EngineRegistry:
         try:
             return self._engines[engine_id]
         except KeyError as exc:
-            raise UnknownEngineError(engine_id) from exc
+            raise UnknownEngineError(
+                f"Engine '{engine_id}' is not available on this server."
+            ) from exc
 
     def manifests(self) -> list[EngineManifest]:
         return [engine.manifest() for engine in self._engines.values()]
@@ -53,8 +55,10 @@ class EngineRegistry:
     def baseline(self) -> Engine:
         baselines = [e for e in self._engines.values() if e.manifest().is_baseline]
         if not baselines:
-            raise UnknownEngineError("no baseline engine registered")
+            raise UnknownEngineError("No baseline engine is configured on this server.")
         if len(baselines) > 1:
             ids = sorted(e.manifest().id for e in baselines)
-            raise UnknownEngineError(f"multiple baseline engines registered: {ids}")
+            raise UnknownEngineError(
+                f"More than one baseline engine is configured: {', '.join(ids)}."
+            )
         return baselines[0]

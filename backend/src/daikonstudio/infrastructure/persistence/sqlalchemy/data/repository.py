@@ -76,8 +76,8 @@ class SqlAlchemyDatasetRepository:
                 # A ConflictError is a 409 -- far better than surfacing a 500.
                 await session.rollback()
                 raise ConflictError(
-                    "This data is already stored in this workspace",
-                    detail="A concurrent upload of identical data won the race.",
+                    "A dataset with identical data and split already exists in this workspace.",
+                    detail="It was created by a concurrent upload. Refresh the dataset list.",
                 ) from error
 
     async def get(self, workspace_id: uuid.UUID, dataset_id: uuid.UUID) -> Dataset | None:

@@ -115,7 +115,7 @@ def test_scaffold_split_raises_when_a_dominant_family_leaves_a_partition_empty()
     assert "test" in excinfo.value.message
     assert "90%" in excinfo.value.message
     assert "c1ccccc1" in excinfo.value.message
-    assert "RANDOM" in excinfo.value.message
+    assert "random split" in excinfo.value.message
 
 
 def test_scaffold_split_raises_when_one_scaffold_covers_every_row():
@@ -227,7 +227,7 @@ def test_tiny_frame_leaves_some_partitions_empty_but_never_crashes():
 
 
 def test_split_spec_rejects_fractions_that_do_not_sum_to_one():
-    with pytest.raises(ValueError, match=r"sum to 1\.0"):
+    with pytest.raises(ValueError, match=r"sum to 1\."):
         SplitSpec(strategy=SplitStrategy.RANDOM, seed=1, fractions=(0.5, 0.3, 0.3))
 
 

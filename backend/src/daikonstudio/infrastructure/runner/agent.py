@@ -112,7 +112,9 @@ async def _abandon_hung_job(ctx: dict[str, object], run_id: uuid.UUID, limit: fl
     try:
         async with asyncio.timeout(10):
             await jobs.fail_run(
-                ctx, run_id, f"the runner gave up after {limit:.0f}s: the fit never returned"
+                ctx,
+                run_id,
+                f"The job did not finish within {limit:.0f} s and was stopped by the runner.",
             )
     except Exception:
         _logger.exception("could not record the failure before exiting", run_id=str(run_id))

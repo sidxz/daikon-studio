@@ -15,7 +15,7 @@ def test_invalid_structures_are_reported_with_row_numbers():
     prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert prepared.height == 1
     assert report.invalid[0].row_number == 2
-    assert "invalid structure" in report.invalid[0].reason
+    assert "SMILES could not be parsed" in report.invalid[0].reason
 
 
 def test_numeric_duplicates_are_averaged_and_spread_retained():
@@ -126,7 +126,7 @@ def test_null_numeric_targets_are_invalid_rows_not_training_failures():
     prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert prepared.height == 1
     assert report.valid_rows == 1
-    assert report.invalid == [InvalidRow(row_number=2, value="", reason="empty target value")]
+    assert report.invalid == [InvalidRow(row_number=2, value="", reason="Missing target value")]
 
 
 def test_non_numeric_target_values_are_invalid_rows_not_a_crash():
@@ -138,7 +138,7 @@ def test_non_numeric_target_values_are_invalid_rows_not_a_crash():
     assert prepared["y"].dtype == pl.Float64
     assert prepared["y"].to_list() == [1.5]
     assert [row.row_number for row in report.invalid] == [2, 3]
-    assert report.invalid[0].reason == "target is not a number: 'NA'"
+    assert report.invalid[0].reason == "Target value is not numeric: 'NA'"
 
 
 def test_binary_targets_must_be_zero_or_one():
@@ -146,15 +146,15 @@ def test_binary_targets_must_be_zero_or_one():
     prepared, report = prepare_frame(frame, "smiles", BINARY, NORMALIZER)
     assert prepared["y"].to_list() == [1]
     assert [row.reason for row in report.invalid] == [
-        "binary target must be 0 or 1, got 'active'",
-        "binary target must be 0 or 1, got '2'",
+        "Binary target must be 0 or 1 (found 'active')",
+        "Binary target must be 0 or 1 (found '2')",
     ]
 
 
 def test_a_row_failing_both_gates_is_reported_once_for_its_structure():
     frame = pl.DataFrame({"smiles": ["not-a-molecule", "CCO"], "y": [None, 1.0]})
     _, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
-    assert [row.reason for row in report.invalid] == ["invalid structure"]
+    assert [row.reason for row in report.invalid] == ["SMILES could not be parsed"]
 
 
 def test_nan_and_inf_targets_are_invalid_rows_too():
@@ -179,5 +179,5 @@ def test_read_csv_upload_keeps_text_verbatim_and_tolerates_a_late_bad_value():
 
     prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert [row.row_number for row in report.invalid] == [150]
-    assert report.invalid[0].reason == "target is not a number: 'NA'"
+    assert report.invalid[0].reason == "Target value is not numeric: 'NA'"
     assert prepared["y"].dtype == pl.Float64

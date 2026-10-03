@@ -42,7 +42,7 @@ def _require_rank(auth: AuthContext | None, minimum: str) -> None:
     if auth is None:  # system/worker call
         return
     if _ROLE_RANK.get(auth.workspace_role, -1) < _ROLE_RANK[minimum]:
-        raise AuthorizationError(f"Requires {minimum} role or higher")
+        raise AuthorizationError(f"This action requires the {minimum} role or higher.")
 
 
 def require_editor(auth: AuthContext | None) -> None:

@@ -79,4 +79,4 @@ class RetryRun:
                 raise NotFoundError("Protocol", str(protocol_id))
             return self._engines.get(protocol.engine_id).manifest().lane
         except UnknownEngineError as error:
-            raise NotFoundError("Engine", str(error)) from error
+            raise NotFoundError("Engine") from error

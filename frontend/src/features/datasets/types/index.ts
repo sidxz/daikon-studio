@@ -88,22 +88,22 @@ export const SPLIT_COPY: Record<SplitStrategy, { title: string; detail: string }
   scaffold: {
     title: "Scaffold",
     detail:
-      "Test compounds have chemical scaffolds the model never trained on. This simulates asking the model about a new series — the situation you are usually in, and the harder score to earn.",
+      "Test compounds have Bemis–Murcko scaffolds absent from training. This approximates prediction on a new chemical series and gives a conservative estimate.",
   },
   random: {
     title: "Random",
     detail:
-      "Test compounds are drawn at random, so close analogues of training compounds end up on both sides. Scores come out higher than the model will achieve prospectively.",
+      "Compounds are assigned at random, so close analogs of training compounds appear in the test set. Scores typically overestimate prospective performance.",
   },
 };
 
 export const TARGET_KIND_COPY: Record<TargetKind, { title: string; detail: string }> = {
   numeric: {
     title: "A measured value",
-    detail: "IC50, solubility, permeability — anything on a continuous scale.",
+    detail: "For example pIC50, log solubility or permeability.",
   },
   binary: {
     title: "Active or inactive",
-    detail: "A two-class call. The column must hold exactly two distinct values.",
+    detail: "Values must be 0 (inactive) or 1 (active).",
   },
 };

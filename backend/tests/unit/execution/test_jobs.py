@@ -66,7 +66,7 @@ async def test_run_job_records_failure_and_reraises(
     assert run.status.value == "failed"
     # Class and text, never repr(): the text is what a scientist can act on, and
     # a repr would carry a library's internal paths to every viewer of the run.
-    assert run.error_message == "ValueError: engine exploded"
+    assert run.error_message == "engine exploded"
     assert saved == ["running", "failed"]
 
 

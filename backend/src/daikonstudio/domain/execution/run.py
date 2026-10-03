@@ -39,6 +39,11 @@ class RunStatus(StrEnum):
     FAILED = "failed"
     CANCELLED = "cancelled"
 
+    @property
+    def label(self) -> str:
+        """The status as user-facing copy (American spelling)."""
+        return "canceled" if self is RunStatus.CANCELLED else self.value
+
 
 _TERMINAL = {RunStatus.READY, RunStatus.FAILED, RunStatus.CANCELLED}
 
@@ -238,7 +243,9 @@ class Run(AggregateRoot):
         which flips the row the live worker checkpoints against, then retry.
         """
         if self.status not in {RunStatus.FAILED, RunStatus.CANCELLED}:
-            raise ConflictError(f"Cannot retry run '{self.id}' in status '{self.status}'")
+            raise ConflictError(
+                f"Only a failed or canceled run can be retried; this run is {self.status.label}."
+            )
         self.status = RunStatus.PENDING
         self.progress = 0.0
         self.phase = None
@@ -264,7 +271,7 @@ class Run(AggregateRoot):
         """
         if self.status in _TERMINAL:
             raise ConflictError(
-                f"Cannot cancel run '{self.id}' in terminal status '{self.status}'"
+                f"This run has already ended ({self.status.label}) and cannot be canceled."
             )
         self.status = RunStatus.CANCELLED
         self._touch()

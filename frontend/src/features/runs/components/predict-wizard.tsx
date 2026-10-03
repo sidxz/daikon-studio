@@ -115,7 +115,7 @@ export function PredictWizard() {
       complete: (result) => {
         const fields = (result.meta.fields ?? []).filter((field) => field.trim() !== "");
         if (fields.length === 0) {
-          showError("No columns found. Is this a CSV with a header row?");
+          showError("No columns found. The file must be a CSV with a header row.");
           return;
         }
         setFile(dropped);
@@ -128,7 +128,7 @@ export function PredictWizard() {
         setStructureColumn(guess);
         setIdColumn(guessIdColumn(fields, guess));
       },
-      error: () => showError("Could not read that file"),
+      error: () => showError("Could not read the file"),
     });
   }, []);
 
@@ -172,8 +172,8 @@ export function PredictWizard() {
       <div>
         <h1 className="text-lg font-semibold">Run a protocol</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Score your own compounds with a published protocol. You do not need to know anything about
-          the model underneath — it carries its own units.
+          Predict properties for your compounds with a published protocol. Results are reported in
+          the protocol's units.
         </p>
       </div>
 
@@ -195,7 +195,7 @@ export function PredictWizard() {
             </Select>
             {protocols.data && published.length === 0 && (
               <p className="text-xs text-muted-foreground">
-                Nothing is published yet. Train a protocol and publish it first.
+                No published protocols. Train and publish a protocol first.
               </p>
             )}
             {selectedProtocol && <ProtocolContext protocol={selectedProtocol} />}
@@ -215,9 +215,7 @@ export function PredictWizard() {
               <span className="text-sm font-medium">
                 {file ? file.name : "Drop a CSV of structures, or click to choose one"}
               </span>
-              <span className="text-xs text-muted-foreground">
-                One column of SMILES. No measured values needed — that is what you are asking for.
-              </span>
+              <span className="text-xs text-muted-foreground">Requires one SMILES column.</span>
             </button>
             <div className="flex items-center justify-end">
               <Button
@@ -269,7 +267,7 @@ export function PredictWizard() {
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Carried beside every prediction and into the export, so results join back to your
+                  Included with each prediction and in the export, so results can be matched to your
                   file.
                 </p>
               </div>
@@ -284,7 +282,9 @@ export function PredictWizard() {
           Cancel
         </Button>
         <Button onClick={submit} disabled={!protocolId || !file || compoundCount === 0 || busy}>
-          {busy ? "Starting…" : `Score ${compoundCount} compound${compoundCount === 1 ? "" : "s"}`}
+          {busy
+            ? "Starting…"
+            : `Predict ${compoundCount} compound${compoundCount === 1 ? "" : "s"}`}
         </Button>
       </div>
     </div>

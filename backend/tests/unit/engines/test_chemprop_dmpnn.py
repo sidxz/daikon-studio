@@ -154,7 +154,7 @@ def test_report_is_called_once_per_epoch() -> None:
     # hold everywhere is that a device is reported at all -- an empty or absent
     # suffix means a finished run cannot say what it ran on.
     phase = calls[-1][1]
-    assert phase.startswith("training chemprop-dmpnn on ")
+    assert phase.startswith("Training Chemprop D-MPNN on ")
     assert re.fullmatch(r"cpu|mps(:\d+)?|cuda(:\d+)?", phase.rsplit(" ", 1)[-1]), phase
 
 

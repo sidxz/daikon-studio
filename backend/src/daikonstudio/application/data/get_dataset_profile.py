@@ -101,7 +101,7 @@ class GetDatasetProfile:
         try:
             raw = self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id))
         except FileNotFoundError:
-            return Failure(NotFoundError("Dataset snapshot", str(dataset.id)))
+            return Failure(NotFoundError("Stored dataset file", str(dataset.id)))
 
         # Off-thread for the same reason `GetScorecard` moves `build_scorecard`
         # off it: this is seconds of RDKit and BLAS, and running it on the event

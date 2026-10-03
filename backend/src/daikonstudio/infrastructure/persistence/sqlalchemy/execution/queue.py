@@ -21,7 +21,8 @@ _SWEEP_REQUEUE = text("""
 _SWEEP_FAIL = text("""
     UPDATE runs
     SET status = 'failed', updated_at = now(),
-        error_message = 'runner lease expired after ' || attempts || ' attempts'
+        error_message = 'No runner completed this run after ' || attempts
+            || ' attempts; the runner stopped responding.'
     WHERE status = 'pending' AND claimed_by IS NULL AND lane IS NOT NULL
       AND attempts >= :max_attempts
 """)

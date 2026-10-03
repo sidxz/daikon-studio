@@ -59,12 +59,12 @@ _MANIFEST = EngineManifest(
             default=50,
             minimum=1,
             maximum=500,
-            help="How many passes over the training set. More epochs fit the training "
-            "data more closely, at growing risk of memorising it. 50 is a good default.",
+            help="Number of passes over the training set. More epochs fit the training "
+            "data more closely, with increasing risk of overfitting.",
         ),
         ConditionSpec(
             key="depth",
-            label="Message passing steps",
+            label="Message-passing steps",
             type=ConditionType.INTEGER,
             default=3,
             minimum=2,
@@ -74,13 +74,13 @@ _MANIFEST = EngineManifest(
         ),
         ConditionSpec(
             key="message_hidden_dim",
-            label="Hidden size",
+            label="Hidden dimension",
             type=ConditionType.INTEGER,
             default=300,
             minimum=64,
             maximum=2400,
-            help="How much the network can represent about each atom. Larger needs "
-            "more data to be worth it.",
+            help="Dimension of the learned message vectors. Larger values need more "
+            "training data to be beneficial.",
         ),
         ConditionSpec(
             key="batch_size",
@@ -89,8 +89,8 @@ _MANIFEST = EngineManifest(
             default=64,
             minimum=8,
             maximum=512,
-            help="How many molecules are scored before the weights update. Lower it "
-            "if training runs out of GPU memory.",
+            help="Number of molecules per gradient update. Reduce it if training runs "
+            "out of GPU memory.",
         ),
         ConditionSpec(
             key="pretrained",
@@ -125,10 +125,9 @@ def _require_chemprop() -> None:
         import chemprop  # noqa: F401
     except ImportError as exc:
         raise ValidationError(
-            "The chemprop-dmpnn engine needs the 'gpu' extra, which this worker does "
-            "not have installed. This engine requires a runner registered for the 'gpu' "
-            "lane (register runners in the Runners page in the UI, or seed locally with "
-            "`make seed-runners`), or install the extra locally with `uv sync --extra gpu`."
+            "This runner does not have the GPU dependencies that Chemprop D-MPNN "
+            "requires. An administrator can register a runner for the 'gpu' lane on the "
+            "Runners page."
         ) from exc
 
 
@@ -306,7 +305,7 @@ class ChempropDMPNN:
             # honest thing anybody could say about a finished run is "some device".
             ctx.report(
                 (trainer.current_epoch + 1) / epochs,
-                f"training {_MANIFEST.id} on {trainer.strategy.root_device}",
+                f"Training {_MANIFEST.name} on {trainer.strategy.root_device}",
             )
 
         # The validation partition selects the epoch. `val_loss` is what chemprop's

@@ -64,7 +64,7 @@ async def test_create_dataset_rejects_a_frame_with_no_valid_structures(client, c
     assert detail["invalid"][0] == {
         "row_number": 1,
         "value": "nope",
-        "reason": "invalid structure",
+        "reason": "SMILES could not be parsed",
     }
     assert detail["total_rows"] == 2
     assert detail["valid_rows"] == 0
@@ -259,8 +259,8 @@ async def test_scaffold_split_failure_reaches_the_scientist_intact(client, csv_u
     )
     assert response.status_code == 422, response.text
     message = response.json()["message"]
-    assert "RANDOM" in message
-    assert "scaffold family" in message
+    assert "random split" in message
+    assert "Bemis–Murcko scaffold" in message  # noqa: RUF001
 
 
 async def test_missing_target_column_is_rejected(client, csv_upload):

@@ -103,5 +103,5 @@ async def test_a_baseline_that_cannot_serve_the_task_fails_before_any_fit() -> N
 
     message = str(raised.value)
     assert "regression-only" in message
-    assert "binary_classification" in message
+    assert "binary classification" in message
     assert "chosen" not in message

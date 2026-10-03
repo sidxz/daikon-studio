@@ -93,7 +93,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
       <Card>
         <CardHeader className="pb-2">
           <CardTitle className="text-sm font-medium text-muted-foreground">
-            What it predicts
+            Predicted readouts
           </CardTitle>
         </CardHeader>
         <CardContent>
@@ -104,7 +104,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
                 {readout.unit && <span className="ml-1 text-muted-foreground">{readout.unit}</span>}
                 {readout.direction && (
                   <span className="ml-1 text-xs text-muted-foreground">
-                    ({readout.direction} is better)
+                    ({readout.direction === "low" ? "lower" : "higher"} is better)
                   </span>
                 )}
               </span>
@@ -114,9 +114,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
       </Card>
 
       {scorecard.isLoading && <Skeleton className="h-64 w-full" />}
-      {scorecard.isError && (
-        <p className="text-sm text-destructive">Could not load the Scorecard.</p>
-      )}
+      {scorecard.isError && <p className="text-sm text-destructive">Could not load scorecard</p>}
       {scorecard.data && <ScorecardView scorecard={scorecard.data} />}
 
       <ProtocolRuns protocolId={protocol.id} />
@@ -126,9 +124,9 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
           <AlertDialogHeader>
             <AlertDialogTitle>Publish {protocol.name}?</AlertDialogTitle>
             <AlertDialogDescription>
-              Publishing locks this protocol permanently. Its weights, dataset, split and metrics
-              can never change again, which is what makes it citable — and it means this cannot be
-              undone. Anyone in this workspace will be able to run it.
+              Publishing permanently locks this protocol's weights, dataset, split and metrics so
+              that it can be cited. Anyone in this workspace will be able to run it. This cannot be
+              undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

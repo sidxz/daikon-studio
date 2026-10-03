@@ -176,14 +176,13 @@ def _scaffold_labels(
     ]
     if empty:
         dominant = ordered_groups[0]
-        dominant_scaffold = scaffolds[dominant[0]] or "(acyclic/invalid -- no shared scaffold)"
+        dominant_scaffold = scaffolds[dominant[0]] or "(acyclic or unparseable: no ring system)"
         share = len(dominant) / n
         raise ValidationError(
-            f"Scaffold split cannot honor the requested fractions on this dataset: "
-            f"{' and '.join(empty)} would be left empty. The largest scaffold family "
-            f"('{dominant_scaffold}') spans {share:.0%} of the {n} rows and cannot be "
-            f"divided across partitions without a scaffold straddling them. Use "
-            f"SplitStrategy.RANDOM instead, or add more chemically diverse compounds "
-            f"to this dataset."
+            f"A scaffold split cannot meet the requested fractions for this dataset: "
+            f"the {' and '.join(empty)} {'set' if len(empty) == 1 else 'sets'} would be "
+            f"empty. The largest Bemis–Murcko scaffold ('{dominant_scaffold}') covers "  # noqa: RUF001
+            f"{share:.0%} of {n} compounds and cannot be divided between sets. Use a "
+            f"random split, or add structurally diverse compounds."
         )
     return labels

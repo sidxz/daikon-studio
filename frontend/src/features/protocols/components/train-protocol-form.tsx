@@ -152,7 +152,7 @@ export function TrainProtocolForm() {
       setRunId(undefined);
     }
     if (run.data?.status === "cancelled") {
-      showError("Training was cancelled");
+      showError("Training was canceled");
       setRunId(undefined);
     }
   }, [run.data, router]);
@@ -166,7 +166,7 @@ export function TrainProtocolForm() {
     if (!run.isLoadingError) return;
     if (!(run.error instanceof ApiError && run.error.silent)) {
       showError(
-        "Lost track of this training run. It may still finish: look for it under Protocols.",
+        "Could not retrieve the status of this training run. It may still complete; check Protocols.",
       );
     }
     setRunId(undefined);
@@ -231,8 +231,8 @@ export function TrainProtocolForm() {
               />
             </div>
             <p className="text-xs text-muted-foreground">
-              Your chosen engine, the mandatory baseline, and — on a scaffold split — the same
-              engine on a random split, so the optimism gap is measured rather than guessed.
+              Training the selected engine and the baseline. On a scaffold split, the engine is also
+              trained on a random split to measure the optimism gap.
             </p>
           </CardContent>
         </Card>
@@ -245,8 +245,8 @@ export function TrainProtocolForm() {
       <div>
         <h1 className="text-lg font-semibold">Train a protocol</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          A protocol is a trained model someone else can run. It is always scored against a baseline
-          — one is chosen for you, and you can change it, but you cannot skip the comparison.
+          A protocol is a trained model that others can run once it is published. Every protocol is
+          scored against a baseline; a default is selected, and you can change it.
         </p>
       </div>
 
@@ -298,13 +298,15 @@ export function TrainProtocolForm() {
               disabled={!dataset}
             >
               <SelectTrigger>
-                <SelectValue placeholder={dataset ? "Choose an engine" : "Pick a dataset first"} />
+                <SelectValue
+                  placeholder={dataset ? "Choose an engine" : "Choose a dataset first"}
+                />
               </SelectTrigger>
               <SelectContent>
                 {eligible.map((candidate) => (
                   <SelectItem key={candidate.id} value={candidate.id}>
                     {candidate.name}
-                    {candidate.is_baseline ? " · the baseline" : ""}
+                    {candidate.is_baseline ? " · default baseline" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -325,22 +327,23 @@ export function TrainProtocolForm() {
               disabled={!dataset}
             >
               <SelectTrigger>
-                <SelectValue placeholder={dataset ? "Choose a baseline" : "Pick a dataset first"} />
+                <SelectValue
+                  placeholder={dataset ? "Choose a baseline" : "Choose a dataset first"}
+                />
               </SelectTrigger>
               <SelectContent>
                 {eligible.map((candidate) => (
                   <SelectItem key={candidate.id} value={candidate.id}>
                     {candidate.name}
-                    {candidate.is_baseline ? " · the baseline" : ""}
+                    {candidate.is_baseline ? " · default baseline" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
             {selfCompare && (
               <p className="text-xs text-muted-foreground">
-                This is the same engine with the same settings on both sides, so there is nothing to
-                compare. Change a setting on one side, or pick a different engine to measure
-                against.
+                The model and baseline use the same engine and settings. Change a setting or choose
+                a different baseline engine.
               </p>
             )}
           </div>

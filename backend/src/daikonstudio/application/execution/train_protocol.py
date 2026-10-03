@@ -347,7 +347,7 @@ class TrainProtocol:
                 else self._engines.baseline()
             )
         except UnknownEngineError:
-            return Failure(NotFoundError("Engine", command.baseline_engine_id or "baseline"))
+            return Failure(NotFoundError("Baseline engine", command.baseline_engine_id))
 
         dataset = await self._datasets.get(auth.workspace_id, command.dataset_id)
         if dataset is None:
@@ -443,8 +443,8 @@ class RunTraining:
         task = _task_for(dataset)
         if task not in manifest.tasks:
             raise ValidationError(
-                f"Engine '{manifest.id}' cannot train a {task.value} model; "
-                f"it supports {', '.join(t.value for t in manifest.tasks)}"
+                f"{manifest.name} does not support {_task_label(task)}. "
+                f"Supported tasks: {', '.join(map(_task_label, manifest.tasks))}."
             )
         conditions = validate_conditions(manifest, command.conditions)
 
@@ -458,8 +458,9 @@ class RunTraining:
         baseline_manifest = baseline.manifest()
         if task not in baseline_manifest.tasks:
             raise ValidationError(
-                f"Baseline engine '{baseline_manifest.id}' cannot train a {task.value} "
-                f"model; it supports {', '.join(t.value for t in baseline_manifest.tasks)}"
+                f"The baseline engine ({baseline_manifest.name}) does not support "
+                f"{_task_label(task)}. Supported tasks: "
+                f"{', '.join(map(_task_label, baseline_manifest.tasks))}."
             )
         baseline_conditions = validate_conditions(baseline_manifest, command.baseline_conditions)
 
@@ -492,7 +493,7 @@ class RunTraining:
                 baseline_conditions,
                 frame,
                 _BASELINE_SPAN,
-                "training baseline",
+                "Training baseline model",
             )
 
         (
@@ -646,7 +647,9 @@ class RunTraining:
         # comparison. Swallowing it would leave the aggregate's in-memory version
         # out of step with the row and turn a database problem into a missing
         # optimism gap.
-        await self._progress(run, _RANDOM_SPLIT_SPAN[0], "training random-split comparison")
+        await self._progress(
+            run, _RANDOM_SPLIT_SPAN[0], "Training on a random split for comparison"
+        )
         try:
             # Same seed and same fractions as the Dataset's own split, so the only
             # variable between the two numbers is the split *strategy* -- which is
@@ -710,7 +713,7 @@ class RunTraining:
         holding it up. Inside the span, an engine that calls `ctx.report` moves
         the bar itself.
         """
-        resolved_phase = phase or f"training {engine.manifest().id}"
+        resolved_phase = phase or f"Training {engine.manifest().name}"
         await self._progress(run, span[0], resolved_phase)
         return await self._train_off_thread(run, engine, dataset, task, conditions, frame, span)
 
@@ -794,9 +797,8 @@ class RunTraining:
         since none of them reports progress during a fit."""
         if self._deadline_at is not None and time.monotonic() > self._deadline_at:
             raise RunInterrupted(
-                f"exceeded the {self._deadline_seconds:.0f}s job deadline; raise "
-                "STUDIO_WORKER_JOB_TIMEOUT, or this lane's entry in "
-                "STUDIO_WORKER_JOB_TIMEOUT_BY_LANE, if the work is legitimate",
+                f"The run exceeded its {self._deadline_seconds:.0f} s time limit and was "
+                "stopped. An administrator can raise the limit (STUDIO_WORKER_JOB_TIMEOUT).",
                 cancelled=False,
             )
 
@@ -836,19 +838,18 @@ def _undefined_reasons(
     column = dataset.target.column
     if test_rows[column].n_unique() < 2:
         reason = (
-            f"every row in the test split has the same '{column}' value, so this "
-            "metric has no defined value -- add positives (or negatives) to the "
-            "dataset, or split it differently"
+            f"Undefined: all test-set compounds have the same '{column}' value. Add "
+            "compounds of the missing class, or use a different split."
         )
     elif train_rows[column].n_unique() < 2:
         reason = (
-            f"every row in the training split has the same '{column}' value, so the "
-            "model only ever learned one class and this metric has no defined value"
+            f"Undefined: all training-set compounds have the same '{column}' value, so "
+            "the model learned only one class."
         )
     else:
         # Not a case this function can explain from the split alone. Say that,
         # rather than attribute it to a cause that was ruled out two lines up.
-        reason = "the engine reported this metric as undefined"
+        reason = "Undefined: the engine returned no value for this metric."
     return dict.fromkeys(sorted(undefined), reason)
 
 
@@ -873,16 +874,19 @@ def _require_structure_column(dataset: Dataset, frame: pl.DataFrame) -> None:
     # `user_facing_error(exc)` on the Run, which renders a DomainError as
     # `message (detail)` -- the message leads, so it is what a scientist reads
     # first when their training run failed.
-    cause = (
-        "this Dataset predates the structure_column migration, so which column "
-        "holds its structures was never recorded -- re-upload it to train on it"
-        if is_legacy
-        else f"its snapshot holds: {', '.join(frame.columns)}"
-    )
+    if is_legacy:
+        raise ValidationError(
+            "This dataset was created before its structure column was recorded and "
+            "cannot be trained on. Upload it again."
+        )
     raise ValidationError(
-        f"Dataset '{dataset.id}' records its structures in column "
-        f"'{dataset.structure_column}', which cannot be used: {cause}"
+        f"The structure column '{dataset.structure_column}' is missing from this "
+        f"dataset's stored data. Available columns: {', '.join(frame.columns)}."
     )
+
+
+def _task_label(task: TaskType) -> str:
+    return task.value.replace("_", " ")
 
 
 def _task_for(dataset: Dataset) -> TaskType:

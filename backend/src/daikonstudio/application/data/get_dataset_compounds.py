@@ -77,7 +77,7 @@ class GetDatasetCompounds:
         try:
             raw = self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id))
         except FileNotFoundError:
-            return Failure(NotFoundError("Dataset snapshot", str(dataset.id)))
+            return Failure(NotFoundError("Stored dataset file", str(dataset.id)))
 
         # ponytail: reads the whole Parquet per page, exactly as
         # `GetPredictionResults` does. `pl.scan_parquet` with a pushed-down

@@ -57,7 +57,7 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
             }
           >
             <Download className="size-4" />
-            CSV
+            Export CSV
           </Button>
           <Button
             variant="outline"
@@ -67,14 +67,14 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
             }
           >
             <Download className="size-4" />
-            SDF
+            Export SDF
           </Button>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Where these came from</CardTitle>
+          <CardTitle className="text-base">Provenance</CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -84,8 +84,7 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
                 : collection.provenance.generation_method}
             </Badge>
             <span className="text-sm text-muted-foreground">
-              These values were predicted by a model, not measured. Anything that flows back into
-              another app carries that mark until a human replaces it with a measurement.
+              These values are model predictions.
             </span>
           </div>
           <p className="text-sm">

@@ -28,13 +28,13 @@ describe("a failed publish", () => {
   });
 
   it("is silent when someone published it first, and refreshes the stale view", async () => {
-    await publishFailingWith(new ApiError("API error: 423", 423, undefined));
+    await publishFailingWith(new ApiError("Request failed (423)", 423, undefined));
     expect(showError).not.toHaveBeenCalled();
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ["protocol", "protocol-1"] });
   });
 
   it("toasts any other failure exactly once", async () => {
-    await publishFailingWith(new ApiError("API error: 500", 500, undefined));
-    expect(showError).toHaveBeenCalledExactlyOnceWith("API error: 500");
+    await publishFailingWith(new ApiError("Request failed (500)", 500, undefined));
+    expect(showError).toHaveBeenCalledExactlyOnceWith("Request failed (500)");
   });
 });

@@ -85,9 +85,9 @@ export function SweepForm() {
       }}
     >
       <div>
-        <h1 className="text-lg font-semibold">Start a sweep</h1>
+        <h1 className="text-lg font-semibold">New sweep</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Compare engines and conditions on the same dataset in one submission, ranked by score.
+          Train several engine configurations on one dataset and rank them by primary metric.
         </p>
       </div>
 
@@ -148,13 +148,13 @@ export function SweepForm() {
               disabled={!dataset}
             >
               <SelectTrigger>
-                <SelectValue placeholder={dataset ? "No baseline" : "Pick a dataset first"} />
+                <SelectValue placeholder={dataset ? "No baseline" : "Choose a dataset first"} />
               </SelectTrigger>
               <SelectContent>
                 {available.map((candidate) => (
                   <SelectItem key={candidate.id} value={candidate.id}>
                     {candidate.name}
-                    {candidate.is_baseline ? " · the baseline" : ""}
+                    {candidate.is_baseline ? " · default baseline" : ""}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -178,14 +178,14 @@ export function SweepForm() {
             <CardContent className="space-y-4 py-6">
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                  Config {index + 1}
+                  Configuration {index + 1}
                 </p>
                 {configs.length > 1 && (
                   <Button
                     type="button"
                     variant="ghost"
                     size="icon-sm"
-                    aria-label="Remove config"
+                    aria-label={`Remove configuration ${index + 1}`}
                     onClick={() => setConfigs((rows) => rows.filter((_, i) => i !== index))}
                   >
                     <XIcon className="size-4" aria-hidden />
@@ -204,14 +204,14 @@ export function SweepForm() {
                 >
                   <SelectTrigger>
                     <SelectValue
-                      placeholder={dataset ? "Choose an engine" : "Pick a dataset first"}
+                      placeholder={dataset ? "Choose an engine" : "Choose a dataset first"}
                     />
                   </SelectTrigger>
                   <SelectContent>
                     {available.map((candidate) => (
                       <SelectItem key={candidate.id} value={candidate.id}>
                         {candidate.name}
-                        {candidate.is_baseline ? " · the baseline" : ""}
+                        {candidate.is_baseline ? " · default baseline" : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -237,7 +237,7 @@ export function SweepForm() {
         variant="outline"
         onClick={() => setConfigs((rows) => [...rows, emptyRow()])}
       >
-        Add config
+        Add configuration
       </Button>
 
       <div className="flex items-center justify-between">
@@ -250,7 +250,7 @@ export function SweepForm() {
             submit.isPending || !datasetId || !name || !configs.every((row) => row.engineId)
           }
         >
-          Submit sweep
+          Start sweep
         </Button>
       </div>
     </form>

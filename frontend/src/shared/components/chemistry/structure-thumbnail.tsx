@@ -104,7 +104,7 @@ export const StructureThumbnail = memo(function StructureThumbnail({
         )}
         style={{ width: size, height: size }}
       >
-        no structure
+        Cannot render
       </div>
     );
   }

@@ -111,7 +111,7 @@ export function TriageGrid({
         filter: false,
         // `input_row` counts data rows from 1, as the upload's ValidationReport
         // does; the CSV's own line number is one more, for the header.
-        headerTooltip: "Row in your uploaded file, not counting the header",
+        headerTooltip: "Row number in the uploaded file, excluding the header",
         cellRenderer: OrDash,
       },
     ];
@@ -224,7 +224,7 @@ export function TriageGrid({
         <div className="flex items-center gap-2">
           <Switch id="in-domain" checked={inDomainOnly} onCheckedChange={setInDomainOnly} />
           <Label htmlFor="in-domain" className="text-sm font-normal">
-            In domain only
+            Within applicability domain
           </Label>
         </div>
         <div className="ml-auto flex items-center gap-3">
@@ -234,7 +234,8 @@ export function TriageGrid({
             // applicability column: better decisions come from knowing how
             // many of your picks the model has never seen anything like.
             <span className="text-sm text-warning">
-              {outsideDomain} of your {selected.length} are outside the domain of applicability
+              {outsideDomain} of {selected.length} selected compounds are outside the applicability
+              domain
             </span>
           )}
           <Button

@@ -358,4 +358,4 @@ async def test_scorecard_response_explains_an_optimism_gap_metric_that_is_undefi
     assert card["random_split_unavailable"] is None
     assert card["random_split_metrics_undefined"] is not None
     assert set(card["random_split_metrics_undefined"]) == set(card["random_split_metrics"])
-    assert "test split" in card["random_split_metrics_undefined"]["mcc"]
+    assert "test-set" in card["random_split_metrics_undefined"]["mcc"]

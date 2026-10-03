@@ -194,7 +194,7 @@ def test_training_set_above_the_ceiling_is_refused_before_it_allocates():
     rows = pl.DataFrame(
         {"smiles": ["CCO"] * n, "y": [1.0] * n, "split": ["train"] * n},
     )
-    with pytest.raises(ValidationError, match="Gaussian process cannot be fitted"):
+    with pytest.raises(ValidationError, match="accepts at most"):
         TanimotoGP().train(context(frame=rows))
 
 

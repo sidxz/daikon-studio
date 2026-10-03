@@ -101,10 +101,8 @@ class CreateDataset:
                 ValidationError(
                     f"'{command.target.column}' cannot be used as a target column",
                     detail=(
-                        "This name is reserved for a column the pipeline itself writes "
-                        "downstream (prediction results, exports, or the train/test split "
-                        "column) -- using it as a target would let that column silently "
-                        "overwrite the target's own values in every prediction and export. "
+                        "The application writes a column with this name to prediction "
+                        "results and exports. Rename the column in your file. "
                         f"Reserved names: {', '.join(sorted(RESERVED_TARGET_COLUMNS))}."
                     ),
                 )
@@ -113,7 +111,9 @@ class CreateDataset:
         try:
             upload_ref = uuid.UUID(command.upload_ref)
         except ValueError:
-            return Failure(ValidationError("upload_ref is not a valid upload reference"))
+            return Failure(
+                ValidationError("The upload reference is invalid. Upload the file again.")
+            )
 
         key = upload_key(workspace_id, upload_ref)
         if not self._store.exists(key):
@@ -132,7 +132,7 @@ class CreateDataset:
         if missing:
             return Failure(
                 ValidationError(
-                    f"Column(s) not present in the uploaded file: {', '.join(missing)}",
+                    f"Columns not found in the uploaded file: {', '.join(missing)}.",
                     detail=f"Available columns: {', '.join(frame.columns)}",
                 )
             )
@@ -155,8 +155,8 @@ class CreateDataset:
             # column with an all-False mask); the report is the whole payload here.
             return Failure(
                 InvalidDatasetError(
-                    "No usable rows in the uploaded file: every row failed structure or "
-                    "target validation -- see the report",
+                    "The uploaded file has no usable rows. Every row failed structure or "
+                    "target validation; see the validation report for reasons.",
                     report=report,
                 )
             )
@@ -273,14 +273,12 @@ def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> Validation
             continue
         kind = "class" if is_binary else "value"
         return ValidationError(
-            f"The '{partition}' partition has only one distinct target {kind} after "
-            "splitting, which would train or score a maximally confident but "
-            "meaningless model",
+            f"After splitting, every compound in the {partition} set has the same "
+            f"target {kind}. A model trained or evaluated on it would not be meaningful.",
             detail=(
-                f"Every row in the '{partition}' partition has the same "
-                f"'{target.column}' value. Use a different split seed, "
-                "SplitStrategy.RANDOM instead of a scaffold split, or add more "
-                "diverse compounds/measurements to the dataset."
+                f"All rows in the {partition} set share the same '{target.column}' value. "
+                "Use a different split seed or a random split, or add compounds with "
+                "more varied measurements."
             ),
         )
     return None

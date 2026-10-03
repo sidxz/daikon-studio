@@ -75,7 +75,7 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   const better = higherIsBetter(metric) ? delta > 0 : delta < 0;
 
   if (Math.abs(delta) < TIE_EPSILON) {
-    return { kind: "ties", headline: "Identical to the baseline", model, baseline, delta: 0, ci };
+    return { kind: "ties", headline: "Matches the baseline score", model, baseline, delta: 0, ci };
   }
 
   // A win smaller than the assay's own measurement error is not a win. The
@@ -93,7 +93,7 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   if (better && comparableToNoise && noiseFloor != null && Math.abs(delta) < noiseFloor) {
     return {
       kind: "within-noise",
-      headline: "Ahead of the baseline, but by less than the assay noise",
+      headline: "Better than the baseline, but within assay noise",
       model,
       baseline,
       delta,
@@ -120,7 +120,15 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   }
 
   return better
-    ? { kind: "beats", headline: "Beats the baseline", model, baseline, delta, noiseFloor, ci }
+    ? {
+        kind: "beats",
+        headline: "Outperforms the baseline",
+        model,
+        baseline,
+        delta,
+        noiseFloor,
+        ci,
+      }
     : {
         kind: "no-better",
         headline: "No better than the baseline",
@@ -217,8 +225,7 @@ export function computeOptimismGap(scorecard: ScorecardResponse): OptimismGap {
       scaffold,
       random: null,
       gap: null,
-      message:
-        "This model was trained on a random split, so there is no more optimistic split to compare it against.",
+      message: "Not applicable: the model was scored on a random split.",
     };
   }
 

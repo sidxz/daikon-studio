@@ -23,9 +23,9 @@ class SplitSpec:
 
     def __post_init__(self) -> None:
         if abs(sum(self.fractions) - 1.0) > 1e-6:
-            raise ValueError("split fractions must sum to 1.0")
+            raise ValueError("Split fractions must sum to 1.")
         if any(fraction < 0 for fraction in self.fractions):
-            raise ValueError("split fractions must be non-negative")
+            raise ValueError("Split fractions must be non-negative.")
 
 
 def split_to_dict(split: SplitSpec) -> dict[str, Any]:

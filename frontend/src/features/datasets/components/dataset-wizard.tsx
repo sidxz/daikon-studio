@@ -154,10 +154,9 @@ export function DatasetWizard() {
     return (
       <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
         <div>
-          <h1 className="text-lg font-semibold text-destructive">This file was not accepted</h1>
+          <h1 className="text-lg font-semibold text-destructive">Validation failed</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Nothing was frozen. Fix the rows below and upload again — the report tells you exactly
-            which ones and why.
+            No dataset was created. Correct the rows listed below and upload the file again.
           </p>
         </div>
         <ValidationReportView report={rejection} rejected />
@@ -194,8 +193,8 @@ export function DatasetWizard() {
                 <FileUp className="size-8 text-muted-foreground" />
                 <span className="text-sm font-medium">Drop a CSV here, or click to choose one</span>
                 <span className="max-w-sm text-xs text-muted-foreground">
-                  One column of structures as SMILES, one column of the value you want to predict.
-                  Everything else is ignored.
+                  A SMILES column and a target column are required. Other columns are not used for
+                  training.
                 </span>
               </button>
               <div className="mt-4 flex items-center justify-between">
@@ -339,12 +338,11 @@ export function DatasetWizard() {
                       placeholder="µM, log mol/L, kcal/mol…"
                     />
                     <p className="text-xs text-muted-foreground">
-                      Carried onto every prediction, so a predicted value reads the same way a
-                      measured one does.
+                      Shown with every predicted value.
                     </p>
                   </div>
                   <div className="space-y-1.5">
-                    <Label>Better means</Label>
+                    <Label>Preferred direction</Label>
                     <Select
                       value={draft.direction || "high"}
                       onValueChange={(value) => patch({ direction: value as "high" | "low" })}
@@ -387,7 +385,7 @@ export function DatasetWizard() {
                         {SPLIT_COPY[strategy].title}
                         {strategy === "scaffold" && (
                           <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            recommended
+                            Recommended
                           </span>
                         )}
                       </span>

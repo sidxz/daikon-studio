@@ -19,5 +19,5 @@ export const RUN_STATUS_COPY: Record<string, string> = {
   running: "Running",
   ready: "Ready",
   failed: "Failed",
-  cancelled: "Cancelled",
+  cancelled: "Canceled",
 };

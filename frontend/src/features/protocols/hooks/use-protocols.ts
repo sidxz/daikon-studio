@@ -96,7 +96,7 @@ export function usePublishProtocol() {
     mutationFn: (id: string) =>
       customInstance<void>({ url: `${API_V1}/protocols/${id}/publish`, method: "POST" }),
     meta: { silent: true },
-    onSuccess: () => showSuccess("Protocol published — anyone in this workspace can run it now"),
+    onSuccess: () => showSuccess("Protocol published. Anyone in this workspace can now run it."),
     onError: (error) => {
       if (error instanceof ApiError && (error.status === 423 || error.silent)) return;
       showError(error.message);

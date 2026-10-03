@@ -44,8 +44,8 @@ export function DatasetList() {
         <div>
           <h1 className="text-lg font-semibold">Datasets</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            A frozen snapshot of compounds and one measured value, with its split fixed. Immutable
-            once created, so a protocol trained on it stays citable.
+            An immutable snapshot of structures and one measured value, with a fixed split, so
+            protocols trained on it are reproducible.
           </p>
         </div>
         <Button asChild>

@@ -40,7 +40,7 @@ describe("one toast per failed mutation", () => {
   });
 
   it("says nothing about a 401 while the session renews", async () => {
-    await fail(new ApiError("Your session expired; signing you back in", 401, undefined, true));
+    await fail(new ApiError("Session expired. Signing in again…", 401, undefined, true));
     expect(showError).not.toHaveBeenCalled();
   });
 });

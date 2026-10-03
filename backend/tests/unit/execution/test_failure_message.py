@@ -13,7 +13,7 @@ def test_a_domain_error_without_detail_is_just_its_message():
 
 def test_library_value_errors_keep_their_text():
     message = user_facing_error(ValueError("Input y contains NaN."))
-    assert message == "ValueError: Input y contains NaN."
+    assert message == "Input y contains NaN."
 
 
 def test_everything_else_is_reduced_to_its_class():

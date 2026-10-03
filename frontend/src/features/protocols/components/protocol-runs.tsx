@@ -35,7 +35,7 @@ export function ProtocolRuns({ protocolId }: { protocolId: string }) {
       <CardHeader>
         <CardTitle className="text-base">Run history</CardTitle>
         <p className="text-sm text-muted-foreground">
-          The training run behind this Protocol, and every prediction made with it.
+          The training run for this protocol and all prediction runs that used it.
         </p>
       </CardHeader>
       <CardContent>

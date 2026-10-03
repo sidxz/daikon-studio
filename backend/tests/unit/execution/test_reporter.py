@@ -132,4 +132,4 @@ async def test_progress_between_fits_honours_the_deadline():
     with pytest.raises(RunInterrupted) as raised:
         await training._progress(run, 0.6, "training baseline")
     assert raised.value.cancelled is False
-    assert "deadline" in raised.value.reason
+    assert "time limit" in raised.value.reason

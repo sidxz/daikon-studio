@@ -26,7 +26,7 @@ export function parseCsvPreview(file: File): Promise<CsvPreview> {
       complete: (result) => {
         const columns = (result.meta.fields ?? []).filter((field) => field.trim() !== "");
         if (columns.length === 0) {
-          reject(new Error("No columns found. Is this a CSV with a header row?"));
+          reject(new Error("No columns found. The file must be a CSV with a header row."));
           return;
         }
         const rows = result.data;

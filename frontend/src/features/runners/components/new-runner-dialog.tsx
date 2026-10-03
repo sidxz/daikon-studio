@@ -145,7 +145,7 @@ export function NewRunnerDialog() {
                     ))}
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    Which queues this runner should pick up work from.
+                    The queues this runner accepts jobs from.
                   </p>
                 </div>
               </div>
@@ -171,7 +171,7 @@ export function NewRunnerDialog() {
               <DialogHeader>
                 <DialogTitle>{created.name} is registered</DialogTitle>
                 <DialogDescription>
-                  This token is shown once. Treat it like a password — if you lose it, revoke this
+                  This token is shown once. Treat it like a password. If you lose it, revoke this
                   runner and register a new one.
                 </DialogDescription>
               </DialogHeader>
@@ -184,13 +184,13 @@ export function NewRunnerDialog() {
                   {copied ? "Copied" : "Copy command"}
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  STUDIO_URL above is the API's address as the runner machine must reach it. It is
-                  filled in with the address this browser uses; if the runner machine can't reach
-                  that (a local address, a firewall), replace it with one it can.
+                  STUDIO_URL is set to the API address this browser uses. If the runner machine
+                  cannot reach it (for example, a local address or a firewall), replace it with one
+                  that it can.
                   {created.lanes.includes("gpu") && (
                     <>
                       {" "}
-                      CI does not publish the GPU image: build it on that machine with{" "}
+                      The GPU image is not published by CI. Build it on the runner machine with{" "}
                       <code>make image-runner-gpu</code>.
                     </>
                   )}
@@ -203,7 +203,7 @@ export function NewRunnerDialog() {
                     reset();
                   }}
                 >
-                  I've copied it
+                  I have copied the command
                 </Button>
               </DialogFooter>
             </>

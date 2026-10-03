@@ -21,7 +21,9 @@ function describeBounds(condition: Condition): string | null {
  */
 export function ConditionSummary({ conditions }: { conditions: Condition[] }) {
   if (conditions.length === 0) {
-    return <p className="text-sm text-muted-foreground">No settings to configure.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">This engine has no configurable settings.</p>
+    );
   }
 
   return (

@@ -92,7 +92,7 @@ export function SweepDetail({ id }: { id: string }) {
           */}
           {live.length > 10 && (
             <p className="mt-1 text-sm text-muted-foreground">
-              A workspace runs 10 at a time, so this sweep finishes in waves.
+              Each workspace runs at most 10 runs concurrently; the rest are queued.
             </p>
           )}
         </div>
@@ -108,11 +108,11 @@ export function SweepDetail({ id }: { id: string }) {
           <TableHeader>
             <TableRow>
               <TableHead>#</TableHead>
-              <TableHead>Config</TableHead>
+              <TableHead>Configuration</TableHead>
               <TableHead>Engine</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Score</TableHead>
-              <TableHead>vs baseline</TableHead>
+              <TableHead>Improvement over baseline</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

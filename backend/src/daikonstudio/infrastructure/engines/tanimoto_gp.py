@@ -132,12 +132,12 @@ _MANIFEST = EngineManifest(
     version="1.0.0",
     name="Tanimoto Gaussian Process",
     description=(
-        "A Gaussian process over structural similarity between molecules. Built for "
-        "small datasets -- a few hundred to a few thousand compounds, where most "
-        "in-house assays sit -- and the only engine here whose uncertainty is a true "
-        "posterior spread, in the units of your measurement, rather than a proxy read "
-        "off an ensemble. Cost grows with the cube of the number of compounds, so it "
-        "is comfortable to about 5,000 and will refuse a training set above 10,000."
+        "A Gaussian process with a Tanimoto kernel on ECFP4 fingerprints, suited to "
+        "small datasets (a few hundred to a few thousand compounds). For regression, it "
+        "is the only engine here whose uncertainty is a posterior standard deviation in "
+        "the target's units rather than an ensemble proxy. Cost scales cubically with "
+        "training-set size: practical up to about 5,000 compounds, with a hard limit of "
+        "10,000."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(
@@ -148,9 +148,9 @@ _MANIFEST = EngineManifest(
             default=2,
             minimum=0,
             maximum=10,
-            help="How many extra times to re-tune the model's signal and noise scales "
-            "from a fresh starting point. More restarts is proportionally slower but "
-            "less likely to settle on a poor fit. 0 uses the starting point only.",
+            help="Number of additional hyperparameter optimizations from random starting "
+            "points. More restarts take proportionally longer but are less likely to end "
+            "in a poor local optimum. 0 uses the initial values only.",
         ),
     ),
     is_baseline=False,
@@ -176,11 +176,9 @@ class TanimotoGP:
 
         if train_rows.height > _MAX_TRAINING_ROWS:
             raise ValidationError(
-                f"A Gaussian process cannot be fitted to {train_rows.height:,} training "
-                f"compounds -- the method holds a similarity matrix between every pair, "
-                f"so cost grows with the cube of the count and memory with the square. "
-                f"The limit is {_MAX_TRAINING_ROWS:,}. Use a tree or graph engine for a "
-                f"dataset this size; this one is for the small-data regime."
+                f"The Tanimoto Gaussian process accepts at most {_MAX_TRAINING_ROWS:,} "
+                f"training compounds; this training set has {train_rows.height:,}. Use a "
+                "tree-based or graph engine for datasets of this size."
             )
 
         x_train = ecfp4(train_rows[ctx.structure_column].to_list())

@@ -51,12 +51,12 @@ function ParitySection({
     <Card>
       <CardHeader>
         <CardTitle className="text-base">
-          {isClassification ? "Predicted probability against truth" : "Predicted against measured"}
+          {isClassification ? "Predicted probability by true class" : "Predicted against measured"}
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           {isClassification
-            ? "Every test compound, its true class against the probability the model gave it. Well-separated clouds mean the model can rank; overlap in the middle is where the threshold decision actually costs something."
-            : "Every test compound in the test set, not just the twenty worst. A cloud that hugs the diagonal is a working model; a cloud that flattens toward the middle is a model predicting the dataset average and scoring respectably for it."}
+            ? "Predicted probability of every test compound, split by true class. Clear separation means actives are ranked above inactives; overlap marks where any threshold will misclassify."
+            : "All test compounds. Points near the diagonal are accurate predictions; a cloud flattened toward the middle means predictions regress to the dataset mean."}
           {scorecard.parity_sampled_from
             ? ` Showing ${scorecard.parity.length.toLocaleString()} of ${scorecard.parity_sampled_from.toLocaleString()} test compounds.`
             : ""}
@@ -66,9 +66,9 @@ function ParitySection({
         {isClassification ? (
           <SplitHistogramChart
             bins={probabilityByClass(scorecard.parity)}
-            xLabel="predicted probability of being active"
-            series={["truly active", "truly inactive"]}
-            yLabel="share of class"
+            xLabel="Predicted P(active)"
+            series={["Active", "Inactive"]}
+            yLabel="Fraction of class"
             height={220}
             caption="Each class normalised to its own size, so the shapes stay comparable on an unbalanced test set. Two humps pushed to opposite ends is a model that separates the classes; overlap in the middle is the region where whatever threshold you pick will be wrong about something."
           />
@@ -111,7 +111,7 @@ function ParitySection({
               yLabel="observed active rate"
               diagonal
               height={200}
-              caption="On the diagonal, a predicted 0.8 means 80% of those compounds really were active — the probability can be read as one. Off it, the model may still rank compounds correctly, but its numbers are scores rather than probabilities. Dot size is how many compounds fell in each band."
+              caption="On the diagonal, probabilities are calibrated: of compounds predicted at 0.8, 80% are active. Off it, outputs are scores rather than probabilities, though ranking may still be correct. Dot size shows compounds per bin."
             />
           </div>
         )}
@@ -141,37 +141,36 @@ function ApplicabilitySection({ scorecard }: { scorecard: ScorecardResponse }) {
       <CardHeader>
         <CardTitle className="text-base">Does distance from training predict error?</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Mean absolute error against how similar each test compound is to its nearest training
-          compound, in equal-sized groups. This is the applicability number on the verdict band,
-          shown as evidence rather than asserted.
+          MAE of test compounds, binned by NN similarity (equal-count bins). Shows whether the
+          applicability-domain coverage above tracks error.
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
         <BinnedCurveChart
           bins={bins}
-          xLabel="nearest-neighbour Tanimoto to the training set"
+          xLabel="Tanimoto similarity to nearest training compound"
           yLabel={`mean absolute error${scorecard.unit ? ` (${scorecard.unit})` : ""}`}
-          caption="Dot size is how many compounds are in each group; every group holds the same number, so a wobble at one end is not a small-sample artefact."
+          caption="Bins hold equal numbers of compounds, so no bin rests on fewer data than another."
         />
         <p className="text-sm">
           {rises ? (
             <>
-              Error is{" "}
+              MAE is{" "}
               <span className="font-medium">
-                {ratio ? `${ratio.toFixed(1)}×` : "measurably"} higher
+                {ratio ? `${ratio.toFixed(1)}× higher` : "higher"}
               </span>{" "}
-              on the least familiar compounds (
-              <ReadoutValue value={first.value} precision={3} />) than on the most familiar (
+              in the lowest-similarity bin (
+              <ReadoutValue value={first.value} precision={3} />) than in the highest (
               <ReadoutValue value={last.value} precision={3} />
-              ). The applicability domain is real for this model — treat predictions on unfamiliar
-              chemistry as less trustworthy, in that proportion.
+              ). Predictions on compounds dissimilar to the training set are less reliable for this
+              model.
             </>
           ) : (
             <>
-              Error does <span className="font-medium">not</span> rise as compounds get less like
-              the training set. Either the model generalizes past its training chemistry, or the
-              similarity measure is not capturing what makes a compound hard here — in both cases
-              the applicability percentage above is not the caveat it appears to be.
+              MAE is <span className="font-medium">not</span> higher in the lowest-similarity bin
+              than in the highest. Either the model generalizes beyond its training chemistry, or
+              Tanimoto similarity does not capture what makes these compounds difficult. Either way,
+              applicability-domain coverage is a weak guide to error here.
             </>
           )}
         </p>
@@ -196,9 +195,8 @@ function ScaffoldErrorSection({ scorecard }: { scorecard: ScorecardResponse }) {
       <CardHeader>
         <CardTitle className="text-base">Error by scaffold family</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Median absolute error per Murcko scaffold across the whole test set, worst first. The
-          worst-predictions grid above shows twenty individual misses; this says which families they
-          come from, which is the version you can act on.
+          Median absolute error per Bemis–Murcko scaffold across the full test set, highest first.
+          The individual largest errors are listed above.
         </p>
       </CardHeader>
       <CardContent>
@@ -207,7 +205,7 @@ function ScaffoldErrorSection({ scorecard }: { scorecard: ScorecardResponse }) {
           xLabel={`median absolute error${scorecard.unit ? ` (${scorecard.unit})` : ""}`}
           height={Math.max(160, data.length * 26 + 50)}
           format={(value) => value.toFixed(2)}
-          caption="Only families with at least three test compounds appear — a median over one or two is not a median."
+          caption="Only scaffolds with at least three test compounds are shown."
         />
       </CardContent>
     </Card>
@@ -267,10 +265,10 @@ export function SplitComparison({ scorecard }: { scorecard: ScorecardResponse })
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">What an easier split would have said</CardTitle>
+        <CardTitle className="text-base">Scaffold split versus random split</CardTitle>
         <p className="text-sm text-muted-foreground">
-          The same model, scored on a random re-split of the same rows. Every metric, not just the
-          primary one — the gap is only convincing if the metrics agree about it.
+          The same engine and settings, trained and scored on a random split of the same compounds.
+          Consistent differences across metrics indicate split-induced optimism.
         </p>
       </CardHeader>
       <CardContent>

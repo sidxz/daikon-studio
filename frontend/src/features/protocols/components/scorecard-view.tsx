@@ -1,5 +1,6 @@
 "use client";
 
+import { useEngines } from "@/features/engines";
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
@@ -59,8 +60,8 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
             <ReadoutValue value={gap.gap} precision={3} className="text-xl font-semibold" />
             <p className="mt-1 text-xs text-muted-foreground">
               {metric} was <ReadoutValue value={gap.random} precision={3} /> on a random split and{" "}
-              <ReadoutValue value={gap.scaffold} precision={3} /> on the scaffold split it was
-              actually scored on — the difference an easier split would have flattered it by.
+              <ReadoutValue value={gap.scaffold} precision={3} /> on the scaffold split used for
+              scoring. The difference is split-induced optimism.
             </p>
           </>
         ) : (
@@ -79,13 +80,13 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
             className="text-xl font-semibold"
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Repeat measurements of the same compound disagreed by this much. No model trained on
-            this data can honestly do better.
+            Mean range of replicate measurements of the same compound. Errors below this are within
+            experimental error.
           </p>
         </HonestyStat>
       )}
 
-      <HonestyStat label="Applicability">
+      <HonestyStat label="Applicability domain">
         {coverage == null ? (
           <p className="text-xs text-muted-foreground">Could not be computed for this protocol.</p>
         ) : (
@@ -95,8 +96,8 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
             </span>
             <Progress value={coverage * 100} className="mt-1.5 h-1.5" />
             <p className="mt-1 text-xs text-muted-foreground">
-              of test compounds sit close enough to the training set for the model to have seen
-              anything like them. The rest is extrapolation.
+              of test compounds have NN similarity ≥ 0.3 to the training set. Predictions on the
+              rest are extrapolations.
             </p>
           </>
         )}
@@ -108,6 +109,9 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
 function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
   const verdict = computeVerdict(scorecard);
   const metric = metricLabel(scorecard.primary_metric);
+  const { data: engines } = useEngines();
+  const engineName =
+    engines?.find((engine) => engine.id === scorecard.engine_id)?.name ?? scorecard.engine_id;
 
   const tone =
     verdict.kind === "beats"
@@ -126,20 +130,19 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
       <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
         scored on a {scorecard.split_strategy} split
         {scorecard.split_strategy === "random"
-          ? " — close analogues of training compounds are in the test set, so this reads high"
-          : " — test compounds have ring systems the model never trained on"}
+          ? ": the test set contains close analogs of training compounds, so scores are likely optimistic"
+          : ": no test scaffold appears in the training set"}
       </p>
 
       {verdict.kind === "is-baseline" ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          You trained {scorecard.engine_id}, which is what every other model here is measured
-          against. There is nothing to compare it to — a comparison against itself would be a number
-          that means nothing.
+          The model and baseline are the same engine ({engineName}) with the same settings, so there
+          is no comparison to report.
         </p>
       ) : verdict.kind === "unknown" ? (
         <p className="mt-2 text-sm text-muted-foreground">
-          The {metric} could not be computed on one side of the comparison, so no honest verdict is
-          available. The reasons are in the metric table below.
+          {metric} could not be computed for the model or the baseline, so no comparison is
+          possible. See All metrics below for the reason.
         </p>
       ) : (
         <>
@@ -168,17 +171,17 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
           {/* Within noise by the interval: the only such verdict with no noise floor. */}
           {verdict.kind === "within-noise" && verdict.noiseFloor == null && (
             <p className="mt-2 text-sm">
-              The baseline's number sits inside that interval, so this test set cannot tell the two
-              models apart.
+              The baseline's {metric} lies within this interval, so the two models are not
+              distinguishable on this test set.
             </p>
           )}
           {verdict.kind === "within-noise" && verdict.noiseFloor != null && (
             <p className="mt-2 text-sm">
-              The margin is <ReadoutValue value={Math.abs(verdict.delta ?? 0)} precision={3} />, and
-              repeat measurements of the same compound in this dataset disagree by{" "}
-              <ReadoutValue value={verdict.noiseFloor} unit={scorecard.unit} precision={3} />. You
-              cannot tell these two models apart with this data — treat them as equivalent and
-              prefer the simpler one.
+              The margin (
+              <ReadoutValue value={Math.abs(verdict.delta ?? 0)} precision={3} />) is smaller than
+              the assay noise floor (
+              <ReadoutValue value={verdict.noiseFloor} unit={scorecard.unit} precision={3} />
+              ). The two models are indistinguishable on this data; prefer the simpler one.
             </p>
           )}
           <p className="mt-2 text-sm text-muted-foreground">
@@ -189,8 +192,8 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
             {scorecard.baseline_engine_id.startsWith("ecfp4-") && (
               <>
                 {" "}
-                In published benchmarks a fingerprint baseline places mid-field against
-                purpose-built models — a model that cannot beat one has not earned its complexity.
+                Fingerprint baselines are competitive on many published benchmarks; a more complex
+                model should outperform one to justify its complexity.
               </>
             )}
           </p>
@@ -219,16 +222,14 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
             say plainly which one is which. */}
         {validation ? (
           <p className="text-sm text-muted-foreground">
-            Tune conditions against the <span className="font-medium">validation</span> column. The
-            test column is the verdict: every time you retrain and read it, it becomes a little less
-            of a held-out set, and the number it reports drifts upward for reasons that have nothing
-            to do with the model.
+            Tune settings against the <span className="font-medium">validation</span> column.
+            Reserve the test column for the final comparison: each time it informs a choice, it
+            becomes less of a held-out set and its estimate more optimistic.
           </p>
         ) : (
           <p className="text-sm text-muted-foreground">
-            This run has no validation score — its split declared no validation partition, or it was
-            trained before validation was measured. There is nothing here to tune against except the
-            test column, which is the situation to avoid.
+            No validation metrics: the split has no validation set, or the run predates validation
+            scoring. Avoid tuning settings against the test column.
           </p>
         )}
       </CardHeader>
@@ -240,7 +241,7 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
               {validation && (
                 <th className="pb-2 pr-4 font-medium">
                   Validation
-                  <span className="ml-1 normal-case text-[10px]">tune here</span>
+                  <span className="ml-1 normal-case text-[10px]">For tuning</span>
                 </th>
               )}
               <th className="pb-2 pr-4 font-medium">
@@ -312,11 +313,10 @@ function WorstRows({ scorecard }: { scorecard: ScorecardResponse }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Where it fails</CardTitle>
+        <CardTitle className="text-base">Largest prediction errors</CardTitle>
         <p className="text-sm text-muted-foreground">
-          The {scorecard.worst_rows.length} worst predictions in the test set, grouped by Murcko
-          scaffold. A cluster here is worth more than any aggregate score: it tells you which
-          chemistry the model has not learned.
+          The {scorecard.worst_rows.length} test compounds with the largest absolute error, grouped
+          by Bemis–Murcko scaffold. Clusters point to chemical series the model predicts poorly.
         </p>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -351,7 +351,7 @@ function WorstRows({ scorecard }: { scorecard: ScorecardResponse }) {
                       </dd>
                     </div>
                     <div className="flex justify-between gap-2 border-t pt-0.5">
-                      <dt className="text-muted-foreground">off by</dt>
+                      <dt className="text-muted-foreground">Abs. error</dt>
                       <dd className="font-medium text-warning">
                         <ReadoutValue value={Math.abs(row.residual)} precision={2} />
                       </dd>
@@ -423,10 +423,10 @@ function Conditions({ scorecard }: { scorecard: ScorecardResponse }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">How it was trained</CardTitle>
+        <CardTitle className="text-base">Training settings</CardTitle>
         <p className="text-sm text-muted-foreground">
-          The resolved settings behind these numbers. Reproducing this Protocol means this engine,
-          these conditions, and the Dataset it cites.
+          Resolved settings for the model and baseline. Reproducing this protocol requires this
+          engine, these settings and the cited dataset.
         </p>
       </CardHeader>
       <CardContent>
