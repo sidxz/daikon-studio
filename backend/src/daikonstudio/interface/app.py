@@ -5,7 +5,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from daikonstudio.infrastructure.di.container import create_container
-from daikonstudio.infrastructure.duar.auth import get_duar, register_service_actions
+from daikonstudio.infrastructure.duar.auth import (
+    get_duar,
+    log_effective_scope,
+    register_service_actions,
+)
 from daikonstudio.interface.error_handlers import register_error_handlers
 from daikonstudio.interface.routes.collections import router as collections_router
 from daikonstudio.interface.routes.datasets import router as datasets_router
@@ -41,6 +45,10 @@ def create_app() -> FastAPI:
         # `async with`-able. Confirmed against the installed duar_auth 0.17.2
         # source: a type-annotation bug in the SDK, not a real incompatibility.
         async with duar.lifespan(app):  # type: ignore[attr-defined]
+            # After the SDK lifespan, which is what runs fetch_whoami(): the scope
+            # it resolved decides whether any authenticated request can succeed, and
+            # the SDK logs nothing either way. See log_effective_scope.
+            log_effective_scope(duar)
             await register_service_actions(duar)
             yield
 

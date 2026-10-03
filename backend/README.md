@@ -60,7 +60,7 @@ just don't strip the quotes when you edit it.
 | Service    | Port | Notes                                            |
 |------------|------|---------------------------------------------------|
 | Backend    | 8002 | `uvicorn`, `--reload`; http://localhost:8002/docs |
-| Postgres   | 5435 | not 5432/5434 -- those are taken by sibling projects on this machine |
+| Postgres   | 5437 | not 5432/5434/5435/5436 -- those are taken by sibling projects on this machine |
 | Frontend   | 3003+ | 3002 is occupied; the frontend (once scaffolded) picks 3003 or later |
 
 ## Day to day

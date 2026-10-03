@@ -2,7 +2,7 @@ services:
   postgres:
     image: postgres:16-alpine
     environment: {POSTGRES_USER: studio, POSTGRES_PASSWORD: studio, POSTGRES_DB: studio}
-    ports: ["127.0.0.1:5435:5432"]
+    ports: ["127.0.0.1:5437:5432"]
     volumes: ["studio_pgdata:/var/lib/postgresql/data"]
 volumes:
   studio_pgdata:

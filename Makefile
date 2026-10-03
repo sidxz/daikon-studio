@@ -71,11 +71,11 @@ help: ## Show this help
 
 up: ## Start Postgres, wait for readiness, run migrations, seed the dev runners
 	$(COMPOSE) up -d postgres
-	@echo "Waiting for Postgres on :5435..."
+	@echo "Waiting for Postgres on :5437..."
 	@until $(COMPOSE) exec -T postgres pg_isready -U studio -q 2>/dev/null; do sleep 1; done
 	@$(MAKE) --no-print-directory migrate
 	@$(MAKE) --no-print-directory seed-runners
-	@echo "Infra ready: Postgres :5435."
+	@echo "Infra ready: Postgres :5437."
 
 down: ## Stop containers (keep data)
 	$(COMPOSE) stop

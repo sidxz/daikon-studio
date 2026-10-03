@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="STUDIO_", env_file=".env", extra="ignore")
 
-    database_url: str = "postgresql+asyncpg://studio:studio@localhost:5435/studio"
+    database_url: str = "postgresql+asyncpg://studio:studio@localhost:5437/studio"
     blob_base_url: str = "file:///data/blobs"
     # Forwarded to fsspec's url_to_fs, which is what makes the blob backend swappable
     # with no code change: `endpoint_url` for MinIO or any S3-compatible store,

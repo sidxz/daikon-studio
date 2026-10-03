@@ -105,3 +105,44 @@ async def register_service_actions(duar: Duar) -> bool:
         return False
     logger.info("duar actions registered (%d actions)", len(SERVICE_ACTIONS))
     return True
+
+
+def log_effective_scope(duar: Duar) -> None:
+    """Say which scope this process will accept tokens for. One line, every boot.
+
+    `AuthzMiddleware` rejects any request whose authz token carries a `svc` claim
+    that is not `duar.effective_scope`, with 403 "Authz token was issued for a
+    different service". That scope is discovered at startup by the SDK's
+    `fetch_whoami()`, which — deliberately, so a pre-realm Duar keeps working —
+    swallows *every* failure (non-200, timeout, non-JSON body) by returning None and
+    leaving the scope as this service's own name.
+
+    The consequence is what makes this worth a log line: one transient blip talking
+    to Duar during startup permanently wedges the process into rejecting every
+    authenticated request, it never retries, and the SDK records nothing at all. It
+    presents as "Could not load protocols" in the UI with a clean backend log, and
+    the only cure is a restart. Diagnosed the hard way on 2026-08-07; the ~40
+    `--reload` cycles of an editing session are ~40 chances to hit it.
+
+    Not fatal, because standalone (non-realm) is a legitimate deployment and this
+    module cannot tell that apart from a failed lookup — which is exactly why the
+    ambiguity belongs in the log rather than in a guess.
+
+    Only the warning branch is actually visible today: nothing in this app configures
+    logging, so the root logger has no handler and Python's `lastResort` fallback
+    emits WARNING and above to stderr while dropping INFO. That is why
+    `register_service_actions`' success line has never appeared in a log either. It
+    is the right way round for this function — the branch that needs to be seen is
+    the one that gets seen — but do not read a missing "realm scope active" line as
+    evidence of anything.
+    """
+    scope = duar.effective_scope
+    if scope == duar.service_name:
+        logger.warning(
+            "duar realm lookup returned no realm; accepting tokens scoped to '%s' only. "
+            "If this service IS a realm member, whoami failed and every authenticated "
+            "request will 403 until this process is restarted.",
+            scope,
+        )
+    else:
+        logger.info("duar realm scope active: accepting tokens scoped to '%s'", scope)
