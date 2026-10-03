@@ -674,7 +674,9 @@ async def test_a_failed_scorecard_write_leaves_no_protocol_behind(studio: Studio
 
     failed = await studio.reload(run)
     assert failed.status is RunStatus.FAILED
-    assert "blob store went away" in (failed.error_message or "")
+    # An infrastructure error reaches the run as its class, not its text: an
+    # OSError's text is where blob paths live (see failure_message.py).
+    assert "OSError" in (failed.error_message or "")
     assert await studio.protocols.list(studio.auth.workspace_id) == []
 
 

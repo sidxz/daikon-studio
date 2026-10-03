@@ -32,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.application.engines.context import RunInterrupted
 from daikonstudio.application.engines.manifest import DEFAULT_LANE
+from daikonstudio.application.execution.failure_message import user_facing_error
 from daikonstudio.application.execution.predict_with_protocol import RunPrediction
 from daikonstudio.application.execution.train_protocol import RunTraining
 from daikonstudio.application.ports.blob_store import BlobStore
@@ -166,7 +167,7 @@ async def run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
         # precisely why `report` raised.
         return
     except (Exception, SystemExit) as exc:
-        run.fail(repr(exc))
+        run.fail(user_facing_error(exc))
         await _save(ctx, run)
         raise  # re-raise: FAILED is persisted above regardless of what happens next
 

@@ -75,6 +75,7 @@ from daikonstudio.application.engines.protocol import Engine
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.build_scorecard import primary_metric_for
 from daikonstudio.application.execution.enqueue import JobEnqueuer
+from daikonstudio.application.execution.failure_message import user_facing_error
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
@@ -673,7 +674,7 @@ class RunTraining:
             # therefore degrades to a recorded reason rather than a failure.
             # Not silent: `random_split_unavailable` is what stops the Scorecard
             # showing an absent gap and a not-applicable gap identically.
-            return None, repr(exc), None
+            return None, user_facing_error(exc), None
 
     async def _fit(
         self,
