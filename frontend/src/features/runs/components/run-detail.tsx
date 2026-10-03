@@ -58,7 +58,10 @@ export function RunDetail({ runId }: { runId: string }) {
   const hasSubmittedCount =
     submittedCount !== null && Number.isFinite(submittedCount) && submittedCount > 0;
   const fromCache = params.get("cached") === "1";
-  const { data: run, isError, error, refetch } = useRun(runId);
+  // isLoadingError, not isError: a background refetch that fails with the run
+  // already on screen must not replace a triage grid and its selection with an
+  // error box. With data present `pollInterval` backs off instead of stopping.
+  const { data: run, isLoadingError, error, refetch } = useRun(runId);
   const { data: protocol } = useProtocol(run?.protocol_id ?? undefined);
   const cancel = useCancelRun();
   const retry = useRetryRun();
@@ -83,7 +86,7 @@ export function RunDetail({ runId }: { runId: string }) {
   // Before the skeleton: an errored query has no data either, and polling has
   // stopped (`pollInterval`), so a skeleton here would never resolve. The
   // server's message is not shown -- a 404's names the run by its UUID.
-  if (isError) {
+  if (isLoadingError) {
     const missing = error instanceof ApiError && error.status === 404;
     return (
       <div className="mx-auto w-full max-w-6xl p-2">

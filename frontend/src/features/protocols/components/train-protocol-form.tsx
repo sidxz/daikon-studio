@@ -157,19 +157,20 @@ export function TrainProtocolForm() {
     }
   }, [run.data, router]);
 
-  // Polling stops when the request fails (`pollInterval`), so without this the
-  // form waits on a bar that never moves. Fires once: with the run id cleared
-  // the hook watches no query, so `isError` drops back. A silent 401 belongs to
-  // the session renewal, which reloads the page anyway.
+  // Polling stops when the request fails with nothing loaded (`pollInterval`),
+  // so without this the form waits on a bar that never moves. Only a loading
+  // error: a failed *refetch* with the run already in hand is a blip the poll
+  // backs off through. Fires once: with the run id cleared the hook watches no
+  // query. A silent 401 belongs to the session renewal, which reloads the page.
   useEffect(() => {
-    if (!run.isError) return;
+    if (!run.isLoadingError) return;
     if (!(run.error instanceof ApiError && run.error.silent)) {
       showError(
         "Lost track of this training run. It may still finish: look for it under Protocols.",
       );
     }
     setRunId(undefined);
-  }, [run.isError, run.error]);
+  }, [run.isLoadingError, run.error]);
 
   async function submit() {
     try {

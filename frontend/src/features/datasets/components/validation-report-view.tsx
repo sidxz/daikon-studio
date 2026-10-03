@@ -87,11 +87,12 @@ export function ValidationReportView({
         <Card className={rejected ? "border-destructive/50" : undefined}>
           <CardHeader>
             <CardTitle className="text-base">
-              {report.invalid.length.toLocaleString()} structure
-              {report.invalid.length === 1 ? "" : "s"} could not be read
+              {report.invalid.length.toLocaleString()} row
+              {report.invalid.length === 1 ? "" : "s"} could not be used
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Rejected rather than dropped quietly. Row numbers are positions in the file you
+              Structures that did not parse, and target values that are empty, not a number, or not
+              0/1. Rejected rather than dropped quietly. Row numbers are positions in the file you
               uploaded.
             </p>
           </CardHeader>

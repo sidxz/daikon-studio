@@ -2,6 +2,7 @@
 
 import { setUnauthorizedHandler } from "@/shared/lib/api/custom-instance";
 import { getDuarClient, idpTokenExpiresAt } from "@/shared/lib/auth/config";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
 const RENEW_WINDOW_MS = 90_000;
@@ -25,21 +26,29 @@ export function shouldRenew(expiresAt: number | null, now: number): boolean {
  * and the callback page returns there; in-memory page state does not survive.
  */
 export function useSessionRenewal(): void {
+  const queryClient = useQueryClient();
   useEffect(() => {
-    const renew = () => {
-      if (document.visibilityState !== "visible") return;
-      if (Date.now() - Number(sessionStorage.getItem(LAST_RENEWAL_KEY)) < LOOP_GUARD_MS) return;
-      if (getDuarClient().silentLogin()) {
-        sessionStorage.setItem(LAST_RENEWAL_KEY, String(Date.now()));
+    /** True when a redirect was started, so the 401 handler knows whether to re-arm. */
+    const renew = (): boolean => {
+      if (document.visibilityState !== "visible") return false;
+      if (Date.now() - Number(sessionStorage.getItem(LAST_RENEWAL_KEY)) < LOOP_GUARD_MS) {
+        return false;
       }
+      const started = getDuarClient().silentLogin();
+      if (started) sessionStorage.setItem(LAST_RENEWAL_KEY, String(Date.now()));
+      return started;
     };
     setUnauthorizedHandler(renew);
     const timer = window.setInterval(() => {
+      // The redirect loses in-flight page state, so the proactive path waits
+      // for a running mutation (an upload, a Train click) to finish. A 401 on
+      // that mutation still renews: by then the work is lost either way.
+      if (queryClient.isMutating() > 0) return;
       if (shouldRenew(idpTokenExpiresAt(), Date.now())) renew();
     }, CHECK_EVERY_MS);
     return () => {
       window.clearInterval(timer);
       setUnauthorizedHandler(null);
     };
-  }, []);
+  }, [queryClient]);
 }

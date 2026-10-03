@@ -20,16 +20,24 @@ export function isTerminal(status: string | undefined): boolean {
   return status !== undefined && TERMINAL.has(status);
 }
 
+/** Poll interval once a refetch has failed with data still on screen: a laptop
+ *  waking before its Wi-Fi, or the API mid-restart, must not end the watch. */
+export const RUN_RETRY_POLL_MS = 10_000;
+
 /**
  * `refetchInterval` for a query that returns one Run: poll until it is
- * terminal, and stop the moment the request itself fails -- a 404 refetched
- * every two seconds is a screen stuck on its skeleton. It lives here, not in
- * the runs feature, because protocols polls Runs too and runs imports protocols.
+ * terminal. A request that fails with *nothing* loaded stops the poll -- a 404
+ * refetched every two seconds is a screen stuck on its skeleton. A request
+ * that fails with data already on screen is a blip, and the poll backs off
+ * instead of stopping. It lives here, not in the runs feature, because
+ * protocols polls Runs too and runs imports protocols.
  */
 export function pollInterval(query: {
   state: { status: string; data?: { status?: string } };
 }): number | false {
-  if (query.state.status === "error") return false;
+  if (query.state.status === "error") {
+    return query.state.data === undefined ? false : RUN_RETRY_POLL_MS;
+  }
   return isTerminal(query.state.data?.status) ? false : RUN_POLL_MS;
 }
 

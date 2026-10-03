@@ -38,11 +38,15 @@ export class ApiError extends Error {
   }
 }
 
-let _onUnauthorized: (() => void) | null = null;
+let _onUnauthorized: (() => boolean) | null = null;
 let _unauthorizedNotified = false;
 
-/** Registered by the dashboard layout; fired once per expiry, not once per failed query. */
-export function setUnauthorizedHandler(handler: (() => void) | null): void {
+/**
+ * Registered by the dashboard layout; fired once per expiry, not once per failed
+ * query. The handler returns whether it actually started a renewal: when it
+ * declined (hidden tab, loop guard) the next 401 may ask again.
+ */
+export function setUnauthorizedHandler(handler: (() => boolean) | null): void {
   _onUnauthorized = handler;
   _unauthorizedNotified = false;
 }
@@ -140,8 +144,8 @@ export const customInstance = async <T>({
     }
     if (response.status === 401 && _onUnauthorized) {
       if (!_unauthorizedNotified) {
-        _unauthorizedNotified = true;
-        _onUnauthorized();
+        // A handler that returns nothing is taken to have started the renewal.
+        _unauthorizedNotified = _onUnauthorized() !== false;
       }
       throw new ApiError("Your session expired; signing you back in", 401, body, true);
     }

@@ -45,7 +45,9 @@ function formatConditions(conditions: SweepRun["conditions"]): string {
 }
 
 export function SweepDetail({ id }: { id: string }) {
-  const { data: sweep, isError, error, refetch } = useSweep(id);
+  // isLoadingError, not isError: a failed background refetch keeps the loaded
+  // sweep on screen (see run-detail for the same reasoning).
+  const { data: sweep, isLoadingError, error, refetch } = useSweep(id);
   const cancel = useCancelSweep();
 
   useBreadcrumbTrail(
@@ -54,7 +56,7 @@ export function SweepDetail({ id }: { id: string }) {
 
   // Polling stops on error, so a skeleton here would never resolve. The
   // server's message is not shown -- a 404's names the sweep by its UUID.
-  if (isError) {
+  if (isLoadingError) {
     const missing = error instanceof ApiError && error.status === 404;
     return (
       <div className="mx-auto w-full max-w-4xl p-2">
