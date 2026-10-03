@@ -45,6 +45,7 @@ class InSilicoProtocol(AggregateRoot):
         published_at: datetime | None = None,
         parent_protocol_id: uuid.UUID | None = None,
         protocol_version: int = 1,
+        created_by: uuid.UUID | None = None,
         id: uuid.UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -70,6 +71,9 @@ class InSilicoProtocol(AggregateRoot):
         self.published_at = published_at
         self.parent_protocol_id = parent_protocol_id
         self.protocol_version = protocol_version
+        # Who trained it, for the delete permission (backfilled by migration 011
+        # from the training run's `requested_by`).
+        self.created_by = created_by
 
     @property
     def conditions(self) -> Mapping[str, Any]:

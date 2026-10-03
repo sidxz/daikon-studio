@@ -28,6 +28,7 @@ from typing import Annotated, Any, Literal
 from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from daikonstudio.application.auth import AuthContext, may_delete
 from daikonstudio.application.catalog.get_chemical_space import (
     MAX_LOOKUPS,
     ChemicalSpaceView,
@@ -144,9 +145,13 @@ class ProtocolResponse(BaseModel):
     parent_protocol_id: uuid.UUID | None
     protocol_version: int
     created_at: datetime
+    # Whether this viewer may delete it: a draft, and an admin or its creator.
+    can_delete: bool
 
     @classmethod
-    def from_domain(cls, protocol: InSilicoProtocol) -> ProtocolResponse:
+    def from_domain(
+        cls, protocol: InSilicoProtocol, *, auth: AuthContext | None
+    ) -> ProtocolResponse:
         return cls(
             id=protocol.id,
             workspace_id=protocol.workspace_id,
@@ -162,6 +167,7 @@ class ProtocolResponse(BaseModel):
             parent_protocol_id=protocol.parent_protocol_id,
             protocol_version=protocol.protocol_version,
             created_at=protocol.created_at,
+            can_delete=not protocol.is_locked and may_delete(auth, protocol.created_by),
         )
 
 
@@ -364,7 +370,7 @@ async def list_protocols(
         await service(ListProtocolsQuery(cursor=cursor, limit=limit), auth=auth)
     )
     return PaginatedResponse(
-        items=[ProtocolResponse.from_domain(protocol) for protocol in page.items],
+        items=[ProtocolResponse.from_domain(protocol, auth=auth) for protocol in page.items],
         next_cursor=page.next_cursor,
     )
 
@@ -376,7 +382,7 @@ async def get_protocol(
     protocol = result_to_response(
         await service(GetProtocolQuery(protocol_id=protocol_id), auth=auth)
     )
-    return ProtocolResponse.from_domain(protocol)
+    return ProtocolResponse.from_domain(protocol, auth=auth)
 
 
 @router.get("/{protocol_id}/scorecard", response_model=ScorecardResponse)

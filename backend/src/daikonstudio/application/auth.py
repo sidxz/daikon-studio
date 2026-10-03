@@ -61,3 +61,20 @@ def require_same_workspace(
     if auth.workspace_id != workspace_id:
         # NotFound, not Authorization: 403 would confirm the resource exists.
         raise NotFoundError(entity_type)
+
+
+def may_delete(auth: AuthContext | None, created_by: uuid.UUID | None) -> bool:
+    """Admins and owners may delete anything; the creator may delete their own
+    while they still hold editor or higher. `created_by` is None for items made
+    before creators were recorded (migration 011), so those are admin-only."""
+    if auth is None:  # system/worker call
+        return True
+    rank = _ROLE_RANK.get(auth.workspace_role, -1)
+    if rank >= _ROLE_RANK["admin"]:
+        return True
+    return created_by is not None and created_by == auth.user_id and rank >= _ROLE_RANK["editor"]
+
+
+def require_may_delete(auth: AuthContext | None, created_by: uuid.UUID | None) -> None:
+    if not may_delete(auth, created_by):
+        raise AuthorizationError("Only an admin or the person who created it can delete this.")

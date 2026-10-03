@@ -1,3 +1,7 @@
+import importlib.util
+import uuid
+from pathlib import Path
+
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
@@ -39,3 +43,38 @@ async def test_no_table_exists_only_in_the_orm_or_only_in_the_migrations(_migrat
     async with _migrated_engine.connect() as connection:
         diffs = await connection.run_sync(table_diffs)
     assert diffs == [], diffs
+
+
+@pytest.mark.asyncio
+async def test_011_backfills_each_protocols_creator_from_its_training_run(migrated_session):
+    spec = importlib.util.spec_from_file_location(
+        "migration_011", Path("alembic/versions/011_created_by.py")
+    )
+    assert spec is not None and spec.loader is not None
+    migration = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(migration)
+
+    workspace, protocol, trainer = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await migrated_session.execute(
+        text(
+            "INSERT INTO protocols (id, workspace_id, name, dataset_id, engine_id, artifact_uri,"
+            " readouts, conditions, status, protocol_version, version, created_at, updated_at)"
+            " VALUES (:id, :ws, 'p', :ds, 'rf', 'x', '[]', '{}', 'draft', 1, 1, now(), now())"
+        ),
+        {"id": protocol, "ws": workspace, "ds": uuid.uuid4()},
+    )
+    await migrated_session.execute(
+        text(
+            "INSERT INTO runs (id, workspace_id, kind, requested_by, cache_key, params,"
+            " protocol_id, status, progress, attempts, version, created_at, updated_at)"
+            " VALUES (:id, :ws, 'training', :by, 'k', '{}', :p, 'ready', 1, 0, 1, now(), now())"
+        ),
+        {"id": uuid.uuid4(), "ws": workspace, "by": trainer, "p": protocol},
+    )
+
+    await migrated_session.execute(text(migration.BACKFILL_PROTOCOL_CREATORS))
+
+    created_by = await migrated_session.scalar(
+        text("SELECT created_by FROM protocols WHERE id = :id"), {"id": protocol}
+    )
+    assert created_by == trainer

@@ -33,6 +33,7 @@ def _to_domain(model: DatasetModel) -> Dataset:
         snapshot_uri=model.snapshot_uri,
         row_count=model.row_count,
         validation_report=report_from_dict(model.validation_report),
+        created_by=model.created_by,
         created_at=model.created_at,
         updated_at=model.updated_at,
         version=model.version,
@@ -51,6 +52,7 @@ def _to_model(dataset: Dataset) -> DatasetModel:
         snapshot_uri=dataset.snapshot_uri,
         row_count=dataset.row_count,
         validation_report=report_to_dict(dataset.validation_report),
+        created_by=dataset.created_by,
         version=dataset.version,
         # Explicit, rather than letting the column's server_default fill them in:
         # otherwise the created_at in the 201 response body (the aggregate's own

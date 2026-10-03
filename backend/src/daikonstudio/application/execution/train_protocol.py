@@ -604,6 +604,8 @@ class RunTraining:
                 # measured one. Created in DRAFT; Task 16 publishes it.
                 readouts=derive_readouts(dataset.target, task),
                 conditions=conditions,
+                # The person who asked for the training, not the runner that ran it.
+                created_by=run.requested_by,
             )
         )
         # After the Protocol row exists, so the link is never dangling. The

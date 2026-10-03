@@ -38,6 +38,8 @@ class InSilicoProtocolModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMix
         Uuid, ForeignKey("protocols.id"), nullable=True
     )
     protocol_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    # Who created it, for the delete permission. NULL for rows made before 011.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
     __table_args__ = (
         CheckConstraint("status IN ('draft','published')", name="ck_protocols_status"),

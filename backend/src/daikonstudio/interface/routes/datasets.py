@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
+from daikonstudio.application.auth import AuthContext, may_delete
 from daikonstudio.application.data.create_dataset import (
     CreateDataset,
     CreateDatasetCommand,
@@ -153,9 +154,12 @@ class DatasetResponse(BaseModel):
     validation_report: ValidationReportResponse
     version: int
     created_at: datetime
+    # Whether this viewer may delete it, by role and creator. Dependents (protocols
+    # trained on it, runs in progress) are checked only when DELETE is requested.
+    can_delete: bool
 
     @classmethod
-    def from_domain(cls, dataset: Dataset) -> DatasetResponse:
+    def from_domain(cls, dataset: Dataset, *, auth: AuthContext | None) -> DatasetResponse:
         return cls(
             id=dataset.id,
             workspace_id=dataset.workspace_id,
@@ -171,6 +175,7 @@ class DatasetResponse(BaseModel):
             ),
             version=dataset.version,
             created_at=dataset.created_at,
+            can_delete=may_delete(auth, dataset.created_by),
         )
 
 
@@ -347,7 +352,9 @@ async def create_dataset(
         ),
         split=split,
     )
-    return DatasetResponse.from_domain(result_to_response(await service(command, auth=auth)))
+    return DatasetResponse.from_domain(
+        result_to_response(await service(command, auth=auth)), auth=auth
+    )
 
 
 @router.get("", response_model=PaginatedResponse[DatasetResponse])
@@ -363,7 +370,7 @@ async def list_datasets(
         await service(ListDatasetsQuery(cursor=cursor, limit=limit), auth=auth)
     )
     return PaginatedResponse(
-        items=[DatasetResponse.from_domain(dataset) for dataset in page.items],
+        items=[DatasetResponse.from_domain(dataset, auth=auth) for dataset in page.items],
         next_cursor=page.next_cursor,
     )
 
@@ -373,7 +380,7 @@ async def get_dataset(
     dataset_id: uuid.UUID, auth: AuthDep, service: GetDatasetDep
 ) -> DatasetResponse:
     dataset = result_to_response(await service(GetDatasetQuery(dataset_id=dataset_id), auth=auth))
-    return DatasetResponse.from_domain(dataset)
+    return DatasetResponse.from_domain(dataset, auth=auth)
 
 
 class ProfileComputingResponse(BaseModel):

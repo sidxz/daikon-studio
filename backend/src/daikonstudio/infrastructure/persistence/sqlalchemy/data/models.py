@@ -28,6 +28,8 @@ class DatasetModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
     snapshot_uri: Mapped[str] = mapped_column(Text, nullable=False)
     row_count: Mapped[int] = mapped_column(Integer, nullable=False)
     validation_report: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    # Who created it, for the delete permission. NULL for rows made before 011.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
 
     __table_args__ = (
         # Content addressing is only a real property if the database enforces it:

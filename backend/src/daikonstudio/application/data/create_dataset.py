@@ -200,6 +200,7 @@ class CreateDataset:
             snapshot_uri=snapshot_uri,
             row_count=split_frame.height,
             validation_report=report,
+            created_by=auth.user_id,
         )
         await self._repository.add(dataset)
         return Success(dataset)

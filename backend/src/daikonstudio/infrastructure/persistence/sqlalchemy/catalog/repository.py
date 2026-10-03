@@ -62,6 +62,7 @@ def _to_domain(model: InSilicoProtocolModel) -> InSilicoProtocol:
         published_at=model.published_at,
         parent_protocol_id=model.parent_protocol_id,
         protocol_version=model.protocol_version,
+        created_by=model.created_by,
         created_at=model.created_at,
         updated_at=model.updated_at,
         version=model.version,
@@ -85,6 +86,7 @@ def _to_model(protocol: InSilicoProtocol) -> InSilicoProtocolModel:
         published_at=protocol.published_at,
         parent_protocol_id=protocol.parent_protocol_id,
         protocol_version=protocol.protocol_version,
+        created_by=protocol.created_by,
         version=protocol.version,
         # Explicit, rather than the column's server_default: otherwise the
         # created_at in a 201 response body (the aggregate's own clock) and the

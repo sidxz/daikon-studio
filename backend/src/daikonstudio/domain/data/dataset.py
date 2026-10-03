@@ -43,6 +43,7 @@ class Dataset(AggregateRoot):
         snapshot_uri: str,
         row_count: int,
         validation_report: ValidationReport,
+        created_by: uuid.UUID | None = None,
         id: uuid.UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -62,6 +63,9 @@ class Dataset(AggregateRoot):
         self.snapshot_uri = snapshot_uri
         self.row_count = row_count
         self.validation_report = validation_report
+        # Who created it, for the delete permission. None for datasets made before
+        # migration 011 recorded it: those are admin-only.
+        self.created_by = created_by
 
 
 class DuplicateDatasetError(ConflictError):

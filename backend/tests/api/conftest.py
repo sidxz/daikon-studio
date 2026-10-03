@@ -206,6 +206,14 @@ async def admin_client(app, signing_key, workspace_id) -> AsyncIterator[httpx.As
 
 
 @pytest_asyncio.fixture
+async def other_editor_client(app, signing_key, workspace_id) -> AsyncIterator[httpx.AsyncClient]:
+    """A second editor in the same workspace: may read everything, delete only their own."""
+    headers = auth_headers(signing_key[0], workspace_id=workspace_id, role="editor")
+    async with _client(app, headers) as http_client:
+        yield http_client
+
+
+@pytest_asyncio.fixture
 async def anonymous_client(app) -> AsyncIterator[httpx.AsyncClient]:
     async with _client(app, None) as http_client:
         yield http_client
