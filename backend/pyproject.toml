@@ -27,6 +27,7 @@ dependencies = [
     "fsspec>=2024.10",
     "joblib>=1.4",
     "openpyxl>=3.1",
+    "umap-learn>=0.5.12",
 ]
 
 [project.optional-dependencies]
