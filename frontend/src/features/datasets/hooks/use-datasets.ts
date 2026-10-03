@@ -239,6 +239,8 @@ export interface CompoundQuery extends Record<string, unknown> {
   sort?: "target" | "split";
   sort_dir?: "asc" | "desc";
   split?: "train" | "validation" | "test";
+  /** Case-insensitive "contains" on the compound's ID. */
+  q?: string;
 }
 
 /** A page of the frozen snapshot's own rows. Immutable, so the same page is

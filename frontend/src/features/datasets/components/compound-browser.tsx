@@ -4,6 +4,7 @@ import { StructureThumbnail } from "@/shared/components/chemistry/structure-thum
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
+import { Input } from "@/shared/components/ui/input";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import {
   Table,
@@ -14,7 +15,7 @@ import {
   TableRow,
 } from "@/shared/components/ui/table";
 import { ArrowDown, ArrowUp } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useDatasetCompounds } from "../hooks/use-datasets";
 import type { Dataset } from "../types";
 
@@ -34,6 +35,17 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
   const [offset, setOffset] = useState(0);
   const [descending, setDescending] = useState(false);
   const [split, setSplit] = useState<(typeof PARTITIONS)[number] | undefined>();
+  // What the search box shows, and what was last sent: one request per pause
+  // in typing, not per keystroke, since each reads the whole snapshot.
+  const [search, setSearch] = useState("");
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setQ(search.trim());
+      setOffset(0);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search]);
 
   const { data, isLoading, isError } = useDatasetCompounds(dataset.id, {
     offset,
@@ -41,6 +53,7 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
     sort: "target",
     sort_dir: descending ? "desc" : "asc",
     split,
+    q: q || undefined,
   });
 
   function reset(next: () => void) {
@@ -61,6 +74,16 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
 
   return (
     <div className="space-y-3">
+      {dataset.id_column && (
+        <Input
+          type="search"
+          aria-label="Search by ID"
+          placeholder={`Search by ${dataset.id_column}`}
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          className="h-8 max-w-xs"
+        />
+      )}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-1">
           <Button
@@ -91,6 +114,7 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
         <TableHeader>
           <TableRow>
             <TableHead className="w-[120px]">Structure</TableHead>
+            {dataset.id_column && <TableHead>{dataset.id_column}</TableHead>}
             <TableHead>SMILES</TableHead>
             <TableHead className="text-right">{dataset.target.column}</TableHead>
             <TableHead className="w-[110px]">Partition</TableHead>
@@ -101,7 +125,7 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
             ? Array.from({ length: 6 }, (_, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length skeleton, no identity
                 <TableRow key={index}>
-                  <TableCell colSpan={4}>
+                  <TableCell colSpan={dataset.id_column ? 5 : 4}>
                     <Skeleton className="h-16 w-full" />
                   </TableCell>
                 </TableRow>
@@ -111,6 +135,11 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
                   <TableCell>
                     <StructureThumbnail smiles={compound.structure} size={96} />
                   </TableCell>
+                  {dataset.id_column && (
+                    <TableCell className="font-mono text-xs">
+                      {compound.compound_id ?? "—"}
+                    </TableCell>
+                  )}
                   <TableCell className="max-w-[1px] truncate font-mono text-xs text-muted-foreground">
                     {compound.structure}
                   </TableCell>

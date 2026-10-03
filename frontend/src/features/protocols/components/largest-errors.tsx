@@ -95,6 +95,14 @@ export function LargestErrors({ scorecard }: { scorecard: ScorecardResponse }) {
                   )}
                 </div>
               )}
+              {row.compound_id && (
+                <p
+                  className="w-full truncate text-center font-mono text-xs font-medium"
+                  title={row.compound_id}
+                >
+                  {row.compound_id}
+                </p>
+              )}
               <StructureThumbnail smiles={row.structure} size={110} />
               <dl className="w-full space-y-0.5 text-xs">
                 <div className="flex justify-between gap-2">

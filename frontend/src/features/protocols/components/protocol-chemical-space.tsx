@@ -22,6 +22,7 @@ export function MapCompoundTooltip({ protocolId, index }: { protocolId: string; 
   return (
     <div className="space-y-1.5">
       <StructureThumbnail smiles={data.structure} size={96} />
+      {data.compound_id && <p className="font-mono font-medium">{data.compound_id}</p>}
       <p className="font-medium">{PARTITION_LABEL[data.partition]} compound</p>
     </div>
   );

@@ -8,13 +8,19 @@ vi.mock("@/shared/components/chemistry/structure-thumbnail", () => ({
   StructureThumbnail: ({ smiles }: { smiles: string }) => <span data-testid="mol">{smiles}</span>,
 }));
 
-const row = (structure: string, scaffold: string, residual: number) => ({
+const row = (
+  structure: string,
+  scaffold: string,
+  residual: number,
+  compound_id: string | null = null,
+) => ({
   structure,
   scaffold,
   residual,
   actual: 0,
   predicted: residual,
   similarity: 0.5,
+  compound_id,
 });
 
 const scorecard = (rows: ReturnType<typeof row>[]) =>
@@ -54,5 +60,10 @@ describe("LargestErrors", () => {
     expect(screen.queryByRole("button", { name: "By series" })).not.toBeInTheDocument();
     expect(screen.queryByText(/Series A/)).not.toBeInTheDocument();
     expect(screen.getByText(/No two share a scaffold\./)).toBeInTheDocument();
+  });
+
+  it("shows a compound's own ID on its card", () => {
+    render(<LargestErrors scorecard={scorecard([row("a", "c1ccccc1", 0.5, "RU-7")])} />);
+    expect(screen.getByText("RU-7")).toBeInTheDocument();
   });
 });
