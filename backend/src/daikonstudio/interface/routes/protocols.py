@@ -180,6 +180,7 @@ class WorstRowResponse(BaseModel):
     residual: float
     scaffold: str
     similarity: float | None
+    compound_id: str | None
 
     @classmethod
     def from_domain(cls, row: WorstRow) -> WorstRowResponse:
@@ -190,6 +191,7 @@ class WorstRowResponse(BaseModel):
             residual=row.residual,
             scaffold=row.scaffold,
             similarity=row.similarity,
+            compound_id=row.compound_id,
         )
 
 
@@ -435,6 +437,7 @@ class MapCompoundResponse(BaseModel):
     index: int
     structure: str
     partition: Literal["train", "validation", "test"]
+    compound_id: str | None
 
 
 @router.get("/{protocol_id}/chemical-space", response_model=ChemicalSpaceResponse)
@@ -461,7 +464,12 @@ async def get_chemical_space_compounds(
         )
     )
     return [
-        MapCompoundResponse(index=i.index, structure=i.structure, partition=i.partition)  # type: ignore[arg-type]
+        MapCompoundResponse(
+            index=i.index,
+            structure=i.structure,
+            partition=i.partition,  # type: ignore[arg-type]
+            compound_id=i.compound_id,
+        )
         for i in items
     ]
 

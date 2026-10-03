@@ -20,7 +20,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Response, UploadFile
+from fastapi import APIRouter, Depends, Query, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -312,10 +312,16 @@ class CompoundResponse(BaseModel):
     structure: str
     target: float | None
     split: str
+    compound_id: str | None
 
     @classmethod
     def from_domain(cls, compound: Compound) -> CompoundResponse:
-        return cls(structure=compound.structure, target=compound.target, split=compound.split)
+        return cls(
+            structure=compound.structure,
+            target=compound.target,
+            split=compound.split,
+            compound_id=compound.compound_id,
+        )
 
 
 class CompoundPageResponse(BaseModel):
@@ -488,6 +494,7 @@ async def get_dataset_compounds(
     sort: Literal["target", "split"] | None = None,
     sort_dir: Literal["asc", "desc"] = "asc",
     split: Literal["train", "validation", "test"] | None = None,
+    q: Annotated[str | None, Query(max_length=128)] = None,
 ) -> CompoundPageResponse:
     """`sort` and `split` are Literals, so FastAPI rejects anything else itself
     -- there is no column name here a client could reach the frame with."""
@@ -500,6 +507,7 @@ async def get_dataset_compounds(
                 sort=sort,
                 descending=sort_dir == "desc",
                 split=split,
+                q=q,
             ),
             auth=auth,
         )

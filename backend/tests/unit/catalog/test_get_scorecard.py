@@ -24,6 +24,7 @@ class _FakeProtocol:
     def __init__(self, workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> None:
         self.workspace_id = workspace_id
         self.id = protocol_id
+        self.dataset_id = uuid.uuid4()
 
 
 class _FakeProtocols:
@@ -70,6 +71,11 @@ def _inputs(protocol_id: uuid.UUID) -> ScorecardInputs:
     )
 
 
+class _NoDatasets:
+    async def get(self, workspace_id, dataset_id):
+        return None
+
+
 async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
     auth = FakeAuth()
     protocol = _FakeProtocol(auth.workspace_id, uuid.uuid4())
@@ -113,6 +119,7 @@ async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
         _FakeProtocols(protocol),
         _FakeStore(inputs.to_json()),
         normalizer=object(),  # type: ignore[arg-type]
+        datasets=_NoDatasets(),
     )
     result = await use_case(GetScorecardQuery(protocol_id=protocol.id), auth)
 

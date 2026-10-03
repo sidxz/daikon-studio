@@ -222,7 +222,7 @@ def create_container(settings: Settings | None = None) -> Container:
     )
     container.define(
         GetScorecard,
-        lambda c: GetScorecard(_protocols(c), c[BlobStore], c[StructureNormalizer]),
+        lambda c: GetScorecard(_protocols(c), c[BlobStore], c[StructureNormalizer], _datasets(c)),
     )
     container.define(
         GetProtocolChemicalSpace,
@@ -230,7 +230,7 @@ def create_container(settings: Settings | None = None) -> Container:
     )
     container.define(
         GetProtocolChemicalSpaceCompounds,
-        lambda c: GetProtocolChemicalSpaceCompounds(_protocols(c), c[BlobStore]),
+        lambda c: GetProtocolChemicalSpaceCompounds(_protocols(c), c[BlobStore], _datasets(c)),
     )
     container.define(
         GetRunChemicalSpace,

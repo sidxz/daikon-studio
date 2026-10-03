@@ -43,6 +43,9 @@ class WorstRow:
     residual: float
     scaffold: str
     similarity: float | None
+    # The compound's own ID when its dataset names an identifier column, looked
+    # up when the scorecard is read (`GetScorecard`), never stored with it.
+    compound_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)

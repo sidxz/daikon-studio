@@ -4,11 +4,12 @@ Until this existed there was no way to look at the data a Dataset contains --
 the snapshot was written at freeze time and read back only by training. A
 scientist could see how many compounds survived validation and not one of them.
 
-Deliberately narrow: structure, target and partition, sorted by target or by
-partition. Not a general query surface over the uploader's other columns, and
-not sortable by structure -- ordering compounds by their SMILES string is
-alphabetical nonsense dressed up as chemistry, the same reason
-`apply_result_view` refuses it for prediction results.
+Deliberately narrow: structure, target, partition and, when the dataset names
+one, the compound's ID, searchable by ID; sorted by target or by partition. Not
+a general query surface over the uploader's other columns, and not sortable by
+structure -- ordering compounds by their SMILES string is alphabetical nonsense
+dressed up as chemistry, the same reason `apply_result_view` refuses it for
+prediction results.
 
 Offset paging rather than the keyset cursors the list endpoints use: those page
 over a table whose rows arrive over time, where an offset silently skips or
@@ -28,10 +29,11 @@ import polars as pl
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated
+from daikonstudio.application.data.compound_ids import id_text
 from daikonstudio.application.data.snapshot import snapshot_key
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
-from daikonstudio.domain.shared.errors import DomainError, NotFoundError
+from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
 
 MAX_LIMIT = 200
 
@@ -41,6 +43,7 @@ class Compound:
     structure: str
     target: float | None
     split: str
+    compound_id: str | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -57,6 +60,8 @@ class GetDatasetCompoundsQuery:
     sort: Literal["target", "split"] | None = None
     descending: bool = False
     split: str | None = None
+    # Case-insensitive "contains" on the compound's ID; needs an identifier column.
+    q: str | None = None
 
 
 class GetDatasetCompounds:
@@ -74,6 +79,10 @@ class GetDatasetCompounds:
         if dataset is None:
             return Failure(NotFoundError("Dataset", str(query.dataset_id)))
 
+        search = (query.q or "").strip().lower()
+        if search and dataset.id_column is None:
+            return Failure(ValidationError("This dataset has no identifier column."))
+
         try:
             raw = self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id))
         except FileNotFoundError:
@@ -87,10 +96,19 @@ class GetDatasetCompounds:
             pl.col(dataset.structure_column).alias("structure"),
             pl.col(dataset.target.column).cast(pl.Float64, strict=False).alias("target"),
             pl.col("split"),
+            (
+                id_text(dataset.id_column)
+                if dataset.id_column is not None
+                else pl.lit(None, dtype=pl.String)
+            ).alias("compound_id"),
         )
 
         if query.split is not None:
             frame = frame.filter(pl.col("split") == query.split)
+        if search:
+            frame = frame.filter(
+                pl.col("compound_id").str.to_lowercase().str.contains(search, literal=True)
+            )
 
         total = frame.height
 
@@ -114,6 +132,7 @@ class GetDatasetCompounds:
                         structure=str(row["structure"]),
                         target=None if row["target"] is None else float(row["target"]),
                         split=str(row["split"]),
+                        compound_id=row["compound_id"],
                     )
                     for row in page.iter_rows(named=True)
                 ],

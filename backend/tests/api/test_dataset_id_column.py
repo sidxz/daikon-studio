@@ -71,3 +71,78 @@ async def test_a_viewer_cannot_change_it(client, viewer_client, csv_upload):
         f"/api/v1/datasets/{dataset_id}/id-column", json={"id_column": "name"}
     )
     assert refused.status_code == 403
+
+
+async def _compounds(client, dataset_id: str, **params):
+    response = await client.get(
+        f"/api/v1/datasets/{dataset_id}/compounds", params={"limit": 200, **params}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def test_compounds_carry_their_id_and_can_be_searched(client, csv_upload):
+    dataset_id = (await _create(client, csv_upload, id_column="name")).json()["id"]
+
+    every = await _compounds(client, dataset_id)
+    assert sorted(item["compound_id"] for item in every["items"]) == sorted(
+        f"cpd-{index}" for index in range(len(_STRUCTURES))
+    )
+
+    found = await _compounds(client, dataset_id, q="  CPD-1 ")
+    assert found["total"] == 11  # cpd-1 and cpd-10 to cpd-19
+    assert all("cpd-1" in item["compound_id"] for item in found["items"])
+
+    # Whitespace alone is no filter.
+    assert (await _compounds(client, dataset_id, q="   "))["total"] == len(_STRUCTURES)
+
+
+async def test_a_numeric_id_column_reads_as_integers(client, csv_upload):
+    dataset_id = (await _create(client, csv_upload, id_column="num")).json()["id"]
+
+    ids = {item["compound_id"] for item in (await _compounds(client, dataset_id))["items"]}
+    assert ids == {str(index) for index in range(len(_STRUCTURES))}
+    assert (await _compounds(client, dataset_id, q="12"))["total"] == 1
+
+
+async def test_search_needs_an_identifier_column(client, csv_upload):
+    dataset_id = (await _create(client, csv_upload)).json()["id"]
+
+    refused = await client.get(f"/api/v1/datasets/{dataset_id}/compounds", params={"q": "cpd"})
+    assert refused.status_code == 422
+    assert refused.json()["message"] == "This dataset has no identifier column."
+    assert all(
+        item["compound_id"] is None for item in (await _compounds(client, dataset_id))["items"]
+    )
+
+
+async def test_a_protocols_errors_and_map_show_ids_and_follow_a_change(client, csv_upload):
+    dataset_id = (await _create(client, csv_upload, id_column="name")).json()["id"]
+    by_structure = {
+        item["structure"]: item["compound_id"]
+        for item in (await _compounds(client, dataset_id))["items"]
+    }
+    train = await test_protocols._train(client, dataset_id)
+    assert train.status_code == 202, train.text
+    run = (await client.get(f"/api/v1/runs/{train.json()['id']}")).json()
+    protocol_id = run["protocol_id"]
+
+    scorecard = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()
+    assert scorecard["worst_rows"]
+    for row in scorecard["worst_rows"]:
+        assert row["compound_id"] == by_structure[row["structure"]]
+
+    compounds = (
+        await client.get(
+            f"/api/v1/protocols/{protocol_id}/chemical-space/compounds",
+            params={"indices": [0, 1]},
+        )
+    ).json()
+    assert [item["compound_id"] for item in compounds] == [
+        by_structure[item["structure"]] for item in compounds
+    ]
+
+    # Switching the column changes the IDs on the trained protocol at once.
+    await client.put(f"/api/v1/datasets/{dataset_id}/id-column", json={"id_column": "num"})
+    switched = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()
+    assert all(row["compound_id"].isdigit() for row in switched["worst_rows"])

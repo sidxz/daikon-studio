@@ -9,9 +9,10 @@ is a normal state, reported as `missing`, never an error.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import polars as pl
@@ -25,8 +26,10 @@ from daikonstudio.application.catalog.chemical_space import (
     read_neighbours,
     read_points,
 )
+from daikonstudio.application.data.compound_ids import read_compound_ids
 from daikonstudio.application.execution.build_scorecard import _APPLICABILITY_THRESHOLD
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
@@ -64,6 +67,8 @@ class MapCompound:
     index: int
     structure: str
     partition: str
+    # Looked up from the dataset's identifier column when asked for, if it has one.
+    compound_id: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -152,9 +157,12 @@ class GetProtocolChemicalSpace:
 
 
 class GetProtocolChemicalSpaceCompounds:
-    def __init__(self, protocols: ProtocolRepository, store: BlobStore) -> None:
+    def __init__(
+        self, protocols: ProtocolRepository, store: BlobStore, datasets: DatasetRepository
+    ) -> None:
         self._protocols = protocols
         self._store = store
+        self._datasets = datasets
 
     async def __call__(
         self, query: GetProtocolChemicalSpaceCompoundsQuery, auth: AuthContext | None = None
@@ -172,17 +180,24 @@ class GetProtocolChemicalSpaceCompounds:
             return Success([])
         structures = points["structure"].to_list()
         partitions = points["partition"].to_list()
-        return Success(
-            [
-                MapCompound(
-                    index=i,
-                    structure=str(structures[i]),
-                    partition=_PARTITION_NAMES[int(partitions[i])],
-                )
-                for i in query.indices
-                if 0 <= i < len(structures)
-            ]
-        )
+        found = [
+            MapCompound(
+                index=i,
+                structure=str(structures[i]),
+                partition=_PARTITION_NAMES[int(partitions[i])],
+            )
+            for i in query.indices
+            if 0 <= i < len(structures)
+        ]
+        dataset = await self._datasets.get(protocol.workspace_id, protocol.dataset_id)
+        if found and dataset is not None:
+            try:
+                ids = await asyncio.to_thread(read_compound_ids, self._store, dataset)
+            except FileNotFoundError:
+                ids = None
+            if ids:
+                found = [replace(item, compound_id=ids.get(item.structure)) for item in found]
+        return Success(found)
 
 
 async def _ready_prediction(
