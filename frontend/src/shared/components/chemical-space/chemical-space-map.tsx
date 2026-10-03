@@ -15,6 +15,7 @@ import { type Rgba, parseColor } from "./color";
 import { type MapRenderer, createMapRenderer } from "./renderer";
 import {
   type View,
+  boundsOf,
   buildPickGrid,
   fitView,
   pan,
@@ -60,7 +61,7 @@ export function useMapColors(): Rgba[] | null {
   return useMemo(
     () =>
       theme && [
-        parseColor(theme.pair[0], 0.45), // training
+        parseColor(theme.pair[0], 0.6), // training
         parseColor(theme.triple[2], 0.7), // validation
         parseColor(theme.held, 0.85), // test
         parseColor(theme.held), // run, inside the domain
@@ -105,6 +106,7 @@ export function ChemicalSpaceMap({
   const viewRef = useRef<View>({ cx: 0.5, cy: 0.5, scale: 1 });
   const fitRef = useRef<View>(viewRef.current);
   const sizeRef = useRef<[number, number]>([0, 0]);
+  const boundsRef = useRef(boundsOf(base, ...(overlay ? [overlay] : [])));
   const progressRef = useRef(1);
   const dragRef = useRef<{ x: number; y: number } | null>(null);
   const [unsupported, setUnsupported] = useState(false);
@@ -130,7 +132,7 @@ export function ChemicalSpaceMap({
       const [width, height] = renderer.resize();
       const first = sizeRef.current[0] === 0;
       sizeRef.current = [width, height];
-      fitRef.current = fitView(width, height);
+      fitRef.current = fitView(width, height, 24, boundsRef.current);
       if (first) viewRef.current = fitRef.current;
       draw();
     });
@@ -159,8 +161,22 @@ export function ChemicalSpaceMap({
   useEffect(() => {
     const [positions, styles] = interleave(base);
     rendererRef.current?.setLayer(0, positions, styles);
+    // A few hundred compounds read as dust at 2.5 px; 100k need small dots to stay legible.
+    rendererRef.current?.setPointScale(
+      base.x.length <= 2_000 ? 1.6 : base.x.length <= 20_000 ? 1.2 : 0.8,
+    );
     draw();
   }, [base, draw]);
+
+  useEffect(() => {
+    // Refit when the data changes; the viewer's pan and zoom survive only within one dataset.
+    boundsRef.current = boundsOf(base, ...(overlay ? [overlay] : []));
+    const [width, height] = sizeRef.current;
+    if (width === 0) return;
+    fitRef.current = fitView(width, height, 24, boundsRef.current);
+    viewRef.current = fitRef.current;
+    draw();
+  }, [base, overlay, draw]);
 
   useEffect(() => {
     const [positions, styles] = overlay

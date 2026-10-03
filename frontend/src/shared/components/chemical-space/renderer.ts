@@ -15,7 +15,7 @@ import type { View } from "./view";
 export const STYLE = { train: 0, validation: 1, test: 2, runIn: 3, runOut: 4 } as const;
 export const STYLE_COUNT = 5;
 /** Sprite diameter per style, in CSS pixels. Dense training clouds stay small. */
-const SIZES = [2.5, 2.5, 3, 7, 8];
+const SIZES = [2.5, 2.5, 3, 9, 10];
 
 const VERTEX = `#version 300 es
 in vec2 a_pos;
@@ -25,6 +25,7 @@ uniform float u_scale;
 uniform vec2 u_resolution;
 uniform float u_dpr;
 uniform float u_progress;
+uniform float u_pointScale;
 uniform float u_sizes[${STYLE_COUNT}];
 uniform vec4 u_colors[${STYLE_COUNT}];
 out vec4 v_color;
@@ -43,7 +44,7 @@ void main() {
     float t = clamp((u_progress - 0.35) / 0.65, 0.0, 1.0);
     grow = 1.0 - pow(1.0 - t, 3.0);
   }
-  gl_PointSize = max(1.0, u_sizes[style] * u_dpr * grow);
+  gl_PointSize = max(1.0, u_sizes[style] * (run ? 1.0 : u_pointScale) * u_dpr * grow);
   v_color = u_colors[style];
   v_color.a *= run ? step(0.001, grow) : clamp(u_progress / 0.5, 0.0, 1.0);
   v_style = style;
@@ -72,6 +73,8 @@ export interface MapRenderer {
   /** Layer 0 draws first (the protocol's compounds), layer 1 on top (a run's). */
   setLayer(index: 0 | 1, positions: Float32Array, styles: Float32Array): void;
   setColors(colors: Rgba[]): void;
+  /** Multiplier for the dataset layer's dots: larger when there are few. */
+  setPointScale(scale: number): void;
   /** Match the drawing buffer to the canvas. Returns the size in CSS pixels. */
   resize(): [width: number, height: number];
   /** `progress` 0..1 is the entrance; 1 is at rest. */
@@ -138,10 +141,12 @@ export function createMapRenderer(canvas: HTMLCanvasElement): MapRenderer | null
     resolution: context.getUniformLocation(program, "u_resolution"),
     dpr: context.getUniformLocation(program, "u_dpr"),
     progress: context.getUniformLocation(program, "u_progress"),
+    pointScale: context.getUniformLocation(program, "u_pointScale"),
     sizes: context.getUniformLocation(program, "u_sizes"),
     colors: context.getUniformLocation(program, "u_colors"),
   };
   context.uniform1fv(uniform.sizes, SIZES);
+  context.uniform1f(uniform.pointScale, 1);
   context.enable(context.BLEND);
   context.blendFunc(context.ONE, context.ONE_MINUS_SRC_ALPHA);
   context.clearColor(0, 0, 0, 0);
@@ -162,6 +167,10 @@ export function createMapRenderer(canvas: HTMLCanvasElement): MapRenderer | null
     setColors(colors) {
       context.useProgram(program);
       context.uniform4fv(uniform.colors, new Float32Array(colors.slice(0, STYLE_COUNT).flat()));
+    },
+    setPointScale(scale) {
+      context.useProgram(program);
+      context.uniform1f(uniform.pointScale, scale);
     },
     resize() {
       dpr = Math.min(2, window.devicePixelRatio || 1);

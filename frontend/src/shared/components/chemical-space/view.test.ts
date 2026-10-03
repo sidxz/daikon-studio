@@ -10,6 +10,17 @@ describe("view", () => {
     expect(toScreen(fit, 400, 300, 0.5, 0.5)).toEqual([200, 150]);
   });
 
+  it("fits the data's own bounds when given, filling a wide canvas", () => {
+    const wide = fitView(400, 300, 10, [0, 0.25, 1, 0.75]);
+    expect(wide.scale).toBe(380);
+    expect(wide.cx).toBeCloseTo(0.5);
+    expect(wide.cy).toBeCloseTo(0.5);
+  });
+
+  it("falls back to the unit square for a single point", () => {
+    expect(fitView(400, 300, 10, [0.3, 0.3, 0.3, 0.3])).toEqual(fitView(400, 300, 10));
+  });
+
   it("puts map y up and screen y down", () => {
     const [, top] = toScreen(fit, 400, 300, 0.5, 1);
     expect(top).toBeLessThan(150);

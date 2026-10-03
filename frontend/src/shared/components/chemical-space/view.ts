@@ -8,8 +8,43 @@ export interface View {
 export const MIN_ZOOM = 0.5;
 export const MAX_ZOOM = 64;
 
-export function fitView(width: number, height: number, padding = 16): View {
-  return { cx: 0.5, cy: 0.5, scale: Math.max(1, Math.min(width, height) - padding * 2) };
+/** `[minX, minY, maxX, maxY]` of the points, in map units. */
+export type Bounds = [number, number, number, number];
+
+/**
+ * Fit the data's own bounds into the canvas, so a wide card is filled rather
+ * than holding a centred square. Without bounds (or for a single point) the
+ * unit square is fitted.
+ */
+export function fitView(width: number, height: number, padding = 16, bounds?: Bounds): View {
+  const unit = { cx: 0.5, cy: 0.5, scale: Math.max(1, Math.min(width, height) - padding * 2) };
+  if (!bounds) return unit;
+  const [minX, minY, maxX, maxY] = bounds;
+  const spanX = maxX - minX;
+  const spanY = maxY - minY;
+  if (spanX <= 0 && spanY <= 0) return unit;
+  const scale = Math.min(
+    spanX > 0 ? (width - padding * 2) / spanX : Number.POSITIVE_INFINITY,
+    spanY > 0 ? (height - padding * 2) / spanY : Number.POSITIVE_INFINITY,
+  );
+  return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, scale: Math.max(1, scale) };
+}
+
+/** Bounds over every point of the given layers, without spreading large arrays. */
+export function boundsOf(...layers: { x: ArrayLike<number>; y: ArrayLike<number> }[]): Bounds {
+  let minX = Number.POSITIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const layer of layers) {
+    for (let i = 0; i < layer.x.length; i++) {
+      minX = Math.min(minX, layer.x[i]);
+      maxX = Math.max(maxX, layer.x[i]);
+      minY = Math.min(minY, layer.y[i]);
+      maxY = Math.max(maxY, layer.y[i]);
+    }
+  }
+  return Number.isFinite(minX) ? [minX, minY, maxX, maxY] : [0, 0, 1, 1];
 }
 
 export function toScreen(
