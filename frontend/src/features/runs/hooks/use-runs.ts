@@ -15,7 +15,7 @@ import type {
   RunResponse,
   UploadResponse,
 } from "@/shared/lib/api/model";
-import { STALE_TIME, pollInterval } from "@/shared/lib/query-defaults";
+import { STALE_TIME, mapStaleTime, pollInterval } from "@/shared/lib/query-defaults";
 import { showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ResultParams } from "../lib/result-query";
@@ -33,7 +33,7 @@ export function useRunChemicalSpace(id: string | undefined) {
         method: "GET",
       }),
     enabled: Boolean(id),
-    staleTime: STALE_TIME.LONG,
+    staleTime: mapStaleTime,
   });
 }
 

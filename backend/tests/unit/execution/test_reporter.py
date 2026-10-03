@@ -13,7 +13,9 @@ import asyncio
 import copy
 import time
 import uuid
+from types import SimpleNamespace
 
+import polars as pl
 import pytest
 
 from daikonstudio.application.engines.context import RunInterrupted
@@ -133,3 +135,68 @@ async def test_progress_between_fits_honours_the_deadline():
         await training._progress(run, 0.6, "training baseline")
     assert raised.value.cancelled is False
     assert "time limit" in raised.value.reason
+
+
+class _Layout:
+    """A layout that records whether it was asked for a map."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def layout(self, structures: list[str], seed: int) -> tuple[list[float], list[float]]:
+        self.calls += 1
+        return [0.5] * len(structures), [0.5] * len(structures)
+
+    def describe(self) -> dict[str, object]:
+        return {"method": "test", "params": {}}
+
+
+class _Store:
+    def __init__(self) -> None:
+        self.keys: list[str] = []
+
+    def put_bytes(self, key: str, data: bytes) -> str:
+        self.keys.append(key)
+        return key
+
+
+def _mapping_training(rows: _Rows, store: _Store, layout: _Layout) -> RunTraining:
+    return RunTraining(None, None, rows, store, None, None, deadline_seconds=1, layout=layout)  # type: ignore[arg-type]
+
+
+_FRAME = pl.DataFrame({"smiles": ["CCO", "CCN", "CCC", "CCCl", "CCBr"], "split": ["train"] * 5})
+_DATASET = SimpleNamespace(structure_column="smiles", split=SimpleNamespace(seed=1))
+
+
+async def test_a_deadline_past_during_the_last_fit_skips_the_map_instead_of_failing_the_run():
+    """The map is drawn after the Protocol row exists. A tree or GP fit that ran past
+    the soft deadline used to finish READY; checking the deadline again at the map
+    would now fail a run whose Protocol is already listed. Skip the map instead."""
+    run = _running_run()
+    layout = _Layout()
+    store = _Store()
+    training = _mapping_training(_Rows(run), store, layout)
+    training._deadline_at = time.monotonic() - 1
+
+    await training._map_chemical_space(run, uuid.uuid4(), _FRAME, _DATASET)
+
+    assert layout.calls == 0
+    assert store.keys == []
+
+
+async def test_within_the_deadline_the_map_is_drawn_and_its_phase_reported():
+    run = _running_run()
+    rows = _Rows(run)
+    layout = _Layout()
+    store = _Store()
+    training = _mapping_training(rows, store, layout)
+    training._deadline_at = time.monotonic() + 60
+
+    await training._map_chemical_space(run, uuid.uuid4(), _FRAME, _DATASET)
+
+    assert layout.calls == 1
+    assert [key.rsplit("/", 1)[-1] for key in store.keys] == [
+        "chemical-space.parquet",
+        "chemical-space.json",
+    ]
+    assert rows.updates[-1] == (0.97, "Mapping chemical space")

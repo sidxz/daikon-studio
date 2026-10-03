@@ -53,7 +53,7 @@ interface ChemicalSpaceMapProps {
 
 const PICK_RADIUS_PX = 10;
 const ENTRANCE_MS = 900;
-const TOOLTIP = { width: 232, height: 180, offset: 14 };
+const TOOLTIP = { width: 232, offset: 14 };
 
 /** The map's palette from the design tokens, re-read when the theme changes. */
 export function useMapColors(): Rgba[] | null {
@@ -82,8 +82,26 @@ function interleave(layer: MapLayer): [Float32Array, Float32Array] {
   return [positions, styles];
 }
 
-const clamp = (value: number, low: number, high: number) =>
-  Math.min(Math.max(low, high), Math.max(low, value));
+/**
+ * Where the hover box goes: beside the cursor, flipped toward the map's centre in
+ * each axis, so a compound near the bottom or right edge opens its box upward or
+ * leftward and the last line (the similarity) is never cut off. The box may extend
+ * past the map's frame; it is drawn outside the clipped canvas area.
+ */
+export function tooltipPlacement(
+  sx: number,
+  sy: number,
+  width: number,
+  height: number,
+): { left: number; top: number; transform: string } {
+  const flipX = sx > width / 2;
+  const flipY = sy > height / 2;
+  return {
+    left: flipX ? sx - TOOLTIP.offset : sx + TOOLTIP.offset,
+    top: flipY ? sy - TOOLTIP.offset : sy + TOOLTIP.offset,
+    transform: `translate(${flipX ? "-100%" : "0"}, ${flipY ? "-100%" : "0"})`,
+  };
+}
 
 /**
  * The interactive map. WebGL draws the points; a thin SVG overlay draws the
@@ -288,64 +306,64 @@ export function ChemicalSpaceMap({
   const ends = hover && lines ? lines(hover) : [];
 
   return (
-    <div
-      className={cn(
-        "relative h-[420px] w-full overflow-hidden rounded-lg border bg-card",
-        className,
-      )}
-    >
-      <canvas
-        ref={canvasRef}
-        role="img"
-        aria-label={label}
-        className={cn("block size-full touch-none", dragging ? "cursor-grabbing" : "cursor-grab")}
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={endDrag}
-        onPointerCancel={endDrag}
-        onPointerLeave={() => {
-          if (!dragRef.current) setHover(null);
-        }}
-        onDoubleClick={reset}
-      />
-      {anchor && ends.length > 0 && (
-        <svg
-          className="pointer-events-none absolute inset-0 size-full text-foreground/60"
-          aria-hidden="true"
-        >
-          {ends.map(([x, y]) => {
-            const [ex, ey] = toScreen(viewRef.current, width, height, x, y);
-            return (
-              <g key={`${x}:${y}`}>
-                <line
-                  x1={anchor[0]}
-                  y1={anchor[1]}
-                  x2={ex}
-                  y2={ey}
-                  stroke="currentColor"
-                  strokeWidth={1}
-                />
-                <circle cx={ex} cy={ey} r={4} fill="none" stroke="currentColor" strokeWidth={1.5} />
-              </g>
-            );
-          })}
-        </svg>
-      )}
+    <div className={cn("relative", className)}>
+      <div className="relative h-[420px] w-full overflow-hidden rounded-lg border bg-card">
+        <canvas
+          ref={canvasRef}
+          role="img"
+          aria-label={label}
+          className={cn("block size-full touch-none", dragging ? "cursor-grabbing" : "cursor-grab")}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onPointerLeave={() => {
+            if (!dragRef.current) setHover(null);
+          }}
+          onDoubleClick={reset}
+        />
+        {anchor && ends.length > 0 && (
+          <svg
+            className="pointer-events-none absolute inset-0 size-full text-foreground/60"
+            aria-hidden="true"
+          >
+            {ends.map(([x, y]) => {
+              const [ex, ey] = toScreen(viewRef.current, width, height, x, y);
+              return (
+                <g key={`${x}:${y}`}>
+                  <line
+                    x1={anchor[0]}
+                    y1={anchor[1]}
+                    x2={ex}
+                    y2={ey}
+                    stroke="currentColor"
+                    strokeWidth={1}
+                  />
+                  <circle
+                    cx={ex}
+                    cy={ey}
+                    r={4}
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth={1.5}
+                  />
+                </g>
+              );
+            })}
+          </svg>
+        )}
+        <p className="pointer-events-none absolute bottom-2 left-3 text-[11px] text-muted-foreground">
+          Drag to pan · pinch or Ctrl/⌘ + scroll to zoom · double-click to reset
+        </p>
+      </div>
       {hover && tooltip && (
         <div
-          className="pointer-events-none absolute z-10 rounded-md border bg-popover p-2 text-xs text-popover-foreground shadow-md"
-          style={{
-            width: TOOLTIP.width,
-            left: clamp(hover.sx + TOOLTIP.offset, 4, width - TOOLTIP.width - 4),
-            top: clamp(hover.sy + TOOLTIP.offset, 4, height - TOOLTIP.height - 4),
-          }}
+          className="pointer-events-none absolute z-20 rounded-md border bg-popover p-2 text-xs text-popover-foreground shadow-md"
+          style={{ width: TOOLTIP.width, ...tooltipPlacement(hover.sx, hover.sy, width, height) }}
         >
           {tooltip(hover)}
         </div>
       )}
-      <p className="pointer-events-none absolute bottom-2 left-3 text-[11px] text-muted-foreground">
-        Drag to pan · pinch or Ctrl/⌘ + scroll to zoom · double-click to reset
-      </p>
     </div>
   );
 }

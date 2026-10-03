@@ -15,6 +15,12 @@ describe("EngineExplainer", () => {
     expect(screen.getByRole("button", { name: /how it learns/i })).toBeInTheDocument();
   });
 
+  it("keeps an engine figure at engine-card width, even in a wide form", () => {
+    render(<EngineExplainer engineId="tanimoto-gp" />);
+    const figure = screen.getByRole("img", { name: /gaussian process/i });
+    expect(figure.closest(".max-w-\\[440px\\]")).not.toBeNull();
+  });
+
   it("renders nothing for an engine with no figure", () => {
     const { container } = render(<EngineExplainer engineId="some-future-engine" />);
     expect(container).toBeEmptyDOMElement();

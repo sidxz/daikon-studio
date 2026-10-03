@@ -53,6 +53,11 @@ class UmapLayout:
             random_state=seed,
             # A seed makes UMAP single-threaded anyway; saying so silences its warning.
             n_jobs=1,
+            # Jaccard tops out at 1.0, and UMAP drops edges at that distance by
+            # default: a compound sharing no ECFP4 bit with anything (methane, water,
+            # a bare salt, an unparseable SMILES) was left unconnected and embedded
+            # as NaN. 2.0 is beyond any Jaccard distance, so nothing is cut off.
+            disconnection_distance=2.0,
         )
         with warnings.catch_warnings():
             # Jaccard has no gradient, so `inverse_transform` is unavailable. Nothing
@@ -72,6 +77,10 @@ class UmapLayout:
 
 def _unit_square(xy: np.ndarray) -> tuple[list[float], list[float]]:
     """Scale into [0, 1] keeping the aspect ratio, centring the shorter axis."""
+    if not np.isfinite(xy).all():
+        # One NaN would spread through min/max to every point. Refuse instead: the
+        # training job logs it and the page says "no map" rather than a broken one.
+        raise ValueError("UMAP produced non-finite coordinates")
     low = xy.min(axis=0)
     extent = xy.max(axis=0) - low
     span = float(extent.max())

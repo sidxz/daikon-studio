@@ -10,6 +10,15 @@ export const STALE_TIME = {
   STATIC: Number.POSITIVE_INFINITY,
 } as const;
 
+/**
+ * A chemical-space map never changes once drawn, but training draws it last and
+ * links the protocol before it finishes, so "missing" can turn "ready" a minute
+ * later. Keep a missing answer fresh for nothing and a ready one for long.
+ */
+export function mapStaleTime(query: { state: { data?: { status?: string } } }): number {
+  return query.state.data?.status === "missing" ? 0 : STALE_TIME.LONG;
+}
+
 /** Poll interval for a Run, per the design: 202-then-poll, no websockets. */
 export const RUN_POLL_MS = 2_000;
 

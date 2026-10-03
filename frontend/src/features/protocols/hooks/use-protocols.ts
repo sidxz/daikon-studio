@@ -11,7 +11,7 @@ import type {
   ScorecardResponse,
   TrainProtocolBody,
 } from "@/shared/lib/api/model";
-import { STALE_TIME, pollInterval } from "@/shared/lib/query-defaults";
+import { STALE_TIME, mapStaleTime, pollInterval } from "@/shared/lib/query-defaults";
 import { showError, showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PROTOCOLS_KEY, PROTOCOL_KEY, PROTOCOL_RUNS_KEY, SCORECARD_KEY } from "./query-keys";
@@ -51,7 +51,7 @@ export function useProtocolChemicalSpace(id: string | undefined) {
         method: "GET",
       }),
     enabled: Boolean(id),
-    staleTime: STALE_TIME.LONG,
+    staleTime: mapStaleTime,
   });
 }
 

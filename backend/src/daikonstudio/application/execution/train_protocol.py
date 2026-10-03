@@ -622,25 +622,7 @@ class RunTraining:
             baseline_value=baseline_metrics.get(primary),
         )
 
-        if self._layout is not None:
-            await self._progress(run, 0.97, "Mapping chemical space")
-            try:
-                await asyncio.to_thread(
-                    write_chemical_space,
-                    self._store,
-                    run.workspace_id,
-                    protocol_id,
-                    frame,
-                    dataset.structure_column,
-                    dataset.split.seed,
-                    self._layout,
-                )
-            except TooFewCompounds:
-                pass  # a map of four compounds says nothing; the page says "no map"
-            except Exception:
-                # Best-effort by design: a protocol without a map is a whole, honest
-                # protocol, and one that failed to train because a picture failed is not.
-                logger.exception("Chemical-space map failed for protocol %s", protocol_id)
+        await self._map_chemical_space(run, protocol_id, frame, dataset)
         return result_uri
 
     async def _optimism_gap(
@@ -831,6 +813,44 @@ class RunTraining:
                 "stopped. An administrator can raise the limit (STUDIO_WORKER_JOB_TIMEOUT).",
                 cancelled=False,
             )
+
+    async def _map_chemical_space(
+        self, run: Run, protocol_id: uuid.UUID, frame: pl.DataFrame, dataset: Dataset
+    ) -> None:
+        """Draw the protocol's chemical-space map. Best-effort, and after the Protocol
+        row exists, so nothing here may fail or interrupt the run: a protocol without
+        a map is whole, a run marked FAILED beside a live protocol is not.
+
+        Hence no `_check_deadline` (it raises): a deadline that has already passed --
+        a tree or GP fit that overran it still finishes READY -- skips the map, and
+        `make backfill-maps` draws it later.
+        """
+        if self._layout is None:
+            return
+        if self._deadline_at is not None and time.monotonic() > self._deadline_at:
+            logger.info(
+                "Skipped the chemical-space map for protocol %s: the run is past its "
+                "deadline. `make backfill-maps` will draw it.",
+                protocol_id,
+            )
+            return
+        run.report_progress(0.97, phase="Mapping chemical space")
+        try:
+            await self._runs.update(run)
+            await asyncio.to_thread(
+                write_chemical_space,
+                self._store,
+                run.workspace_id,
+                protocol_id,
+                frame,
+                dataset.structure_column,
+                dataset.split.seed,
+                self._layout,
+            )
+        except TooFewCompounds:
+            pass  # a map of four compounds says nothing; the page says "no map"
+        except Exception:
+            logger.exception("Chemical-space map failed for protocol %s", protocol_id)
 
     async def _progress(self, run: Run, fraction: float, phase: str) -> None:
         self._check_deadline()

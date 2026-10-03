@@ -41,3 +41,20 @@ describe("BootstrapFigure", () => {
     expect(screen.getByText("Beats the baseline")).toBeInTheDocument();
   });
 });
+
+describe("GaussianProcessFigure labels", () => {
+  it("keeps the two annotations apart, even on a narrow engine card", () => {
+    const { container } = render(<GaussianProcessFigure t={1} />);
+    const texts = [...container.querySelectorAll("text")];
+    const span = (el: Element) => {
+      const x = Number(el.getAttribute("x"));
+      const width = (el.textContent ?? "").length * 6.1;
+      const anchor = el.getAttribute("text-anchor") ?? "start";
+      const left = anchor === "middle" ? x - width / 2 : anchor === "end" ? x - width : x;
+      return [left, left + width];
+    };
+    const narrow = span(texts.find((t) => t.textContent === "narrow: near data") as Element);
+    const wide = span(texts.find((t) => t.textContent === "wide: no data nearby") as Element);
+    expect(wide[0] - narrow[1]).toBeGreaterThanOrEqual(20);
+  });
+});

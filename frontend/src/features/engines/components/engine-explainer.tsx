@@ -50,7 +50,13 @@ export function EngineExplainer({ engineId }: { engineId: string }) {
   const { Figure, ms, caption } = FIGURES[kind];
   return (
     <Explainer id={`engine-${kind}`} label="How it learns" durationMs={ms} caption={caption}>
-      {(t) => <Figure t={t} />}
+      {/* Engine figures are drawn for an engine card; in a wide form they would
+          scale to twice their intended size, so they keep that width. */}
+      {(t) => (
+        <div className="max-w-[440px]">
+          <Figure t={t} />
+        </div>
+      )}
     </Explainer>
   );
 }

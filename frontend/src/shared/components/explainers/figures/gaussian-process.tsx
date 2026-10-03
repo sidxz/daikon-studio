@@ -67,7 +67,9 @@ export function GaussianProcessFigure({ t }: { t: number }) {
         );
       })}
       <g opacity={seg(t, 0.86, 0.98)}>
-        <text x={PX(GAP_X)} y={12} textAnchor="middle" className={S.textStrong}>
+        {/* Starts just right of its tick, not centred on it, so it clears the
+            left label on a narrow engine card. */}
+        <text x={PX(GAP_X) + 4} y={12} className={S.textStrong}>
           wide: no data nearby
         </text>
         <text x={40} y={12} className={S.textStrong}>
