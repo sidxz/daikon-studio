@@ -57,10 +57,15 @@ Made by the user on 2026-10-03:
 
 Defaults set while writing this spec (not asked):
 
-- **All targets in a dataset must share one `TargetKind`.** Mixed regression and
-  classification in one model is real (ADMET-AI does it) but complicates the loss and the
-  scorecard far more than it buys here. Validated at creation, with a `ponytail:` comment
-  naming the ceiling.
+- **A dataset may mix `TargetKind`s; the joint engines refuse the mix.** Combining a
+  squared error and a cross-entropy into one training signal needs a relative weighting
+  nobody can set honestly, and a mixed run has no single headline metric. But that
+  difficulty lives entirely in the joint path — the fan-out path has none of it, since
+  each model trains on exactly one target of exactly one kind. So the restriction belongs
+  on the engine, not on the dataset: a mixed-kind dataset is created freely and trains on
+  every fan-out engine, and chemprop/MoLFormer reject it at command validation with a
+  message naming the kinds. Mixed panels (a solubility number beside a binary flag) are
+  the common real shape, so restricting the dataset would have been the wrong default.
 - **A run states which kind of training happened.** A scorecard reading "XGBoost, 4
   endpoints" must not be mistakable for joint learning when it was four separate fits.
 
@@ -82,7 +87,6 @@ New invariants, all checked at creation:
   `target` joins that set, for the same defensive reason `row_id` is already in it: it is
   now a column name engine output carries, and nothing stops a future caller persisting
   it beside the scientist's own columns.
-- All targets share one `TargetKind`.
 - **Derived readout names do not collide.** Classification derives
   `{column}_probability` and `{column}`, so choosing both `foo` and `foo_probability` as
   targets produces two readouts named `foo_probability`. This is a new collision class
@@ -136,6 +140,24 @@ column**, giving one row per (compound, endpoint). The adapter adds that column 
 other engine, so everything downstream of the adapter sees one long-format shape.
 
 `EngineManifest` gains `supports_multitask: bool = False`.
+
+**`TrainContext.task` stays a single `TaskType`**, which falls out of the mixed-kind rule
+above. The adapter builds one context per target, each carrying that target's own task; a
+joint engine only ever receives a uniform-kind dataset, so one task still describes the
+whole fit. Nothing that reads `task` has to branch.
+
+Two consequences:
+
+- `_task_for` (`train_protocol.py:944-954`) becomes per-target, mapping each `TargetSpec`
+  to its own `TaskType`. It stays the only place the task is decided, and it still reads
+  the spec, never the values.
+- `derive_readouts` derives each target's readouts from **that target's own kind** rather
+  than from one task argument, so a mixed dataset produces a numeric readout beside a
+  probability/class pair.
+
+A joint engine selected against a mixed-kind dataset is refused at command validation,
+with a message naming the kinds found. This is a server-side check, not only a disabled
+option in the picker.
 
 ### The fan-out adapter
 
@@ -225,9 +247,15 @@ sets, which is exactly what the per-target head-to-head needs.
   one, and states the training kind for the selected engine: one joint model, or N
   separate models.
 - The run page shows N scorecards.
-- Sweep ranking needs a target selector. `runs.metrics` no longer holds a single
-  rankable scalar, and averaging the per-target primaries would invent a number. The
-  sweep table ranks by a chosen target, defaulting to the first.
+- **The sweep table shows every target as its own sortable column, with no default
+  winner.** `runs.metrics` no longer holds a single rankable scalar, and each alternative
+  hides something: averaging the per-target primaries invents a number and lets a model
+  that is strong on a well-populated target carry a useless score on a rare one; ranking
+  by the worst target buries a model that is excellent at the three that matter; a
+  "rank by" dropdown picks a winner behind a default nobody chose. Showing N columns and
+  sorting on a clicked header is barely more work than the dropdown and refuses to
+  pretend one number settles it. A single-target sweep renders exactly as it does today,
+  since N = 1.
 
 ### Job timeout
 
@@ -260,16 +288,21 @@ Deliberately untouched, all pre-existing and orthogonal:
 - **Stratified splitting.** Multi-label stratification is its own problem, and the
   existing random and scaffold strategies do not look at the target at all.
 - **Class weights** and the fixed 0.5 decision threshold.
-- **Mixed-kind targets** in one dataset (see Decisions).
+- **Joint training across mixed kinds.** Mixed-kind *datasets* are supported (see
+  Decisions); only chemprop and MoLFormer refuse them. Revisit if someone needs one model
+  spanning both, which needs a loss weighting this spec deliberately does not invent.
 - **Changing `content_hash`.** Revisit only if someone wants two datasets over one file
   with different target subsets.
 
 ## Testing
 
-- Dataset creation: multiple targets round-trip; duplicate target rejected; mixed kinds
-  rejected; a target colliding with a reserved column rejected; `foo` + `foo_probability`
-  rejected by readout-name collision; a dataset where one of several targets is
-  degenerate in train is refused and the error names that column.
+- Dataset creation: multiple targets round-trip; duplicate target rejected; **mixed kinds
+  accepted**; a target colliding with a reserved column rejected; `foo` +
+  `foo_probability` rejected by readout-name collision; a dataset where one of several
+  targets is degenerate in train is refused and the error names that column.
+- A mixed-kind dataset trains on a fan-out engine and produces a numeric readout beside a
+  probability/class pair; the same dataset against a joint engine is refused at command
+  validation, not at the picker.
 - Migration 013 up and down against a seeded single-target row.
 - Adapter: N artifacts round-trip through the zip; metrics nest per target; progress is
   monotonic across sub-fits and spans 0..1 once, not N times; `RunInterrupted` raised by
