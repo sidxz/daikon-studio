@@ -8,17 +8,55 @@ from daikonstudio.infrastructure.chem.featurize import ecfp4
 _BAND_ROWS = 256
 
 
+# Query rows compared against the whole reference set at once. At a 100k-compound
+# training set this band is 128 x 100k x 4 B = 51 MB; the whole query at once
+# (10k x 100k) was 4 GB, which is what the single-matrix version allocated.
+_QUERY_BAND = 128
+
+
+def nearest_neighbours_tanimoto(
+    query: list[str], reference: list[str], k: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """The `k` most Tanimoto-similar reference molecules for each query molecule.
+
+    Returns `(indices, similarities)`, each `(len(query), min(k, len(reference)))`,
+    most similar first. One search serves applicability, Scorecard coverage and
+    map placement, so the three can never disagree about a compound's neighbours.
+    """
+    width = min(k, len(reference))
+    if width == 0 or not query:
+        return (
+            np.zeros((len(query), width), dtype=np.int32),
+            np.zeros((len(query), width), dtype=np.float32),
+        )
+    q = ecfp4(query).astype(np.float32)
+    r = ecfp4(reference).astype(np.float32)
+    r_counts = r.sum(axis=1)
+    indices = np.empty((len(query), width), dtype=np.int32)
+    similarities = np.empty((len(query), width), dtype=np.float32)
+    for start in range(0, len(query), _QUERY_BAND):
+        band = q[start : start + _QUERY_BAND]
+        intersection = band @ r.T
+        union = band.sum(axis=1)[:, None] + r_counts[None, :] - intersection
+        with np.errstate(divide="ignore", invalid="ignore"):
+            similarity = np.where(union > 0, intersection / union, 0.0).astype(np.float32)
+        if width < similarity.shape[1]:
+            top = np.argpartition(-similarity, width - 1, axis=1)[:, :width]
+        else:
+            top = np.tile(np.arange(similarity.shape[1]), (similarity.shape[0], 1))
+        top_similarity = np.take_along_axis(similarity, top, axis=1)
+        order = np.lexsort((top, -top_similarity))
+        stop = start + band.shape[0]
+        indices[start:stop] = np.take_along_axis(top, order, axis=1)
+        similarities[start:stop] = np.take_along_axis(top_similarity, order, axis=1)
+    return indices, similarities
+
+
 def nearest_neighbour_tanimoto(query: list[str], reference: list[str]) -> np.ndarray:
     """Max Tanimoto from each query molecule to any reference molecule."""
     if not reference:
         return np.zeros(len(query))
-    q = ecfp4(query).astype(np.float32)
-    r = ecfp4(reference).astype(np.float32)
-    intersection = q @ r.T
-    union = q.sum(axis=1)[:, None] + r.sum(axis=1)[None, :] - intersection
-    with np.errstate(divide="ignore", invalid="ignore"):
-        similarity = np.where(union > 0, intersection / union, 0.0)
-    return similarity.max(axis=1)
+    return nearest_neighbours_tanimoto(query, reference, 1)[1][:, 0]
 
 
 def high_similarity_pairs(

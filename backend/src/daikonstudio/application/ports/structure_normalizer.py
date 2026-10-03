@@ -17,6 +17,12 @@ class StructureNormalizer(Protocol):
         self, query: list[str], reference: list[str]
     ) -> list[float]: ...
 
+    def nearest_neighbours_tanimoto(
+        self, query: list[str], reference: list[str], k: int
+    ) -> tuple[list[list[int]], list[list[float]]]:
+        """The `k` nearest reference indices and their Tanimoto, most similar first."""
+        ...
+
     def descriptors(self, smiles_list: list[str]) -> dict[str, list[float | None]]:
         """Physicochemical descriptors, column-oriented, aligned with the input.
 

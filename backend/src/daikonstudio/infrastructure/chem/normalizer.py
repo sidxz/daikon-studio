@@ -11,6 +11,7 @@ from daikonstudio.infrastructure.chem.scaffold import murcko_scaffold
 from daikonstudio.infrastructure.chem.similarity import (
     high_similarity_pairs,
     nearest_neighbour_tanimoto,
+    nearest_neighbours_tanimoto,
 )
 
 
@@ -26,6 +27,12 @@ class RdkitStructureNormalizer:
 
     def nearest_neighbour_tanimoto(self, query: list[str], reference: list[str]) -> list[float]:
         return [float(v) for v in nearest_neighbour_tanimoto(query, reference)]
+
+    def nearest_neighbours_tanimoto(
+        self, query: list[str], reference: list[str], k: int
+    ) -> tuple[list[list[int]], list[list[float]]]:
+        indices, similarities = nearest_neighbours_tanimoto(query, reference, k)
+        return indices.tolist(), similarities.astype(float).tolist()
 
     def descriptors(self, smiles_list: list[str]) -> dict[str, list[float | None]]:
         return descriptors(smiles_list)
