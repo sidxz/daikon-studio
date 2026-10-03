@@ -23,11 +23,11 @@ here rather than carried on `ctx`.
 
 from __future__ import annotations
 
-import contextlib
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.application.engines.context import RunInterrupted
@@ -50,6 +50,8 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.data.repository import (
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
 )
+
+_logger = structlog.get_logger(__name__)
 
 JobHandler = Callable[[dict[str, Any], Run], Awaitable[str]]
 
@@ -205,7 +207,7 @@ class InlineEnqueuer:
     the caller is an HTTP request, and the real async path via `DbEnqueuer`
     never lets a job failure reach that request at all -- it returns 202
     before any runner even claims the row, and the failure only shows up
-    later, on the row, when the client polls. Swallowing the exception after
+    later, on the row, when the client polls. Logging, not re-raising, after
     `run_job()` records it keeps both paths behaviourally identical: `enqueue()`
     returns normally either way, and a caller written for the async contract
     doesn't need a `try/except` it will only ever exercise in dev mode.
@@ -224,5 +226,9 @@ class InlineEnqueuer:
         # `lane` is ignored on purpose: running the job in the caller's own process
         # has no queue to route it to. Accepting the argument is what keeps the two
         # implementations interchangeable from a caller's point of view.
-        with contextlib.suppress(Exception, SystemExit):
+        try:
             await run_job(self._ctx, run_id)
+        except (Exception, SystemExit):
+            # run_job already persisted FAILED on the row; this is so the operator
+            # sees the traceback, exactly as the runner agent logs the same failure.
+            _logger.exception("inline job failed", run_id=str(run_id))

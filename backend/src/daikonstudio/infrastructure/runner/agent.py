@@ -47,6 +47,7 @@ from daikonstudio.infrastructure import jobs
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.runner.ports import build_http_ctx
 from daikonstudio.infrastructure.runner.wire import ClaimResponse
+from daikonstudio.logging import configure_logging
 
 _logger = structlog.get_logger(__name__)
 
@@ -63,6 +64,9 @@ class AgentSettings(BaseSettings):
     url: str  # STUDIO_URL, e.g. https://studio.example.org
     runner_token: str  # STUDIO_RUNNER_TOKEN, the drt_... secret this runner claims with
     poll_seconds: float = 3.0
+    # Same two knobs as the API's Settings, same meaning (see daikonstudio.logging).
+    log_level: str = "INFO"
+    log_format: str = "console"
 
 
 async def _heartbeat(api: httpx.AsyncClient, run_id: uuid.UUID, interval: float) -> None:
@@ -137,6 +141,7 @@ async def main() -> None:
     # (pydantic-settings), not from this call site -- mypy has no way to know
     # that, the same known gap pydantic-settings' own docs call out.
     settings = AgentSettings()  # type: ignore[call-arg]
+    configure_logging(level=settings.log_level, fmt=settings.log_format)
     async with httpx.AsyncClient(
         base_url=settings.url,
         headers={"Authorization": f"Bearer {settings.runner_token}"},

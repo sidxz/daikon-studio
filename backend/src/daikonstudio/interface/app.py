@@ -19,11 +19,15 @@ from daikonstudio.interface.routes.runner_api import router as runner_api_router
 from daikonstudio.interface.routes.runners import router as runners_router
 from daikonstudio.interface.routes.runs import router as runs_router
 from daikonstudio.interface.routes.sweeps import router as sweeps_router
+from daikonstudio.logging import configure_logging
 from daikonstudio.settings import Settings
 
 
 def create_app() -> FastAPI:
     settings = Settings()
+    # First, so the Duar scope line below and every later INFO actually land
+    # somewhere -- without this the root logger has no handler at all.
+    configure_logging(level=settings.log_level, fmt=settings.log_format)
     # get_duar() is the one process-wide Duar instance (shared with
     # interface/dependencies/_core.py's get_auth — see get_duar's docstring
     # for why two instances would silently check permissions under the wrong

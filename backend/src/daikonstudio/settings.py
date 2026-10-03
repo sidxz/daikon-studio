@@ -20,6 +20,10 @@ class Settings(BaseSettings):
     pretrained_weights_dir: str = "~/.cache/daikon-studio/weights"
     cors_origins: list[str] = ["http://localhost:3002"]
     service_name: str = "daikon-studio"
+    # "console" for a terminal, "json" for a log collector. Level names are
+    # stdlib's. Read once at boot by `daikonstudio.logging.configure_logging`.
+    log_level: str = "INFO"
+    log_format: str = "console"
 
     # Selects InlineEnqueuer over DbEnqueuer (infrastructure/jobs.py) --
     # runs jobs in-process so tests and local dev need no runner at all.
