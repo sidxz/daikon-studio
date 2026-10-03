@@ -55,3 +55,25 @@ export function enginesForTargetKind(
   const task = TASK_FOR_TARGET_KIND[kind];
   return engines.filter((engine) => engine.tasks.includes(task));
 }
+
+/**
+ * Which "How it learns" figure explains each engine. Hardcoded engine
+ * knowledge again, kept beside the other two maps so an engine change shows
+ * it to the reviewer. An id missing here shows no figure, never a wrong one.
+ */
+export type EngineFigure =
+  | "forest"
+  | "boosting"
+  | "gaussian-process"
+  | "message-passing"
+  | "attention";
+
+export const ENGINE_FIGURE: Record<string, EngineFigure> = {
+  "ecfp4-randomforest": "forest",
+  "ecfp4-xgboost": "boosting",
+  "ecfp4-lightgbm": "boosting",
+  "descriptors-xgboost": "boosting",
+  "tanimoto-gp": "gaussian-process",
+  "chemprop-dmpnn": "message-passing",
+  "molformer-xl": "attention",
+};

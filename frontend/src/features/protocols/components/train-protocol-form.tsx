@@ -2,7 +2,12 @@
 
 import { useDataset, useDatasets } from "@/features/datasets";
 import type { Condition } from "@/features/engines";
-import { PINNED_BY_PRETRAINED, enginesForTargetKind, useEngines } from "@/features/engines";
+import {
+  EngineExplainer,
+  PINNED_BY_PRETRAINED,
+  enginesForTargetKind,
+  useEngines,
+} from "@/features/engines";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import {
@@ -311,6 +316,7 @@ export function TrainProtocolForm() {
                 ))}
               </SelectContent>
             </Select>
+            {engine && <EngineExplainer engineId={engine.id} />}
           </div>
 
           <div className="space-y-1.5">

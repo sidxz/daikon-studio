@@ -6,6 +6,7 @@ import { Skeleton } from "@/shared/components/ui/skeleton";
 import { useEngines } from "../hooks/use-engines";
 import { TASK_LABELS } from "../types";
 import { ConditionSummary } from "./condition-summary";
+import { EngineExplainer } from "./engine-explainer";
 
 export function EngineCatalogue() {
   const { data: engines, isLoading, isError, error } = useEngines();
@@ -58,6 +59,9 @@ export function EngineCatalogue() {
                 </div>
               </CardHeader>
               <CardContent className="flex-1">
+                <div className="mb-4">
+                  <EngineExplainer engineId={engine.id} />
+                </div>
                 <p className="mb-2 text-xs font-medium uppercase tracking-widest text-muted-foreground">
                   Settings
                 </p>

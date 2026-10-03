@@ -10,3 +10,4 @@ export { useEngines } from "./hooks/use-engines";
 export { ENGINES_KEY } from "./hooks/query-keys";
 export { EngineCatalogue } from "./components/engine-catalogue";
 export { ConditionSummary } from "./components/condition-summary";
+export { EngineExplainer } from "./components/engine-explainer";
