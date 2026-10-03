@@ -117,3 +117,19 @@ async def test_an_out_of_range_fraction_is_clamped_to_the_span() -> None:
     await asyncio.to_thread(report, 7.0, "an engine that miscounted its epochs")
 
     assert rows.updates == [(0.6, "an engine that miscounted its epochs")]
+
+
+async def test_progress_between_fits_honours_the_deadline():
+    """Tree and GP engines never call ctx.report, so the only deadline check they
+    can ever hit is the one between fits. Before this, a hung ECFP4 fit followed
+    by a baseline fit ran both to completion against an expired deadline."""
+    training = RunTraining(*([None] * 6), deadline_seconds=1)
+    training._deadline_at = time.monotonic() - 1
+    run = Run(
+        kind=RunKind.TRAINING, workspace_id=uuid.uuid4(), requested_by=uuid.uuid4(), cache_key="k"
+    )
+    run.start()
+    with pytest.raises(RunInterrupted) as raised:
+        await training._progress(run, 0.6, "training baseline")
+    assert raised.value.cancelled is False
+    assert "deadline" in raised.value.reason

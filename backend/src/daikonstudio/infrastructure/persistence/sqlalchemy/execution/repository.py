@@ -40,6 +40,7 @@ def _to_domain(model: RunModel) -> Run:
         protocol_id=model.protocol_id,
         sweep_id=model.sweep_id,
         metrics=model.metrics,
+        lane=model.lane,
         status=RunStatus(model.status),
         progress=model.progress,
         phase=model.phase,

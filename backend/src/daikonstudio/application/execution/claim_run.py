@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from returns.result import Failure, Result, Success
 
+from daikonstudio.application.engines.manifest import DEFAULT_LANE
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import Run
@@ -34,6 +35,7 @@ class ClaimRun:
         max_active_per_workspace: int,
         max_attempts: int,
         deadline_seconds: int,
+        deadline_by_lane: dict[str, int] | None = None,
     ) -> None:
         self._queue = queue
         self._runs = runs
@@ -41,6 +43,7 @@ class ClaimRun:
         self._max_active_per_workspace = max_active_per_workspace
         self._max_attempts = max_attempts
         self._deadline_seconds = deadline_seconds
+        self._deadline_by_lane = deadline_by_lane or {}
 
     async def __call__(
         self, *, runner: Runner
@@ -66,5 +69,7 @@ class ClaimRun:
         # deadline_seconds (the job's own soft deadline) and lease_seconds (how
         # long the CLAIM survives unrenewed) are different numbers the runner
         # must not conflate -- see `ClaimResponse`'s own docstring for why
-        # (Important 1+2, final review).
-        return Success((run, self._deadline_seconds, self._lease_seconds))
+        # (Important 1+2, final review). The deadline is the claimed run's lane's,
+        # falling back to the server-wide default.
+        deadline = self._deadline_by_lane.get(run.lane or DEFAULT_LANE, self._deadline_seconds)
+        return Success((run, deadline, self._lease_seconds))

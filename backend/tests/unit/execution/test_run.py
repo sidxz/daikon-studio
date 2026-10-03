@@ -133,3 +133,44 @@ def test_start_on_a_terminal_run_still_raises():
     run.cancel()
     with pytest.raises(ConflictError):
         run.start()
+
+
+def test_retry_returns_a_failed_run_to_pending_and_clears_the_failure():
+    run = _pending()
+    run.start()
+    run.report_progress(0.4, phase="training")
+    run.fail("boom")
+    run.retry()
+    assert (run.status, run.progress, run.phase, run.error_message) == (
+        RunStatus.PENDING,
+        0.0,
+        None,
+        None,
+    )
+
+
+def test_retry_is_allowed_from_cancelled_too():
+    """A worker crash leaves a run RUNNING; the user cancels it (legal from
+    RUNNING) and retries. That is what makes a crash recoverable by hand."""
+    run = _pending()
+    run.cancel()
+    run.retry()
+    assert run.status is RunStatus.PENDING
+
+
+@pytest.mark.parametrize(
+    "prepare",
+    [
+        lambda run: None,
+        lambda run: run.start(),
+        lambda run: (run.start(), run.succeed("uri")),
+    ],
+    ids=["pending", "running", "ready"],
+)
+def test_retry_refuses_pending_running_and_ready(prepare):
+    """`running` is the one that matters: a retry from there would start a
+    second fit beside one that may still be alive."""
+    run = _pending()
+    prepare(run)
+    with pytest.raises(ConflictError):
+        run.retry()

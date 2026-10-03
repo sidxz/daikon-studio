@@ -77,6 +77,7 @@ class Run(AggregateRoot):
         result_uri: str | None = None,
         metrics: dict[str, Any] | None = None,
         error_message: str | None = None,
+        lane: str | None = None,
         id: uuid.UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -114,6 +115,12 @@ class Run(AggregateRoot):
         # persist it -- the same argument `protocol_id` makes above. None until
         # a training run reaches `ready`, and forever on a prediction run.
         self.metrics = metrics
+        # The queue lane this run waits on, read-only here: the enqueuer sets it
+        # on the row (`RunQueue.set_lane`) and `update()` never persists it. It
+        # exists on the aggregate so a client can see *which* runner a pending
+        # run is waiting for -- a gpu-lane run with no gpu runner online used to
+        # sit in "Queued" forever with nothing on screen saying why.
+        self.lane = lane
         self.status = status
         self.progress = progress
         self.phase = phase
@@ -216,6 +223,26 @@ class Run(AggregateRoot):
             raise ConflictError(f"Cannot fail run '{self.id}' in terminal status '{self.status}'")
         self.status = RunStatus.FAILED
         self.error_message = message
+        self._touch()
+
+    def retry(self) -> None:
+        """`failed -> pending` and `cancelled -> pending`: the only edges out of a
+        terminal status, and deliberately narrow.
+
+        `params` is write-once, so the re-enqueued job re-reads the same
+        instructions; there is nothing to rebuild. Clearing `error_message`
+        matters: a stale one would render on a run that is queued again and has
+        not failed this time. `running` is excluded on purpose: a crashed worker
+        leaves a run RUNNING with no error recorded, and a retry from there would
+        start a second fit beside one that may still be alive. Cancel first,
+        which flips the row the live worker checkpoints against, then retry.
+        """
+        if self.status not in {RunStatus.FAILED, RunStatus.CANCELLED}:
+            raise ConflictError(f"Cannot retry run '{self.id}' in status '{self.status}'")
+        self.status = RunStatus.PENDING
+        self.progress = 0.0
+        self.phase = None
+        self.error_message = None
         self._touch()
 
     def cancel(self) -> None:

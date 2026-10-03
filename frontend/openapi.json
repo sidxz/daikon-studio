@@ -1654,6 +1654,43 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/retry": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Retry Run",
+        "description": "Re-execute a failed or cancelled run in place; 409 for any other status.",
+        "operationId": "retry_run_api_v1_runs__run_id__retry_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sweeps": {
       "post": {
         "tags": [
@@ -2705,6 +2742,10 @@
           "is_baseline": {
             "type": "boolean",
             "title": "Is Baseline"
+          },
+          "lane": {
+            "type": "string",
+            "title": "Lane"
           }
         },
         "type": "object",
@@ -2715,7 +2756,8 @@
           "description",
           "tasks",
           "conditions",
-          "is_baseline"
+          "is_baseline",
+          "lane"
         ],
         "title": "EngineManifestResponse",
         "description": "An engine's manifest: its identity, capabilities, and parameter specifications."
@@ -3143,6 +3185,26 @@
           "direction"
         ],
         "title": "PredictedReadoutResponse"
+      },
+      "PredictionCountsWire": {
+        "properties": {
+          "uploaded_rows": {
+            "type": "integer",
+            "title": "Uploaded Rows"
+          },
+          "scored_rows": {
+            "type": "integer",
+            "title": "Scored Rows"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "uploaded_rows",
+          "scored_rows"
+        ],
+        "title": "PredictionCountsWire",
+        "description": "The other shape `runs.metrics` takes: `Run.record_prediction_counts` on a\nprediction run. Same reasoning as `RunMetricsWire` -- two closed shapes, so\na runner still cannot store arbitrary JSON through this endpoint."
       },
       "PredictionResponse": {
         "properties": {
@@ -3908,6 +3970,17 @@
             ],
             "title": "Metrics"
           },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3926,6 +3999,7 @@
           "error_message",
           "protocol_id",
           "metrics",
+          "lane",
           "created_at"
         ],
         "title": "RunResponse"
@@ -4002,9 +4076,13 @@
                 "$ref": "#/components/schemas/RunMetricsWire"
               },
               {
+                "$ref": "#/components/schemas/PredictionCountsWire"
+              },
+              {
                 "type": "null"
               }
-            ]
+            ],
+            "title": "Metrics"
           }
         },
         "additionalProperties": false,

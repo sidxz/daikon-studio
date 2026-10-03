@@ -240,6 +240,17 @@ class RunMetricsWire(BaseModel):
     baseline_value: float | None
 
 
+class PredictionCountsWire(BaseModel):
+    """The other shape `runs.metrics` takes: `Run.record_prediction_counts` on a
+    prediction run. Same reasoning as `RunMetricsWire` -- two closed shapes, so
+    a runner still cannot store arbitrary JSON through this endpoint."""
+
+    model_config = _FORBID
+
+    uploaded_rows: int
+    scored_rows: int
+
+
 class RunUpdateEnvelope(BaseModel):
     """Only the mutable fields a handler writes back while a run is in
     flight -- not a full `Run` mirror, so no `to_domain`. `expected_version`
@@ -266,7 +277,7 @@ class RunUpdateEnvelope(BaseModel):
     result_uri: str | None = None
     error_message: str | None = None
     protocol_id: uuid.UUID | None = None
-    metrics: RunMetricsWire | None = None
+    metrics: RunMetricsWire | PredictionCountsWire | None = None
 
 
 class DatasetEnvelope(BaseModel):

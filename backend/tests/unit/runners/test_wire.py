@@ -185,3 +185,34 @@ def test_bare_dtos_json_roundtrip() -> None:
     ]
     for instance in instances:
         assert type(instance).model_validate_json(instance.model_dump_json()) == instance
+
+
+def test_run_update_metrics_accepts_both_closed_shapes_and_nothing_else():
+    """`runs.metrics` holds a training run's headline (`record_metrics`) or a
+    prediction run's counts (`record_prediction_counts`). A runner may report
+    either; a free-form payload is still a 422 at the edge, never a write."""
+    import pytest
+    from pydantic import ValidationError as PydanticValidationError
+
+    from daikonstudio.infrastructure.runner.wire import RunUpdateEnvelope
+
+    training = RunUpdateEnvelope(
+        status="ready",
+        expected_version=1,
+        metrics={"primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5},
+    )
+    assert training.metrics is not None
+    assert training.metrics.model_dump() == {
+        "primary_metric": "mcc",
+        "value": 0.6,
+        "baseline_value": 0.5,
+    }
+
+    prediction = RunUpdateEnvelope(
+        status="ready", expected_version=1, metrics={"uploaded_rows": 4, "scored_rows": 3}
+    )
+    assert prediction.metrics is not None
+    assert prediction.metrics.model_dump() == {"uploaded_rows": 4, "scored_rows": 3}
+
+    with pytest.raises(PydanticValidationError):
+        RunUpdateEnvelope(status="ready", expected_version=1, metrics={"anything": "goes"})

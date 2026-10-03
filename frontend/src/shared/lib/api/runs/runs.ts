@@ -454,4 +454,67 @@ export const useCancelRunApiV1RunsRunIdCancelPost = <TError = HTTPValidationErro
 
       return useMutation(mutationOptions, queryClient);
     }
+    /**
+ * Re-execute a failed or cancelled run in place; 409 for any other status.
+ * @summary Retry Run
+ */
+export const retryRunApiV1RunsRunIdRetryPost = (
+    runId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<void>(
+      {url: `/api/v1/runs/${runId}/retry`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getRetryRunApiV1RunsRunIdRetryPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryRunApiV1RunsRunIdRetryPost>>, TError,{runId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof retryRunApiV1RunsRunIdRetryPost>>, TError,{runId: string}, TContext> => {
+
+const mutationKey = ['retryRunApiV1RunsRunIdRetryPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryRunApiV1RunsRunIdRetryPost>>, {runId: string}> = (props) => {
+          const {runId} = props ?? {};
+
+          return  retryRunApiV1RunsRunIdRetryPost(runId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryRunApiV1RunsRunIdRetryPostMutationResult = NonNullable<Awaited<ReturnType<typeof retryRunApiV1RunsRunIdRetryPost>>>
+    
+    export type RetryRunApiV1RunsRunIdRetryPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Retry Run
+ */
+export const useRetryRunApiV1RunsRunIdRetryPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryRunApiV1RunsRunIdRetryPost>>, TError,{runId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof retryRunApiV1RunsRunIdRetryPost>>,
+        TError,
+        {runId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getRetryRunApiV1RunsRunIdRetryPostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
     

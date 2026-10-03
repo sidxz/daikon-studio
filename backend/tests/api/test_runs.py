@@ -598,3 +598,51 @@ async def test_an_unknown_identifier_column_fails_the_run_by_name(
     run = (await client.get(f"/api/v1/runs/{submitted.json()['id']}")).json()
     assert run["status"] == "failed"
     assert "nope" in run["error_message"]
+
+
+def _failed_prediction(workspace_id, protocol_id: str, upload_ref: str, cache_key: str) -> Run:
+    run = Run(
+        kind=RunKind.PREDICTION,
+        workspace_id=workspace_id,
+        requested_by=uuid.uuid4(),
+        cache_key=cache_key,
+        params={
+            "protocol_id": protocol_id,
+            "upload_ref": upload_ref,
+            "structure_column": "smiles",
+            "conditions": {},
+        },
+        protocol_id=uuid.UUID(protocol_id),
+    )
+    run.start()
+    run.fail("the runner died")
+    return run
+
+
+async def test_retrying_a_failed_prediction_reenqueues_and_runs_it(
+    client, session_factory, workspace_id, published_protocol_id, prediction_upload_ref
+):
+    run = _failed_prediction(workspace_id, published_protocol_id, prediction_upload_ref, "retry-1")
+    await SqlAlchemyRunRepository(session_factory).add(run)
+
+    response = await client.post(f"/api/v1/runs/{run.id}/retry")
+    assert response.status_code == 204, response.text
+
+    polled = (await client.get(f"/api/v1/runs/{run.id}")).json()
+    # Inline jobs run inside the request, so the retried run has already finished --
+    # on the same row, with its failure cleared.
+    assert polled["status"] == "ready", polled
+    assert polled["error_message"] is None
+
+
+async def test_retrying_a_ready_run_is_a_409(client, published_protocol_id, prediction_upload_ref):
+    run_id = (await _predict(client, published_protocol_id, prediction_upload_ref)).json()["id"]
+    assert (await client.post(f"/api/v1/runs/{run_id}/retry")).status_code == 409
+
+
+async def test_viewer_cannot_retry(
+    viewer_client, session_factory, workspace_id, published_protocol_id, prediction_upload_ref
+):
+    run = _failed_prediction(workspace_id, published_protocol_id, prediction_upload_ref, "retry-2")
+    await SqlAlchemyRunRepository(session_factory).add(run)
+    assert (await viewer_client.post(f"/api/v1/runs/{run.id}/retry")).status_code == 403

@@ -34,6 +34,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
     PredictWithProtocolCommand,
 )
 from daikonstudio.application.execution.result_view import RangeFilter, SortSpec
+from daikonstudio.application.execution.retry_run import RetryRun, RetryRunCommand
 from daikonstudio.domain.execution.run import Run, RunKind
 from daikonstudio.interface.dependencies._container import use_case
 from daikonstudio.interface.dependencies._core import AuthDep
@@ -47,6 +48,7 @@ GetRunDep = Annotated[GetRun, Depends(use_case(GetRun))]
 CancelRunDep = Annotated[CancelRun, Depends(use_case(CancelRun))]
 GetPredictionResultsDep = Annotated[GetPredictionResults, Depends(use_case(GetPredictionResults))]
 ListRunsDep = Annotated[ListRuns, Depends(use_case(ListRuns))]
+RetryRunDep = Annotated[RetryRun, Depends(use_case(RetryRun))]
 
 
 class PredictBody(BaseModel):
@@ -85,6 +87,10 @@ class RunResponse(BaseModel):
     # run: `uploaded_rows` and `scored_rows`, whose difference is the structures
     # that did not parse (`Run.record_prediction_counts`). Null until READY.
     metrics: dict[str, Any] | None
+    # The runner lane a queued run waits on; null before it is enqueued (and in
+    # inline mode, which has no queue). Together with GET /runners this is what
+    # lets a client say "no runner serves the gpu lane right now".
+    lane: str | None
     created_at: datetime
 
     @classmethod
@@ -100,6 +106,7 @@ class RunResponse(BaseModel):
             error_message=run.error_message,
             protocol_id=run.protocol_id,
             metrics=run.metrics,
+            lane=run.lane,
             created_at=run.created_at,
         )
 
@@ -274,4 +281,11 @@ async def get_run_results(
 @router.post("/{run_id}/cancel", status_code=204)
 async def cancel_run(run_id: uuid.UUID, auth: AuthDep, service: CancelRunDep) -> Response:
     result_to_response(await service(CancelRunCommand(run_id=run_id), auth=auth))
+    return Response(status_code=204)
+
+
+@router.post("/{run_id}/retry", status_code=204)
+async def retry_run(run_id: uuid.UUID, auth: AuthDep, service: RetryRunDep) -> Response:
+    """Re-execute a failed or cancelled run in place; 409 for any other status."""
+    result_to_response(await service(RetryRunCommand(run_id=run_id), auth=auth))
     return Response(status_code=204)

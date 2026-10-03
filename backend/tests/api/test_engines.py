@@ -63,3 +63,13 @@ async def test_engines_endpoint_requires_authentication(anonymous_client):
     """Verify unauthenticated requests are rejected."""
     response = await anonymous_client.get("/api/v1/engines")
     assert response.status_code == 401, response.text
+
+
+async def test_every_engine_names_the_lane_that_serves_it(client):
+    """A pending run can only say "waiting for a gpu runner" if the catalogue
+    says which engines need one."""
+    engines = (await client.get("/api/v1/engines")).json()
+    lanes = {engine["id"]: engine["lane"] for engine in engines}
+    assert lanes["chemprop-dmpnn"] == "gpu"
+    assert lanes["molformer-xl"] == "gpu"
+    assert lanes["ecfp4-randomforest"] == "default"

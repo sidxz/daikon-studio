@@ -5,5 +5,6 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { RunMetricsWire } from './runMetricsWire';
+import type { PredictionCountsWire } from './predictionCountsWire';
 
-export type RunUpdateEnvelopeMetrics = RunMetricsWire | null;
+export type RunUpdateEnvelopeMetrics = RunMetricsWire | PredictionCountsWire | null;

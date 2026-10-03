@@ -33,6 +33,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
     GetRun,
     PredictWithProtocol,
 )
+from daikonstudio.application.execution.retry_run import RetryRun
 from daikonstudio.application.execution.sweeps import (
     CancelSweep,
     GetSweep,
@@ -182,6 +183,7 @@ def create_container(settings: Settings | None = None) -> Container:
             max_active_per_workspace=resolved.workspace_max_active_runs,
             max_attempts=resolved.runner_max_attempts,
             deadline_seconds=resolved.worker_job_timeout,
+            deadline_by_lane=resolved.worker_job_timeout_by_lane,
         ),
     )
 
@@ -213,6 +215,10 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(GetRun, lambda c: GetRun(_runs(c)))
     container.define(ListRuns, lambda c: ListRuns(_runs(c)))
     container.define(CancelRun, lambda c: CancelRun(_runs(c)))
+    container.define(
+        RetryRun,
+        lambda c: RetryRun(_runs(c), _protocols(c), c[JobEnqueuer], c[EngineRegistry]),
+    )
     container.define(
         GetPredictionResults,
         lambda c: GetPredictionResults(_runs(c), _protocols(c), c[BlobStore]),

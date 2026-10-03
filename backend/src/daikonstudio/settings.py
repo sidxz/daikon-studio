@@ -38,8 +38,15 @@ class Settings(BaseSettings):
 
     # The SOFT deadline, in seconds, served to a self-hosted runner in the claim
     # response (`POST /api/v1/runner/claim`) and enforced cooperatively inside the
-    # engine through TrainContext.report. Raise this for a GPU lane.
+    # engine through TrainContext.report and between fits. The default for every
+    # lane that has no entry below.
     worker_job_timeout: int = 1800
+    # Per-lane overrides, keyed by lane name, as JSON in the environment:
+    #   STUDIO_WORKER_JOB_TIMEOUT_BY_LANE='{"gpu": 7200}'
+    # A chemprop fit on a real dataset does not finish in the default-lane budget,
+    # and raising the global number for it would let a hung ECFP4 fit hold a runner
+    # for two hours too.
+    worker_job_timeout_by_lane: dict[str, int] = {}
 
     # Duar (authz mode) — same realm as prot-cellar, chem-cellar, daikon-gen3,
     # docu-store. `duar_service_key` defaults to "" as a missing-config signal,

@@ -274,6 +274,17 @@ class TrainProtocolCommand:
         )
 
 
+def training_lane(engines: EngineRegistry, engine_id: str, baseline_engine_id: str | None) -> str:
+    """The lane a training Run needs: the chosen engine and its baseline fit inside
+    one job, so the queue has to serve both. Shared by enqueue (`TrainProtocol`)
+    and re-enqueue (`RetryRun`), so the rule has exactly one home -- a retry that
+    resolved the lane from the engine alone would strand a run whose baseline is
+    the gpu-lane one on the default lane."""
+    engine = engines.get(engine_id)
+    baseline = engines.get(baseline_engine_id) if baseline_engine_id else engines.baseline()
+    return lane_for(engine.manifest(), baseline.manifest())
+
+
 class TrainProtocol:
     """Creates the training Run and hands it to the queue. All of the actual
     work is `RunTraining`, below, running in the worker.
@@ -379,7 +390,10 @@ class TrainProtocol:
         )
         await self._runs.add(run)
         # Both engines fit inside this one Run, so the queue has to serve both.
-        await self._enqueuer.enqueue(run.id, lane=lane_for(engine.manifest(), baseline.manifest()))
+        await self._enqueuer.enqueue(
+            run.id,
+            lane=training_lane(self._engines, command.engine_id, command.baseline_engine_id),
+        )
         return Success(run)
 
 
@@ -751,14 +765,8 @@ class RunTraining:
 
         def report(fraction: float, phase: str) -> None:
             nonlocal last_written
+            self._check_deadline()
             now = time.monotonic()
-            if self._deadline_at is not None and now > self._deadline_at:
-                raise RunInterrupted(
-                    f"exceeded the {self._deadline_seconds:.0f}s deadline; raise the server's "
-                    "STUDIO_WORKER_JOB_TIMEOUT if the work is legitimate (applies to every "
-                    "lane -- there is no per-lane override)",
-                    cancelled=False,
-                )
             if now - last_written < _PROGRESS_INTERVAL_SECONDS:
                 return
             last_written = now
@@ -780,7 +788,20 @@ class RunTraining:
         await self._runs.update(run)
         return True
 
+    def _check_deadline(self) -> None:
+        """Raise past the soft deadline. Called on every `ctx.report` and between
+        fits -- the latter is the only check the tree and GP engines ever reach,
+        since none of them reports progress during a fit."""
+        if self._deadline_at is not None and time.monotonic() > self._deadline_at:
+            raise RunInterrupted(
+                f"exceeded the {self._deadline_seconds:.0f}s job deadline; raise "
+                "STUDIO_WORKER_JOB_TIMEOUT, or this lane's entry in "
+                "STUDIO_WORKER_JOB_TIMEOUT_BY_LANE, if the work is legitimate",
+                cancelled=False,
+            )
+
     async def _progress(self, run: Run, fraction: float, phase: str) -> None:
+        self._check_deadline()
         run.report_progress(fraction, phase=phase)
         await self._runs.update(run)
 
