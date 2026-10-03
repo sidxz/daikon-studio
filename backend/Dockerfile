@@ -19,12 +19,15 @@ RUN apt-get update \
 
 # Dependencies before source, so a code change does not re-resolve the world.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --extra s3 --no-install-project
+# The uv cache lives in a BuildKit cache mount, not in the layer: with UV_LINK_MODE=copy
+# a cached package would otherwise be stored twice (cache + .venv). On the CI runner that
+# duplication ran the API image out of disk once numba/llvmlite (umap-learn) joined.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra s3 --no-install-project
 
 COPY src ./src
 COPY alembic.ini ./
 COPY alembic ./alembic
-RUN uv sync --frozen --no-dev --extra s3
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra s3
 
 ENV PATH="/app/.venv/bin:$PATH"
 # /data/blobs is the default STUDIO_BLOB_BASE_URL. Created and owned here so a

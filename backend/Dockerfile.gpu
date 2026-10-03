@@ -70,7 +70,10 @@ WORKDIR /app
 # Both extras in ONE sync. Extras are not additive across separate `uv sync` runs --
 # a second `uv sync --extra gpu` uninstalls what `--extra s3` put there.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --extra gpu --extra s3 --no-install-project
+# The uv cache lives in a BuildKit cache mount, not in the layer: with UV_LINK_MODE=copy
+# a cached package would otherwise be stored twice (cache + .venv). On the CI runner that
+# duplication ran the API image out of disk once numba/llvmlite (umap-learn) joined.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra gpu --extra s3 --no-install-project
 
 # Bake CheMeleon in so a production worker never reaches Zenodo, and an
 # air-gapped deployment works. 34,859,448 bytes, MIT licensed.
@@ -86,7 +89,7 @@ ADD https://zenodo.org/records/15460715/files/chemeleon_mp.pt /opt/weights/cheme
 RUN echo "6a80b54fdb7de37ef0374d302f01e8ce  /opt/weights/chemeleon_mp.pt" | md5sum -c -
 
 COPY src ./src
-RUN uv sync --frozen --no-dev --extra gpu --extra s3
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra gpu --extra s3
 
 # TMPDIR is where chemprop's checkpoint round-trip lands. Bind a fast local NVMe at
 # /scratch on a node that has one; everything written there is transient.
