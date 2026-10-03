@@ -42,7 +42,7 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 # reaching Ubuntu's own archive, so the objection is answered rather than ignored.
 RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
  && apt-get update \
- && apt-get install -y --no-install-recommends libxrender1 libxext6 libexpat1 \
+ && apt-get install -y --no-install-recommends libxrender1 libxext6 libexpat1 libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv

@@ -63,7 +63,7 @@ WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 .DEFAULT_GOAL := help
 .PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
         seed-runners generate-api test test-api test-all test-fe lint lint-fe nuke \
-        image-runner-cpu image-runner-gpu
+        image-runner-cpu image-runner-gpu image-smoke image-frontend
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -194,6 +194,13 @@ image-runner-cpu: ## Build the daikon-runner:cpu image the runners UI's docker c
 
 image-runner-gpu: ## Build the daikon-runner:gpu image (see backend/Dockerfile.gpu -- x86_64 only)
 	docker build -f backend/Dockerfile.gpu -t daikon-runner:gpu backend
+
+# A green build says nothing about whether the image works (docs/roadmap.md, Traps):
+# the CPU image built clean for two months while LightGBM could not import inside it.
+# This imports the app and every engine, so a missing shared library fails here.
+image-smoke: image-runner-cpu ## Build the CPU image and prove it can import the app and every engine
+	docker run --rm -e STUDIO_DUAR_SERVICE_KEY=smoke -e STUDIO_IDP_AUDIENCE=smoke daikon-runner:cpu \
+		python -c "import daikonstudio.interface.app, daikonstudio.infrastructure.engines.registry as r; print('engines:', sorted(m.id for m in r.default_registry().manifests()))"
 
 nuke: ## Stop containers and DELETE all data volumes + local blobs
 	$(COMPOSE) down -v

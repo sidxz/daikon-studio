@@ -7,6 +7,16 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 WORKDIR /app
 
+# libgomp1 is load-bearing. LightGBM's wheel links the system OpenMP runtime
+# (libgomp.so.1) and python:3.13-slim does not ship it, so without this line the
+# image builds green and the API dies at import with
+# `OSError: libgomp.so.1: cannot open shared object file`. Found 2026-10-02 by
+# booting the image, not by building it -- the same trap docs/roadmap.md records
+# for the GPU image. `make image-smoke` and CI now run that boot check.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+
 # Dependencies before source, so a code change does not re-resolve the world.
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --extra s3 --no-install-project
@@ -17,7 +27,12 @@ COPY alembic ./alembic
 RUN uv sync --frozen --no-dev --extra s3
 
 ENV PATH="/app/.venv/bin:$PATH"
-RUN useradd --create-home --uid 10001 studio && chown -R studio /app
+# /data/blobs is the default STUDIO_BLOB_BASE_URL. Created and owned here so a
+# named volume mounted on it inherits writable ownership for uid 10001 instead
+# of failing the first upload with PermissionError.
+RUN useradd --create-home --uid 10001 studio \
+ && mkdir -p /data/blobs \
+ && chown -R studio /app /data
 # OMP_NUM_THREADS=1 is load-bearing, not tuning. torch and scikit-learn each ship
 # their own OpenMP runtime, and a training job loads BOTH -- RunTraining fits the
 # chosen engine and the mandatory ECFP4 baseline in one process, by design. Multiple
