@@ -1,5 +1,7 @@
 "use client";
 
+import { Explainer } from "@/shared/components/explainers/explainer";
+import { SPLIT_MS, SplitFigure, splitCaption } from "@/shared/components/explainers/figures/split";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
@@ -396,6 +398,14 @@ export function DatasetWizard() {
                   ))}
                 </div>
               </div>
+              <Explainer
+                id="split"
+                durationMs={SPLIT_MS}
+                caption={splitCaption(draft.strategy)}
+                replayKey={draft.strategy}
+              >
+                {(t) => <SplitFigure t={t} strategy={draft.strategy} />}
+              </Explainer>
               <div className="w-40 space-y-1.5">
                 <Label htmlFor="seed">Seed</Label>
                 <Input

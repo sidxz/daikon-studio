@@ -7,6 +7,8 @@ import {
   SplitHistogramChart,
 } from "@/shared/components/charts";
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
+import { Explainer } from "@/shared/components/explainers/explainer";
+import { SPLIT_MS, SplitFigure, splitCaption } from "@/shared/components/explainers/figures/split";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -265,6 +267,13 @@ function SplitHonestySection({
             caption="Mass to the right indicates a test set similar to the training set, so the benchmark is easier than it appears. Mass to the left indicates extrapolation, where a lower score is more informative."
           />
         )}
+        <Explainer
+          id="split"
+          durationMs={SPLIT_MS}
+          caption={splitCaption(isScaffoldSplit ? "scaffold" : "random")}
+        >
+          {(t) => <SplitFigure t={t} strategy={isScaffoldSplit ? "scaffold" : "random"} />}
+        </Explainer>
       </CardContent>
     </Card>
   );

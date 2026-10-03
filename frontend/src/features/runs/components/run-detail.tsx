@@ -3,6 +3,12 @@
 import { useCreateCollection } from "@/features/collections";
 import { useProtocol } from "@/features/protocols";
 import { LANE_LABELS, useRunners } from "@/features/runners";
+import { Explainer } from "@/shared/components/explainers/explainer";
+import {
+  DOMAIN_MS,
+  DomainFigure,
+  domainCaption,
+} from "@/shared/components/explainers/figures/domain";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -25,6 +31,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useCancelRun, useRetryRun, useRun } from "../hooks/use-runs";
+import { IN_DOMAIN_FLOOR } from "../lib/result-query";
 import { RUN_STATUS_COPY } from "../types";
 import { TriageGrid } from "./triage-grid";
 
@@ -222,15 +229,25 @@ export function RunDetail({ runId }: { runId: string }) {
       )}
 
       {run.kind === "prediction" && run.status === "ready" && protocol && (
-        <TriageGrid
-          runId={runId}
-          readouts={protocol.readouts}
-          saving={createCollection.isPending}
-          onSaveSelection={(rowIds) => {
-            setPendingRows(rowIds);
-            setCollectionName("");
-          }}
-        />
+        <>
+          <Explainer
+            id="domain"
+            label="How to read uncertainty and applicability"
+            durationMs={DOMAIN_MS}
+            caption={domainCaption("triage", IN_DOMAIN_FLOOR)}
+          >
+            {(t) => <DomainFigure t={t} threshold={IN_DOMAIN_FLOOR} />}
+          </Explainer>
+          <TriageGrid
+            runId={runId}
+            readouts={protocol.readouts}
+            saving={createCollection.isPending}
+            onSaveSelection={(rowIds) => {
+              setPendingRows(rowIds);
+              setCollectionName("");
+            }}
+          />
+        </>
       )}
 
       <Dialog open={pendingRows !== null} onOpenChange={(open) => !open && setPendingRows(null)}>

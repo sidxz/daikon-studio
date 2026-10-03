@@ -1,5 +1,7 @@
 "use client";
 
+// Deep import on purpose: the runs barrel imports protocols, so going through it would make a cycle.
+import { IN_DOMAIN_FLOOR } from "@/features/runs/lib/result-query";
 import {
   BinnedCurveChart,
   HistogramChart,
@@ -8,6 +10,12 @@ import {
   type SplitBins,
   SplitHistogramChart,
 } from "@/shared/components/charts";
+import { Explainer } from "@/shared/components/explainers/explainer";
+import {
+  DOMAIN_MS,
+  DomainFigure,
+  domainCaption,
+} from "@/shared/components/explainers/figures/domain";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
@@ -146,6 +154,13 @@ function ApplicabilitySection({ scorecard }: { scorecard: ScorecardResponse }) {
         </p>
       </CardHeader>
       <CardContent className="space-y-3">
+        <Explainer
+          id="domain"
+          durationMs={DOMAIN_MS}
+          caption={domainCaption("diagnostics", IN_DOMAIN_FLOOR)}
+        >
+          {(t) => <DomainFigure t={t} threshold={IN_DOMAIN_FLOOR} />}
+        </Explainer>
         <BinnedCurveChart
           bins={bins}
           xLabel="Tanimoto similarity to nearest training compound"

@@ -2,12 +2,13 @@
 
 import { useEngines } from "@/features/engines";
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
+import { BootstrapExplainer } from "@/shared/components/explainers/figures/bootstrap";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Progress } from "@/shared/components/ui/progress";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
-import { computeOptimismGap, computeVerdict, describeBaseline } from "../lib/verdict";
+import { type Verdict, computeOptimismGap, computeVerdict, describeBaseline } from "../lib/verdict";
 import { metricLabel } from "../types";
 import { ScorecardDiagnostics, SplitComparison } from "./scorecard-diagnostics";
 
@@ -106,6 +107,11 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
   );
 }
 
+/** The interval explainer needs an interval and a real comparison to explain. */
+export function showsBootstrapExplainer(verdict: Verdict): boolean {
+  return verdict.ci != null && verdict.kind !== "is-baseline" && verdict.kind !== "unknown";
+}
+
 function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
   const verdict = computeVerdict(scorecard);
   const metric = metricLabel(scorecard.primary_metric);
@@ -197,6 +203,11 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
               </>
             )}
           </p>
+          {showsBootstrapExplainer(verdict) && (
+            <div className="mt-3">
+              <BootstrapExplainer startOutside={verdict.kind === "beats"} />
+            </div>
+          )}
         </>
       )}
 
