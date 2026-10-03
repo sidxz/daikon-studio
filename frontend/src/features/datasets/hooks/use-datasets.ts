@@ -9,6 +9,7 @@ import {
 } from "@/shared/lib/api/custom-instance";
 import type {
   CompoundPageResponse,
+  DatasetColumnsResponse,
   DatasetProfileResponse,
   DatasetResponse,
   PaginatedResponseDatasetResponse,
@@ -91,6 +92,7 @@ export interface CreateDatasetInput {
   structure_column: string;
   target: { column: string; kind: string; unit?: string | null; direction?: string | null };
   split: { strategy: string; seed: number };
+  id_column?: string | null;
 }
 
 /**
@@ -126,6 +128,39 @@ export function useCreateDataset() {
  * on a large file. Retrying a timeout would start a second identical RDKit pass
  * rather than wait for the first, which makes a slow page slower.
  */
+/** Snapshot columns that may be named as the identifier. */
+export function useDatasetColumns(id: string, enabled: boolean) {
+  return useQuery({
+    queryKey: [...DATASET_KEY, id, "columns"],
+    queryFn: () =>
+      customInstance<DatasetColumnsResponse>({
+        url: `${API_V1}/datasets/${id}/columns`,
+        method: "GET",
+      }),
+    enabled,
+    staleTime: Number.POSITIVE_INFINITY,
+  });
+}
+
+export function useSetDatasetIdColumn() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, idColumn }: { id: string; idColumn: string | null }) =>
+      customInstance<DatasetResponse>({
+        url: `${API_V1}/datasets/${id}/id-column`,
+        method: "PUT",
+        data: { id_column: idColumn },
+      }),
+    onSuccess: (dataset) => {
+      queryClient.setQueryData([...DATASET_KEY, dataset.id], dataset);
+      queryClient.invalidateQueries({ queryKey: [...DATASET_COMPOUNDS_KEY, dataset.id] });
+      // Scorecards and map tooltips of its protocols show these IDs too: mark
+      // everything stale, refetching nothing now.
+      queryClient.invalidateQueries({ refetchType: "none" });
+    },
+  });
+}
+
 /**
  * The protocols trained on a dataset: what stands between it and deletion.
  * Keyed under "protocols" (the protocols feature's root key, not imported to

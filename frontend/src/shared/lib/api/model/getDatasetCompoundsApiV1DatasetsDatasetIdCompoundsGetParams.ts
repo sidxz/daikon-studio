@@ -12,4 +12,5 @@ limit?: number;
 sort?: 'target' | 'split' | null;
 sort_dir?: GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetSortDir;
 split?: 'train' | 'validation' | 'test' | null;
+q?: string | null;
 };

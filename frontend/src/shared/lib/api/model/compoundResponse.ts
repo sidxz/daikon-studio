@@ -5,9 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { CompoundResponseTarget } from './compoundResponseTarget';
+import type { CompoundResponseCompoundId } from './compoundResponseCompoundId';
 
 export interface CompoundResponse {
   structure: string;
   target: CompoundResponseTarget;
   split: string;
+  compound_id: CompoundResponseCompoundId;
 }

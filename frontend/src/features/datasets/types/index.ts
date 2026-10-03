@@ -62,6 +62,8 @@ export interface DatasetDraft {
   direction: Direction | "";
   strategy: SplitStrategy;
   seed: number;
+  /** The column holding compound IDs, or null for none. */
+  idColumn: string | null;
 }
 
 export const EMPTY_DRAFT: DatasetDraft = {
@@ -77,6 +79,7 @@ export const EMPTY_DRAFT: DatasetDraft = {
   // fail prospectively.
   strategy: "scaffold",
   seed: 42,
+  idColumn: null,
 };
 
 /**

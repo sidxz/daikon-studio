@@ -485,6 +485,103 @@
         }
       }
     },
+    "/api/v1/datasets/{dataset_id}/id-column": {
+      "put": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Set Dataset Id Column",
+        "description": "Any editor; `null` clears it. Display metadata: nothing frozen changes.",
+        "operationId": "set_dataset_id_column_api_v1_datasets__dataset_id__id_column_put",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetIdColumnBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/columns": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Get Dataset Columns",
+        "operationId": "get_dataset_columns_api_v1_datasets__dataset_id__columns_get",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetColumnsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/datasets/{dataset_id}/profile": {
       "get": {
         "tags": [
@@ -631,6 +728,23 @@
                 }
               ],
               "title": "Split"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 128
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
             }
           }
         ],
@@ -2547,13 +2661,25 @@
           "split": {
             "type": "string",
             "title": "Split"
+          },
+          "compound_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compound Id"
           }
         },
         "type": "object",
         "required": [
           "structure",
           "target",
-          "split"
+          "split",
+          "compound_id"
         ],
         "title": "CompoundResponse"
       },
@@ -2748,6 +2874,18 @@
           },
           "split": {
             "$ref": "#/components/schemas/SplitBody"
+          },
+          "id_column": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Column"
           }
         },
         "additionalProperties": false,
@@ -2821,6 +2959,23 @@
           "created_at"
         ],
         "title": "CreatedRunnerResponse"
+      },
+      "DatasetColumnsResponse": {
+        "properties": {
+          "columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Columns"
+          }
+        },
+        "type": "object",
+        "required": [
+          "columns"
+        ],
+        "title": "DatasetColumnsResponse",
+        "description": "Snapshot columns that may be named as the identifier."
       },
       "DatasetEnvelope": {
         "properties": {
@@ -3052,6 +3207,21 @@
           "can_delete": {
             "type": "boolean",
             "title": "Can Delete"
+          },
+          "id_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Column"
+          },
+          "can_edit": {
+            "type": "boolean",
+            "title": "Can Edit"
           }
         },
         "type": "object",
@@ -3068,7 +3238,9 @@
           "validation_report",
           "version",
           "created_at",
-          "can_delete"
+          "can_delete",
+          "id_column",
+          "can_edit"
         ],
         "title": "DatasetResponse"
       },
@@ -3279,13 +3451,25 @@
               "test"
             ],
             "title": "Partition"
+          },
+          "compound_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compound Id"
           }
         },
         "type": "object",
         "required": [
           "index",
           "structure",
-          "partition"
+          "partition",
+          "compound_id"
         ],
         "title": "MapCompoundResponse"
       },
@@ -5226,6 +5410,28 @@
         "title": "ScorecardResponse",
         "description": "Every field here is load-bearing for honest rendering -- see\n`domain/execution/scorecard.py`'s docstring for what each one means and\nwhy it exists. In particular: `baseline_is_self` true means the chosen\nengine *is* the baseline (render \"this model is the baseline\", not a\nhead-to-head that never happened); `metrics_undefined` is why a metric in\n`metrics` reads `null` instead of a number; `random_split_unavailable`\ndistinguishes \"not applicable\" (`None`/`None`) from \"could not be\ncomputed\" (`None`/a reason) for `random_split_metrics`;\n`random_split_metrics_undefined` is `metrics_undefined`'s own counterpart\nfor `random_split_metrics` -- a *different* partition that can disagree\nwith the Dataset's own split about which metrics are undefined and why,\nso a renderer must not reuse `metrics_undefined` to explain a\n`random_split_metrics` null.\n\n`unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'\n`actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and\nwhich way is better. `split_strategy` (`\"random\"` or `\"scaffold\"`) is\nwhich split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this\ninstead of inferring it from `random_split_metrics`/\n`random_split_unavailable` both being `None`."
       },
+      "SetIdColumnBody": {
+        "properties": {
+          "id_column": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 128
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Column"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id_column"
+        ],
+        "title": "SetIdColumnBody"
+      },
       "SimilarityProfileResponse": {
         "properties": {
           "histogram": {
@@ -6038,6 +6244,17 @@
               }
             ],
             "title": "Similarity"
+          },
+          "compound_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compound Id"
           }
         },
         "type": "object",
@@ -6047,7 +6264,8 @@
           "predicted",
           "residual",
           "scaffold",
-          "similarity"
+          "similarity",
+          "compound_id"
         ],
         "title": "WorstRowResponse"
       }

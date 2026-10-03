@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { WorstRowResponseSimilarity } from './worstRowResponseSimilarity';
+import type { WorstRowResponseCompoundId } from './worstRowResponseCompoundId';
 
 export interface WorstRowResponse {
   structure: string;
@@ -13,4 +14,5 @@ export interface WorstRowResponse {
   residual: number;
   scaffold: string;
   similarity: WorstRowResponseSimilarity;
+  compound_id: WorstRowResponseCompoundId;
 }

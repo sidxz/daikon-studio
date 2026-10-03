@@ -7,6 +7,7 @@
 import type { TargetBody } from './targetBody';
 import type { SplitBody } from './splitBody';
 import type { ValidationReportResponse } from './validationReportResponse';
+import type { DatasetResponseIdColumn } from './datasetResponseIdColumn';
 
 export interface DatasetResponse {
   id: string;
@@ -22,4 +23,6 @@ export interface DatasetResponse {
   version: number;
   created_at: string;
   can_delete: boolean;
+  id_column: DatasetResponseIdColumn;
+  can_edit: boolean;
 }

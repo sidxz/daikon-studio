@@ -6,6 +6,7 @@
  */
 import type { TargetBody } from './targetBody';
 import type { SplitBody } from './splitBody';
+import type { CreateDatasetBodyIdColumn } from './createDatasetBodyIdColumn';
 
 export interface CreateDatasetBody {
   /** @maxLength 256 */
@@ -15,4 +16,5 @@ export interface CreateDatasetBody {
   structure_column: string;
   target: TargetBody;
   split: SplitBody;
+  id_column?: CreateDatasetBodyIdColumn;
 }

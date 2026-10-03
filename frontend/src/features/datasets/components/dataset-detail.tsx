@@ -12,6 +12,7 @@ import { SPLIT_COPY } from "../types";
 import { CompoundBrowser } from "./compound-browser";
 import { DatasetProfileSkeleton, DatasetProfileView } from "./dataset-profile-view";
 import { DeleteDatasetButton } from "./delete-dataset-button";
+import { IdColumnField } from "./id-column-field";
 import { ProfileComputing } from "./profile-computing";
 import { ValidationReportView } from "./validation-report-view";
 
@@ -89,7 +90,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
               <CardTitle className="text-base">What this predicts</CardTitle>
             </CardHeader>
             <CardContent>
-              <dl className="grid gap-4 sm:grid-cols-4">
+              <dl className="grid gap-4 sm:grid-cols-5">
                 <Field
                   label="Structures"
                   value={<span className="font-mono">{dataset.structure_column}</span>}
@@ -117,6 +118,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
                     )
                   }
                 />
+                <Field label="Identifier column" value={<IdColumnField dataset={dataset} />} />
               </dl>
             </CardContent>
           </Card>

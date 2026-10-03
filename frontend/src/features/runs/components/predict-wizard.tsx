@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { saveText } from "@/shared/lib/api/download";
+import { guessIdColumn } from "@/shared/lib/guess-id-column";
 import { showError } from "@/shared/lib/toast";
 import { Download, FileUp } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -22,7 +23,6 @@ import Papa from "papaparse";
 import { useCallback, useMemo, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useCreateRun, useUploadPredictionFile } from "../hooks/use-runs";
-import { guessIdColumn } from "../lib/guess-id-column";
 import { summarisePreview } from "../lib/parse-preview";
 import { PredictionPreview } from "./prediction-preview";
 

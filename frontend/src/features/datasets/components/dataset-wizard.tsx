@@ -21,6 +21,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useCreateDataset, useUploadDatasetFile } from "../hooks/use-datasets";
+import { draftFromUpload, withColumns } from "../lib/draft-from-upload";
 import {
   type CsvPreview,
   DATASET_TEMPLATE_CSV,
@@ -65,6 +66,8 @@ function StepIndicator({ current }: { current: number }) {
   );
 }
 
+/** The Select value for "no identifier column"; Radix needs a non-empty value. */
+const NO_ID = "__none__";
 export function DatasetWizard() {
   const router = useRouter();
   const [step, setStep] = useState(0);
@@ -81,18 +84,8 @@ export function DatasetWizard() {
     if (!file) return;
     try {
       const parsed = await parseCsvPreview(file);
-      const structureColumn = guessStructureColumn(parsed.columns);
-      const remaining = parsed.columns.filter((column) => column !== structureColumn);
-      const targetColumn = remaining[0] ?? "";
       setPreview(parsed);
-      setDraft({
-        ...EMPTY_DRAFT,
-        file,
-        name: file.name.replace(/\.csv$/i, ""),
-        structureColumn,
-        targetColumn,
-        kind: targetColumn && looksBinary(parsed.rows, targetColumn) ? "binary" : "numeric",
-      });
+      setDraft({ ...draftFromUpload(parsed.columns, parsed.rows, file.name), file });
       setStep(1);
     } catch (error) {
       showError(error instanceof Error ? error.message : "Could not read that file");
@@ -115,6 +108,7 @@ export function DatasetWizard() {
         name: draft.name.trim(),
         upload_ref: uploadRef,
         structure_column: draft.structureColumn,
+        id_column: draft.idColumn,
         target: {
           column: draft.targetColumn,
           kind: draft.kind,
@@ -226,12 +220,14 @@ export function DatasetWizard() {
                   placeholder="e.g. ESOL aqueous solubility"
                 />
               </div>
-              <div className="grid gap-4 sm:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1.5">
                   <Label>Structures</Label>
                   <Select
                     value={draft.structureColumn}
-                    onValueChange={(value) => patch({ structureColumn: value })}
+                    onValueChange={(value) =>
+                      setDraft((prev) => withColumns(prev, { structureColumn: value }))
+                    }
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -250,10 +246,10 @@ export function DatasetWizard() {
                   <Select
                     value={draft.targetColumn}
                     onValueChange={(value) =>
-                      patch({
-                        targetColumn: value,
+                      setDraft((prev) => ({
+                        ...withColumns(prev, { targetColumn: value }),
                         kind: looksBinary(preview.rows, value) ? "binary" : "numeric",
-                      })
+                      }))
                     }
                   >
                     <SelectTrigger>
@@ -262,6 +258,30 @@ export function DatasetWizard() {
                     <SelectContent>
                       {preview.columns
                         .filter((column) => column !== draft.structureColumn)
+                        .map((column) => (
+                          <SelectItem key={column} value={column}>
+                            {column}
+                          </SelectItem>
+                        ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Identifier (optional)</Label>
+                  <Select
+                    value={draft.idColumn ?? NO_ID}
+                    onValueChange={(value) => patch({ idColumn: value === NO_ID ? null : value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={NO_ID}>None</SelectItem>
+                      {preview.columns
+                        .filter(
+                          (column) =>
+                            column !== draft.structureColumn && column !== draft.targetColumn,
+                        )
                         .map((column) => (
                           <SelectItem key={column} value={column}>
                             {column}

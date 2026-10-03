@@ -27,6 +27,7 @@ import type {
   BodyUploadDatasetFileApiV1DatasetsUploadsPost,
   CompoundPageResponse,
   CreateDatasetBody,
+  DatasetColumnsResponse,
   DatasetProfileResponse,
   DatasetResponse,
   GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams,
@@ -34,6 +35,7 @@ import type {
   ListDatasetsApiV1DatasetsGetParams,
   PaginatedResponseDatasetResponse,
   ProfileComputingResponse,
+  SetIdColumnBody,
   UploadResponse
 } from '.././model';
 
@@ -421,6 +423,163 @@ export const useDeleteDatasetApiV1DatasetsDatasetIdDelete = <TError = HTTPValida
       return useMutation(mutationOptions, queryClient);
     }
     /**
+ * Any editor; `null` clears it. Display metadata: nothing frozen changes.
+ * @summary Set Dataset Id Column
+ */
+export const setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut = (
+    datasetId: string,
+    setIdColumnBody: SetIdColumnBody,
+ ) => {
+      
+      
+      return customInstance<DatasetResponse>(
+      {url: `/api/v1/datasets/${datasetId}/id-column`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: setIdColumnBody
+    },
+      );
+    }
+  
+
+
+export const getSetDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut>>, TError,{datasetId: string;data: SetIdColumnBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut>>, TError,{datasetId: string;data: SetIdColumnBody}, TContext> => {
+
+const mutationKey = ['setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut>>, {datasetId: string;data: SetIdColumnBody}> = (props) => {
+          const {datasetId,data} = props ?? {};
+
+          return  setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut(datasetId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SetDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPutMutationResult = NonNullable<Awaited<ReturnType<typeof setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut>>>
+    export type SetDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPutMutationBody = SetIdColumnBody
+    export type SetDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPutMutationError = HTTPValidationError
+
+    /**
+ * @summary Set Dataset Id Column
+ */
+export const useSetDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut>>, TError,{datasetId: string;data: SetIdColumnBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof setDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPut>>,
+        TError,
+        {datasetId: string;data: SetIdColumnBody},
+        TContext
+      > => {
+
+      const mutationOptions = getSetDatasetIdColumnApiV1DatasetsDatasetIdIdColumnPutMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * @summary Get Dataset Columns
+ */
+export const getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet = (
+    datasetId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<DatasetColumnsResponse>(
+      {url: `/api/v1/datasets/${datasetId}/columns`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetDatasetColumnsApiV1DatasetsDatasetIdColumnsGetQueryKey = (datasetId?: string,) => {
+    return [
+    `/api/v1/datasets/${datasetId}/columns`
+    ] as const;
+    }
+
+    
+export const getGetDatasetColumnsApiV1DatasetsDatasetIdColumnsGetQueryOptions = <TData = Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError = HTTPValidationError>(datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDatasetColumnsApiV1DatasetsDatasetIdColumnsGetQueryKey(datasetId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>> = ({ signal }) => getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet(datasetId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(datasetId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetDatasetColumnsApiV1DatasetsDatasetIdColumnsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>>
+export type GetDatasetColumnsApiV1DatasetsDatasetIdColumnsGetQueryError = HTTPValidationError
+
+
+export function useGetDatasetColumnsApiV1DatasetsDatasetIdColumnsGet<TData = Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError = HTTPValidationError>(
+ datasetId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetColumnsApiV1DatasetsDatasetIdColumnsGet<TData = Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetColumnsApiV1DatasetsDatasetIdColumnsGet<TData = Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Dataset Columns
+ */
+
+export function useGetDatasetColumnsApiV1DatasetsDatasetIdColumnsGet<TData = Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetColumnsApiV1DatasetsDatasetIdColumnsGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetDatasetColumnsApiV1DatasetsDatasetIdColumnsGetQueryOptions(datasetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
  * Computed once per Dataset, in the background, and cached beside its
 snapshot. Until it is saved this answers 202 with when the computation
 started; afterwards, 200 with the profile. See

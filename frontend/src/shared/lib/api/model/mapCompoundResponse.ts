@@ -5,9 +5,11 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { MapCompoundResponsePartition } from './mapCompoundResponsePartition';
+import type { MapCompoundResponseCompoundId } from './mapCompoundResponseCompoundId';
 
 export interface MapCompoundResponse {
   index: number;
   structure: string;
   partition: MapCompoundResponsePartition;
+  compound_id: MapCompoundResponseCompoundId;
 }
