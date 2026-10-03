@@ -120,15 +120,23 @@ export const customInstance = async <T>({
   });
 
   if (!response.ok) {
-    // FastAPI emits two shapes: `{detail: "..."}` from the app's own error
-    // handler, and `{detail: [{loc, msg}]}` from request validation. Flatten
-    // both into a readable message, and keep the whole body on the error.
+    // Three shapes reach here: the app's domain errors `{error, message,
+    // detail?}` (error_handlers.py), FastAPI's `{detail: "..."}`, and request
+    // validation's `{detail: [{loc, msg}]}`. Flatten each into a readable
+    // message, and keep the whole body on the error. The domain shape's
+    // `message` is written for a person ("Requires admin role or higher"), so
+    // it is shown as-is; reading only `detail` turned every one of them into a
+    // bare "API error: 403".
     let body: unknown;
     let detail: string | undefined;
+    let message: string | undefined;
     try {
       body = await response.json();
-      const parsed = body as { detail?: unknown } | null;
-      if (typeof parsed?.detail === "string") {
+      const parsed = body as { detail?: unknown; message?: unknown } | null;
+      if (typeof parsed?.message === "string") {
+        message =
+          typeof parsed.detail === "string" ? `${parsed.message} (${parsed.detail})` : parsed.message;
+      } else if (typeof parsed?.detail === "string") {
         detail = parsed.detail;
       } else if (Array.isArray(parsed?.detail)) {
         detail = parsed.detail
@@ -150,7 +158,8 @@ export const customInstance = async <T>({
       throw new ApiError("Your session expired; signing you back in", 401, body, true);
     }
     throw new ApiError(
-      detail ? `API error: ${response.status} — ${detail}` : `API error: ${response.status}`,
+      message ??
+        (detail ? `API error: ${response.status} — ${detail}` : `API error: ${response.status}`),
       response.status,
       body,
     );

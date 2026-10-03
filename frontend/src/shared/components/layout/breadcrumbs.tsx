@@ -9,6 +9,8 @@ import { ChevronRight, Home } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+const UUID_SEGMENT = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Hrefs that are real pages, so an intermediate path segment is not linked. */
 const linkableHrefs = new Set(allNavItems.map((item) => item.href));
 
@@ -68,6 +70,9 @@ export function Breadcrumbs() {
     if (override) return override;
     const match = allNavItems.find((item) => item.href === href);
     if (match) return match.title;
+    // A detail page that failed to load never declares its trail, so its UUID
+    // segment lands here. Never print it (no UUIDs on screen); say what it is.
+    if (UUID_SEGMENT.test(segment)) return "Details";
     return segment.charAt(0).toUpperCase() + segment.slice(1);
   }
 
