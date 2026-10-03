@@ -256,7 +256,14 @@ def _render_sdf(
             # corrupt row cannot take down an export of every other compound
             # a scientist is trying to hand to a chemist.
             continue
-        mol.SetProp("_Name", row["structure"])
+        # The title line is the scientist's own identifier when the run carried
+        # one; a chemist reading the file recognises "SACC-0042", not a SMILES.
+        compound_id = row.get("compound_id")
+        mol.SetProp("_Name", compound_id if compound_id else row["structure"])
+        if compound_id:
+            mol.SetProp("compound_id", compound_id)
+        if row.get("input_row") is not None:
+            mol.SetProp("input_row", str(row["input_row"]))
         for readout in readouts:
             mol.SetProp(readout.name, _value_label(row[readout.name], readout))
         mol.SetProp("generation_method", generation_method)

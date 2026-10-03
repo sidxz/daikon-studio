@@ -567,3 +567,34 @@ async def test_an_unknown_sort_direction_is_a_422(
         f"?sort_by={protocol['readouts'][0]['name']}&sort_dir=sideways"
     )
     assert response.status_code == 422, response.text
+
+
+async def test_an_identifier_column_is_carried_into_the_results(
+    client, published_protocol_id, csv_upload
+):
+    """The join back to the scientist's own file: `compound_id` verbatim (blank
+    becomes null), and `input_row` as the 1-based line in the upload."""
+    upload_ref = await csv_upload(b"name,smiles\nCPD-1,CCO\n,CCC\nCPD-1,c1ccccc1\n")
+    submitted = await _predict(client, published_protocol_id, upload_ref, id_column="name")
+    assert submitted.status_code == 202, submitted.text
+    run_id = submitted.json()["id"]
+    # The POST body is the Run as created; inline jobs finish before the poll.
+    run = (await client.get(f"/api/v1/runs/{run_id}")).json()
+    assert run["status"] == "ready", run
+    assert run["metrics"] == {"uploaded_rows": 3, "scored_rows": 3}
+
+    page = (await client.get(f"/api/v1/runs/{run_id}/results")).json()
+    assert [item["compound_id"] for item in page["items"]] == ["CPD-1", None, "CPD-1"]
+    assert [item["input_row"] for item in page["items"]] == [1, 2, 3]
+
+
+async def test_an_unknown_identifier_column_fails_the_run_by_name(
+    client, published_protocol_id, prediction_upload_ref
+):
+    submitted = await _predict(
+        client, published_protocol_id, prediction_upload_ref, id_column="nope"
+    )
+    assert submitted.status_code == 202, submitted.text
+    run = (await client.get(f"/api/v1/runs/{submitted.json()['id']}")).json()
+    assert run["status"] == "failed"
+    assert "nope" in run["error_message"]

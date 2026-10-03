@@ -95,6 +95,11 @@ class PredictWithProtocolCommand:
     upload_ref: str
     structure_column: str
     conditions: dict[str, Any] = field(default_factory=dict)
+    # Which uploaded column names the compound (a registry id, a plate well).
+    # Carried verbatim into the results as `compound_id` so a scientist can join
+    # predictions back to the file they uploaded -- the one thing a canonical
+    # SMILES cannot do for them. Optional: a file of bare structures has none.
+    id_column: str | None = None
 
     def to_params(self) -> dict[str, Any]:
         return {
@@ -102,6 +107,7 @@ class PredictWithProtocolCommand:
             "upload_ref": self.upload_ref,
             "structure_column": self.structure_column,
             "conditions": self.conditions,
+            "id_column": self.id_column,
         }
 
     @classmethod
@@ -115,6 +121,7 @@ class PredictWithProtocolCommand:
             upload_ref=params["upload_ref"],
             structure_column=params["structure_column"],
             conditions=params.get("conditions", {}),
+            id_column=params.get("id_column"),
         )
 
 
@@ -201,6 +208,8 @@ class PredictWithProtocol:
             # and must not collide on the same cache_key.
             structure_column=command.structure_column,
             conditions=command.conditions,
+            # A different identifier column is a different results file.
+            id_column=command.id_column,
         )
 
         # Only a READY hit is reusable. `find_by_cache_key` does not filter by
@@ -277,12 +286,33 @@ class RunPrediction:
 
         raw_structures = [str(value) for value in frame[command.structure_column].to_list()]
         canonical = [self._normalizer.canonicalize(smiles) for smiles in raw_structures]
-        is_valid = pl.Series([smiles is not None for smiles in canonical])
+        keep = [smiles is not None for smiles in canonical]
+        is_valid = pl.Series(keep)
         valid_frame = frame.filter(is_valid).with_columns(
             pl.Series(command.structure_column, [s for s in canonical if s is not None])
         )
         if valid_frame.height == 0:
             raise ValidationError("No valid structures in the uploaded file")
+
+        # 1-based data-row positions in the uploaded file, the same convention
+        # `InvalidRow.row_number` uses. A dropped (unparseable) row leaves a gap,
+        # which is how a scientist learns *which* five of 9,975 went missing.
+        input_rows = [index + 1 for index, kept in enumerate(keep) if kept]
+        compound_ids: list[str | None] | None = None
+        if command.id_column is not None:
+            if command.id_column not in frame.columns:
+                raise ValidationError(
+                    f"Identifier column '{command.id_column}' not present in the uploaded "
+                    f"file: available columns: {', '.join(frame.columns)}"
+                )
+            # Verbatim text, nullable, never a key: blanks become null and
+            # duplicates both survive, because the file is the scientist's.
+            raw_ids = frame[command.id_column].cast(pl.String, strict=False).to_list()
+            compound_ids = [
+                None if value is None or not value.strip() else value.strip()
+                for value, kept in zip(raw_ids, keep, strict=True)
+                if kept
+            ]
 
         engine = self._engines.get(protocol.engine_id)
         # Read the artifact back from the URI the aggregate itself carries,
@@ -324,6 +354,9 @@ class RunPrediction:
         # the earlier one. If this dict ever grows another literal key, add
         # it to that set too.
         columns: dict[str, pl.Series] = {"structure": pl.Series(structures)}
+        columns["input_row"] = pl.Series(input_rows, dtype=pl.Int64)
+        if compound_ids is not None:
+            columns["compound_id"] = pl.Series(compound_ids, dtype=pl.String)
         if len(protocol.readouts) == 1:
             columns[protocol.readouts[0].name] = pl.Series(values, dtype=pl.Float64)
         else:
@@ -344,6 +377,10 @@ class RunPrediction:
             )
         columns["uncertainty"] = predictions["uncertainty"]
         columns["applicability"] = pl.Series(similarities, dtype=pl.Float64)
+
+        # Rides out on run_job's own `succeed()` + `update()`, like a training
+        # run's headline metric -- a run is never READY without its counts.
+        run.record_prediction_counts(uploaded_rows=frame.height, scored_rows=valid_frame.height)
 
         buffer = io.BytesIO()
         pl.DataFrame(columns).write_parquet(buffer)
@@ -456,6 +493,9 @@ class PredictionRow:
     readouts: dict[str, PredictedReadout]
     uncertainty: float | None
     applicability: float | None
+    # Both None on results written before 2026-10-02; see `RunPrediction`.
+    input_row: int | None
+    compound_id: str | None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -565,6 +605,9 @@ class GetPredictionResults:
                 },
                 uncertainty=row["uncertainty"],
                 applicability=row["applicability"],
+                # `.get`: results files written before these columns existed stay readable.
+                input_row=row.get("input_row"),
+                compound_id=row.get("compound_id"),
             )
             for row in page
         ]

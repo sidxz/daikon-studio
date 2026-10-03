@@ -29,7 +29,17 @@ class TargetKind(StrEnum):
 # value silently overwrite one another -- caught once, at Dataset creation,
 # rather than downstream where the damage is already served to a client.
 RESERVED_TARGET_COLUMNS = frozenset(
-    {"structure", "uncertainty", "applicability", "generation_method", "row_id", "split"}
+    {
+        "structure",
+        "uncertainty",
+        "applicability",
+        "generation_method",
+        "row_id",
+        "split",
+        # Written by RunPrediction beside every scored row (predict_with_protocol.py).
+        "input_row",
+        "compound_id",
+    }
 )
 
 

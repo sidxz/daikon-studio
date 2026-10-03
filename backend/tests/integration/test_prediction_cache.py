@@ -212,12 +212,14 @@ class Studio:
         *,
         structure_column: str = "smiles",
         conditions: dict[str, object] | None = None,
+        id_column: str | None = None,
     ):
         command = PredictWithProtocolCommand(
             protocol_id=protocol_id,
             upload_ref=upload_ref,
             structure_column=structure_column,
             conditions=conditions or {},
+            id_column=id_column,
         )
         return await self._predict(command, self.auth)
 
@@ -228,9 +230,14 @@ class Studio:
         *,
         structure_column: str = "smiles",
         conditions: dict[str, object] | None = None,
+        id_column: str | None = None,
     ) -> Run:
         result = await self.predict_raw(
-            protocol_id, upload_ref, structure_column=structure_column, conditions=conditions
+            protocol_id,
+            upload_ref,
+            structure_column=structure_column,
+            conditions=conditions,
+            id_column=id_column,
         )
         return result.unwrap()
 
@@ -361,6 +368,7 @@ async def test_a_failed_run_is_not_served_back_as_a_cache_hit(
         input_hash=input_hash,
         structure_column="smiles",
         conditions={},
+        id_column=None,
     )
     command = PredictWithProtocolCommand(
         protocol_id=published_protocol.id, upload_ref=upload_ref, structure_column="smiles"
@@ -416,6 +424,7 @@ async def test_a_cancelled_run_is_not_served_back_as_a_cache_hit(
         input_hash=input_hash,
         structure_column="smiles",
         conditions={},
+        id_column=None,
     )
     command = PredictWithProtocolCommand(
         protocol_id=published_protocol.id, upload_ref=upload_ref, structure_column="smiles"
@@ -449,6 +458,11 @@ async def test_predictions_carry_structure_readouts_uncertainty_and_applicabilit
     frame = studio.results_frame(run)
     # The invalid "not-a-molecule" row is dropped; the other three canonicalize.
     assert frame.height == 3
+    # Row 4 of the upload was the one dropped: the surviving input rows say so,
+    # and the run carries the two counts whose difference is that drop.
+    assert frame["input_row"].to_list() == [1, 2, 3]
+    assert run.metrics == {"uploaded_rows": 4, "scored_rows": 3}
+    assert "compound_id" not in frame.columns  # none was asked for
     readout_name = published_protocol.readouts[0].name
     assert readout_name in frame.columns
     assert "uncertainty" in frame.columns
@@ -516,3 +530,27 @@ async def test_a_classification_protocol_predicts_both_probability_and_class(
     assert set(frame.columns) - {probability_readout.name, class_readout.name} <= (
         RESERVED_TARGET_COLUMNS
     )
+
+
+async def test_a_blank_identifier_is_null_and_duplicates_both_survive(
+    studio: Studio, published_protocol: InSilicoProtocol
+) -> None:
+    """Identifiers are the scientist's own text, carried verbatim and never used
+    as a key: a blank cell is null, and two rows sharing an id both come back."""
+    upload_ref = await studio.upload(b"name,smiles\nCPD-1,CCO\n,CCC\nCPD-1,c1ccccc1\n")
+    run = await studio.wait(
+        await studio.predict(published_protocol.id, upload_ref, id_column="name")
+    )
+    frame = studio.results_frame(run)
+    assert frame["compound_id"].to_list() == ["CPD-1", None, "CPD-1"]
+    assert frame["input_row"].to_list() == [1, 2, 3]
+
+
+async def test_an_identifier_column_that_does_not_exist_fails_the_run_clearly(
+    studio: Studio, published_protocol: InSilicoProtocol, upload_ref: str
+) -> None:
+    run = await studio.wait(
+        await studio.predict(published_protocol.id, upload_ref, id_column="nope")
+    )
+    assert run.status is RunStatus.FAILED
+    assert "nope" in (run.error_message or "")

@@ -8,6 +8,7 @@ import type { RunResponsePhase } from './runResponsePhase';
 import type { RunResponseResultUri } from './runResponseResultUri';
 import type { RunResponseErrorMessage } from './runResponseErrorMessage';
 import type { RunResponseProtocolId } from './runResponseProtocolId';
+import type { RunResponseMetrics } from './runResponseMetrics';
 
 export interface RunResponse {
   id: string;
@@ -19,5 +20,6 @@ export interface RunResponse {
   result_uri: RunResponseResultUri;
   error_message: RunResponseErrorMessage;
   protocol_id: RunResponseProtocolId;
+  metrics: RunResponseMetrics;
   created_at: string;
 }

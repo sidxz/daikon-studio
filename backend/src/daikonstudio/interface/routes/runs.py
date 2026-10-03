@@ -56,6 +56,9 @@ class PredictBody(BaseModel):
     upload_ref: str
     structure_column: str
     conditions: dict[str, Any] = {}
+    # Optional: the uploaded column that names each compound, carried into the
+    # results as `compound_id` so predictions can be joined back to the file.
+    id_column: str | None = None
 
 
 class RunResponse(BaseModel):
@@ -77,6 +80,11 @@ class RunResponse(BaseModel):
     # prediction comparable to a measurement (Task 17 review, Important 5) --
     # and no way at all to reach the Scorecard a training run just built.
     protocol_id: uuid.UUID | None
+    # Outcome numbers denormalised onto the row. A training run: the headline
+    # metric, its value and the baseline's (`Run.record_metrics`). A prediction
+    # run: `uploaded_rows` and `scored_rows`, whose difference is the structures
+    # that did not parse (`Run.record_prediction_counts`). Null until READY.
+    metrics: dict[str, Any] | None
     created_at: datetime
 
     @classmethod
@@ -91,6 +99,7 @@ class RunResponse(BaseModel):
             result_uri=run.result_uri,
             error_message=run.error_message,
             protocol_id=run.protocol_id,
+            metrics=run.metrics,
             created_at=run.created_at,
         )
 
@@ -118,6 +127,11 @@ class PredictionResponse(BaseModel):
     readouts: dict[str, PredictedReadoutResponse]
     uncertainty: float | None
     applicability: float | None
+    # The row's 1-based position in the uploaded file, and the value of the
+    # upload's identifier column when the request named one. Both null on runs
+    # scored before these were recorded.
+    input_row: int | None
+    compound_id: str | None
 
     @classmethod
     def from_domain(cls, row: PredictionRow) -> PredictionResponse:
@@ -130,6 +144,8 @@ class PredictionResponse(BaseModel):
             },
             uncertainty=row.uncertainty,
             applicability=row.applicability,
+            input_row=row.input_row,
+            compound_id=row.compound_id,
         )
 
 
@@ -142,6 +158,7 @@ async def create_run(
         upload_ref=body.upload_ref,
         structure_column=body.structure_column,
         conditions=body.conditions,
+        id_column=body.id_column,
     )
     return RunResponse.from_domain(result_to_response(await service(command, auth=auth)))
 

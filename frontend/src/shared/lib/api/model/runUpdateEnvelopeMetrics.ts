@@ -4,6 +4,6 @@
  * daikon-studio
  * OpenAPI spec version: 0.1.0
  */
-import type { RunUpdateEnvelopeMetricsAnyOf } from './runUpdateEnvelopeMetricsAnyOf';
+import type { RunMetricsWire } from './runMetricsWire';
 
-export type RunUpdateEnvelopeMetrics = RunUpdateEnvelopeMetricsAnyOf | null;
+export type RunUpdateEnvelopeMetrics = RunMetricsWire | null;

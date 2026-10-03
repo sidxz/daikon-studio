@@ -27,6 +27,22 @@
         }
       }
     },
+    "/ready": {
+      "get": {
+        "summary": "Ready",
+        "operationId": "ready_ready_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
     "/version": {
       "get": {
         "summary": "Version",
@@ -3069,6 +3085,17 @@
             "type": "object",
             "title": "Conditions",
             "default": {}
+          },
+          "id_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Column"
           }
         },
         "additionalProperties": false,
@@ -3155,6 +3182,28 @@
               }
             ],
             "title": "Applicability"
+          },
+          "input_row": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Row"
+          },
+          "compound_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compound Id"
           }
         },
         "type": "object",
@@ -3163,7 +3212,9 @@
           "structure",
           "readouts",
           "uncertainty",
-          "applicability"
+          "applicability",
+          "input_row",
+          "compound_id"
         ],
         "title": "PredictionResponse",
         "description": "One scored compound. `readouts` holds one entry per Readout the\nProtocol declares (a numeric value for regression; probability and class\nfor classification), each carrying its own unit and direction so a\nprediction can be lined up against a measurement without a second call --\nsee `PredictionRow`'s own docstring for why `uncertainty` and\n`applicability` are shaped the way they are."
@@ -3737,6 +3788,45 @@
         ],
         "title": "RunKind"
       },
+      "RunMetricsWire": {
+        "properties": {
+          "primary_metric": {
+            "type": "string",
+            "title": "Primary Metric"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "baseline_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "primary_metric",
+          "value",
+          "baseline_value"
+        ],
+        "title": "RunMetricsWire",
+        "description": "Mirrors the exact three keys `Run.record_metrics` writes\n(`domain/execution/run.py`) -- the only shape a runner-reported `metrics`\npayload is allowed to take.\n\nA free `dict[str, Any]` here would let a self-hosted runner store\narbitrary JSON verbatim in the `runs.metrics` column, inside the same\nsecurity boundary the module docstring calls out. Pinning the shape\nmeans a malformed payload is a 422 at the edge, not a write."
+      },
       "RunResponse": {
         "properties": {
           "id": {
@@ -3806,6 +3896,18 @@
             ],
             "title": "Protocol Id"
           },
+          "metrics": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metrics"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -3823,6 +3925,7 @@
           "result_uri",
           "error_message",
           "protocol_id",
+          "metrics",
           "created_at"
         ],
         "title": "RunResponse"
@@ -3896,14 +3999,12 @@
           "metrics": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/RunMetricsWire"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Metrics"
+            ]
           }
         },
         "additionalProperties": false,

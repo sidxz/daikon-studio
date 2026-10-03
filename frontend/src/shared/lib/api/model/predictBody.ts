@@ -5,10 +5,12 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { PredictBodyConditions } from './predictBodyConditions';
+import type { PredictBodyIdColumn } from './predictBodyIdColumn';
 
 export interface PredictBody {
   protocol_id: string;
   upload_ref: string;
   structure_column: string;
   conditions?: PredictBodyConditions;
+  id_column?: PredictBodyIdColumn;
 }

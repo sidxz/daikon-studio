@@ -7,6 +7,8 @@
 import type { PredictionResponseReadouts } from './predictionResponseReadouts';
 import type { PredictionResponseUncertainty } from './predictionResponseUncertainty';
 import type { PredictionResponseApplicability } from './predictionResponseApplicability';
+import type { PredictionResponseInputRow } from './predictionResponseInputRow';
+import type { PredictionResponseCompoundId } from './predictionResponseCompoundId';
 
 /**
  * One scored compound. `readouts` holds one entry per Readout the
@@ -22,4 +24,6 @@ export interface PredictionResponse {
   readouts: PredictionResponseReadouts;
   uncertainty: PredictionResponseUncertainty;
   applicability: PredictionResponseApplicability;
+  input_row: PredictionResponseInputRow;
+  compound_id: PredictionResponseCompoundId;
 }

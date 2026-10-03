@@ -164,6 +164,15 @@ class Run(AggregateRoot):
         }
         self._touch()
 
+    def record_prediction_counts(self, *, uploaded_rows: int, scored_rows: int) -> None:
+        """How many rows the upload held and how many were scored. The difference
+        is the structures that did not parse, and a scientist must be told that
+        number rather than left to notice 9,970 where 9,975 went in. Lives in
+        `metrics`, the one outcome column `update()` persists, exactly as a
+        training run's headline number does."""
+        self.metrics = {"uploaded_rows": uploaded_rows, "scored_rows": scored_rows}
+        self._touch()
+
     def start(self) -> None:
         """`pending -> running` normally. `running -> running` is also legal:
         a lease-expiry requeue is at-least-once, so a runner crash mid-job
