@@ -202,6 +202,12 @@ image-smoke: image-runner-cpu ## Build the CPU image and prove it can import the
 	docker run --rm -e STUDIO_DUAR_SERVICE_KEY=smoke -e STUDIO_IDP_AUDIENCE=smoke daikon-runner:cpu \
 		python -c "import daikonstudio.interface.app, daikonstudio.infrastructure.engines.registry as r; print('engines:', sorted(m.id for m in r.default_registry().manifests()))"
 
+image-frontend: ## Build the daikon-frontend:local image (Next standalone + RDKit wasm)
+	docker build -f frontend/Dockerfile -t daikon-frontend:local \
+		--build-arg APP_VERSION=$$(git describe --tags --always) \
+		--build-arg APP_GIT_SHA=$$(git rev-parse --short HEAD) \
+		--build-arg APP_BUILD_DATE=$$(date -u +%Y-%m-%dT%H:%M:%SZ) frontend
+
 nuke: ## Stop containers and DELETE all data volumes + local blobs
 	$(COMPOSE) down -v
 	# Blobs go too, deliberately. A dropped database with the blob store left
