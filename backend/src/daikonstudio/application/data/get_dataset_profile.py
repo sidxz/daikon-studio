@@ -14,8 +14,12 @@ three reasons that all point the same way:
 - Every Dataset frozen before this existed gets a profile the first time someone
   looks at one, with no migration and no backfill.
 
-The cost is that the first request for a large dataset is slow. That is the right
-place for it: one viewer waits once, instead of every uploader waiting always.
+The first computation for a large dataset takes minutes (four for 400k
+compounds), so it runs in the background instead of inside the request: the
+first request starts it and answers `ProfileComputing`, every later request --
+a reload, a second tab, a second reader -- joins the same computation, and once
+the result is saved every request reads it. One viewer waits once, and never
+starts a second copy of the work by reloading.
 """
 
 from __future__ import annotations
@@ -23,8 +27,10 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 import uuid
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import polars as pl
 from returns.result import Failure, Result, Success
@@ -35,13 +41,16 @@ from daikonstudio.application.data.snapshot import snapshot_key
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.profile import (
     PROFILE_VERSION,
     DatasetProfile,
     profile_from_dict,
     profile_to_dict,
 )
-from daikonstudio.domain.shared.errors import DomainError, NotFoundError
+from daikonstudio.domain.shared.errors import ConflictError, DomainError, NotFoundError
+
+logger = logging.getLogger(__name__)
 
 
 def profile_key(workspace_id: uuid.UUID | str, dataset_id: uuid.UUID | str) -> str:
@@ -51,6 +60,26 @@ def profile_key(workspace_id: uuid.UUID | str, dataset_id: uuid.UUID | str) -> s
 @dataclass(frozen=True, kw_only=True)
 class GetDatasetProfileQuery:
     dataset_id: uuid.UUID
+
+
+@dataclass(frozen=True, kw_only=True)
+class ProfileComputing:
+    """The answer while a profile is being computed: when it started, and how big it is."""
+
+    started_at: datetime
+    compounds: int
+
+
+_Key = tuple[uuid.UUID, uuid.UUID]
+
+#: The computation running for each dataset, so a second request joins it instead of
+#: starting another. Module-level because a use case is built per request.
+#: ponytail: per process. The API runs one; with several workers each could compute
+#: once -- move this to a marker in the blob store (or a DB row) then.
+_RUNNING: dict[_Key, tuple[datetime, asyncio.Task[None]]] = {}
+#: A failure is reported to the next request, once; the request after that retries.
+#: The cause goes to the log, not the reader: raw exception text names internals.
+_FAILED: set[_Key] = set()
 
 
 class GetDatasetProfile:
@@ -66,7 +95,7 @@ class GetDatasetProfile:
 
     async def __call__(
         self, query: GetDatasetProfileQuery, auth: AuthContext | None = None
-    ) -> Result[DatasetProfile, DomainError]:
+    ) -> Result[DatasetProfile | ProfileComputing, DomainError]:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
 
@@ -98,20 +127,49 @@ class GetDatasetProfile:
                 # rather than to a 500.
                 pass
 
-        try:
-            raw = self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id))
-        except FileNotFoundError:
-            return Failure(NotFoundError("Stored dataset file", str(dataset.id)))
+        running_key = (dataset.workspace_id, dataset.id)
+        if running_key in _FAILED:
+            _FAILED.discard(running_key)
+            return Failure(
+                ConflictError(
+                    "The dataset profile could not be computed. Reload the page to try again."
+                )
+            )
+        # No `await` from the cache check above to the registration below: a running
+        # computation can only save its result and leave `_RUNNING` while this
+        # coroutine is suspended, so it cannot slip between the two checks.
+        running = _RUNNING.get(running_key)
+        if running is None:
+            try:
+                raw = self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id))
+            except FileNotFoundError:
+                return Failure(NotFoundError("Stored dataset file", str(dataset.id)))
+            started_at = datetime.now(UTC)
+            task = asyncio.create_task(self._compute(running_key, dataset, raw))
+            running = (started_at, task)
+            _RUNNING[running_key] = running
+        return Success(ProfileComputing(started_at=running[0], compounds=dataset.row_count))
 
-        # Off-thread for the same reason `GetScorecard` moves `build_scorecard`
-        # off it: this is seconds of RDKit and BLAS, and running it on the event
-        # loop would stall every other request in the process for the duration.
-        profile = await asyncio.to_thread(
-            build_profile,
-            frame=pl.read_parquet(io.BytesIO(raw)),
-            structure_column=dataset.structure_column,
-            target=dataset.target,
-            normalizer=self._normalizer,
-        )
-        self._store.put_bytes(key, json.dumps(profile_to_dict(profile)).encode())
-        return Success(profile)
+    async def _compute(self, key: _Key, dataset: Dataset, raw: bytes) -> None:
+        """Runs in the background, past the request that started it: a reader who
+        leaves or reloads does not cancel it, and the saved result serves them."""
+        try:
+            # Off-thread for the same reason `GetScorecard` moves `build_scorecard`
+            # off it: this is minutes of RDKit and BLAS on a large dataset, and on
+            # the event loop it would stall every other request in the process.
+            profile = await asyncio.to_thread(
+                build_profile,
+                frame=pl.read_parquet(io.BytesIO(raw)),
+                structure_column=dataset.structure_column,
+                target=dataset.target,
+                normalizer=self._normalizer,
+            )
+            self._store.put_bytes(
+                profile_key(dataset.workspace_id, dataset.id),
+                json.dumps(profile_to_dict(profile)).encode(),
+            )
+        except Exception:
+            logger.exception("Profiling dataset %s failed", dataset.id)
+            _FAILED.add(key)
+        finally:
+            _RUNNING.pop(key, None)

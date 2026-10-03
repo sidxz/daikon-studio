@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, UploadFile
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from daikonstudio.application.data.create_dataset import (
@@ -36,6 +37,7 @@ from daikonstudio.application.data.get_dataset_compounds import (
 from daikonstudio.application.data.get_dataset_profile import (
     GetDatasetProfile,
     GetDatasetProfileQuery,
+    ProfileComputing,
 )
 from daikonstudio.application.data.list_datasets import ListDatasets, ListDatasetsQuery
 from daikonstudio.domain.data.dataset import Dataset
@@ -374,17 +376,33 @@ async def get_dataset(
     return DatasetResponse.from_domain(dataset)
 
 
-@router.get("/{dataset_id}/profile", response_model=DatasetProfileResponse)
+class ProfileComputingResponse(BaseModel):
+    """202 while the profile is computed in the background. Poll the same URL;
+    every request joins the one computation, so polling never starts another."""
+
+    status: Literal["computing"] = "computing"
+    started_at: datetime
+    compounds: int
+
+
+@router.get(
+    "/{dataset_id}/profile",
+    response_model=DatasetProfileResponse,
+    responses={202: {"model": ProfileComputingResponse, "description": "Being computed"}},
+)
 async def get_dataset_profile(
     dataset_id: uuid.UUID, auth: AuthDep, service: GetDatasetProfileDep
-) -> DatasetProfileResponse:
-    """Computed on the first request for a Dataset and cached beside its
-    snapshot, so this can take seconds once and is immediate afterwards. See
-    `application/data/get_dataset_profile.py` for why it is not written at
-    freeze time."""
+) -> DatasetProfileResponse | JSONResponse:
+    """Computed once per Dataset, in the background, and cached beside its
+    snapshot. Until it is saved this answers 202 with when the computation
+    started; afterwards, 200 with the profile. See
+    `application/data/get_dataset_profile.py`."""
     profile = result_to_response(
         await service(GetDatasetProfileQuery(dataset_id=dataset_id), auth=auth)
     )
+    if isinstance(profile, ProfileComputing):
+        body = ProfileComputingResponse(started_at=profile.started_at, compounds=profile.compounds)
+        return JSONResponse(status_code=202, content=body.model_dump(mode="json"))
     return DatasetProfileResponse.from_domain(profile)
 
 

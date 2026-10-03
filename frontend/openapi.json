@@ -456,7 +456,7 @@
           "datasets"
         ],
         "summary": "Get Dataset Profile",
-        "description": "Computed on the first request for a Dataset and cached beside its\nsnapshot, so this can take seconds once and is immediate afterwards. See\n`application/data/get_dataset_profile.py` for why it is not written at\nfreeze time.",
+        "description": "Computed once per Dataset, in the background, and cached beside its\nsnapshot. Until it is saved this answers 202 with when the computation\nstarted; afterwards, 200 with the profile. See\n`application/data/get_dataset_profile.py`.",
         "operationId": "get_dataset_profile_api_v1_datasets__dataset_id__profile_get",
         "parameters": [
           {
@@ -477,6 +477,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/DatasetProfileResponse"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "Being computed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileComputingResponse"
                 }
               }
             }
@@ -3613,6 +3623,32 @@
         ],
         "title": "PredictionResponse",
         "description": "One scored compound. `readouts` holds one entry per Readout the\nProtocol declares (a numeric value for regression; probability and class\nfor classification), each carrying its own unit and direction so a\nprediction can be lined up against a measurement without a second call --\nsee `PredictionRow`'s own docstring for why `uncertainty` and\n`applicability` are shaped the way they are."
+      },
+      "ProfileComputingResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "computing",
+            "title": "Status",
+            "default": "computing"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "compounds": {
+            "type": "integer",
+            "title": "Compounds"
+          }
+        },
+        "type": "object",
+        "required": [
+          "started_at",
+          "compounds"
+        ],
+        "title": "ProfileComputingResponse",
+        "description": "202 while the profile is computed in the background. Poll the same URL;\nevery request joins the one computation, so polling never starts another."
       },
       "ProtocolEnvelope": {
         "properties": {

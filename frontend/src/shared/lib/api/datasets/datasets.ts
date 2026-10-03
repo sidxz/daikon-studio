@@ -33,6 +33,7 @@ import type {
   HTTPValidationError,
   ListDatasetsApiV1DatasetsGetParams,
   PaginatedResponseDatasetResponse,
+  ProfileComputingResponse,
   UploadResponse
 } from '.././model';
 
@@ -357,10 +358,10 @@ export function useGetDatasetApiV1DatasetsDatasetIdGet<TData = Awaited<ReturnTyp
 
 
 /**
- * Computed on the first request for a Dataset and cached beside its
-snapshot, so this can take seconds once and is immediate afterwards. See
-`application/data/get_dataset_profile.py` for why it is not written at
-freeze time.
+ * Computed once per Dataset, in the background, and cached beside its
+snapshot. Until it is saved this answers 202 with when the computation
+started; afterwards, 200 with the profile. See
+`application/data/get_dataset_profile.py`.
  * @summary Get Dataset Profile
  */
 export const getDatasetProfileApiV1DatasetsDatasetIdProfileGet = (
@@ -369,7 +370,7 @@ export const getDatasetProfileApiV1DatasetsDatasetIdProfileGet = (
 ) => {
       
       
-      return customInstance<DatasetProfileResponse>(
+      return customInstance<DatasetProfileResponse | ProfileComputingResponse>(
       {url: `/api/v1/datasets/${datasetId}/profile`, method: 'GET', signal
     },
       );

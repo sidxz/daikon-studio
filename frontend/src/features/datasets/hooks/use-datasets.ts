@@ -12,6 +12,7 @@ import type {
   DatasetProfileResponse,
   DatasetResponse,
   PaginatedResponseDatasetResponse,
+  ProfileComputingResponse,
   UploadResponse,
 } from "@/shared/lib/api/model";
 import { showSuccess } from "@/shared/lib/toast";
@@ -124,16 +125,39 @@ export function useCreateDataset() {
  * on a large file. Retrying a timeout would start a second identical RDKit pass
  * rather than wait for the first, which makes a slow page slower.
  */
+/** How often to ask again while the server is still computing a profile. */
+export const PROFILE_POLL_MS = 3_000;
+
+/** The server's 202 answer: the profile is being computed, since `started_at`. */
+export function isComputing(
+  data: DatasetProfileResponse | ProfileComputingResponse | undefined,
+): data is ProfileComputingResponse {
+  return (data as ProfileComputingResponse | undefined)?.status === "computing";
+}
+
+export function profileRefetchInterval(
+  data: DatasetProfileResponse | ProfileComputingResponse | undefined,
+): number | false {
+  return isComputing(data) ? PROFILE_POLL_MS : false;
+}
+
+/**
+ * The profile, or a 202 saying it is being computed. Computing a large one takes
+ * minutes, in the background on the server; asking again joins that computation
+ * rather than starting another, so polling (and reloading) is safe. Once saved it
+ * never changes, so a ready profile is never refetched.
+ */
 export function useDatasetProfile(id: string | undefined) {
   return useQuery({
     queryKey: [...DATASET_PROFILE_KEY, id],
     queryFn: () =>
-      customInstance<DatasetProfileResponse>({
+      customInstance<DatasetProfileResponse | ProfileComputingResponse>({
         url: `${API_V1}/datasets/${id}/profile`,
         method: "GET",
       }),
     enabled: Boolean(id),
-    staleTime: Number.POSITIVE_INFINITY,
+    staleTime: (query) => (isComputing(query.state.data) ? 0 : Number.POSITIVE_INFINITY),
+    refetchInterval: (query) => profileRefetchInterval(query.state.data),
     retry: false,
   });
 }

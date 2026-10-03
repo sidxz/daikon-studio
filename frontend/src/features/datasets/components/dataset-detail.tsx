@@ -7,10 +7,11 @@ import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
-import { useDataset, useDatasetProfile } from "../hooks/use-datasets";
+import { isComputing, useDataset, useDatasetProfile } from "../hooks/use-datasets";
 import { SPLIT_COPY } from "../types";
 import { CompoundBrowser } from "./compound-browser";
 import { DatasetProfileSkeleton, DatasetProfileView } from "./dataset-profile-view";
+import { ProfileComputing } from "./profile-computing";
 import { ValidationReportView } from "./validation-report-view";
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
@@ -24,10 +25,9 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export function DatasetDetail({ datasetId }: { datasetId: string }) {
   const { data: dataset, isLoading, isError, error } = useDataset(datasetId);
-  // Fetched alongside the Dataset rather than on tab activation: the profile is
-  // computed on its first ever request and cached forever after, so the one
-  // request that is slow is better spent while the reader is still on the
-  // overview than as a spinner the moment they click "Diversity".
+  // Fetched alongside the Dataset rather than on tab activation: the first ever
+  // request starts the server computing the profile (minutes for a large
+  // dataset), so it is better started while the reader is still on the overview.
   const profile = useDatasetProfile(datasetId);
 
   // Declared explicitly so the breadcrumb never prints the id from the URL.
@@ -171,6 +171,11 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
                   : "Its frozen snapshot could not be read."}
               </p>
             </div>
+          ) : isComputing(profile.data) ? (
+            <ProfileComputing
+              startedAt={profile.data.started_at}
+              compounds={profile.data.compounds}
+            />
           ) : (
             <DatasetProfileView dataset={dataset} profile={profile.data} />
           )}

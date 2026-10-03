@@ -103,6 +103,7 @@ export * from './predictionResponseCompoundId';
 export * from './predictionResponseInputRow';
 export * from './predictionResponseReadouts';
 export * from './predictionResponseUncertainty';
+export * from './profileComputingResponse';
 export * from './protocolEnvelope';
 export * from './protocolEnvelopeConditions';
 export * from './protocolEnvelopeParentProtocolId';
