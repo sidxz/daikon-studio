@@ -2,13 +2,7 @@
 export type { Protocol, Scorecard } from "./types";
 export { metricLabel, METRIC_LABELS } from "./types";
 export { computeOptimismGap, computeVerdict, higherIsBetter } from "./lib/verdict";
-export {
-  isTerminal,
-  useProtocol,
-  useProtocols,
-  useRunPoll,
-  useScorecard,
-} from "./hooks/use-protocols";
+export { useProtocol, useProtocols, useRunPoll, useScorecard } from "./hooks/use-protocols";
 export { PROTOCOLS_KEY, PROTOCOL_KEY, SCORECARD_KEY } from "./hooks/query-keys";
 export { ConditionFields } from "./components/condition-fields";
 export { ProtocolDetail } from "./components/protocol-detail";

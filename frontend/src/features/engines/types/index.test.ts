@@ -15,6 +15,7 @@ function engine(id: string, tasks: string[]): Engine {
     tasks,
     conditions: [],
     is_baseline: false,
+    lane: "default",
   };
 }
 

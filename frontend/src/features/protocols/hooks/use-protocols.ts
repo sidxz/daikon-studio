@@ -9,16 +9,10 @@ import type {
   ScorecardResponse,
   TrainProtocolBody,
 } from "@/shared/lib/api/model";
-import { RUN_POLL_MS, STALE_TIME } from "@/shared/lib/query-defaults";
+import { STALE_TIME, pollInterval } from "@/shared/lib/query-defaults";
 import { showError, showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PROTOCOLS_KEY, PROTOCOL_KEY, PROTOCOL_RUNS_KEY, SCORECARD_KEY } from "./query-keys";
-
-const TERMINAL = new Set(["ready", "failed", "cancelled"]);
-
-export function isTerminal(status: string | undefined): boolean {
-  return status !== undefined && TERMINAL.has(status);
-}
 
 /**
  * A picker passes `limit: 200`, the server's cap, to see past the default page of 50.
@@ -86,7 +80,7 @@ export function useRunPoll(runId: string | undefined) {
     queryKey: ["run", runId],
     queryFn: () => customInstance<RunResponse>({ url: `${API_V1}/runs/${runId}`, method: "GET" }),
     enabled: Boolean(runId),
-    refetchInterval: (query) => (isTerminal(query.state.data?.status) ? false : RUN_POLL_MS),
+    refetchInterval: pollInterval,
   });
 }
 

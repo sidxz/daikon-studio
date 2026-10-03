@@ -20,11 +20,13 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { ApiError } from "@/shared/lib/api/custom-instance";
+import { isTerminal } from "@/shared/lib/query-defaults";
 import { showError } from "@/shared/lib/toast";
 import { ChevronDownIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
-import { isTerminal, useRunPoll, useTrainProtocol } from "../hooks/use-protocols";
+import { useRunPoll, useTrainProtocol } from "../hooks/use-protocols";
 import { ConditionFields } from "./condition-fields";
 
 /**
@@ -149,7 +151,25 @@ export function TrainProtocolForm() {
       showError(run.data.error_message ?? "Training failed");
       setRunId(undefined);
     }
+    if (run.data?.status === "cancelled") {
+      showError("Training was cancelled");
+      setRunId(undefined);
+    }
   }, [run.data, router]);
+
+  // Polling stops when the request fails (`pollInterval`), so without this the
+  // form waits on a bar that never moves. Fires once: with the run id cleared
+  // the hook watches no query, so `isError` drops back. A silent 401 belongs to
+  // the session renewal, which reloads the page anyway.
+  useEffect(() => {
+    if (!run.isError) return;
+    if (!(run.error instanceof ApiError && run.error.silent)) {
+      showError(
+        "Lost track of this training run. It may still finish: look for it under Protocols.",
+      );
+    }
+    setRunId(undefined);
+  }, [run.isError, run.error]);
 
   async function submit() {
     try {

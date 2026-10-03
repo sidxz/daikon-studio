@@ -9,21 +9,16 @@ import {
 import type {
   PaginatedResponsePredictionResponse,
   PaginatedResponseRunResponse,
+  PredictBody,
   RunResponse,
   UploadResponse,
 } from "@/shared/lib/api/model";
-import { RUN_POLL_MS } from "@/shared/lib/query-defaults";
+import { pollInterval } from "@/shared/lib/query-defaults";
 import { showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ResultParams } from "../lib/result-query";
 import type { TriageRow } from "../types";
 import { RUNS_KEY, RUN_KEY } from "./query-keys";
-
-const TERMINAL = new Set(["ready", "failed", "cancelled"]);
-
-export function isTerminal(status: string | undefined): boolean {
-  return status !== undefined && TERMINAL.has(status);
-}
 
 /** Prediction runs, newest first. Training runs live on their Protocol. */
 export function useRuns(
@@ -46,7 +41,7 @@ export function useRun(id: string | undefined) {
     queryKey: [...RUN_KEY, id],
     queryFn: () => customInstance<RunResponse>({ url: `${API_V1}/runs/${id}`, method: "GET" }),
     enabled: Boolean(id),
-    refetchInterval: (query) => (isTerminal(query.state.data?.status) ? false : RUN_POLL_MS),
+    refetchInterval: pollInterval,
   });
 }
 
@@ -70,12 +65,8 @@ export function useUploadPredictionFile() {
 export function useCreateRun() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: {
-      protocol_id: string;
-      upload_ref: string;
-      structure_column: string;
-      conditions?: Record<string, unknown>;
-    }) => customInstance<RunResponse>({ url: `${API_V1}/runs`, method: "POST", data }),
+    mutationFn: (data: PredictBody) =>
+      customInstance<RunResponse>({ url: `${API_V1}/runs`, method: "POST", data }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: RUNS_KEY }),
   });
 }
@@ -88,6 +79,19 @@ export function useCancelRun() {
     onSuccess: (_data, id) => {
       queryClient.invalidateQueries({ queryKey: [...RUN_KEY, id] });
       showSuccess("Run cancelled");
+    },
+  });
+}
+
+/** Failed or cancelled back to pending, same Run, same id; the server refuses anything else. */
+export function useRetryRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      customInstance<void>({ url: `${API_V1}/runs/${id}/retry`, method: "POST" }),
+    onSuccess: (_data, id) => {
+      queryClient.invalidateQueries({ queryKey: [...RUN_KEY, id] });
+      showSuccess("Run queued again");
     },
   });
 }

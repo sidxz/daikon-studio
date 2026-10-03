@@ -2,6 +2,7 @@
 
 import { useCreateCollection } from "@/features/collections";
 import { useProtocol } from "@/features/protocols";
+import { LANE_LABELS, useRunners } from "@/features/runners";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -17,12 +18,33 @@ import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Progress } from "@/shared/components/ui/progress";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { ApiError } from "@/shared/lib/api/custom-instance";
+import type { PredictionCountsWire } from "@/shared/lib/api/model";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
-import { useCancelRun, useRun } from "../hooks/use-runs";
+import { useCancelRun, useRetryRun, useRun } from "../hooks/use-runs";
 import { RUN_STATUS_COPY } from "../types";
 import { TriageGrid } from "./triage-grid";
+
+/**
+ * Mounted only while a run is queued, so the Runners poll stops with it. Says
+ * nothing until that list loads, or if it fails: no hint beats a wrong one.
+ */
+function LaneHint({ lane }: { lane: string }) {
+  const { data: runners } = useRunners();
+  if (!runners) return null;
+  if (runners.some((runner) => runner.online && !runner.revoked && runner.lanes.includes(lane))) {
+    return null;
+  }
+  return (
+    <p className="text-sm text-warning">
+      Waiting for a runner that serves the "{LANE_LABELS[lane] ?? lane}" lane. None is online right
+      now.
+    </p>
+  );
+}
 
 export function RunDetail({ runId }: { runId: string }) {
   const router = useRouter();
@@ -36,9 +58,10 @@ export function RunDetail({ runId }: { runId: string }) {
   const hasSubmittedCount =
     submittedCount !== null && Number.isFinite(submittedCount) && submittedCount > 0;
   const fromCache = params.get("cached") === "1";
-  const { data: run, isLoading } = useRun(runId);
+  const { data: run, isError, error, refetch } = useRun(runId);
   const { data: protocol } = useProtocol(run?.protocol_id ?? undefined);
   const cancel = useCancelRun();
+  const retry = useRetryRun();
   const createCollection = useCreateCollection();
 
   const [pendingRows, setPendingRows] = useState<number[] | null>(null);
@@ -57,7 +80,28 @@ export function RunDetail({ runId }: { runId: string }) {
       : null,
   );
 
-  if (isLoading || !run) {
+  // Before the skeleton: an errored query has no data either, and polling has
+  // stopped (`pollInterval`), so a skeleton here would never resolve. The
+  // server's message is not shown -- a 404's names the run by its UUID.
+  if (isError) {
+    const missing = error instanceof ApiError && error.status === 404;
+    return (
+      <div className="mx-auto w-full max-w-6xl p-2">
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <p className="text-sm font-medium text-destructive">
+            {missing ? "This run does not exist in this workspace" : "Could not load this run"}
+          </p>
+          {!missing && (
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+              Try again
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!run) {
     return (
       <div className="mx-auto w-full max-w-6xl space-y-4 p-2">
         <Skeleton className="h-8 w-64" />
@@ -67,13 +111,20 @@ export function RunDetail({ runId }: { runId: string }) {
   }
 
   const running = run.status === "pending" || run.status === "running";
+  // A prediction run's `metrics` once READY (`Run.record_prediction_counts`);
+  // a training run's hold its headline metric instead, so these stay undefined.
+  const counts = run.metrics as Partial<PredictionCountsWire> | null;
+  const scored = counts?.scored_rows;
+  const uploaded = counts?.uploaded_rows;
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-4 p-2">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold">{protocol?.name ?? "Prediction run"}</h1>
+            <h1 className="text-lg font-semibold">
+              {protocol?.name ?? (run.kind === "training" ? "Training run" : "Prediction run")}
+            </h1>
             <Badge variant={run.status === "ready" ? "default" : "outline"} className="font-normal">
               {RUN_STATUS_COPY[run.status] ?? run.status}
             </Badge>
@@ -83,10 +134,23 @@ export function RunDetail({ runId }: { runId: string }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date(run.created_at).toLocaleString()}
           </p>
-          {hasSubmittedCount && (
+          {/* The server's count, once there is one, supersedes the wizard's
+              client-side parse: it includes the rows that did not parse. */}
+          {scored != null && uploaded != null ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              {submittedCount} compound{submittedCount === 1 ? "" : "s"} submitted
+              Scored {scored.toLocaleString()} of {uploaded.toLocaleString()} uploaded row
+              {uploaded === 1 ? "" : "s"}
+              {uploaded !== scored &&
+                ` · ${(uploaded - scored).toLocaleString()} did not parse as ${
+                  uploaded - scored === 1 ? "a structure" : "structures"
+                }`}
             </p>
+          ) : (
+            hasSubmittedCount && (
+              <p className="mt-1 text-sm text-muted-foreground">
+                {submittedCount} compound{submittedCount === 1 ? "" : "s"} submitted
+              </p>
+            )
           )}
         </div>
         {running && (
@@ -98,6 +162,11 @@ export function RunDetail({ runId }: { runId: string }) {
             Cancel run
           </Button>
         )}
+        {(run.status === "failed" || run.status === "cancelled") && (
+          <Button variant="outline" onClick={() => retry.mutate(runId)} disabled={retry.isPending}>
+            Retry
+          </Button>
+        )}
       </div>
 
       {running && (
@@ -105,6 +174,7 @@ export function RunDetail({ runId }: { runId: string }) {
           <CardContent className="space-y-3 py-6">
             <p className="text-sm text-muted-foreground">{run.phase ?? "Starting…"}</p>
             <Progress value={Math.round(run.progress * 100)} />
+            {run.status === "pending" && run.lane && <LaneHint lane={run.lane} />}
           </CardContent>
         </Card>
       )}
@@ -123,7 +193,33 @@ export function RunDetail({ runId }: { runId: string }) {
         </div>
       )}
 
-      {run.status === "ready" && protocol && (
+      {/* A training run has no results to triage -- its outcome is a Protocol,
+          and asking for its results is a guaranteed 404. */}
+      {run.kind === "training" && !running && (
+        <Card>
+          <CardContent className="text-sm">
+            <p className="font-medium">This is a training run</p>
+            <p className="mt-1 text-muted-foreground">
+              {run.protocol_id ? (
+                <>
+                  Its Scorecard is on the{" "}
+                  <Link
+                    href={`/protocols/${run.protocol_id}`}
+                    className="underline underline-offset-2"
+                  >
+                    Protocol page
+                  </Link>
+                  .
+                </>
+              ) : (
+                "It produced no Protocol."
+              )}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {run.kind === "prediction" && run.status === "ready" && protocol && (
         <TriageGrid
           runId={runId}
           readouts={protocol.readouts}

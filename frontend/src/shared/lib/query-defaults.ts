@@ -13,5 +13,25 @@ export const STALE_TIME = {
 /** Poll interval for a Run, per the design: 202-then-poll, no websockets. */
 export const RUN_POLL_MS = 2_000;
 
+const TERMINAL = new Set(["ready", "failed", "cancelled"]);
+
+/** A Run in a terminal status changes again only if someone retries it. */
+export function isTerminal(status: string | undefined): boolean {
+  return status !== undefined && TERMINAL.has(status);
+}
+
+/**
+ * `refetchInterval` for a query that returns one Run: poll until it is
+ * terminal, and stop the moment the request itself fails -- a 404 refetched
+ * every two seconds is a screen stuck on its skeleton. It lives here, not in
+ * the runs feature, because protocols polls Runs too and runs imports protocols.
+ */
+export function pollInterval(query: {
+  state: { status: string; data?: { status?: string } };
+}): number | false {
+  if (query.state.status === "error") return false;
+  return isTerminal(query.state.data?.status) ? false : RUN_POLL_MS;
+}
+
 /** Poll interval for the Runners list, so an online dot moves without a reload. */
 export const RUNNER_POLL_MS = 10_000;

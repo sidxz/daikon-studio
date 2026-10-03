@@ -1,6 +1,6 @@
 "use client";
 
-import { RUN_STATUS_COPY, isTerminal } from "@/features/runs";
+import { RUN_STATUS_COPY } from "@/features/runs";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Progress } from "@/shared/components/ui/progress";
@@ -13,6 +13,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { ApiError } from "@/shared/lib/api/custom-instance";
+import { isTerminal } from "@/shared/lib/query-defaults";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 // Deep imports, not the feature barrel: `index.ts` re-exports this component,
@@ -43,14 +45,34 @@ function formatConditions(conditions: SweepRun["conditions"]): string {
 }
 
 export function SweepDetail({ id }: { id: string }) {
-  const { data: sweep, isPending } = useSweep(id);
+  const { data: sweep, isError, error, refetch } = useSweep(id);
   const cancel = useCancelSweep();
 
   useBreadcrumbTrail(
     sweep ? [{ label: "Sweeps", href: "/sweeps" }, { label: sweep.name ?? "Sweep" }] : null,
   );
 
-  if (isPending || !sweep) return <SweepDetailSkeleton />;
+  // Polling stops on error, so a skeleton here would never resolve. The
+  // server's message is not shown -- a 404's names the sweep by its UUID.
+  if (isError) {
+    const missing = error instanceof ApiError && error.status === 404;
+    return (
+      <div className="mx-auto w-full max-w-4xl p-2">
+        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
+          <p className="text-sm font-medium text-destructive">
+            {missing ? "This sweep does not exist in this workspace" : "Could not load this sweep"}
+          </p>
+          {!missing && (
+            <Button variant="outline" size="sm" className="mt-3" onClick={() => refetch()}>
+              Try again
+            </Button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (!sweep) return <SweepDetailSkeleton />;
 
   const ranked = rankRuns(sweep.runs);
   const live = sweep.runs.filter((run) => !isTerminal(run.status));

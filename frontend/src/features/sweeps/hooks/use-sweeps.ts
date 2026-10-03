@@ -1,9 +1,8 @@
 "use client";
 
-import { isTerminal } from "@/features/runs";
 import { API_V1, customInstance } from "@/shared/lib/api/custom-instance";
 import type { SweepDetailResponse, SweepListResponse } from "@/shared/lib/api/model";
-import { RUN_POLL_MS } from "@/shared/lib/query-defaults";
+import { RUN_POLL_MS, isTerminal } from "@/shared/lib/query-defaults";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { SWEEPS_KEY, SWEEP_KEY } from "./query-keys";
 
@@ -18,7 +17,8 @@ export function useSweeps() {
  * Polls until every member is terminal. A sweep is throttled by the
  * per-workspace concurrency cap, so the tail of a large one keeps arriving
  * long after the first few finish -- stopping at the first terminal run would
- * freeze the page mid-comparison.
+ * freeze the page mid-comparison. A failed request stops it, as `pollInterval`
+ * does for one Run; a sweep has no single status for that helper to read.
  */
 export function useSweep(id: string | undefined) {
   return useQuery({
@@ -27,6 +27,7 @@ export function useSweep(id: string | undefined) {
       customInstance<SweepDetailResponse>({ url: `${API_V1}/sweeps/${id}`, method: "GET" }),
     enabled: Boolean(id),
     refetchInterval: (query) => {
+      if (query.state.status === "error") return false;
       const runs = query.state.data?.runs ?? [];
       return runs.length > 0 && runs.every((run) => isTerminal(run.status)) ? false : RUN_POLL_MS;
     },

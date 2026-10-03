@@ -114,6 +114,9 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
       </Card>
 
       {scorecard.isLoading && <Skeleton className="h-64 w-full" />}
+      {scorecard.isError && (
+        <p className="text-sm text-destructive">Could not load the Scorecard.</p>
+      )}
       {scorecard.data && <ScorecardView scorecard={scorecard.data} />}
 
       <ProtocolRuns protocolId={protocol.id} />

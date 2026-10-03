@@ -1,7 +1,7 @@
 export type { Prediction, Run, TriageRow } from "./types";
 export { RUN_STATUS_COPY } from "./types";
 export { RUNS_KEY, RUN_KEY } from "./hooks/query-keys";
-export { fetchResultBlock, isTerminal, useRun, useRuns } from "./hooks/use-runs";
+export { fetchResultBlock, useRun, useRuns } from "./hooks/use-runs";
 export { PredictWizard } from "./components/predict-wizard";
 export { RunDetail } from "./components/run-detail";
 export { RunList } from "./components/run-list";
