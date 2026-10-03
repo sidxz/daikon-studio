@@ -1,4 +1,5 @@
 import { navigation } from "@/shared/lib/navigation";
+import { cn } from "@/shared/lib/utils";
 import Link from "next/link";
 
 /**
@@ -31,7 +32,7 @@ export default function DashboardPage() {
                 href={item.href}
                 className="flex h-full items-center gap-3 rounded-lg border border-border p-4 transition-colors hover:bg-muted/50"
               >
-                <item.icon className="size-5 shrink-0 text-muted-foreground" />
+                <item.icon className={cn("size-5 shrink-0", item.iconClassName)} />
                 <span className="text-sm font-medium">{item.title}</span>
               </Link>
             ))}

@@ -10,6 +10,7 @@ import {
 } from "@/shared/components/ui/command";
 import { navigation } from "@/shared/lib/navigation";
 import { useCommandPaletteStore } from "@/shared/lib/stores/command-palette-store";
+import { cn } from "@/shared/lib/utils";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect } from "react";
 
@@ -49,7 +50,7 @@ export function CommandPalette() {
                   router.push(item.href);
                 }}
               >
-                <item.icon className="mr-2 size-4" />
+                <item.icon className={cn("mr-2 size-4", item.iconClassName)} />
                 {item.title}
               </CommandItem>
             ))}

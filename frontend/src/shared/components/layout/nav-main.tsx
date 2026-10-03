@@ -30,7 +30,7 @@ export function NavMain() {
                   <SidebarMenuItem key={item.href}>
                     <SidebarMenuButton asChild isActive={isActive} tooltip={item.title}>
                       <Link href={item.href}>
-                        <item.icon />
+                        <item.icon className={item.iconClassName} />
                         <span>{item.title}</span>
                       </Link>
                     </SidebarMenuButton>

@@ -16,3 +16,33 @@
     transform: translateY(0);
   }
 }
+
+/* ── Navigation icon hues ─────────────────────────────────── */
+/* One hue per section. Measured against --sidebar (#f1f5f9) in light mode,
+   each reaches at least 3:1, including on the active row. The token amber
+   (2.9:1) does not, so Runs has its own. */
+:root {
+  --icon-dashboard: var(--ds-text-secondary);
+  --icon-datasets: var(--chart-1);
+  --icon-protocols: var(--ds-success);
+  --icon-sweeps: var(--chart-3);
+  --icon-runs: #b45309;
+  --icon-collections: #db2777;
+  --icon-engines: var(--ds-score-good);
+  --icon-runners: #0891b2;
+}
+[data-theme="dark"] {
+  --icon-runs: #fbbf24;
+  --icon-collections: #f472b6;
+  --icon-runners: #22d3ee;
+}
+@theme inline {
+  --color-icon-dashboard: var(--icon-dashboard);
+  --color-icon-datasets: var(--icon-datasets);
+  --color-icon-protocols: var(--icon-protocols);
+  --color-icon-sweeps: var(--icon-sweeps);
+  --color-icon-runs: var(--icon-runs);
+  --color-icon-collections: var(--icon-collections);
+  --color-icon-engines: var(--icon-engines);
+  --color-icon-runners: var(--icon-runners);
+}

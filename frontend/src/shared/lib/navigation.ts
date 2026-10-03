@@ -1,19 +1,21 @@
 import {
-  Boxes,
-  Cpu,
-  Database,
-  FlaskConical,
-  Layers,
-  LayoutDashboard,
-  type LucideIcon,
-  PlayCircle,
-  Server,
-} from "lucide-react";
+  CollectionsIcon,
+  DatasetsIcon,
+  EnginesIcon,
+  ProtocolsIcon,
+  RunnersIcon,
+  RunsIcon,
+  SweepsIcon,
+} from "@/shared/components/icons/nav-icons";
+import { LayoutDashboard } from "lucide-react";
+import type { ComponentType } from "react";
 
 export interface NavItem {
   title: string;
   href: string;
-  icon: LucideIcon;
+  icon: ComponentType<{ className?: string }>;
+  /** The item's hue, a `text-icon-*` utility. Applied to the icon only; labels stay neutral. */
+  iconClassName: string;
   children?: NavItem[];
 }
 
@@ -33,28 +35,50 @@ export interface NavGroup {
 export const navigation: NavGroup[] = [
   {
     label: "Overview",
-    items: [{ title: "Dashboard", href: "/", icon: LayoutDashboard }],
+    items: [
+      {
+        title: "Dashboard",
+        href: "/",
+        icon: LayoutDashboard,
+        iconClassName: "text-icon-dashboard",
+      },
+    ],
   },
   {
     label: "Curate",
     items: [
-      { title: "Datasets", href: "/datasets", icon: Database },
-      { title: "Protocols", href: "/protocols", icon: FlaskConical },
-      { title: "Sweeps", href: "/sweeps", icon: Layers },
+      {
+        title: "Datasets",
+        href: "/datasets",
+        icon: DatasetsIcon,
+        iconClassName: "text-icon-datasets",
+      },
+      {
+        title: "Protocols",
+        href: "/protocols",
+        icon: ProtocolsIcon,
+        iconClassName: "text-icon-protocols",
+      },
+      { title: "Sweeps", href: "/sweeps", icon: SweepsIcon, iconClassName: "text-icon-sweeps" },
     ],
   },
   {
     label: "Apply",
     items: [
-      { title: "Runs", href: "/runs", icon: PlayCircle },
-      { title: "Collections", href: "/collections", icon: Boxes },
+      { title: "Runs", href: "/runs", icon: RunsIcon, iconClassName: "text-icon-runs" },
+      {
+        title: "Collections",
+        href: "/collections",
+        icon: CollectionsIcon,
+        iconClassName: "text-icon-collections",
+      },
     ],
   },
   {
     label: "Catalog",
     items: [
-      { title: "Engines", href: "/engines", icon: Cpu },
-      { title: "Runners", href: "/runners", icon: Server },
+      { title: "Engines", href: "/engines", icon: EnginesIcon, iconClassName: "text-icon-engines" },
+      { title: "Runners", href: "/runners", icon: RunnersIcon, iconClassName: "text-icon-runners" },
     ],
   },
 ];
