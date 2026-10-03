@@ -164,6 +164,9 @@ class GetDatasetProfile:
                 target=dataset.target,
                 normalizer=self._normalizer,
             )
+            if not self._store.exists(snapshot_key(dataset.workspace_id, dataset.id)):
+                # Deleted while this ran: saving would recreate its folder.
+                return
             self._store.put_bytes(
                 profile_key(dataset.workspace_id, dataset.id),
                 json.dumps(profile_to_dict(profile)).encode(),

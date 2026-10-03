@@ -37,6 +37,8 @@ from daikonstudio.domain.shared.errors import DomainError, NotFoundError, Valida
 class ListProtocolsQuery:
     cursor: str | None = None
     limit: int | None = None
+    # Only the Protocols trained on this Dataset: what stands between it and deletion.
+    dataset_id: uuid.UUID | None = None
 
 
 class ListProtocols:
@@ -55,7 +57,9 @@ class ListProtocols:
             return Failure(error)
         # Fetch one more than asked for: if it comes back, there is another page,
         # which is cheaper and more truthful than a COUNT over the whole table.
-        protocols = await self._repository.list(auth.workspace_id, cursor=cursor, limit=limit + 1)
+        protocols = await self._repository.list(
+            auth.workspace_id, cursor=cursor, limit=limit + 1, dataset_id=query.dataset_id
+        )
         next_cursor = None
         if len(protocols) > limit:
             protocols = protocols[:limit]

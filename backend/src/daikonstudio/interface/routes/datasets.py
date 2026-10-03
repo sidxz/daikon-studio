@@ -5,7 +5,8 @@ Two-phase creation: `POST /uploads` parks the raw file and hands back an opaque
 (chemistry validation, splitting, freezing) off the multipart request, and means
 a failed create can be retried against the same bytes.
 
-There is no PATCH and no DELETE. A Dataset is immutable and cited by id.
+There is no PATCH: a Dataset is immutable and cited by id. DELETE removes one
+only when nothing depends on it; see `application/data/delete_dataset.py`.
 
 Every request body here is `extra="forbid"`. That is what makes
 `workspace_id` unspoofable in the honest sense: not silently dropped, but
@@ -18,7 +19,7 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, UploadFile
+from fastapi import APIRouter, Depends, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -28,6 +29,7 @@ from daikonstudio.application.data.create_dataset import (
     CreateDatasetCommand,
     StoreUpload,
 )
+from daikonstudio.application.data.delete_dataset import DeleteDataset, DeleteDatasetCommand
 from daikonstudio.application.data.get_dataset import GetDataset, GetDatasetQuery
 from daikonstudio.application.data.get_dataset_compounds import (
     Compound,
@@ -62,6 +64,7 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 StoreUploadDep = Annotated[StoreUpload, Depends(use_case(StoreUpload))]
 CreateDatasetDep = Annotated[CreateDataset, Depends(use_case(CreateDataset))]
 GetDatasetDep = Annotated[GetDataset, Depends(use_case(GetDataset))]
+DeleteDatasetDep = Annotated[DeleteDataset, Depends(use_case(DeleteDataset))]
 ListDatasetsDep = Annotated[ListDatasets, Depends(use_case(ListDatasets))]
 GetDatasetProfileDep = Annotated[GetDatasetProfile, Depends(use_case(GetDatasetProfile))]
 GetDatasetCompoundsDep = Annotated[GetDatasetCompounds, Depends(use_case(GetDatasetCompounds))]
@@ -381,6 +384,16 @@ async def get_dataset(
 ) -> DatasetResponse:
     dataset = result_to_response(await service(GetDatasetQuery(dataset_id=dataset_id), auth=auth))
     return DatasetResponse.from_domain(dataset, auth=auth)
+
+
+@router.delete("/{dataset_id}", status_code=204)
+async def delete_dataset(
+    dataset_id: uuid.UUID, auth: AuthDep, service: DeleteDatasetDep
+) -> Response:
+    """By an admin or its creator, and only when no protocol was trained on it and no
+    training run on it is in progress. See `application/data/delete_dataset.py`."""
+    result_to_response(await service(DeleteDatasetCommand(dataset_id=dataset_id), auth=auth))
+    return Response(status_code=204)
 
 
 class ProfileComputingResponse(BaseModel):

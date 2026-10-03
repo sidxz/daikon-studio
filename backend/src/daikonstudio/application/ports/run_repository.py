@@ -57,6 +57,12 @@ class RunRepository(Protocol):
         run, or a Dataset's failed and cancelled training runs."""
         ...
 
+    async def list_training_for_dataset(
+        self, workspace_id: UUID, dataset_id: UUID
+    ) -> builtins.list[Run]:
+        """Every training run on a Dataset. Unpaginated: they are submitted by hand."""
+        ...
+
     async def get(self, workspace_id: UUID, run_id: UUID) -> Run | None: ...
 
     async def get_by_id(self, run_id: UUID) -> Run | None:

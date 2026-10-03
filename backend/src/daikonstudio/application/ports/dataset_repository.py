@@ -2,8 +2,9 @@
 
 Every method takes `workspace_id` first and is expected to push it into the SQL
 WHERE clause rather than filter afterwards, so a cross-tenant read is not
-something the caller has to remember to prevent. There is no `update` and no
-`delete`: a Dataset is immutable once created.
+something the caller has to remember to prevent. There is no `update`: a
+Dataset is immutable once created. `delete` removes one that nothing depends
+on; `DeleteDataset` is the only caller and checks that.
 """
 
 import uuid
@@ -17,6 +18,8 @@ class DatasetRepository(Protocol):
     async def add(self, dataset: Dataset) -> None: ...
 
     async def get(self, workspace_id: uuid.UUID, dataset_id: uuid.UUID) -> Dataset | None: ...
+
+    async def delete(self, workspace_id: uuid.UUID, dataset_id: uuid.UUID) -> None: ...
 
     async def find_by_content_hash(
         self, workspace_id: uuid.UUID, content_hash: str

@@ -155,6 +155,21 @@ class SqlAlchemyRunRepository:
             )
             await session.commit()
 
+    async def list_training_for_dataset(
+        self, workspace_id: uuid.UUID, dataset_id: uuid.UUID
+    ) -> builtins.list[Run]:
+        # ponytail: a JSONB scan within the workspace, no index. Fine while a
+        # workspace has thousands of runs; add an expression index on
+        # (workspace_id, params->>'dataset_id') if deletes get slow.
+        statement = select(RunModel).where(
+            RunModel.workspace_id == workspace_id,
+            RunModel.kind == RunKind.TRAINING.value,
+            RunModel.params["dataset_id"].astext == str(dataset_id),
+        )
+        async with self._sessions() as session:
+            result = await session.execute(statement)
+            return [_to_domain(model) for model in result.scalars()]
+
     async def get(self, workspace_id: uuid.UUID, run_id: uuid.UUID) -> Run | None:
         return await self._one(
             select(RunModel).where(RunModel.id == run_id, RunModel.workspace_id == workspace_id)

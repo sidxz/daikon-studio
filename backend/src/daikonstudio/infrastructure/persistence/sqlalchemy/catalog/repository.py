@@ -188,12 +188,15 @@ class SqlAlchemyProtocolRepository:
         *,
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
+        dataset_id: uuid.UUID | None = None,
     ) -> list[InSilicoProtocol]:
         statement = (
             select(InSilicoProtocolModel)
             .where(InSilicoProtocolModel.workspace_id == workspace_id)
             .order_by(InSilicoProtocolModel.created_at.desc(), InSilicoProtocolModel.id.desc())
         )
+        if dataset_id is not None:
+            statement = statement.where(InSilicoProtocolModel.dataset_id == dataset_id)
         if cursor is not None:
             statement = statement.where(
                 tuple_(InSilicoProtocolModel.created_at, InSilicoProtocolModel.id) < cursor

@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import Select, select, tuple_
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -88,6 +89,15 @@ class SqlAlchemyDatasetRepository:
                 DatasetModel.id == dataset_id, DatasetModel.workspace_id == workspace_id
             )
         )
+
+    async def delete(self, workspace_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
+        async with self._sessions() as session:
+            await session.execute(
+                sa_delete(DatasetModel).where(
+                    DatasetModel.id == dataset_id, DatasetModel.workspace_id == workspace_id
+                )
+            )
+            await session.commit()
 
     async def find_by_content_hash(
         self, workspace_id: uuid.UUID, content_hash: str

@@ -34,4 +34,5 @@ class ProtocolRepository(Protocol):
         *,
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
+        dataset_id: uuid.UUID | None = None,
     ) -> list[InSilicoProtocol]: ...

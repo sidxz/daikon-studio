@@ -24,6 +24,7 @@ from daikonstudio.application.catalog.list_protocols import GetProtocol, ListPro
 from daikonstudio.application.catalog.publish_protocol import PublishProtocol
 from daikonstudio.application.data.create_collection import CreateCollection, GetCollection
 from daikonstudio.application.data.create_dataset import CreateDataset, StoreUpload
+from daikonstudio.application.data.delete_dataset import DeleteDataset
 from daikonstudio.application.data.export_collection import ExportCollection
 from daikonstudio.application.data.get_dataset import GetDataset
 from daikonstudio.application.data.get_dataset_compounds import GetDatasetCompounds
@@ -137,6 +138,10 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         GetDatasetProfile,
         lambda c: GetDatasetProfile(_datasets(c), c[BlobStore], c[StructureNormalizer]),
+    )
+    container.define(
+        DeleteDataset,
+        lambda c: DeleteDataset(_datasets(c), _protocols(c), _runs(c), c[BlobStore]),
     )
     container.define(
         GetDatasetCompounds, lambda c: GetDatasetCompounds(_datasets(c), c[BlobStore])

@@ -367,9 +367,12 @@ async def list_protocols(
     service: ListProtocolsDep,
     cursor: str | None = None,
     limit: int | None = None,
+    dataset_id: uuid.UUID | None = None,
 ) -> PaginatedResponse[ProtocolResponse]:
     page = result_to_response(
-        await service(ListProtocolsQuery(cursor=cursor, limit=limit), auth=auth)
+        await service(
+            ListProtocolsQuery(cursor=cursor, limit=limit, dataset_id=dataset_id), auth=auth
+        )
     )
     return PaginatedResponse(
         items=[ProtocolResponse.from_domain(protocol, auth=auth) for protocol in page.items],
