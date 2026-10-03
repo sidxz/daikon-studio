@@ -240,6 +240,10 @@ class HttpBlobStore:
 
     def get_bytes(self, key: str) -> bytes:
         response = self._client._blobs.get(f"/runs/{self._client.run_id}/blobs/{key}")
+        if response.status_code == 404:
+            # The signal FsspecBlobStore gives for the same thing, so a best-effort
+            # read (`_train_structures`) degrades on a runner exactly as it does inline.
+            raise FileNotFoundError(key)
         response.raise_for_status()
         return response.content
 

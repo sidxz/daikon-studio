@@ -207,6 +207,24 @@ async def test_blob_put_then_get_round_trips_bytes(blob_app, workspace_id):
         await client.aclose()
 
 
+async def test_a_missing_blob_is_a_missing_file(blob_app, workspace_id):
+    """A best-effort read (`_train_structures`) catches FileNotFoundError, which
+    is what the inline store raises; the runner store must raise the same, or the
+    read that degrades gracefully inline takes the whole prediction down."""
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=blob_app), base_url="http://testserver"
+    ) as anon:
+        run = await seed_run(blob_app, workspace_id)
+        _, headers = await register_runner(blob_app, ["default"])
+        await claim(anon, headers)
+        client = _build_client(blob_app, headers, run.id)
+        store = HttpBlobStore(client)
+
+        with pytest.raises(FileNotFoundError):
+            store.get_bytes(f"{workspace_id}/protocols/{uuid.uuid4()}/scorecard-inputs.json")
+        await client.aclose()
+
+
 # --------------------------------------------------------------------------
 # HttpProtocolRepository
 # --------------------------------------------------------------------------
