@@ -1,10 +1,5 @@
 import type { AppConfig } from "@/shared/lib/app-config";
-import {
-  AuthzLocalStorageStore,
-  type IdpConfig,
-  IdpConfigs,
-  DuarAuthz,
-} from "@duar-auth/js";
+import { AuthzLocalStorageStore, DuarAuthz, type IdpConfig, IdpConfigs } from "@duar-auth/js";
 
 function buildIdps(config: AppConfig): Record<string, IdpConfig> {
   const idps: Record<string, IdpConfig> = {};
