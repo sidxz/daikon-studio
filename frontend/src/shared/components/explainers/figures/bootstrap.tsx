@@ -189,37 +189,36 @@ export function BootstrapFigure({ t, baseline }: { t: number; baseline: number }
 /** C on the scorecard: opens on the outcome that matches the real verdict, with both examples one click away. */
 export function BootstrapExplainer({ startOutside }: { startOutside: boolean }) {
   const [baseline, setBaseline] = useState(startOutside ? OUTSIDE : INSIDE);
+  const toggle = (
+    <fieldset className="inline-flex gap-0.5 rounded-lg border bg-card p-0.5">
+      <legend className="sr-only">Example baseline</legend>
+      {[INSIDE, OUTSIDE].map((value) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={baseline === value}
+          onClick={() => setBaseline(value)}
+          className={cn(
+            "rounded-md px-2.5 py-1 text-xs",
+            baseline === value
+              ? "bg-accent font-medium text-accent-foreground"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          Baseline {value.toFixed(2)}
+        </button>
+      ))}
+    </fieldset>
+  );
   return (
     <Explainer
       id="bootstrap"
       label="How the interval is computed"
       durationMs={BOOTSTRAP_MS}
       caption={BOOTSTRAP_CAPTION}
+      controls={toggle}
     >
-      {(t) => (
-        <div className="space-y-2">
-          <fieldset className="inline-flex gap-0.5 rounded-lg border bg-card p-0.5">
-            <legend className="sr-only">Example baseline</legend>
-            {[INSIDE, OUTSIDE].map((value) => (
-              <button
-                key={value}
-                type="button"
-                aria-pressed={baseline === value}
-                onClick={() => setBaseline(value)}
-                className={cn(
-                  "rounded-md px-2.5 py-1 text-xs",
-                  baseline === value
-                    ? "bg-accent font-medium text-accent-foreground"
-                    : "text-muted-foreground hover:text-foreground",
-                )}
-              >
-                Baseline {value.toFixed(2)}
-              </button>
-            ))}
-          </fieldset>
-          <BootstrapFigure t={t} baseline={baseline} />
-        </div>
-      )}
+      {(t) => <BootstrapFigure t={t} baseline={baseline} />}
     </Explainer>
   );
 }

@@ -128,4 +128,26 @@ describe("Explainer", () => {
     enterView();
     expect(Number(screen.getByRole("img", { name: "figure" }).dataset.t)).toBe(0);
   });
+
+  it("does not replay when the pointer reaches its controls", () => {
+    // Reaching for a control used to restart the figure, hiding the result of
+    // the click until the animation had played through again.
+    render(
+      <Explainer
+        id="bootstrap"
+        caption="Redraws."
+        durationMs={1000}
+        controls={<button type="button">Toggle</button>}
+      >
+        {(t) => <svg role="img" aria-label="figure" data-t={t} />}
+      </Explainer>,
+    );
+    fireEvent.pointerEnter(screen.getByRole("button", { name: "Toggle" }));
+    expect(Number(screen.getByRole("img", { name: "figure" }).dataset.t)).toBe(1);
+  });
+
+  it("caps the figure's width so wide pages do not blow it up", () => {
+    renderIt();
+    expect(screen.getByRole("img", { name: "figure" }).closest(".max-w-3xl")).not.toBeNull();
+  });
 });
