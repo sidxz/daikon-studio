@@ -23,11 +23,19 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
+from daikonstudio.application.catalog.get_chemical_space import (
+    MAX_LOOKUPS,
+    ChemicalSpaceView,
+    GetProtocolChemicalSpace,
+    GetProtocolChemicalSpaceCompounds,
+    GetProtocolChemicalSpaceCompoundsQuery,
+    GetProtocolChemicalSpaceQuery,
+)
 from daikonstudio.application.catalog.get_scorecard import GetScorecard, GetScorecardQuery
 from daikonstudio.application.catalog.list_protocols import (
     GetProtocol,
@@ -56,6 +64,12 @@ TrainProtocolDep = Annotated[TrainProtocol, Depends(use_case(TrainProtocol))]
 ListProtocolsDep = Annotated[ListProtocols, Depends(use_case(ListProtocols))]
 GetProtocolDep = Annotated[GetProtocol, Depends(use_case(GetProtocol))]
 GetScorecardDep = Annotated[GetScorecard, Depends(use_case(GetScorecard))]
+GetChemicalSpaceDep = Annotated[
+    GetProtocolChemicalSpace, Depends(use_case(GetProtocolChemicalSpace))
+]
+GetChemicalSpaceCompoundsDep = Annotated[
+    GetProtocolChemicalSpaceCompounds, Depends(use_case(GetProtocolChemicalSpaceCompounds))
+]
 PublishProtocolDep = Annotated[PublishProtocol, Depends(use_case(PublishProtocol))]
 
 
@@ -371,6 +385,74 @@ async def get_scorecard(
 ) -> ScorecardResponse:
     card = result_to_response(await service(GetScorecardQuery(protocol_id=protocol_id), auth=auth))
     return ScorecardResponse.from_domain(card)
+
+
+class ChemicalSpacePointsResponse(BaseModel):
+    """Parallel arrays, one entry per dataset compound in snapshot order. `x`/`y`
+    are in the unit square; `partition` is 0 train, 1 validation, 2 test."""
+
+    x: list[float]
+    y: list[float]
+    partition: list[int]
+
+
+class ChemicalSpaceResponse(BaseModel):
+    """`missing` is a normal state: a protocol trained before maps existed, or a
+    dataset too small to map. The client shows "no map", not an error."""
+
+    status: Literal["ready", "missing"]
+    method: str | None = None
+    params: dict[str, Any] | None = None
+    counts: dict[str, int] | None = None
+    points: ChemicalSpacePointsResponse | None = None
+
+    @classmethod
+    def from_view(cls, view: ChemicalSpaceView) -> ChemicalSpaceResponse:
+        if view.status != "ready":
+            return cls(status="missing")
+        assert view.x is not None and view.y is not None and view.partition is not None
+        return cls(
+            status="ready",
+            method=view.method,
+            params=view.params,
+            counts=view.counts,
+            points=ChemicalSpacePointsResponse(x=view.x, y=view.y, partition=view.partition),
+        )
+
+
+class MapCompoundResponse(BaseModel):
+    index: int
+    structure: str
+    partition: Literal["train", "validation", "test"]
+
+
+@router.get("/{protocol_id}/chemical-space", response_model=ChemicalSpaceResponse)
+async def get_chemical_space(
+    protocol_id: uuid.UUID, auth: AuthDep, service: GetChemicalSpaceDep
+) -> ChemicalSpaceResponse:
+    view = result_to_response(
+        await service(GetProtocolChemicalSpaceQuery(protocol_id=protocol_id), auth=auth)
+    )
+    return ChemicalSpaceResponse.from_view(view)
+
+
+@router.get("/{protocol_id}/chemical-space/compounds", response_model=list[MapCompoundResponse])
+async def get_chemical_space_compounds(
+    protocol_id: uuid.UUID,
+    auth: AuthDep,
+    service: GetChemicalSpaceCompoundsDep,
+    indices: Annotated[list[int], Query(max_length=MAX_LOOKUPS)],
+) -> list[MapCompoundResponse]:
+    items = result_to_response(
+        await service(
+            GetProtocolChemicalSpaceCompoundsQuery(protocol_id=protocol_id, indices=indices),
+            auth=auth,
+        )
+    )
+    return [
+        MapCompoundResponse(index=i.index, structure=i.structure, partition=i.partition)  # type: ignore[arg-type]
+        for i in items
+    ]
 
 
 @router.post("/{protocol_id}/publish", status_code=204)

@@ -24,12 +24,15 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams,
   GetRunResultsApiV1RunsRunIdResultsGetParams,
   HTTPValidationError,
   ListRunsApiV1RunsGetParams,
   PaginatedResponsePredictionResponse,
   PaginatedResponseRunResponse,
   PredictBody,
+  RunChemicalSpaceResponse,
+  RunMapCompoundResponse,
   RunResponse
 } from '.././model';
 
@@ -278,6 +281,198 @@ export function useGetRunApiV1RunsRunIdGet<TData = Awaited<ReturnType<typeof get
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetRunApiV1RunsRunIdGetQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
+ * @summary Get Run Chemical Space
+ */
+export const getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet = (
+    runId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<RunChemicalSpaceResponse>(
+      {url: `/api/v1/runs/${runId}/chemical-space`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGetQueryKey = (runId?: string,) => {
+    return [
+    `/api/v1/runs/${runId}/chemical-space`
+    ] as const;
+    }
+
+    
+export const getGetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGetQueryOptions = <TData = Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError = HTTPValidationError>(runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGetQueryKey(runId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>> = ({ signal }) => getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet(runId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(runId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGetQueryResult = NonNullable<Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>>
+export type GetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGetQueryError = HTTPValidationError
+
+
+export function useGetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet<TData = Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError = HTTPValidationError>(
+ runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>,
+          TError,
+          Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet<TData = Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError = HTTPValidationError>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>,
+          TError,
+          Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet<TData = Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError = HTTPValidationError>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Run Chemical Space
+ */
+
+export function useGetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet<TData = Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError = HTTPValidationError>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetRunChemicalSpaceApiV1RunsRunIdChemicalSpaceGetQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
+ * @summary Get Run Chemical Space Compounds
+ */
+export const getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet = (
+    runId: string,
+    params: GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<RunMapCompoundResponse[]>(
+      {url: `/api/v1/runs/${runId}/chemical-space/compounds`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetQueryKey = (runId?: string,
+    params?: GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams,) => {
+    return [
+    `/api/v1/runs/${runId}/chemical-space/compounds`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+    
+export const getGetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetQueryOptions = <TData = Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError = HTTPValidationError>(runId: string,
+    params: GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetQueryKey(runId,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>> = ({ signal }) => getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet(runId,params, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(runId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetQueryResult = NonNullable<Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>>
+export type GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetQueryError = HTTPValidationError
+
+
+export function useGetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet<TData = Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError = HTTPValidationError>(
+ runId: string,
+    params: GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet<TData = Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError = HTTPValidationError>(
+ runId: string,
+    params: GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>,
+          TError,
+          Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet<TData = Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError = HTTPValidationError>(
+ runId: string,
+    params: GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Run Chemical Space Compounds
+ */
+
+export function useGetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet<TData = Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError = HTTPValidationError>(
+ runId: string,
+    params: GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetQueryOptions(runId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

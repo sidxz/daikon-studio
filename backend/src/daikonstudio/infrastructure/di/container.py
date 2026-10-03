@@ -12,6 +12,12 @@ from __future__ import annotations
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from daikonstudio.application.catalog.get_chemical_space import (
+    GetProtocolChemicalSpace,
+    GetProtocolChemicalSpaceCompounds,
+    GetRunChemicalSpace,
+    GetRunChemicalSpaceCompounds,
+)
 from daikonstudio.application.catalog.get_scorecard import GetScorecard
 from daikonstudio.application.catalog.list_protocols import GetProtocol, ListProtocols
 from daikonstudio.application.catalog.publish_protocol import PublishProtocol
@@ -202,6 +208,22 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         GetScorecard,
         lambda c: GetScorecard(_protocols(c), c[BlobStore], c[StructureNormalizer]),
+    )
+    container.define(
+        GetProtocolChemicalSpace,
+        lambda c: GetProtocolChemicalSpace(_protocols(c), c[BlobStore]),
+    )
+    container.define(
+        GetProtocolChemicalSpaceCompounds,
+        lambda c: GetProtocolChemicalSpaceCompounds(_protocols(c), c[BlobStore]),
+    )
+    container.define(
+        GetRunChemicalSpace,
+        lambda c: GetRunChemicalSpace(_runs(c), _protocols(c), c[BlobStore]),
+    )
+    container.define(
+        GetRunChemicalSpaceCompounds,
+        lambda c: GetRunChemicalSpaceCompounds(_runs(c), _protocols(c), c[BlobStore]),
     )
     container.define(ListProtocols, lambda c: ListProtocols(_protocols(c)))
     container.define(GetProtocol, lambda c: GetProtocol(_protocols(c)))

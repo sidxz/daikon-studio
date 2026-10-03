@@ -16,10 +16,17 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Query, Response
 from fastapi.exceptions import RequestValidationError
 from pydantic import BaseModel, ConfigDict
 
+from daikonstudio.application.catalog.get_chemical_space import (
+    MAX_LOOKUPS,
+    GetRunChemicalSpace,
+    GetRunChemicalSpaceCompounds,
+    GetRunChemicalSpaceCompoundsQuery,
+    GetRunChemicalSpaceQuery,
+)
 from daikonstudio.application.execution.list_runs import ListRuns, ListRunsQuery
 from daikonstudio.application.execution.predict_with_protocol import (
     CancelRun,
@@ -242,6 +249,97 @@ def _invalid_filters(message: str) -> RequestValidationError:
     return RequestValidationError(
         [{"loc": ("query", "filters"), "msg": message, "type": "value_error"}]
     )
+
+
+GetRunChemicalSpaceDep = Annotated[GetRunChemicalSpace, Depends(use_case(GetRunChemicalSpace))]
+GetRunChemicalSpaceCompoundsDep = Annotated[
+    GetRunChemicalSpaceCompounds, Depends(use_case(GetRunChemicalSpaceCompounds))
+]
+
+
+class RunMapPointsResponse(BaseModel):
+    """One entry per scored compound, in results-file order (`row_id`). `x`/`y` are
+    the similarity-weighted centre of `neighbors`, which index the protocol map's
+    points; `applicability` is the true Tanimoto to the nearest of them."""
+
+    x: list[float]
+    y: list[float]
+    row_id: list[int]
+    applicability: list[float | None]
+    neighbors: list[list[int]]
+
+
+class RunMapSummaryResponse(BaseModel):
+    total: int
+    in_domain: int
+    threshold: float
+    nearest_min: float | None
+    nearest_max: float | None
+
+
+class RunChemicalSpaceResponse(BaseModel):
+    status: Literal["ready", "missing"]
+    points: RunMapPointsResponse | None = None
+    summary: RunMapSummaryResponse | None = None
+
+
+class RunMapCompoundResponse(BaseModel):
+    row_id: int
+    structure: str
+    compound_id: str | None
+    values: dict[str, float | None]
+    applicability: float | None
+
+
+@router.get("/{run_id}/chemical-space", response_model=RunChemicalSpaceResponse)
+async def get_run_chemical_space(
+    run_id: uuid.UUID, auth: AuthDep, service: GetRunChemicalSpaceDep
+) -> RunChemicalSpaceResponse:
+    view = result_to_response(await service(GetRunChemicalSpaceQuery(run_id=run_id), auth=auth))
+    if view.status != "ready":
+        return RunChemicalSpaceResponse(status="missing")
+    assert view.x is not None and view.y is not None and view.row_id is not None
+    assert view.applicability is not None and view.neighbors is not None
+    assert view.total is not None and view.in_domain is not None
+    return RunChemicalSpaceResponse(
+        status="ready",
+        points=RunMapPointsResponse(
+            x=view.x,
+            y=view.y,
+            row_id=view.row_id,
+            applicability=view.applicability,
+            neighbors=view.neighbors,
+        ),
+        summary=RunMapSummaryResponse(
+            total=view.total,
+            in_domain=view.in_domain,
+            threshold=view.threshold,
+            nearest_min=view.nearest_min,
+            nearest_max=view.nearest_max,
+        ),
+    )
+
+
+@router.get("/{run_id}/chemical-space/compounds", response_model=list[RunMapCompoundResponse])
+async def get_run_chemical_space_compounds(
+    run_id: uuid.UUID,
+    auth: AuthDep,
+    service: GetRunChemicalSpaceCompoundsDep,
+    rows: Annotated[list[int], Query(max_length=MAX_LOOKUPS)],
+) -> list[RunMapCompoundResponse]:
+    items = result_to_response(
+        await service(GetRunChemicalSpaceCompoundsQuery(run_id=run_id, rows=rows), auth=auth)
+    )
+    return [
+        RunMapCompoundResponse(
+            row_id=i.row_id,
+            structure=i.structure,
+            compound_id=i.compound_id,
+            values=i.values,
+            applicability=i.applicability,
+        )
+        for i in items
+    ]
 
 
 @router.get("/{run_id}/results", response_model=PaginatedResponse[PredictionResponse])
