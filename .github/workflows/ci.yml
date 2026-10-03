@@ -1,0 +1,82 @@
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions: { contents: read }
+
+# Actions are pinned to commit SHAs (tag in the comment) so a moved tag cannot
+# change what runs here. Bump one by resolving its tag again:
+#   gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: backend } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86 # v5
+        with: { enable-cache: true }
+      - run: uv sync --frozen --extra s3
+      - run: uv run ruff check src tests && uv run ruff format --check src tests
+      - run: uv run mypy src
+      - run: uv run lint-imports
+      # testcontainers needs the runner's Docker daemon, which ubuntu-latest has.
+      - run: env OMP_NUM_THREADS=1 uv run pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: frontend } }
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+        with: { version: 11.0.8 }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with: { node-version: 22, cache: pnpm, cache-dependency-path: frontend/pnpm-lock.yaml }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm exec tsc --noEmit
+      - run: pnpm test
+      - run: pnpm build
+
+  images:
+    runs-on: ubuntu-latest
+    needs: [backend, frontend]
+    permissions: { contents: read, packages: write }
+    env:
+      API_IMAGE: ghcr.io/${{ github.repository }}/api
+      FRONTEND_IMAGE: ghcr.io/${{ github.repository }}/frontend
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Build the API image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with: { context: backend, file: backend/Dockerfile, load: true, tags: daikon-runner:cpu }
+      # A green build says nothing about whether the image works (docs/roadmap.md).
+      - name: Boot-check the API image
+        run: docker run --rm -e STUDIO_DUAR_SERVICE_KEY=smoke -e STUDIO_IDP_AUDIENCE=smoke daikon-runner:cpu python -c "import daikonstudio.interface.app, daikonstudio.infrastructure.engines.registry as r; print(sorted(m.id for m in r.default_registry().manifests()))"
+      - name: Build the frontend image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: frontend
+          file: frontend/Dockerfile
+          load: true
+          tags: daikon-frontend:ci
+          build-args: |
+            APP_VERSION=${{ github.ref_name }}
+            APP_GIT_SHA=${{ github.sha }}
+            APP_BUILD_DATE=${{ github.event.head_commit.timestamp || github.event.pull_request.updated_at }}
+      - name: Boot-check the frontend image
+        run: |
+          docker run -d --name fe -p 3000:3000 daikon-frontend:ci && sleep 4
+          curl -fsS http://localhost:3000/api/config >/dev/null && curl -fsSI http://localhost:3000/RDKit_minimal.wasm >/dev/null
+      # The trigger above limits push events to main, so only main publishes.
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        if: github.event_name == 'push'
+        with: { registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: Push
+        if: github.event_name == 'push'
+        run: |
+          docker tag daikon-runner:cpu "$API_IMAGE:latest" && docker tag daikon-runner:cpu "$API_IMAGE:${{ github.sha }}"
+          docker tag daikon-frontend:ci "$FRONTEND_IMAGE:latest" && docker tag daikon-frontend:ci "$FRONTEND_IMAGE:${{ github.sha }}"
+          docker push --all-tags "$API_IMAGE" && docker push --all-tags "$FRONTEND_IMAGE"
