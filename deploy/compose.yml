@@ -60,11 +60,16 @@ services:
   frontend:
     image: "${STUDIO_FRONTEND_IMAGE}"
     restart: unless-stopped
-    env_file: .env
+    # Explicit, not env_file: the frontend needs the Duar key for /api/auth/mint
+    # and nothing else from .env -- not the database password, not the runner token.
     environment:
       APP_URL: "https://${STUDIO_DOMAIN}"
       APP_API_BASE_URL: "https://${STUDIO_DOMAIN}"
       APP_ENV: production
+      APP_DUAR_URL: "${APP_DUAR_URL}"
+      APP_DUAR_SERVICE_NAME: "${APP_DUAR_SERVICE_NAME}"
+      APP_DUAR_SERVICE_KEY: "${APP_DUAR_SERVICE_KEY}"
+      APP_DUAR_GOOGLE_CLIENT_ID: "${APP_DUAR_GOOGLE_CLIENT_ID}"
       # The Runners page's copy-paste docker command names this image for a
       # CPU runner, so it is the one this stack actually runs.
       APP_RUNNER_IMAGE: "${STUDIO_API_IMAGE}"

@@ -5,8 +5,16 @@
 	encode zstd gzip
 	# Upload cap is 100 MB in the API (MAX_UPLOAD_BYTES); the proxy refuses a
 	# little above it so an oversize body never spools to the API's disk.
-	request_body {
+	@upload path /api/v1/datasets/uploads
+	request_body @upload {
 		max_size 110MB
+	}
+	# Runner blob PUTs are a different budget: a MoLFormer artifact is ~190 MB
+	# and the API's own cap is 1 GiB (STUDIO_RUNNER_UPLOAD_MAX_BYTES). A remote
+	# GPU runner uploads through this proxy.
+	@runner path /api/v1/runner/*
+	request_body @runner {
+		max_size 1100MB
 	}
 	@backend path /api/v1/* /health /ready /version /docs /openapi.json
 	handle @backend {

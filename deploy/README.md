@@ -24,8 +24,8 @@ from this directory.
 2. `docker compose pull`
 3. `docker compose up -d caddy`. This starts everything except the runner: Caddy
    pulls in the API and frontend, the API waits for `migrate`, `migrate` waits for
-   Postgres. The runner needs a token from section 3; without one it logs
-   `claim failed` every 3 s.
+   Postgres. The runner needs a token from section 3; started without one it exits
+   with code 2 and Compose restarts it until the token is set.
 4. `docker compose logs -f migrate api` until the API logs `Application startup complete`.
    If it restarts instead, the traceback usually names Duar: an empty service key,
    or a `STUDIO_DUAR_URL` this host cannot reach (the API fetches Duar's signing key
@@ -108,3 +108,6 @@ Restore, onto a booted stack (on a new host, run First boot first):
    `@backend` matcher in the `Caddyfile` and `docker compose restart caddy`.
 5. No log rotation. Docker's default `json-file` driver keeps everything; set
    `"log-driver": "local"` in `/etc/docker/daemon.json`.
+- It is a **single trust domain**. Runner tokens are instance-wide (any workspace's runs can be
+  claimed by any runner on the lane), so this stack is for one lab, or for labs that trust each
+  other's runner machines. Separate labs get separate stacks.
