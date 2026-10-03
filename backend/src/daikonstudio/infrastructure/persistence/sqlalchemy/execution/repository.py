@@ -17,9 +17,11 @@ from __future__ import annotations
 
 import builtins
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from sqlalchemy import CursorResult, Select, func, select, tuple_
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -141,6 +143,17 @@ class SqlAlchemyRunRepository:
         # The caller's in-memory copy now matches what was just persisted -- without
         # this, a second `update()` on the same object would immediately self-conflict.
         run.version = expected_version + 1
+
+    async def delete_many(self, workspace_id: uuid.UUID, run_ids: Sequence[uuid.UUID]) -> None:
+        if not run_ids:
+            return
+        async with self._sessions() as session:
+            await session.execute(
+                sa_delete(RunModel).where(
+                    RunModel.workspace_id == workspace_id, RunModel.id.in_(run_ids)
+                )
+            )
+            await session.commit()
 
     async def get(self, workspace_id: uuid.UUID, run_id: uuid.UUID) -> Run | None:
         return await self._one(

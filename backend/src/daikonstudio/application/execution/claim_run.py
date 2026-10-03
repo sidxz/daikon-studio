@@ -64,7 +64,8 @@ class ClaimRun:
 
         run = await self._runs.get_by_id(run_id)
         # The row `claim_next` just claimed cannot have vanished in between --
-        # nothing in this codebase deletes a Run.
+        # only DeleteProtocol and DeleteDataset delete Runs, and never a pending or
+        # running one.
         assert run is not None, f"claimed run '{run_id}' was not found by get_by_id"
         # deadline_seconds (the job's own soft deadline) and lease_seconds (how
         # long the CLAIM survives unrenewed) are different numbers the runner

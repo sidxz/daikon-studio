@@ -12,6 +12,7 @@ from __future__ import annotations
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from daikonstudio.application.catalog.delete_protocol import DeleteProtocol
 from daikonstudio.application.catalog.get_chemical_space import (
     GetProtocolChemicalSpace,
     GetProtocolChemicalSpaceCompounds,
@@ -205,6 +206,9 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(GetSweep, lambda c: GetSweep(_runs(c)))
     container.define(CancelSweep, lambda c: CancelSweep(_runs(c)))
     container.define(PublishProtocol, lambda c: PublishProtocol(_protocols(c)))
+    container.define(
+        DeleteProtocol, lambda c: DeleteProtocol(_protocols(c), _runs(c), c[BlobStore])
+    )
     container.define(
         GetScorecard,
         lambda c: GetScorecard(_protocols(c), c[BlobStore], c[StructureNormalizer]),

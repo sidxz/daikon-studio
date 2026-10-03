@@ -15,6 +15,7 @@ docstring explains.
 """
 
 import builtins
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
@@ -50,6 +51,11 @@ class RunRepository(Protocol):
     async def add(self, run: Run) -> None: ...
 
     async def update(self, run: Run) -> None: ...
+
+    async def delete_many(self, workspace_id: UUID, run_ids: Sequence[UUID]) -> None:
+        """Only for the runs of something being deleted: a draft Protocol's training
+        run, or a Dataset's failed and cancelled training runs."""
+        ...
 
     async def get(self, workspace_id: UUID, run_id: UUID) -> Run | None: ...
 

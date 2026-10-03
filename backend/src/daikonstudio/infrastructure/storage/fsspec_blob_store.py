@@ -49,3 +49,12 @@ class FsspecBlobStore:
 
     def delete(self, key: str) -> None:
         self._fs.rm(self._path(key))
+
+    def delete_prefix(self, prefix: str) -> None:
+        # The trailing "/" is what keeps `ws/protocols/abc/` from also matching
+        # `ws/protocols/abcdef/` on a store whose "folders" are key prefixes (S3).
+        if not prefix.endswith("/"):
+            raise ValueError(f"delete_prefix needs a folder key ending in '/', got {prefix!r}")
+        path = self._path(prefix).rstrip("/")
+        if self._fs.exists(path):
+            self._fs.rm(path, recursive=True)

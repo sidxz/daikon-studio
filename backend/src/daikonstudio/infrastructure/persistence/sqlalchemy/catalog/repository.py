@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import CursorResult, Select, select, tuple_
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -160,6 +161,16 @@ class SqlAlchemyProtocolRepository:
         # The caller's in-memory copy now matches what was just persisted -- without
         # this, a second `update()` on the same object would immediately self-conflict.
         protocol.version = expected_version + 1
+
+    async def delete(self, workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> None:
+        async with self._sessions() as session:
+            await session.execute(
+                sa_delete(InSilicoProtocolModel).where(
+                    InSilicoProtocolModel.id == protocol_id,
+                    InSilicoProtocolModel.workspace_id == workspace_id,
+                )
+            )
+            await session.commit()
 
     async def get(
         self, workspace_id: uuid.UUID, protocol_id: uuid.UUID

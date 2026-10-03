@@ -29,6 +29,7 @@ from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, ConfigDict, Field
 
 from daikonstudio.application.auth import AuthContext, may_delete
+from daikonstudio.application.catalog.delete_protocol import DeleteProtocol, DeleteProtocolCommand
 from daikonstudio.application.catalog.get_chemical_space import (
     MAX_LOOKUPS,
     ChemicalSpaceView,
@@ -72,6 +73,7 @@ GetChemicalSpaceCompoundsDep = Annotated[
     GetProtocolChemicalSpaceCompounds, Depends(use_case(GetProtocolChemicalSpaceCompounds))
 ]
 PublishProtocolDep = Annotated[PublishProtocol, Depends(use_case(PublishProtocol))]
+DeleteProtocolDep = Annotated[DeleteProtocol, Depends(use_case(DeleteProtocol))]
 
 
 class TrainProtocolBody(BaseModel):
@@ -466,4 +468,14 @@ async def publish_protocol(
     protocol_id: uuid.UUID, auth: AuthDep, service: PublishProtocolDep
 ) -> Response:
     result_to_response(await service(PublishProtocolCommand(protocol_id=protocol_id), auth=auth))
+    return Response(status_code=204)
+
+
+@router.delete("/{protocol_id}", status_code=204)
+async def delete_protocol(
+    protocol_id: uuid.UUID, auth: AuthDep, service: DeleteProtocolDep
+) -> Response:
+    """A draft only, by an admin or its creator. Also deletes the training run that
+    produced it and every file in its folder. See `application/catalog/delete_protocol.py`."""
+    result_to_response(await service(DeleteProtocolCommand(protocol_id=protocol_id), auth=auth))
     return Response(status_code=204)

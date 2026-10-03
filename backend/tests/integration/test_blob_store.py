@@ -47,3 +47,25 @@ def test_storage_options_are_forwarded_to_fsspec(monkeypatch: pytest.MonkeyPatch
 
     assert seen["url"] == "s3://bucket/prefix"
     assert seen["options"] == {"endpoint_url": "https://minio.example.edu"}
+
+
+def test_delete_prefix_removes_one_folder_and_nothing_beside_it(tmp_path):
+    store = FsspecBlobStore(f"file://{tmp_path}")
+    store.put_bytes("ws/protocols/abc/artifact/model.joblib", b"model")
+    store.put_bytes("ws/protocols/abc/scorecard-inputs.json", b"inputs")
+    store.put_bytes("ws/protocols/abcdef/scorecard-inputs.json", b"keep")
+
+    store.delete_prefix("ws/protocols/abc/")
+
+    assert not store.exists("ws/protocols/abc/artifact/model.joblib")
+    assert not store.exists("ws/protocols/abc/scorecard-inputs.json")
+    assert store.exists("ws/protocols/abcdef/scorecard-inputs.json")
+
+
+def test_delete_prefix_of_a_missing_folder_is_a_no_op(tmp_path):
+    FsspecBlobStore(f"file://{tmp_path}").delete_prefix("ws/protocols/never-written/")
+
+
+def test_delete_prefix_refuses_a_key_that_is_not_a_folder(tmp_path):
+    with pytest.raises(ValueError, match="ending in '/'"):
+        FsspecBlobStore(f"file://{tmp_path}").delete_prefix("ws/protocols/abc")
