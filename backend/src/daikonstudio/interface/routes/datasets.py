@@ -5,7 +5,8 @@ Two-phase creation: `POST /uploads` parks the raw file and hands back an opaque
 (chemistry validation, splitting, freezing) off the multipart request, and means
 a failed create can be retried against the same bytes.
 
-There is no PATCH: a Dataset is immutable and cited by id. DELETE removes one
+There is no PATCH: a Dataset is immutable and cited by id. The one setting that
+is not frozen, its identifier column, has its own `PUT .../id-column`. DELETE removes one
 only when nothing depends on it; see `application/data/delete_dataset.py`.
 
 Every request body here is `extra="forbid"`. That is what makes
@@ -23,7 +24,7 @@ from fastapi import APIRouter, Depends, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
-from daikonstudio.application.auth import AuthContext, may_delete
+from daikonstudio.application.auth import AuthContext, is_editor, may_delete
 from daikonstudio.application.data.create_dataset import (
     CreateDataset,
     CreateDatasetCommand,
@@ -43,6 +44,12 @@ from daikonstudio.application.data.get_dataset_profile import (
     ProfileComputing,
 )
 from daikonstudio.application.data.list_datasets import ListDatasets, ListDatasetsQuery
+from daikonstudio.application.data.set_dataset_id_column import (
+    GetDatasetColumns,
+    GetDatasetColumnsQuery,
+    SetDatasetIdColumn,
+    SetDatasetIdColumnCommand,
+)
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.profile import DatasetProfile, profile_to_dict
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy, split_to_dict
@@ -65,6 +72,8 @@ StoreUploadDep = Annotated[StoreUpload, Depends(use_case(StoreUpload))]
 CreateDatasetDep = Annotated[CreateDataset, Depends(use_case(CreateDataset))]
 GetDatasetDep = Annotated[GetDataset, Depends(use_case(GetDataset))]
 DeleteDatasetDep = Annotated[DeleteDataset, Depends(use_case(DeleteDataset))]
+SetDatasetIdColumnDep = Annotated[SetDatasetIdColumn, Depends(use_case(SetDatasetIdColumn))]
+GetDatasetColumnsDep = Annotated[GetDatasetColumns, Depends(use_case(GetDatasetColumns))]
 ListDatasetsDep = Annotated[ListDatasets, Depends(use_case(ListDatasets))]
 GetDatasetProfileDep = Annotated[GetDatasetProfile, Depends(use_case(GetDatasetProfile))]
 GetDatasetCompoundsDep = Annotated[GetDatasetCompounds, Depends(use_case(GetDatasetCompounds))]
@@ -100,6 +109,7 @@ class CreateDatasetBody(BaseModel):
     structure_column: str = Field(max_length=128)
     target: TargetBody
     split: SplitBody
+    id_column: str | None = Field(default=None, max_length=128)
 
 
 class UploadResponse(BaseModel):
@@ -160,6 +170,10 @@ class DatasetResponse(BaseModel):
     # Whether this viewer may delete it, by role and creator. Dependents (protocols
     # trained on it, runs in progress) are checked only when DELETE is requested.
     can_delete: bool
+    # Which snapshot column holds the compounds' own IDs, if any.
+    id_column: str | None
+    # Whether this viewer may change its settings (the identifier column).
+    can_edit: bool
 
     @classmethod
     def from_domain(cls, dataset: Dataset, *, auth: AuthContext | None) -> DatasetResponse:
@@ -179,6 +193,8 @@ class DatasetResponse(BaseModel):
             version=dataset.version,
             created_at=dataset.created_at,
             can_delete=may_delete(auth, dataset.created_by),
+            id_column=dataset.id_column,
+            can_edit=is_editor(auth),
         )
 
 
@@ -354,6 +370,7 @@ async def create_dataset(
             direction=body.target.direction,
         ),
         split=split,
+        id_column=body.id_column,
     )
     return DatasetResponse.from_domain(
         result_to_response(await service(command, auth=auth)), auth=auth
@@ -384,6 +401,41 @@ async def get_dataset(
 ) -> DatasetResponse:
     dataset = result_to_response(await service(GetDatasetQuery(dataset_id=dataset_id), auth=auth))
     return DatasetResponse.from_domain(dataset, auth=auth)
+
+
+class SetIdColumnBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    id_column: str | None = Field(max_length=128)
+
+
+class DatasetColumnsResponse(BaseModel):
+    """Snapshot columns that may be named as the identifier."""
+
+    columns: list[str]
+
+
+@router.put("/{dataset_id}/id-column", response_model=DatasetResponse)
+async def set_dataset_id_column(
+    dataset_id: uuid.UUID, body: SetIdColumnBody, auth: AuthDep, service: SetDatasetIdColumnDep
+) -> DatasetResponse:
+    """Any editor; `null` clears it. Display metadata: nothing frozen changes."""
+    dataset = result_to_response(
+        await service(
+            SetDatasetIdColumnCommand(dataset_id=dataset_id, id_column=body.id_column), auth=auth
+        )
+    )
+    return DatasetResponse.from_domain(dataset, auth=auth)
+
+
+@router.get("/{dataset_id}/columns", response_model=DatasetColumnsResponse)
+async def get_dataset_columns(
+    dataset_id: uuid.UUID, auth: AuthDep, service: GetDatasetColumnsDep
+) -> DatasetColumnsResponse:
+    columns = result_to_response(
+        await service(GetDatasetColumnsQuery(dataset_id=dataset_id), auth=auth)
+    )
+    return DatasetColumnsResponse(columns=columns)
 
 
 @router.delete("/{dataset_id}", status_code=204)

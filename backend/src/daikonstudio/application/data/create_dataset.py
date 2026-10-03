@@ -27,7 +27,7 @@ from daikonstudio.application.data.snapshot import write_snapshot
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
-from daikonstudio.domain.data.dataset import Dataset, DuplicateDatasetError
+from daikonstudio.domain.data.dataset import Dataset, DuplicateDatasetError, check_id_column
 from daikonstudio.domain.data.split import SplitSpec
 from daikonstudio.domain.data.target import RESERVED_TARGET_COLUMNS, TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import InvalidDatasetError
@@ -64,6 +64,7 @@ class CreateDatasetCommand:
     structure_column: str
     target: TargetSpec
     split: SplitSpec
+    id_column: str | None = None
 
 
 class CreateDataset:
@@ -140,6 +141,17 @@ class CreateDataset:
                 )
             )
 
+        if command.id_column is not None:
+            try:
+                check_id_column(
+                    frame.columns,
+                    id_column=command.id_column,
+                    structure_column=command.structure_column,
+                    target_column=command.target.column,
+                )
+            except ValidationError as error:
+                return Failure(error)
+
         try:
             prepared, report = prepare_frame(
                 frame, command.structure_column, command.target, self._normalizer
@@ -204,6 +216,7 @@ class CreateDataset:
             row_count=split_frame.height,
             validation_report=report,
             created_by=auth.user_id,
+            id_column=command.id_column,
         )
         await self._repository.add(dataset)
         # The upload has served its purpose: the frozen snapshot is the dataset.

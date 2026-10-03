@@ -4,7 +4,8 @@ Every method takes `workspace_id` first and is expected to push it into the SQL
 WHERE clause rather than filter afterwards, so a cross-tenant read is not
 something the caller has to remember to prevent. There is no `update`: a
 Dataset is immutable once created. `delete` removes one that nothing depends
-on; `DeleteDataset` is the only caller and checks that.
+on; `DeleteDataset` is the only caller and checks that. `set_id_column` changes
+the one setting that is not frozen: which column holds the compounds' IDs.
 """
 
 import uuid
@@ -20,6 +21,10 @@ class DatasetRepository(Protocol):
     async def get(self, workspace_id: uuid.UUID, dataset_id: uuid.UUID) -> Dataset | None: ...
 
     async def delete(self, workspace_id: uuid.UUID, dataset_id: uuid.UUID) -> None: ...
+
+    async def set_id_column(
+        self, workspace_id: uuid.UUID, dataset_id: uuid.UUID, id_column: str | None
+    ) -> None: ...
 
     async def find_by_content_hash(
         self, workspace_id: uuid.UUID, content_hash: str

@@ -20,6 +20,7 @@ index on `(workspace_id, content_hash)` enforces is therefore narrower than
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
@@ -27,7 +28,7 @@ from daikonstudio.domain.data.split import SplitSpec
 from daikonstudio.domain.data.target import TargetSpec
 from daikonstudio.domain.data.validation import ValidationReport
 from daikonstudio.domain.shared.entity import AggregateRoot
-from daikonstudio.domain.shared.errors import ConflictError
+from daikonstudio.domain.shared.errors import ConflictError, ValidationError
 
 
 class Dataset(AggregateRoot):
@@ -44,6 +45,7 @@ class Dataset(AggregateRoot):
         row_count: int,
         validation_report: ValidationReport,
         created_by: uuid.UUID | None = None,
+        id_column: str | None = None,
         id: uuid.UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -66,6 +68,21 @@ class Dataset(AggregateRoot):
         # Who created it, for the delete permission. None for datasets made before
         # migration 011 recorded it: those are admin-only.
         self.created_by = created_by
+        # Which snapshot column holds the compounds' own IDs, if any. Display
+        # metadata: not part of `content_hash`, and changeable after freezing.
+        self.id_column = id_column
+
+
+def check_id_column(
+    columns: Sequence[str], *, id_column: str, structure_column: str, target_column: str
+) -> None:
+    """An identifier is any stored column but the ones that already mean something."""
+    if id_column in (structure_column, target_column, "split"):
+        raise ValidationError(
+            "Choose an identifier column other than the structure, target or split column."
+        )
+    if id_column not in columns:
+        raise ValidationError(f"Column '{id_column}' is not in the uploaded file.")
 
 
 class DuplicateDatasetError(ConflictError):

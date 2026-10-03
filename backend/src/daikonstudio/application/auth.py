@@ -53,6 +53,11 @@ def require_admin(auth: AuthContext | None) -> None:
     _require_rank(auth, "admin")
 
 
+def is_editor(auth: AuthContext | None) -> bool:
+    """For the UI: whether this viewer may change a dataset's settings."""
+    return auth is None or _ROLE_RANK.get(auth.workspace_role, -1) >= _ROLE_RANK["editor"]
+
+
 def require_same_workspace(
     auth: AuthContext | None, workspace_id: uuid.UUID, *, entity_type: str
 ) -> None:

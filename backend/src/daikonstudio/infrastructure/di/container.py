@@ -31,6 +31,10 @@ from daikonstudio.application.data.get_dataset_compounds import GetDatasetCompou
 from daikonstudio.application.data.get_dataset_profile import GetDatasetProfile
 from daikonstudio.application.data.list_collections import ListCollections
 from daikonstudio.application.data.list_datasets import ListDatasets
+from daikonstudio.application.data.set_dataset_id_column import (
+    GetDatasetColumns,
+    SetDatasetIdColumn,
+)
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.claim_run import ClaimRun
 from daikonstudio.application.execution.enqueue import JobEnqueuer
@@ -143,6 +147,8 @@ def create_container(settings: Settings | None = None) -> Container:
         DeleteDataset,
         lambda c: DeleteDataset(_datasets(c), _protocols(c), _runs(c), c[BlobStore]),
     )
+    container.define(SetDatasetIdColumn, lambda c: SetDatasetIdColumn(_datasets(c), c[BlobStore]))
+    container.define(GetDatasetColumns, lambda c: GetDatasetColumns(_datasets(c), c[BlobStore]))
     container.define(
         GetDatasetCompounds, lambda c: GetDatasetCompounds(_datasets(c), c[BlobStore])
     )

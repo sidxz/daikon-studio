@@ -9,8 +9,9 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Select, select, tuple_
+from sqlalchemy import Select, func, select, tuple_
 from sqlalchemy import delete as sa_delete
+from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -35,6 +36,7 @@ def _to_domain(model: DatasetModel) -> Dataset:
         row_count=model.row_count,
         validation_report=report_from_dict(model.validation_report),
         created_by=model.created_by,
+        id_column=model.id_column,
         created_at=model.created_at,
         updated_at=model.updated_at,
         version=model.version,
@@ -54,6 +56,7 @@ def _to_model(dataset: Dataset) -> DatasetModel:
         row_count=dataset.row_count,
         validation_report=report_to_dict(dataset.validation_report),
         created_by=dataset.created_by,
+        id_column=dataset.id_column,
         version=dataset.version,
         # Explicit, rather than letting the column's server_default fill them in:
         # otherwise the created_at in the 201 response body (the aggregate's own
@@ -95,6 +98,21 @@ class SqlAlchemyDatasetRepository:
             await session.execute(
                 sa_delete(DatasetModel).where(
                     DatasetModel.id == dataset_id, DatasetModel.workspace_id == workspace_id
+                )
+            )
+            await session.commit()
+
+    async def set_id_column(
+        self, workspace_id: uuid.UUID, dataset_id: uuid.UUID, id_column: str | None
+    ) -> None:
+        async with self._sessions() as session:
+            await session.execute(
+                sa_update(DatasetModel)
+                .where(DatasetModel.id == dataset_id, DatasetModel.workspace_id == workspace_id)
+                .values(
+                    id_column=id_column,
+                    version=DatasetModel.version + 1,
+                    updated_at=func.now(),
                 )
             )
             await session.commit()
