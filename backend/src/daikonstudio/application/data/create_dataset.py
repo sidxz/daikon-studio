@@ -13,7 +13,6 @@ not there. The workspace is never read from the request body or the URL.
 
 from __future__ import annotations
 
-import io
 import uuid
 from dataclasses import dataclass
 
@@ -22,7 +21,7 @@ from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
 from daikonstudio.application.data.assign_split import assign_split
-from daikonstudio.application.data.prepare_frame import prepare_frame
+from daikonstudio.application.data.prepare_frame import prepare_frame, read_csv_upload
 from daikonstudio.application.data.snapshot import write_snapshot
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
@@ -121,9 +120,9 @@ class CreateDataset:
             return Failure(NotFoundError("Upload", str(upload_ref)))
 
         try:
-            frame = pl.read_csv(io.BytesIO(self._store.get_bytes(key)))
-        except pl.exceptions.PolarsError as error:
-            return Failure(ValidationError(f"The uploaded file is not readable as CSV: {error}"))
+            frame = read_csv_upload(self._store.get_bytes(key))
+        except ValidationError as error:
+            return Failure(error)
 
         missing = [
             column
@@ -138,9 +137,17 @@ class CreateDataset:
                 )
             )
 
-        prepared, report = prepare_frame(
-            frame, command.structure_column, command.target, self._normalizer
-        )
+        try:
+            prepared, report = prepare_frame(
+                frame, command.structure_column, command.target, self._normalizer
+            )
+        except pl.exceptions.PolarsError as error:
+            # The target gate inside prepare_frame catches what we know about; this
+            # is the net for a column shape nobody has met yet -- a 422 naming the
+            # file's problem, never a 500.
+            return Failure(
+                ValidationError(f"The file could not be interpreted: {error}", detail=None)
+            )
         if report.valid_rows == 0:
             # `prepared` is deliberately untouched on this path. prepare_frame's
             # zero-valid-rows return hands back a frame whose structure column has

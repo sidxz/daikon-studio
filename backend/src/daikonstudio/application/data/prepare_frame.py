@@ -15,11 +15,69 @@ into the data; grouping before canonicalizing would treat equivalent SMILES as d
 
 from __future__ import annotations
 
+import io
+
 import polars as pl
 
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ConflictRow, InvalidRow, ValidationReport
+from daikonstudio.domain.shared.errors import ValidationError
+
+
+def read_csv_upload(raw: bytes) -> pl.DataFrame:
+    """Every CSV this app accepts comes through here.
+
+    A UTF-8 BOM on the first header is stripped: Excel writes one, and
+    `\\ufeffsmiles` is not a column a scientist can select or name.
+    """
+    try:
+        frame = pl.read_csv(io.BytesIO(raw))
+    except pl.exceptions.PolarsError as error:
+        raise ValidationError(f"The uploaded file is not readable as CSV: {error}") from error
+    bom = "﻿"
+    return frame.rename({c: c.lstrip(bom) for c in frame.columns if c.startswith(bom)})
+
+
+def _validate_target(
+    frame: pl.DataFrame, target: TargetSpec, row_numbers: list[int]
+) -> tuple[pl.DataFrame, list[int], list[InvalidRow]]:
+    """Rows whose target cannot be trained on, rejected here with their row
+    numbers rather than as `Input y contains NaN` minutes later in a worker.
+
+    Returns the frame with the target cast (Float64 for NUMERIC, Int64 for
+    BINARY), the surviving row numbers, and one InvalidRow per rejected row.
+    Three reasons, in the words a scientist needs: an empty cell, text where a
+    number belongs (`NA`, `<10`, `12,5`), or a binary label that is not 0 or 1.
+    """
+    raw = frame[target.column]
+    text = raw.cast(pl.String, strict=False).fill_null("").str.strip_chars()
+    numeric = (
+        raw.str.strip_chars().cast(pl.Float64, strict=False)
+        if raw.dtype == pl.String
+        else raw.cast(pl.Float64, strict=False)
+    )
+    empty = text == ""
+    if target.kind is TargetKind.BINARY:
+        ok = numeric.is_in([0.0, 1.0]).fill_null(False) & ~empty
+        reason = "binary target must be 0 or 1, got '{raw}'"
+        cast_to: pl.DataType = pl.Int64()
+    else:
+        ok = numeric.is_not_null() & ~empty
+        reason = "target is not a number: '{raw}'"
+        cast_to = pl.Float64()
+    invalid = [
+        InvalidRow(
+            row_number=row_numbers[index],
+            value=text[index],
+            reason="empty target value" if empty[index] else reason.format(raw=text[index]),
+        )
+        for index in range(frame.height)
+        if not ok[index]
+    ]
+    kept = frame.filter(ok).with_columns(numeric.filter(ok).cast(cast_to).alias(target.column))
+    kept_rows = [number for number, keep in zip(row_numbers, ok.to_list(), strict=True) if keep]
+    return kept, kept_rows, invalid
 
 
 def prepare_frame(
@@ -65,6 +123,11 @@ def prepare_frame(
     valid_frame = frame.filter(is_valid).with_columns(
         pl.Series(structure_column, [smiles for smiles in canonical if smiles is not None])
     )
+    # The target gate runs after the structure gate so a row that fails both is
+    # reported once, for its structure -- the thing the scientist fixes first.
+    valid_frame, row_numbers, bad_targets = _validate_target(valid_frame, target, row_numbers)
+    invalid.extend(bad_targets)
+    invalid.sort(key=lambda row: row.row_number)
     valid_rows = valid_frame.height
 
     salts_flagged = sum(

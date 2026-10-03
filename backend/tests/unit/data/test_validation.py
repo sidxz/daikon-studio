@@ -110,3 +110,48 @@ def test_empty_frame_yields_a_well_formed_report_without_crashing():
     assert prepared.height == 0
     assert report.total_rows == 0
     assert report.valid_rows == 0
+
+
+def test_a_bom_on_the_first_header_is_stripped():
+    from daikonstudio.application.data.prepare_frame import read_csv_upload
+
+    frame = read_csv_upload("﻿smiles,y\nCCO,1.0\n".encode())
+    assert frame.columns == ["smiles", "y"]
+
+
+def test_null_numeric_targets_are_invalid_rows_not_training_failures():
+    from daikonstudio.domain.data.validation import InvalidRow
+
+    frame = pl.DataFrame({"smiles": ["CCO", "CCC"], "y": [1.0, None]})
+    prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
+    assert prepared.height == 1
+    assert report.valid_rows == 1
+    assert report.invalid == [InvalidRow(row_number=2, value="", reason="empty target value")]
+
+
+def test_non_numeric_target_values_are_invalid_rows_not_a_crash():
+    """A numeric column holding `NA` or `<10` arrives as text. Before this gate
+    the mean/max/min aggregation raised deep inside polars and the request was
+    an unhandled 500; now the rows are named and the rest of the file is kept."""
+    frame = pl.DataFrame({"smiles": ["CCO", "CCC", "CCN"], "y": ["1.5", "NA", "<10"]})
+    prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
+    assert prepared["y"].dtype == pl.Float64
+    assert prepared["y"].to_list() == [1.5]
+    assert [row.row_number for row in report.invalid] == [2, 3]
+    assert report.invalid[0].reason == "target is not a number: 'NA'"
+
+
+def test_binary_targets_must_be_zero_or_one():
+    frame = pl.DataFrame({"smiles": ["CCO", "CCC", "CCN"], "y": ["1", "active", "2"]})
+    prepared, report = prepare_frame(frame, "smiles", BINARY, NORMALIZER)
+    assert prepared["y"].to_list() == [1]
+    assert [row.reason for row in report.invalid] == [
+        "binary target must be 0 or 1, got 'active'",
+        "binary target must be 0 or 1, got '2'",
+    ]
+
+
+def test_a_row_failing_both_gates_is_reported_once_for_its_structure():
+    frame = pl.DataFrame({"smiles": ["not-a-molecule", "CCO"], "y": [None, 1.0]})
+    _, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
+    assert [row.reason for row in report.invalid] == ["invalid structure"]

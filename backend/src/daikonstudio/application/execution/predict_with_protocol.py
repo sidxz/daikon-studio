@@ -52,6 +52,7 @@ from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
 from daikonstudio.application.data.create_dataset import upload_key
+from daikonstudio.application.data.prepare_frame import read_csv_upload
 from daikonstudio.application.engines.context import PredictContext
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
@@ -267,10 +268,7 @@ class RunPrediction:
             raise NotFoundError("Protocol", str(command.protocol_id))
 
         raw = self._store.get_bytes(upload_key(run.workspace_id, uuid.UUID(command.upload_ref)))
-        try:
-            frame = pl.read_csv(io.BytesIO(raw))
-        except pl.exceptions.PolarsError as error:
-            raise ValidationError(f"The uploaded file is not readable as CSV: {error}") from error
+        frame = read_csv_upload(raw)
         if command.structure_column not in frame.columns:
             raise ValidationError(
                 f"Column '{command.structure_column}' not present in the uploaded file: "
