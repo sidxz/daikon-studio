@@ -12,6 +12,7 @@ import type {
   DatasetProfileResponse,
   DatasetResponse,
   PaginatedResponseDatasetResponse,
+  PaginatedResponseProtocolResponse,
   ProfileComputingResponse,
   UploadResponse,
 } from "@/shared/lib/api/model";
@@ -125,6 +126,41 @@ export function useCreateDataset() {
  * on a large file. Retrying a timeout would start a second identical RDKit pass
  * rather than wait for the first, which makes a slow page slower.
  */
+/**
+ * The protocols trained on a dataset: what stands between it and deletion.
+ * Keyed under "protocols" (the protocols feature's root key, not imported to
+ * keep the two features' barrels from importing each other) so anything that
+ * invalidates protocols refreshes this too.
+ */
+export function useDatasetProtocols(datasetId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ["protocols", "by-dataset", datasetId],
+    queryFn: () =>
+      customInstance<PaginatedResponseProtocolResponse>({
+        url: `${API_V1}/protocols`,
+        method: "GET",
+        params: { dataset_id: datasetId, limit: 200 },
+      }),
+    enabled,
+  });
+}
+
+export function useDeleteDataset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      customInstance<void>({ url: `${API_V1}/datasets/${id}`, method: "DELETE" }),
+    // The dialog shows the error; no second toast.
+    meta: { silent: true },
+    onSuccess: () => {
+      showSuccess("Dataset deleted.");
+      // Mark everything stale without refetching: the page being left would
+      // otherwise refetch the dataset it just deleted and flash a 404.
+      queryClient.invalidateQueries({ refetchType: "none" });
+    },
+  });
+}
+
 /** How often to ask again while the server is still computing a profile. */
 export const PROFILE_POLL_MS = 3_000;
 

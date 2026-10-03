@@ -11,6 +11,7 @@ import { isComputing, useDataset, useDatasetProfile } from "../hooks/use-dataset
 import { SPLIT_COPY } from "../types";
 import { CompoundBrowser } from "./compound-browser";
 import { DatasetProfileSkeleton, DatasetProfileView } from "./dataset-profile-view";
+import { DeleteDatasetButton } from "./delete-dataset-button";
 import { ProfileComputing } from "./profile-computing";
 import { ValidationReportView } from "./validation-report-view";
 
@@ -67,9 +68,12 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
             {new Date(dataset.created_at).toLocaleString()}
           </p>
         </div>
-        <Button asChild>
-          <Link href={`/protocols/new?dataset=${dataset.id}`}>Train a protocol</Link>
-        </Button>
+        <div className="flex gap-2">
+          {dataset.can_delete && <DeleteDatasetButton dataset={dataset} />}
+          <Button asChild>
+            <Link href={`/protocols/new?dataset=${dataset.id}`}>Train a protocol</Link>
+          </Button>
+        </div>
       </div>
 
       <Tabs defaultValue="overview">
