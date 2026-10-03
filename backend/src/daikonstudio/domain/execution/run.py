@@ -243,6 +243,9 @@ class Run(AggregateRoot):
         self.progress = 0.0
         self.phase = None
         self.error_message = None
+        # A prediction that failed after recording its counts would otherwise show
+        # "Scored N of M" on a run that is queued again.
+        self.metrics = None
         self._touch()
 
     def cancel(self) -> None:

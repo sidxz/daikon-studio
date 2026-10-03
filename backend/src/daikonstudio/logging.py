@@ -54,13 +54,19 @@ def configure_logging(*, level: str = "INFO", fmt: str = "console") -> None:
         wrapper_class=structlog.stdlib.BoundLogger,
         cache_logger_on_first_use=False,
     )
+    # JSONRenderer is a bare json.dumps: without format_exc_info ahead of it a
+    # `logger.exception` renders as `"exc_info": true` and the traceback is gone --
+    # in exactly the format production runs. ConsoleRenderer formats exc_info itself.
+    formatting: list[structlog.types.Processor] = [
+        structlog.stdlib.ProcessorFormatter.remove_processors_meta
+    ]
+    if fmt == "json":
+        formatting.append(structlog.processors.format_exc_info)
+    formatting.append(renderer)
     handler = logging.StreamHandler(sys.stderr)
     handler.name = _HANDLER_NAME
     handler.setFormatter(
-        structlog.stdlib.ProcessorFormatter(
-            foreign_pre_chain=shared,
-            processors=[structlog.stdlib.ProcessorFormatter.remove_processors_meta, renderer],
-        )
+        structlog.stdlib.ProcessorFormatter(foreign_pre_chain=shared, processors=formatting)
     )
     root = logging.getLogger()
     # Replace only the handler this function installed last time. A handler someone

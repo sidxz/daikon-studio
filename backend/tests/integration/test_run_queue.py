@@ -357,3 +357,24 @@ async def test_cancelled_pending_run_is_not_claimed(queue, session_factory):
     claimed = await queue.claim_next(runner_id=uuid.uuid4(), **_CLAIM_DEFAULTS)
 
     assert claimed is None
+
+
+async def test_set_lane_hands_a_retried_run_back_to_the_queue_clean(queue, session_factory):
+    """A run that failed on a runner keeps that runner's claim, a live lease and
+    its used-up attempts on the row. Retry re-enqueues through `set_lane`, which
+    must clear all three -- otherwise the sweep fails it again on the next poll
+    ("lease expired after 3 attempts") and nothing ever claims it."""
+    run_id = await _pending_run(
+        session_factory,
+        attempts=3,
+        claimed_by=uuid.uuid4(),
+        lease_expires_at=datetime.now(UTC) + timedelta(minutes=5),
+    )
+
+    await queue.set_lane(run_id, "default")
+
+    fetched = await _fetch(session_factory, run_id)
+    assert (fetched.claimed_by, fetched.lease_expires_at, fetched.attempts) == (None, None, 0)
+    await queue.sweep(max_attempts=3)
+    assert (await _fetch(session_factory, run_id)).status == "pending"
+    assert await queue.claim_next(runner_id=uuid.uuid4(), **_CLAIM_DEFAULTS) == run_id

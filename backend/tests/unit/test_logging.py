@@ -64,3 +64,17 @@ def test_handlers_someone_else_installed_survive(capsys):
         assert foreign in root.handlers
     finally:
         root.removeHandler(foreign)
+
+
+def test_json_format_carries_the_traceback(capsys):
+    """Production logs JSON. A `logger.exception` there must carry the exception
+    type, message and stack, not `"exc_info": true`."""
+    configure_logging(level="INFO", fmt="json")
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        logging.getLogger("daikonstudio.test").exception("job failed")
+    record = json.loads(capsys.readouterr().err.strip().splitlines()[-1])
+    assert record["event"] == "job failed"
+    assert "ValueError: boom" in record["exception"]
+    assert "Traceback" in record["exception"]

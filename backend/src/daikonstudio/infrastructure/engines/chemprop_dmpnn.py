@@ -116,7 +116,8 @@ _PREDICT_BATCH_SIZE = 64
 def _require_chemprop() -> None:
     """Fail with a cause a human can act on, not a bare ModuleNotFoundError.
 
-    The worker records `repr(exc)` on the Run, so this message is exactly what a
+    The worker records `user_facing_error(exc)` on the Run -- a DomainError's message
+    passes through verbatim -- so this message is exactly what a
     scientist sees when their training run failed -- which makes "you are running this
     engine on a worker that cannot" the single most valuable thing it can say.
     """

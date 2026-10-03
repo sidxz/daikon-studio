@@ -20,4 +20,6 @@ def user_facing_error(exc: BaseException) -> str:
         return f"{exc.message} ({exc.detail})" if exc.detail else exc.message
     if isinstance(exc, ValueError | TypeError):
         return f"{type(exc).__name__}: {str(exc)[:_MAX_LENGTH]}"
-    return f"Unexpected {type(exc).__name__}; the server log has the details"
+    return (
+        f"Unexpected {type(exc).__name__}; the traceback is in the log of the runner that ran it"
+    )

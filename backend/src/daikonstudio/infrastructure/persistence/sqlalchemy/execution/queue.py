@@ -67,7 +67,18 @@ _VERIFY = text("""
     RETURNING id
 """)
 
-_SET_LANE = text("UPDATE runs SET lane = :lane, updated_at = now() WHERE id = :run_id")
+# Enqueue hands the row to the queue *clean*. For a fresh run these three are
+# already NULL/0; for a retried one they are the stale claim, live lease and
+# used-up attempts of the failed execution -- left in place, the sweep would
+# fail the run again on the next poll ("lease expired after 3 attempts") or no
+# runner could claim it until the old lease ran out. Clearing claimed_by also
+# fences a runner still computing the abandoned attempt: its next write 403s.
+_SET_LANE = text("""
+    UPDATE runs
+    SET lane = :lane, claimed_by = NULL, lease_expires_at = NULL, attempts = 0,
+        updated_at = now()
+    WHERE id = :run_id
+""")
 
 _ACTIVE_RUN_BY_RUNNER = text("""
     SELECT DISTINCT ON (claimed_by) claimed_by, id FROM runs

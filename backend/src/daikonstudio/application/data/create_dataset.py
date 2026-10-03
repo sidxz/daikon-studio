@@ -154,7 +154,11 @@ class CreateDataset:
             # degraded to polars' Null dtype (the result of filtering a String
             # column with an all-False mask); the report is the whole payload here.
             return Failure(
-                InvalidDatasetError("No valid structures in the uploaded file", report=report)
+                InvalidDatasetError(
+                    "No usable rows in the uploaded file: every row failed structure or "
+                    "target validation -- see the report",
+                    report=report,
+                )
             )
 
         try:

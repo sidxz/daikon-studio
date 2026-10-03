@@ -140,10 +140,12 @@ def test_retry_returns_a_failed_run_to_pending_and_clears_the_failure():
     run.start()
     run.report_progress(0.4, phase="training")
     run.fail("boom")
+    run.record_prediction_counts(uploaded_rows=4, scored_rows=3)
     run.retry()
-    assert (run.status, run.progress, run.phase, run.error_message) == (
+    assert (run.status, run.progress, run.phase, run.error_message, run.metrics) == (
         RunStatus.PENDING,
         0.0,
+        None,
         None,
         None,
     )

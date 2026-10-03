@@ -116,6 +116,17 @@ async def _save(ctx: dict[str, Any], run: Run) -> None:
     await runs.update(run)
 
 
+async def fail_run(ctx: dict[str, Any], run_id: uuid.UUID, message: str) -> None:
+    """Record FAILED on a run from outside its handler.
+
+    The runner agent's hard kill: a fit that never returns cannot be stopped
+    (a thread cannot be killed), so the agent writes the failure and exits the
+    process. Raises ConflictError if the run went terminal in the meantime."""
+    run = await _load(ctx, run_id)
+    run.fail(message)
+    await _save(ctx, run)
+
+
 async def run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
     """Execute one queued Run: load it, start it, run its handler, record the
     outcome.

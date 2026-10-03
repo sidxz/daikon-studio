@@ -155,3 +155,29 @@ def test_a_row_failing_both_gates_is_reported_once_for_its_structure():
     frame = pl.DataFrame({"smiles": ["not-a-molecule", "CCO"], "y": [None, 1.0]})
     _, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert [row.reason for row in report.invalid] == ["invalid structure"]
+
+
+def test_nan_and_inf_targets_are_invalid_rows_too():
+    """polars parses "nan" and "inf" into floats that are not null, and either
+    one is the `Input y contains NaN` failure the gate exists to stop."""
+    frame = pl.DataFrame({"smiles": ["CCO", "CCC", "CCN"], "y": ["1.0", "nan", "inf"]})
+    prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
+    assert prepared["y"].to_list() == [1.0]
+    assert [row.row_number for row in report.invalid] == [2, 3]
+
+
+def test_read_csv_upload_keeps_text_verbatim_and_tolerates_a_late_bad_value():
+    """Two reasons every column is read as text: an identifier like 00123 must
+    not come back as 123, and a numeric column whose first hundred rows parse
+    must not make polars raise on row 150's NA -- that row is a reported
+    InvalidRow, and the rest of the file is kept."""
+    from daikonstudio.application.data.prepare_frame import read_csv_upload
+
+    rows = "\n".join(f"{i:05d},CCO,{i}.5" for i in range(1, 150)) + "\n00150,CCC,NA\n"
+    frame = read_csv_upload(f"id,smiles,y\n{rows}".encode())
+    assert frame["id"][0] == "00001"
+
+    prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
+    assert [row.row_number for row in report.invalid] == [150]
+    assert report.invalid[0].reason == "target is not a number: 'NA'"
+    assert prepared["y"].dtype == pl.Float64

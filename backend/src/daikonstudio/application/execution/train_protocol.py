@@ -869,10 +869,10 @@ def _require_structure_column(dataset: Dataset, frame: pl.DataFrame) -> None:
     is_legacy = dataset.structure_column == _LEGACY_STRUCTURE_COLUMN
     if not is_legacy and dataset.structure_column in frame.columns:
         return
-    # Everything actionable goes in the message, not `detail`: the worker records
-    # `repr(exc)` on the Run, and a DomainError's repr carries only its args -- so
-    # anything parked in `detail` would be invisible exactly where a scientist
-    # looks for why their training run failed.
+    # Everything actionable goes in the message: the worker records
+    # `user_facing_error(exc)` on the Run, which renders a DomainError as
+    # `message (detail)` -- the message leads, so it is what a scientist reads
+    # first when their training run failed.
     cause = (
         "this Dataset predates the structure_column migration, so which column "
         "holds its structures was never recorded -- re-upload it to train on it"

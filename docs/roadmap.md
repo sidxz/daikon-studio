@@ -131,8 +131,9 @@ Carried forward deliberately — each of these has already cost a session.
   (JSON, e.g. `{"gpu": 7200}`) overrides the server-wide `STUDIO_WORKER_JOB_TIMEOUT`
   per lane in the claim response, and the deadline is now also checked *between*
   fits, which is the only check the tree and GP engines ever reach. Predictions
-  still have no deadline, and nothing hard-kills a hung fit: a thread cannot be
-  killed, so an engine that never returns holds its runner until the lease sweep.
+  have no cooperative deadline, but the runner agent now hard-kills: past the
+  deadline plus a 5-minute grace it records the failure and exits the process (the
+  only way to stop a thread), and the container restarts clean.
 - **A green `docker build` of the CPU image said nothing either.** LightGBM's wheel
   links `libgomp.so.1`, which `python:3.13-slim` does not ship; the API image built
   clean for two months and crashed at import. Found 2026-10-02 by booting the image.

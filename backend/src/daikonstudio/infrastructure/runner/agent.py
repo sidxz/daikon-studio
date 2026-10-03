@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import os
 import uuid
 
 import httpx
@@ -56,6 +57,14 @@ _logger = structlog.get_logger(__name__)
 # network) without losing the claim, while still renewing well before it
 # would otherwise expire.
 _HEARTBEATS_PER_LEASE = 3
+
+# The hard kill. The claim's deadline is cooperative (TrainContext.report), and
+# the heartbeat above renews the lease whatever the fit is doing, so an engine
+# that never returns would hold its run RUNNING and its runner busy forever.
+# Past the deadline plus this grace, the agent records the failure and exits the
+# process -- the only way to stop a thread -- so the container restarts clean.
+_HARD_KILL_GRACE_SECONDS = 300
+_exit = os._exit  # indirection so a test can observe the exit instead of dying
 
 
 class AgentSettings(BaseSettings):
@@ -91,6 +100,25 @@ async def _heartbeat(api: httpx.AsyncClient, run_id: uuid.UUID, interval: float)
             _logger.warning("heartbeat failed", run_id=str(run_id), error=str(exc))
 
 
+async def _abandon_hung_job(ctx: dict[str, object], run_id: uuid.UUID, limit: float) -> None:
+    """Fail the run, then exit. Cancelling the awaiting task did not stop the
+    fit's thread; nothing can. Writing FAILED first means the user sees why
+    instead of a lease-expiry requeue re-running the same hung fit three times."""
+    _logger.error(
+        "job exceeded its deadline plus the grace period; failing it and exiting",
+        run_id=str(run_id),
+        limit_seconds=limit,
+    )
+    try:
+        async with asyncio.timeout(10):
+            await jobs.fail_run(
+                ctx, run_id, f"the runner gave up after {limit:.0f}s: the fit never returned"
+            )
+    except Exception:
+        _logger.exception("could not record the failure before exiting", run_id=str(run_id))
+    _exit(3)
+
+
 async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
     """One claim/execute cycle. `api` is the long-lived client `main()` holds
     open across iterations, already carrying the runner's bearer token.
@@ -122,8 +150,11 @@ async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
     heartbeat = asyncio.create_task(
         _heartbeat(api, run_id, claimed.lease_seconds / _HEARTBEATS_PER_LEASE)
     )
+    hard_limit = claimed.deadline_seconds + _HARD_KILL_GRACE_SECONDS
     try:
-        await jobs.run_job(ctx, run_id)
+        await asyncio.wait_for(jobs.run_job(ctx, run_id), timeout=hard_limit)
+    except TimeoutError:
+        await _abandon_hung_job(ctx, run_id, hard_limit)
     except Exception:
         # run_job already persisted FAILED on the row before re-raising --
         # this is purely so the operator sees it, not a retry path.

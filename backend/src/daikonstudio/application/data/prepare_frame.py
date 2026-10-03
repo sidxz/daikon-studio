@@ -32,7 +32,12 @@ def read_csv_upload(raw: bytes) -> pl.DataFrame:
     `\\ufeffsmiles` is not a column a scientist can select or name.
     """
     try:
-        frame = pl.read_csv(io.BytesIO(raw))
+        # Every column as text. Polars otherwise infers types from the first 100
+        # rows and then *raises* on row 150's "NA" (a ComputeError naming its own
+        # Python API), and it also rewrites "00123" to 123 -- an identifier
+        # column must come back exactly as the scientist wrote it. The target
+        # gate below casts the one column that has to be numeric, with reasons.
+        frame = pl.read_csv(io.BytesIO(raw), infer_schema=False)
     except pl.exceptions.PolarsError as error:
         raise ValidationError(f"The uploaded file is not readable as CSV: {error}") from error
     bom = "﻿"
@@ -63,7 +68,10 @@ def _validate_target(
         reason = "binary target must be 0 or 1, got '{raw}'"
         cast_to: pl.DataType = pl.Int64()
     else:
-        ok = numeric.is_not_null() & ~empty
+        # is_finite, not is_not_null: polars parses "nan" and "inf" to floats that
+        # are not null, and either one is the `Input y contains NaN` failure this
+        # gate exists to stop.
+        ok = numeric.is_finite().fill_null(False) & ~empty
         reason = "target is not a number: '{raw}'"
         cast_to = pl.Float64()
     invalid = [
