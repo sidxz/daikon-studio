@@ -20,6 +20,7 @@ import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useState } from "react";
 import { useProtocol, usePublishProtocol, useScorecard } from "../hooks/use-protocols";
+import { DeleteProtocolButton } from "./delete-protocol-button";
 import { ProtocolChemicalSpace } from "./protocol-chemical-space";
 import { ProtocolRuns } from "./protocol-runs";
 import { ScorecardView } from "./scorecard-view";
@@ -79,6 +80,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
           </p>
         </div>
         <div className="flex gap-2">
+          {protocol.can_delete && <DeleteProtocolButton protocol={protocol} />}
           {published ? (
             <Button asChild>
               <Link href={`/runs/new?protocol=${protocol.id}`}>Run this protocol</Link>

@@ -21,4 +21,5 @@ export interface DatasetResponse {
   validation_report: ValidationReportResponse;
   version: number;
   created_at: string;
+  can_delete: boolean;
 }

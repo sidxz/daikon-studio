@@ -24,4 +24,5 @@ export interface ProtocolResponse {
   parent_protocol_id: ProtocolResponseParentProtocolId;
   protocol_version: number;
   created_at: string;
+  can_delete: boolean;
 }

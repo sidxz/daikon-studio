@@ -291,6 +291,69 @@ export function useGetProtocolApiV1ProtocolsProtocolIdGet<TData = Awaited<Return
 
 
 /**
+ * A draft only, by an admin or its creator. Also deletes the training run that
+produced it and every file in its folder. See `application/catalog/delete_protocol.py`.
+ * @summary Delete Protocol
+ */
+export const deleteProtocolApiV1ProtocolsProtocolIdDelete = (
+    protocolId: string,
+ ) => {
+      
+      
+      return customInstance<void>(
+      {url: `/api/v1/protocols/${protocolId}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteProtocolApiV1ProtocolsProtocolIdDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProtocolApiV1ProtocolsProtocolIdDelete>>, TError,{protocolId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteProtocolApiV1ProtocolsProtocolIdDelete>>, TError,{protocolId: string}, TContext> => {
+
+const mutationKey = ['deleteProtocolApiV1ProtocolsProtocolIdDelete'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteProtocolApiV1ProtocolsProtocolIdDelete>>, {protocolId: string}> = (props) => {
+          const {protocolId} = props ?? {};
+
+          return  deleteProtocolApiV1ProtocolsProtocolIdDelete(protocolId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteProtocolApiV1ProtocolsProtocolIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteProtocolApiV1ProtocolsProtocolIdDelete>>>
+    
+    export type DeleteProtocolApiV1ProtocolsProtocolIdDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Protocol
+ */
+export const useDeleteProtocolApiV1ProtocolsProtocolIdDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProtocolApiV1ProtocolsProtocolIdDelete>>, TError,{protocolId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteProtocolApiV1ProtocolsProtocolIdDelete>>,
+        TError,
+        {protocolId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteProtocolApiV1ProtocolsProtocolIdDeleteMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
  * @summary Get Scorecard
  */
 export const getScorecardApiV1ProtocolsProtocolIdScorecardGet = (

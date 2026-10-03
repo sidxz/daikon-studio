@@ -448,6 +448,41 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Delete Dataset",
+        "description": "By an admin or its creator, and only when no protocol was trained on it and no\ntraining run on it is in progress. See `application/data/delete_dataset.py`.",
+        "operationId": "delete_dataset_api_v1_datasets__dataset_id__delete",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/api/v1/datasets/{dataset_id}/profile": {
@@ -727,6 +762,23 @@
               ],
               "title": "Limit"
             }
+          },
+          {
+            "name": "dataset_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Dataset Id"
+            }
           }
         ],
         "responses": {
@@ -782,6 +834,41 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "protocols"
+        ],
+        "summary": "Delete Protocol",
+        "description": "A draft only, by an admin or its creator. Also deletes the training run that\nproduced it and every file in its folder. See `application/catalog/delete_protocol.py`.",
+        "operationId": "delete_protocol_api_v1_protocols__protocol_id__delete",
+        "parameters": [
+          {
+            "name": "protocol_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Protocol Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
           },
           "422": {
             "description": "Validation Error",
@@ -2961,6 +3048,10 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "can_delete": {
+            "type": "boolean",
+            "title": "Can Delete"
           }
         },
         "type": "object",
@@ -2976,7 +3067,8 @@
           "row_count",
           "validation_report",
           "version",
-          "created_at"
+          "created_at",
+          "can_delete"
         ],
         "title": "DatasetResponse"
       },
@@ -3841,6 +3933,10 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "can_delete": {
+            "type": "boolean",
+            "title": "Can Delete"
           }
         },
         "type": "object",
@@ -3858,7 +3954,8 @@
           "published_at",
           "parent_protocol_id",
           "protocol_version",
-          "created_at"
+          "created_at",
+          "can_delete"
         ],
         "title": "ProtocolResponse"
       },

@@ -142,6 +142,23 @@ export function usePublishProtocol() {
   });
 }
 
+export function useDeleteProtocol() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      customInstance<void>({ url: `${API_V1}/protocols/${id}`, method: "DELETE" }),
+    // The dialog shows the error; no second toast.
+    meta: { silent: true },
+    onSuccess: () => {
+      showSuccess("Protocol deleted.");
+      // Lists, its training run, its sweep and its dataset's dialog all change.
+      // Mark everything stale without refetching: the page being left would
+      // otherwise refetch the protocol it just deleted and flash a 404.
+      queryClient.invalidateQueries({ refetchType: "none" });
+    },
+  });
+}
+
 /**
  * The Runs that belong to this Protocol -- its training Run, and every
  * prediction made with it.

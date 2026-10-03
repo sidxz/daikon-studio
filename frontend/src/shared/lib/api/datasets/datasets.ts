@@ -358,6 +358,69 @@ export function useGetDatasetApiV1DatasetsDatasetIdGet<TData = Awaited<ReturnTyp
 
 
 /**
+ * By an admin or its creator, and only when no protocol was trained on it and no
+training run on it is in progress. See `application/data/delete_dataset.py`.
+ * @summary Delete Dataset
+ */
+export const deleteDatasetApiV1DatasetsDatasetIdDelete = (
+    datasetId: string,
+ ) => {
+      
+      
+      return customInstance<void>(
+      {url: `/api/v1/datasets/${datasetId}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteDatasetApiV1DatasetsDatasetIdDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteDatasetApiV1DatasetsDatasetIdDelete>>, TError,{datasetId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteDatasetApiV1DatasetsDatasetIdDelete>>, TError,{datasetId: string}, TContext> => {
+
+const mutationKey = ['deleteDatasetApiV1DatasetsDatasetIdDelete'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteDatasetApiV1DatasetsDatasetIdDelete>>, {datasetId: string}> = (props) => {
+          const {datasetId} = props ?? {};
+
+          return  deleteDatasetApiV1DatasetsDatasetIdDelete(datasetId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteDatasetApiV1DatasetsDatasetIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteDatasetApiV1DatasetsDatasetIdDelete>>>
+    
+    export type DeleteDatasetApiV1DatasetsDatasetIdDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Dataset
+ */
+export const useDeleteDatasetApiV1DatasetsDatasetIdDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteDatasetApiV1DatasetsDatasetIdDelete>>, TError,{datasetId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteDatasetApiV1DatasetsDatasetIdDelete>>,
+        TError,
+        {datasetId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteDatasetApiV1DatasetsDatasetIdDeleteMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
  * Computed once per Dataset, in the background, and cached beside its
 snapshot. Until it is saved this answers 202 with when the computation
 started; afterwards, 200 with the profile. See
