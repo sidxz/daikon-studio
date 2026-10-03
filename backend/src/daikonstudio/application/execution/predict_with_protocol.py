@@ -51,6 +51,11 @@ from returns.pipeline import is_successful
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
+from daikonstudio.application.catalog.chemical_space import (
+    NEIGHBOURS,
+    neighbours_key,
+    neighbours_parquet,
+)
 from daikonstudio.application.data.create_dataset import upload_key
 from daikonstudio.application.data.prepare_frame import read_csv_upload
 from daikonstudio.application.engines.context import PredictContext
@@ -335,11 +340,15 @@ class RunPrediction:
 
         structures = valid_frame[command.structure_column].to_list()
         train_structures = self._train_structures(protocol)
+        neighbours: tuple[list[list[int]], list[list[float]]] | None = None
         similarities: list[float | None]
         if structures and train_structures:
-            similarities = list(
-                self._normalizer.nearest_neighbour_tanimoto(structures, train_structures)
+            neighbours = self._normalizer.nearest_neighbours_tanimoto(
+                structures, train_structures, NEIGHBOURS
             )
+            # Applicability is the nearest neighbour from the same search, so the
+            # map, the triage column and the domain filter can never disagree.
+            similarities = [row[0] for row in neighbours[1]]
         else:
             # Never a fabricated 0.0: an empty (or unreadable -- see
             # `_train_structures`) training set means "unmeasurable", not
@@ -386,7 +395,16 @@ class RunPrediction:
 
         buffer = io.BytesIO()
         pl.DataFrame(columns).write_parquet(buffer)
-        return self._store.put_bytes(predictions_key(run.workspace_id, run.id), buffer.getvalue())
+        result_uri = self._store.put_bytes(
+            predictions_key(run.workspace_id, run.id), buffer.getvalue()
+        )
+        if neighbours is not None:
+            # Beside the results, never inside them: the map reads this, and a run's
+            # results file is written exactly once.
+            self._store.put_bytes(
+                neighbours_key(run.workspace_id, run.id), neighbours_parquet(*neighbours)
+            )
+        return result_uri
 
     def _train_structures(self, protocol: InSilicoProtocol) -> list[str] | None:
         """The Protocol's own training set, read from the same
