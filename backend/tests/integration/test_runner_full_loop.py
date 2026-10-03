@@ -91,7 +91,7 @@ async def app(tmp_path, _migrated_engine: AsyncEngine):
 
 
 async def test_a_training_run_executes_through_the_runner_protocol_unmodified(
-    client, anonymous_client, csv_upload, app
+    client, admin_client, anonymous_client, csv_upload, app
 ):
     # --- Dataset: the same upload + create calls test_full_loop.py makes ---
     upload_ref = await csv_upload(_FIXTURE.read_bytes())
@@ -128,7 +128,9 @@ async def test_a_training_run_executes_through_the_runner_protocol_unmodified(
     )
 
     # --- Runner: register over the real endpoint, grab its bearer token ---
-    runner_response = await client.post(
+    # Minting a runner token is an admin action (manage.py); the editor client
+    # drives everything else in this journey, as a scientist would.
+    runner_response = await admin_client.post(
         "/api/v1/runners", json={"name": f"e2e-runner-{uuid.uuid4()}", "lanes": ["default"]}
     )
     assert runner_response.status_code == 201, f"[runner] {runner_response.text}"

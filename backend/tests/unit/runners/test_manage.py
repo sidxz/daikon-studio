@@ -79,7 +79,8 @@ async def test_create_returns_token_matching_the_stored_hash() -> None:
     use_case = CreateRunner(repo)
 
     result = await use_case(
-        CreateRunnerCommand(name="gpu-01", lanes=("default",)), auth=FakeAuth()
+        CreateRunnerCommand(name="gpu-01", lanes=("default",)),
+        auth=FakeAuth(workspace_role="admin"),
     )
 
     created = result.unwrap()
@@ -92,7 +93,9 @@ async def test_create_returns_token_matching_the_stored_hash() -> None:
 async def test_create_rejects_empty_lanes() -> None:
     use_case = CreateRunner(FakeRunnerRepository())
 
-    result = await use_case(CreateRunnerCommand(name="gpu-01", lanes=()), auth=FakeAuth())
+    result = await use_case(
+        CreateRunnerCommand(name="gpu-01", lanes=()), auth=FakeAuth(workspace_role="admin")
+    )
 
     assert isinstance(result.failure(), ValidationError)
 
@@ -101,7 +104,8 @@ async def test_create_rejects_blank_lane_entries() -> None:
     use_case = CreateRunner(FakeRunnerRepository())
 
     result = await use_case(
-        CreateRunnerCommand(name="gpu-01", lanes=("default", "  ")), auth=FakeAuth()
+        CreateRunnerCommand(name="gpu-01", lanes=("default", "  ")),
+        auth=FakeAuth(workspace_role="admin"),
     )
 
     assert isinstance(result.failure(), ValidationError)
@@ -110,7 +114,9 @@ async def test_create_rejects_blank_lane_entries() -> None:
 async def test_create_rejects_empty_name() -> None:
     use_case = CreateRunner(FakeRunnerRepository())
 
-    result = await use_case(CreateRunnerCommand(name="  ", lanes=("default",)), auth=FakeAuth())
+    result = await use_case(
+        CreateRunnerCommand(name="  ", lanes=("default",)), auth=FakeAuth(workspace_role="admin")
+    )
 
     assert isinstance(result.failure(), ValidationError)
 
@@ -158,7 +164,7 @@ async def test_list_reports_online_from_last_seen_and_joins_current_run() -> Non
     queue = FakeRunQueue({online_runner.id: run_id})
 
     use_case = ListRunners(repo, queue, online_threshold_seconds=15)
-    views = (await use_case(auth=FakeAuth())).unwrap()
+    views = (await use_case(auth=FakeAuth(workspace_role="admin"))).unwrap()
     by_name = {view.runner.name: view for view in views}
 
     assert by_name["online"].online is True
@@ -175,7 +181,9 @@ async def test_list_reports_online_from_last_seen_and_joins_current_run() -> Non
 async def test_revoke_unknown_runner_is_not_found() -> None:
     use_case = RevokeRunner(FakeRunnerRepository())
 
-    result = await use_case(RevokeRunnerCommand(runner_id=uuid.uuid4()), auth=FakeAuth())
+    result = await use_case(
+        RevokeRunnerCommand(runner_id=uuid.uuid4()), auth=FakeAuth(workspace_role="admin")
+    )
 
     assert isinstance(result.failure(), NotFoundError)
 
@@ -186,7 +194,9 @@ async def test_revoke_known_runner_calls_repository_revoke() -> None:
     await repo.add(runner)
     use_case = RevokeRunner(repo)
 
-    result = await use_case(RevokeRunnerCommand(runner_id=runner.id), auth=FakeAuth())
+    result = await use_case(
+        RevokeRunnerCommand(runner_id=runner.id), auth=FakeAuth(workspace_role="admin")
+    )
 
     assert result.unwrap() is None
     assert repo.revoked_ids == [runner.id]
@@ -212,3 +222,24 @@ async def test_revoke_refuses_unauthenticated_caller() -> None:
 
     with pytest.raises(AuthorizationError):
         await use_case(RevokeRunnerCommand(runner_id=runner.id), auth=None)
+
+
+async def test_create_refuses_editor_role() -> None:
+    """A runner token reaches every workspace's runs, so minting one is an
+    admin's call, not an editor's (runners design: one lane = one trust domain)."""
+    use_case = CreateRunner(FakeRunnerRepository())
+    with pytest.raises(AuthorizationError):
+        await use_case(
+            CreateRunnerCommand(name="gpu-01", lanes=("default",)),
+            auth=FakeAuth(workspace_role="editor"),
+        )
+
+
+async def test_revoke_refuses_editor_role() -> None:
+    repository = FakeRunnerRepository()
+    runner = Runner(name="gpu-01", lanes=("default",), token_hash="h")
+    await repository.add(runner)
+    with pytest.raises(AuthorizationError):
+        await RevokeRunner(repository)(
+            RevokeRunnerCommand(runner_id=runner.id), auth=FakeAuth(workspace_role="editor")
+        )

@@ -6,6 +6,7 @@
  */
 
 export interface CreateRunnerBody {
+  /** @maxLength 128 */
   name: string;
   lanes: string[];
 }

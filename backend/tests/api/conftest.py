@@ -198,6 +198,14 @@ async def viewer_client(app, signing_key, workspace_id) -> AsyncIterator[httpx.A
 
 
 @pytest_asyncio.fixture
+async def admin_client(app, signing_key, workspace_id) -> AsyncIterator[httpx.AsyncClient]:
+    """Runner management is an admin action; everything else uses `client` (editor)."""
+    headers = auth_headers(signing_key[0], workspace_id=workspace_id, role="admin")
+    async with _client(app, headers) as http_client:
+        yield http_client
+
+
+@pytest_asyncio.fixture
 async def anonymous_client(app) -> AsyncIterator[httpx.AsyncClient]:
     async with _client(app, None) as http_client:
         yield http_client

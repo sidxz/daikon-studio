@@ -27,7 +27,8 @@ async def register_runner(app, lanes: list[str]) -> tuple[uuid.UUID, dict[str, s
     hand back its id plus a header dict carrying its bearer token."""
     create_runner = app.state.container[CreateRunner]
     result = await create_runner(
-        CreateRunnerCommand(name=f"runner-{uuid.uuid4()}", lanes=tuple(lanes)), auth=FakeAuth()
+        CreateRunnerCommand(name=f"runner-{uuid.uuid4()}", lanes=tuple(lanes)),
+        auth=FakeAuth(workspace_role="admin"),
     )
     created = result.unwrap()
     return created.runner.id, {"Authorization": f"Bearer {created.token}"}

@@ -13,7 +13,7 @@ from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from daikonstudio.application.runners.manage import (
     CreatedRunner,
@@ -38,7 +38,9 @@ RevokeRunnerDep = Annotated[RevokeRunner, Depends(use_case(RevokeRunner))]
 class CreateRunnerBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str
+    # Matches `RunnerModel.name`'s String(128); without the bound a longer name
+    # was an asyncpg DataError, surfacing as a 500 instead of a 422.
+    name: str = Field(max_length=128)
     lanes: list[str]
 
 

@@ -142,6 +142,13 @@ async def main() -> None:
     # that, the same known gap pydantic-settings' own docs call out.
     settings = AgentSettings()  # type: ignore[call-arg]
     configure_logging(level=settings.log_level, fmt=settings.log_format)
+    if not settings.runner_token.strip():
+        # An empty token never reaches the API (httpx refuses a bare `Bearer `
+        # header), so without this the agent polls and logs "claim failed" every
+        # 3 s forever. The compose stack starts with the token unset on purpose
+        # (it is minted in the UI after first boot); say so and stop.
+        _logger.error("STUDIO_RUNNER_TOKEN is empty; mint one in the Runners page and set it")
+        raise SystemExit(2)
     async with httpx.AsyncClient(
         base_url=settings.url,
         headers={"Authorization": f"Bearer {settings.runner_token}"},

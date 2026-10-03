@@ -1,9 +1,10 @@
 """Runner management -- register, list, and revoke self-hosted runners.
 
 Instance-level, not workspace-scoped -- same reason `domain/runners/runner.py`
-gives: a runner serves lanes, and lanes cross workspaces. `auth` is still
-required on every call (an editor in *some* workspace, not a specific one) so
-an anonymous caller cannot mint a runner token.
+gives: a runner serves lanes, and lanes cross workspaces. Creating and revoking
+need the admin role in *some* workspace (not a specific one): a runner token
+reaches every tenant's runs, so it is an operator's credential, not an editor's.
+Listing needs only an authenticated caller.
 """
 
 from __future__ import annotations
@@ -16,7 +17,7 @@ from datetime import UTC, datetime, timedelta
 
 from returns.result import Failure, Result, Success
 
-from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
+from daikonstudio.application.auth import AuthContext, require_admin, require_authenticated
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.domain.runners.runner import Runner
@@ -54,7 +55,10 @@ class CreateRunner:
         self, command: CreateRunnerCommand, *, auth: AuthContext | None
     ) -> Result[CreatedRunner, DomainError]:
         require_authenticated(auth)
-        require_editor(auth)
+        # Admin, not editor: a runner token claims runs from *every* workspace and
+        # reads and writes every blob in the workspaces it serves ("one lane = one
+        # trust domain", runners design). Minting one is not an editor's call.
+        require_admin(auth)
         if not command.name.strip():
             return Failure(ValidationError("name must not be empty"))
         if not command.lanes:
@@ -121,7 +125,7 @@ class RevokeRunner:
         self, command: RevokeRunnerCommand, *, auth: AuthContext | None
     ) -> Result[None, DomainError]:
         require_authenticated(auth)
-        require_editor(auth)
+        require_admin(auth)  # same reasoning as CreateRunner
         runner = await self._runners.get(command.runner_id)
         if runner is None:
             return Failure(NotFoundError("Runner", str(command.runner_id)))

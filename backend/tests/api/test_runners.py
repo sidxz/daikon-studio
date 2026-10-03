@@ -11,8 +11,10 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository imp
 )
 
 
-async def test_create_returns_a_token_exactly_once(client):
-    response = await client.post("/api/v1/runners", json={"name": "gpu-01", "lanes": ["default"]})
+async def test_create_returns_a_token_exactly_once(admin_client):
+    response = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-01", "lanes": ["default"]}
+    )
     assert response.status_code == 201, response.text
     body = response.json()
     assert body["name"] == "gpu-01"
@@ -21,11 +23,13 @@ async def test_create_returns_a_token_exactly_once(client):
     assert "id" in body and "created_at" in body
 
 
-async def test_list_does_not_include_the_token(client):
-    created = await client.post("/api/v1/runners", json={"name": "gpu-02", "lanes": ["default"]})
+async def test_list_does_not_include_the_token(admin_client):
+    created = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-02", "lanes": ["default"]}
+    )
     assert created.status_code == 201, created.text
 
-    response = await client.get("/api/v1/runners")
+    response = await admin_client.get("/api/v1/runners")
     assert response.status_code == 200, response.text
     items = response.json()
     item = next(item for item in items if item["name"] == "gpu-02")
@@ -35,15 +39,17 @@ async def test_list_does_not_include_the_token(client):
     assert item["current_run_id"] is None
 
 
-async def test_revoke_then_list_shows_revoked(client):
-    created = await client.post("/api/v1/runners", json={"name": "gpu-03", "lanes": ["default"]})
+async def test_revoke_then_list_shows_revoked(admin_client):
+    created = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-03", "lanes": ["default"]}
+    )
     runner_id = created.json()["id"]
 
-    revoke = await client.post(f"/api/v1/runners/{runner_id}/revoke")
+    revoke = await admin_client.post(f"/api/v1/runners/{runner_id}/revoke")
     assert revoke.status_code == 204, revoke.text
     assert revoke.content == b""
 
-    response = await client.get("/api/v1/runners")
+    response = await admin_client.get("/api/v1/runners")
     item = next(item for item in response.json() if item["id"] == runner_id)
     assert item["revoked"] is True
 
@@ -55,20 +61,24 @@ async def test_viewer_cannot_create(viewer_client):
     assert response.status_code == 403, response.text
 
 
-async def test_duplicate_name_conflicts(client):
-    first = await client.post("/api/v1/runners", json={"name": "gpu-05", "lanes": ["default"]})
+async def test_duplicate_name_conflicts(admin_client):
+    first = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-05", "lanes": ["default"]}
+    )
     assert first.status_code == 201, first.text
 
-    second = await client.post("/api/v1/runners", json={"name": "gpu-05", "lanes": ["gpu"]})
+    second = await admin_client.post("/api/v1/runners", json={"name": "gpu-05", "lanes": ["gpu"]})
     assert second.status_code == 409, second.text
 
 
 async def test_list_reports_the_run_a_runner_currently_holds(
-    client, session_factory, workspace_id
+    admin_client, session_factory, workspace_id
 ):
     """`RunQueue.active_run_by_runner` has no other test anywhere -- this is
     its first real exercise, through a genuine claim rather than a mock."""
-    created = await client.post("/api/v1/runners", json={"name": "gpu-06", "lanes": ["default"]})
+    created = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-06", "lanes": ["default"]}
+    )
     runner_id = uuid.UUID(created.json()["id"])
 
     run = Run(
@@ -89,6 +99,28 @@ async def test_list_reports_the_run_a_runner_currently_holds(
     )
     assert claimed_id == run.id
 
-    response = await client.get("/api/v1/runners")
+    response = await admin_client.get("/api/v1/runners")
     item = next(item for item in response.json() if item["id"] == str(runner_id))
     assert item["current_run_id"] == str(run.id)
+
+
+async def test_editor_cannot_create_or_revoke_but_can_list(client, admin_client):
+    """Runner tokens are an operator's credential: admin mints and revokes,
+    every authenticated role may look."""
+    created = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-07", "lanes": ["default"]}
+    )
+    assert created.status_code == 201, created.text
+    runner_id = created.json()["id"]
+
+    denied = await client.post("/api/v1/runners", json={"name": "gpu-08", "lanes": ["default"]})
+    assert denied.status_code == 403, denied.text
+    assert (await client.post(f"/api/v1/runners/{runner_id}/revoke")).status_code == 403
+    assert (await client.get("/api/v1/runners")).status_code == 200
+
+
+async def test_a_name_longer_than_the_column_is_a_422_not_a_500(admin_client):
+    response = await admin_client.post(
+        "/api/v1/runners", json={"name": "x" * 129, "lanes": ["default"]}
+    )
+    assert response.status_code == 422, response.text
