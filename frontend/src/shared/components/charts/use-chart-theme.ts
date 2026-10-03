@@ -28,6 +28,8 @@ export interface ChartTheme {
   surface: string;
   warning: string;
   success: string;
+  /** Held-out and new compounds (test set, a run's compounds): amber, darker in light mode. */
+  held: string;
 }
 
 const TOKENS = {
@@ -42,6 +44,7 @@ const TOKENS = {
   surface: "--color-card",
   warning: "--color-ds-warning",
   success: "--color-ds-success",
+  held: "--color-score-fair",
 } as const;
 
 function read(): ChartTheme {
@@ -71,6 +74,7 @@ function read(): ChartTheme {
     surface: get(TOKENS.surface, "#ffffff"),
     warning: get(TOKENS.warning, "#f59e0b"),
     success: get(TOKENS.success, "#22c55e"),
+    held: get(TOKENS.held, "#d97706"),
   };
 }
 
