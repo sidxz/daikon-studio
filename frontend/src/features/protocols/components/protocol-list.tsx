@@ -5,11 +5,16 @@ import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Plus } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { useProtocols } from "../hooks/use-protocols";
+import type { Protocol } from "../types";
 
 export function ProtocolList() {
-  const { data, isLoading, isError } = useProtocols();
-  const items = data?.items ?? [];
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [pages, setPages] = useState<Protocol[]>([]);
+  const { data, isLoading, isError } = useProtocols(cursor);
+
+  const items = cursor ? [...pages, ...(data?.items ?? [])] : (data?.items ?? []);
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
@@ -75,6 +80,20 @@ export function ProtocolList() {
               </div>
             </Link>
           ))}
+        </div>
+      )}
+
+      {data?.next_cursor && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setPages(items);
+              setCursor(data.next_cursor ?? undefined);
+            }}
+          >
+            Load more
+          </Button>
         </div>
       )}
     </div>

@@ -74,7 +74,7 @@ export function TrainProtocolForm() {
   const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
   const [runId, setRunId] = useState<string | undefined>();
 
-  const datasets = useDatasets();
+  const datasets = useDatasets(undefined, 200);
   const engines = useEngines();
   const { data: dataset } = useDataset(datasetId || undefined);
   const train = useTrainProtocol();

@@ -13,13 +13,14 @@ import type { ExportFormat } from "../types";
 export const COLLECTIONS_KEY = ["collections"];
 export const COLLECTION_KEY = ["collection"];
 
-export function useCollections() {
+export function useCollections(cursor?: string) {
   return useQuery({
-    queryKey: COLLECTIONS_KEY,
+    queryKey: [...COLLECTIONS_KEY, cursor ?? null],
     queryFn: () =>
       customInstance<PaginatedResponseCollectionResponse>({
         url: `${API_V1}/collections`,
         method: "GET",
+        params: { cursor },
       }),
   });
 }

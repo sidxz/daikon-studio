@@ -38,7 +38,7 @@ export function SweepForm() {
   const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
   const [configs, setConfigs] = useState<ConfigRow[]>(() => [emptyRow()]);
 
-  const datasets = useDatasets();
+  const datasets = useDatasets(undefined, 200);
   const engines = useEngines();
   const { data: dataset } = useDataset(datasetId || undefined);
   const submit = useSubmitSweep();

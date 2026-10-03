@@ -6,13 +6,17 @@ import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Plus } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 import { useRuns } from "../hooks/use-runs";
-import { RUN_STATUS_COPY } from "../types";
+import { RUN_STATUS_COPY, type Run } from "../types";
 
 export function RunList() {
-  const { data, isLoading, isError } = useRuns("prediction");
-  const protocols = useProtocols();
-  const items = data?.items ?? [];
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [pages, setPages] = useState<Run[]>([]);
+  const { data, isLoading, isError } = useRuns("prediction", cursor);
+  const protocols = useProtocols(undefined, 200);
+
+  const items = cursor ? [...pages, ...(data?.items ?? [])] : (data?.items ?? []);
 
   // Resolve the protocol's name so a run is never identified by an id.
   const nameFor = (protocolId: string | null | undefined) =>
@@ -80,6 +84,20 @@ export function RunList() {
               </span>
             </Link>
           ))}
+        </div>
+      )}
+
+      {data?.next_cursor && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setPages(items);
+              setCursor(data.next_cursor ?? undefined);
+            }}
+          >
+            Load more
+          </Button>
         </div>
       )}
     </div>

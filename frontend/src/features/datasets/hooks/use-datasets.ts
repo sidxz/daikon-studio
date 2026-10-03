@@ -24,16 +24,20 @@ import {
   DATASET_PROFILE_KEY,
 } from "./query-keys";
 
-export function useDatasets(cursor?: string) {
+/**
+ * A picker passes `limit: 200`, the server's cap, to see past the default page of 50.
+ * ponytail: a picker sees the newest 200; past that it needs search, not a bigger page.
+ */
+export function useDatasets(cursor?: string, limit?: number) {
   return useQuery({
-    queryKey: [...DATASETS_KEY, cursor ?? null],
+    queryKey: [...DATASETS_KEY, cursor ?? null, limit ?? null],
     queryFn: () =>
       customInstance<PaginatedResponseDatasetResponse>({
         url: `${API_V1}/datasets`,
         method: "GET",
         // URLSearchParams percent-encodes, which is what keeps an opaque
         // base64 cursor intact through the round trip.
-        params: cursor ? { cursor } : undefined,
+        params: { cursor, limit },
       }),
   });
 }
@@ -54,9 +58,12 @@ export function useDataset(id: string | undefined) {
  * multipart, and letting the browser set its own boundary is the whole point --
  * a hand-set Content-Type here produces a boundary mismatch and a 422 that
  * reads like a validation failure.
+ *
+ * Silent to the global toast: the wizard reports a failed upload itself.
  */
 export function useUploadDatasetFile() {
   return useMutation({
+    meta: { silent: true },
     mutationFn: async (file: File): Promise<string> => {
       const body = new FormData();
       body.append("file", file);
@@ -87,14 +94,16 @@ export interface CreateDatasetInput {
 /**
  * Freeze a Dataset.
  *
- * No `onError` toast: a 422 here carries the entire ValidationReport, and that
- * report is the useful part of the rejection. The caller renders it as a page.
- * Collapsing it into a toast would throw away exactly the information the
- * scientist needs to fix their file.
+ * Silent to the global toast: a 422 here carries the entire ValidationReport,
+ * and that report is the useful part of the rejection. The caller renders it as
+ * a page, and toasts any other failure itself. Collapsing the report into a
+ * toast would throw away exactly the information the scientist needs to fix
+ * their file.
  */
 export function useCreateDataset() {
   const queryClient = useQueryClient();
   return useMutation<Dataset, ApiError, CreateDatasetInput>({
+    meta: { silent: true },
     mutationFn: (data) =>
       customInstance<Dataset>({ url: `${API_V1}/datasets`, method: "POST", data }),
     onSuccess: () => {

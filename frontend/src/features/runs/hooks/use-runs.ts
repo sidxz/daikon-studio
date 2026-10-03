@@ -26,14 +26,17 @@ export function isTerminal(status: string | undefined): boolean {
 }
 
 /** Prediction runs, newest first. Training runs live on their Protocol. */
-export function useRuns(kind: "prediction" | "training" | undefined = "prediction") {
+export function useRuns(
+  kind: "prediction" | "training" | undefined = "prediction",
+  cursor?: string,
+) {
   return useQuery({
-    queryKey: [...RUNS_KEY, kind ?? null],
+    queryKey: [...RUNS_KEY, kind ?? null, cursor ?? null],
     queryFn: () =>
       customInstance<PaginatedResponseRunResponse>({
         url: `${API_V1}/runs`,
         method: "GET",
-        params: kind ? { kind } : undefined,
+        params: { kind, cursor },
       }),
   });
 }

@@ -1,12 +1,18 @@
 "use client";
 
+import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import Link from "next/link";
+import { useState } from "react";
 import { useCollections } from "../hooks/use-collections";
+import type { Collection } from "../types";
 
 export function CollectionList() {
-  const { data, isLoading, isError } = useCollections();
-  const items = data?.items ?? [];
+  const [cursor, setCursor] = useState<string | undefined>();
+  const [pages, setPages] = useState<Collection[]>([]);
+  const { data, isLoading, isError } = useCollections(cursor);
+
+  const items = cursor ? [...pages, ...(data?.items ?? [])] : (data?.items ?? []);
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
@@ -55,6 +61,20 @@ export function CollectionList() {
               </div>
             </Link>
           ))}
+        </div>
+      )}
+
+      {data?.next_cursor && (
+        <div className="flex justify-center">
+          <Button
+            variant="outline"
+            onClick={() => {
+              setPages(items);
+              setCursor(data.next_cursor ?? undefined);
+            }}
+          >
+            Load more
+          </Button>
         </div>
       )}
     </div>

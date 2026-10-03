@@ -85,7 +85,7 @@ export function PredictWizard() {
   const [structureColumn, setStructureColumn] = useState("");
   const [rows, setRows] = useState<Record<string, string | undefined>[]>([]);
 
-  const protocols = useProtocols();
+  const protocols = useProtocols(undefined, 200);
   const upload = useUploadPredictionFile();
   const create = useCreateRun();
 

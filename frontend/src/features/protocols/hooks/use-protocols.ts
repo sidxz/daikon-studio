@@ -1,6 +1,6 @@
 "use client";
 
-import { API_V1, customInstance } from "@/shared/lib/api/custom-instance";
+import { API_V1, ApiError, customInstance } from "@/shared/lib/api/custom-instance";
 import type {
   PaginatedResponseProtocolResponse,
   PaginatedResponseRunResponse,
@@ -10,7 +10,7 @@ import type {
   TrainProtocolBody,
 } from "@/shared/lib/api/model";
 import { RUN_POLL_MS, STALE_TIME } from "@/shared/lib/query-defaults";
-import { showSuccess } from "@/shared/lib/toast";
+import { showError, showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { PROTOCOLS_KEY, PROTOCOL_KEY, PROTOCOL_RUNS_KEY, SCORECARD_KEY } from "./query-keys";
 
@@ -20,14 +20,18 @@ export function isTerminal(status: string | undefined): boolean {
   return status !== undefined && TERMINAL.has(status);
 }
 
-export function useProtocols(cursor?: string) {
+/**
+ * A picker passes `limit: 200`, the server's cap, to see past the default page of 50.
+ * ponytail: a picker sees the newest 200; past that it needs search, not a bigger page.
+ */
+export function useProtocols(cursor?: string, limit?: number) {
   return useQuery({
-    queryKey: [...PROTOCOLS_KEY, cursor ?? null],
+    queryKey: [...PROTOCOLS_KEY, cursor ?? null, limit ?? null],
     queryFn: () =>
       customInstance<PaginatedResponseProtocolResponse>({
         url: `${API_V1}/protocols`,
         method: "GET",
-        params: cursor ? { cursor } : undefined,
+        params: { cursor, limit },
       }),
   });
 }
@@ -86,16 +90,27 @@ export function useRunPoll(runId: string | undefined) {
   });
 }
 
-/** Publishing is irreversible; a second attempt is a 423 from the server. */
+/**
+ * Publishing is irreversible; a second attempt is a 423 from the server.
+ *
+ * A 423 means someone published it first -- a stale view, not a failure -- so
+ * this hook is silent to the global toast and reports every other failure itself.
+ */
 export function usePublishProtocol() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
       customInstance<void>({ url: `${API_V1}/protocols/${id}/publish`, method: "POST" }),
-    onSuccess: (_data, id) => {
+    meta: { silent: true },
+    onSuccess: () => showSuccess("Protocol published — anyone in this workspace can run it now"),
+    onError: (error) => {
+      if (error instanceof ApiError && (error.status === 423 || error.silent)) return;
+      showError(error.message);
+    },
+    // Refetch whatever happened: after a 423 the cached draft is out of date too.
+    onSettled: (_data, _error, id) => {
       queryClient.invalidateQueries({ queryKey: PROTOCOLS_KEY });
       queryClient.invalidateQueries({ queryKey: [...PROTOCOL_KEY, id] });
-      showSuccess("Protocol published — anyone in this workspace can run it now");
     },
   });
 }
