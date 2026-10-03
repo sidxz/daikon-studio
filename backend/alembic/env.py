@@ -30,7 +30,10 @@ config = context.config
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
 if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    # disable_existing_loggers=False: fileConfig's default disables every logger
+    # that already exists, which silenced the app's own loggers for the rest of
+    # the process whenever migrations ran in-process (the test session does).
+    fileConfig(config.config_file_name, disable_existing_loggers=False)
 
 # Set sqlalchemy.url from the environment when it isn't already set on the
 # config (e.g. programmatically, as the integration test fixture does).

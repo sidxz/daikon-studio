@@ -24,6 +24,9 @@ NOISY_PATHS = ("/api/v1/runner/claim", "/health", "/ready")
 # the status code last and nothing after it -- so the match must accept end-of-line.
 _SUCCESS = re.compile(r'" (200|204)(\s|$)')
 
+#: How `configure_logging` recognises the handler it installed on a previous call.
+_HANDLER_NAME = "daikonstudio"
+
 
 class DropNoisyAccess(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
@@ -52,6 +55,7 @@ def configure_logging(*, level: str = "INFO", fmt: str = "console") -> None:
         cache_logger_on_first_use=False,
     )
     handler = logging.StreamHandler(sys.stderr)
+    handler.name = _HANDLER_NAME
     handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(
             foreign_pre_chain=shared,
@@ -59,7 +63,10 @@ def configure_logging(*, level: str = "INFO", fmt: str = "console") -> None:
         )
     )
     root = logging.getLogger()
-    root.handlers[:] = [handler]
+    # Replace only the handler this function installed last time. A handler someone
+    # else attached (pytest's caplog, a test harness, an APM agent) stays: wiping it
+    # made every caplog assertion in the suite fail once any test had built the app.
+    root.handlers[:] = [h for h in root.handlers if h.name != _HANDLER_NAME] + [handler]
     root.setLevel(level.upper())
     # Uvicorn installs its own handlers before the app imports; route them
     # through ours so every line has one shape, and mute the poll chatter.

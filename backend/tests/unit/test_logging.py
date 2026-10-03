@@ -46,6 +46,21 @@ def test_info_is_visible_once_configured(capsys):
 def test_configuring_twice_installs_one_handler_and_one_filter(capsys):
     configure_logging()
     configure_logging()
-    assert len(logging.getLogger().handlers) == 1
+    ours = [h for h in logging.getLogger().handlers if h.name == "daikonstudio"]
+    assert len(ours) == 1
     access = logging.getLogger("uvicorn.access")
     assert sum(isinstance(f, DropNoisyAccess) for f in access.filters) == 1
+
+
+def test_handlers_someone_else_installed_survive(capsys):
+    """pytest's caplog is a root handler. `create_app()` configures logging, so
+    without this every caplog assertion after the first API test came back empty."""
+    foreign = logging.NullHandler()
+    foreign.name = "someone-else"
+    root = logging.getLogger()
+    root.addHandler(foreign)
+    try:
+        configure_logging()
+        assert foreign in root.handlers
+    finally:
+        root.removeHandler(foreign)
