@@ -25,5 +25,9 @@ export function GET() {
     uiGitSha: process.env.APP_GIT_SHA || "unknown",
     uiBuildDate: process.env.APP_BUILD_DATE || "unknown",
     environment: process.env.APP_ENV || "development",
+    // What the Runners page's `docker run` names. `||`, not `??`: an empty
+    // value (an unset Compose variable) would print a command with no image.
+    runnerImage: process.env.APP_RUNNER_IMAGE || "ghcr.io/sidxz/daikon-studio/api",
+    runnerGpuImage: process.env.APP_RUNNER_GPU_IMAGE || "daikon-runner:gpu",
   });
 }

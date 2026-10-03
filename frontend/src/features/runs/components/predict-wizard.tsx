@@ -22,8 +22,13 @@ import Papa from "papaparse";
 import { useCallback, useMemo, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useCreateRun, useUploadPredictionFile } from "../hooks/use-runs";
+import { guessIdColumn } from "../lib/guess-id-column";
 import { summarisePreview } from "../lib/parse-preview";
 import { PredictionPreview } from "./prediction-preview";
+
+// Radix forbids an empty item value, and a blank header is dropped on parse, so
+// no real column can ever be named this.
+const NO_ID_COLUMN = " ";
 
 function ProtocolContext({ protocol }: { protocol: Protocol }) {
   const { data: dataset } = useDataset(protocol.dataset_id);
@@ -83,6 +88,7 @@ export function PredictWizard() {
   const [file, setFile] = useState<File | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [structureColumn, setStructureColumn] = useState("");
+  const [idColumn, setIdColumn] = useState<string | null>(null);
   const [rows, setRows] = useState<Record<string, string | undefined>[]>([]);
 
   const protocols = useProtocols(undefined, 200);
@@ -120,6 +126,7 @@ export function PredictWizard() {
           fields.find((field) => field.toLowerCase().includes("smiles")) ??
           fields[0];
         setStructureColumn(guess);
+        setIdColumn(guessIdColumn(fields, guess));
       },
       error: () => showError("Could not read that file"),
     });
@@ -146,6 +153,7 @@ export function PredictWizard() {
         protocol_id: protocolId,
         upload_ref: uploadRef,
         structure_column: structureColumn,
+        id_column: idColumn,
       });
       // A cache hit comes back 202 with an already-ready Run, so the status is
       // the only way to tell that no work was started. Saying so beats showing
@@ -226,21 +234,46 @@ export function PredictWizard() {
           </div>
 
           {columns.length > 1 && (
-            <div className="space-y-1.5">
-              <Label>Structure column</Label>
-              <Select value={structureColumn} onValueChange={setStructureColumn}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {columns.map((column) => (
-                    <SelectItem key={column} value={column}>
-                      {column}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            <>
+              <div className="space-y-1.5">
+                <Label htmlFor="structure-column">Structure column</Label>
+                <Select value={structureColumn} onValueChange={setStructureColumn}>
+                  <SelectTrigger id="structure-column">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {columns.map((column) => (
+                      <SelectItem key={column} value={column}>
+                        {column}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="id-column">Identifier column (optional)</Label>
+                <Select
+                  value={idColumn ?? NO_ID_COLUMN}
+                  onValueChange={(value) => setIdColumn(value === NO_ID_COLUMN ? null : value)}
+                >
+                  <SelectTrigger id="id-column">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={NO_ID_COLUMN}>None</SelectItem>
+                    {columns.map((column) => (
+                      <SelectItem key={column} value={column}>
+                        {column}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Carried beside every prediction and into the export, so results join back to your
+                  file.
+                </p>
+              </div>
+            </>
           )}
           {summary && <PredictionPreview summary={summary} column={structureColumn} />}
         </CardContent>

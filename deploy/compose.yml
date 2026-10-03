@@ -65,6 +65,9 @@ services:
       APP_URL: "https://${STUDIO_DOMAIN}"
       APP_API_BASE_URL: "https://${STUDIO_DOMAIN}"
       APP_ENV: production
+      # The Runners page's copy-paste docker command names this image for a
+      # CPU runner, so it is the one this stack actually runs.
+      APP_RUNNER_IMAGE: "${STUDIO_API_IMAGE}"
 
   # The default-lane runner, on the same host. Talks to the API directly, so
   # the reverse-proxy slash-merging caveat in deploy/README.md does not apply.

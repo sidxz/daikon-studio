@@ -16,6 +16,8 @@ export interface AppConfig {
   uiGitSha: string;
   uiBuildDate: string;
   environment: string;
+  runnerImage: string;
+  runnerGpuImage: string;
 }
 
 const defaultConfig: AppConfig = {
@@ -28,6 +30,8 @@ const defaultConfig: AppConfig = {
   uiGitSha: "unknown",
   uiBuildDate: "unknown",
   environment: "development",
+  runnerImage: "ghcr.io/sidxz/daikon-studio/api",
+  runnerGpuImage: "daikon-runner:gpu",
 };
 
 const AppConfigContext = createContext<AppConfig>(defaultConfig);

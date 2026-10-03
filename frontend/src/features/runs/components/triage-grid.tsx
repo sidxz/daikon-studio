@@ -45,6 +45,11 @@ function StructureCell({ value }: { value: string }) {
   return <StructureThumbnail smiles={value} size={64} className="my-1" />;
 }
 
+/** A blank identifier, or a run from before identifiers were kept, is absence, not zero. */
+function OrDash({ value }: { value: string | number | null }) {
+  return value == null ? <span className="text-muted-foreground">—</span> : <span>{value}</span>;
+}
+
 export function TriageGrid({
   runId,
   readouts,
@@ -60,6 +65,9 @@ export function TriageGrid({
   const [selected, setSelected] = useState<number[]>([]);
   const [outsideDomain, setOutsideDomain] = useState(0);
   const [inDomainOnly, setInDomainOnly] = useState(false);
+  // Unknown until a block arrives: the Run does not say whether it was given an
+  // identifier column. Set from any block, so leading blank IDs cannot hide it.
+  const [hasIds, setHasIds] = useState(false);
 
   const columns = useMemo<ColDef<TriageRow>[]>(() => {
     // No column for `__rowId`. AG Grid renders its own checkbox column from
@@ -83,6 +91,28 @@ export function TriageGrid({
         sortable: false,
         filter: false,
         cellClass: "font-mono text-xs",
+      },
+      // The join back to the scientist's own file. Neither is a sort key the
+      // results endpoint accepts, so both are display only.
+      {
+        headerName: "ID",
+        field: "compound_id",
+        width: 140,
+        sortable: false,
+        filter: false,
+        hide: !hasIds,
+        cellRenderer: OrDash,
+      },
+      {
+        headerName: "Row",
+        field: "input_row",
+        width: 80,
+        sortable: false,
+        filter: false,
+        // `input_row` counts data rows from 1, as the upload's ValidationReport
+        // does; the CSV's own line number is one more, for the header.
+        headerTooltip: "Row in your uploaded file, not counting the header",
+        cellRenderer: OrDash,
       },
     ];
 
@@ -132,7 +162,7 @@ export function TriageGrid({
     );
 
     return base;
-  }, [readouts]);
+  }, [readouts, hasIds]);
 
   const datasource = useMemo<IDatasource>(
     () => ({
@@ -149,6 +179,7 @@ export function TriageGrid({
               inDomainOnly,
             }),
           );
+          if (rows.some((row) => row.compound_id != null)) setHasIds(true);
           // `total_count` is always null in this API, so the last row is only
           // known when a page comes back without a next cursor.
           const lastRow = nextCursor === null ? params.startRow + rows.length : undefined;

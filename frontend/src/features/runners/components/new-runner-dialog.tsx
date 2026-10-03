@@ -12,6 +12,7 @@ import {
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { getApiBaseUrl } from "@/shared/lib/api/custom-instance";
+import { useAppConfig } from "@/shared/lib/app-config";
 import { showSuccess } from "@/shared/lib/toast";
 import { Check, Copy, Plus } from "lucide-react";
 import { useState } from "react";
@@ -23,7 +24,7 @@ import { type CreatedRunner, KNOWN_LANES, LANE_LABELS } from "../types";
  * origin. Must never throw -- a relative base (e.g. `APP_API_BASE_URL=/api`, the case
  * this comment used to only warn about) fails `new URL()` with no second argument, and
  * this runs at render during the one-time token reveal below: an uncaught throw here
- * replaces the whole page (there is no error.tsx) and loses a token that lives only in
+ * replaces the whole page with the error boundary and loses a token that lives only in
  * component state (Important 5, final review). Fall back to the page's own origin,
  * which is what a relative base resolves against anyway.
  */
@@ -36,9 +37,10 @@ export function apiOrigin(): string {
   }
 }
 
-export function runCommand(created: CreatedRunner): string {
+/** `images` comes from runtime config (`APP_RUNNER_IMAGE`, `APP_RUNNER_GPU_IMAGE`). */
+export function runCommand(created: CreatedRunner, images: { cpu: string; gpu: string }): string {
   const gpu = created.lanes.includes("gpu");
-  const image = gpu ? "daikon-runner:gpu" : "daikon-runner:cpu";
+  const image = gpu ? images.gpu : images.cpu;
   return [
     "docker run -d --restart unless-stopped \\",
     ...(gpu ? ["  --gpus all \\"] : []),
@@ -60,6 +62,8 @@ export function NewRunnerDialog() {
   const [created, setCreated] = useState<CreatedRunner | null>(null);
   const [copied, setCopied] = useState(false);
   const createRunner = useCreateRunner();
+  const { runnerImage, runnerGpuImage } = useAppConfig();
+  const images = { cpu: runnerImage, gpu: runnerGpuImage };
 
   const revealing = created !== null;
 
@@ -79,7 +83,7 @@ export function NewRunnerDialog() {
 
   async function copyCommand() {
     if (!created) return;
-    await navigator.clipboard.writeText(runCommand(created));
+    await navigator.clipboard.writeText(runCommand(created, images));
     setCopied(true);
     showSuccess("Copied to clipboard");
   }
@@ -173,17 +177,23 @@ export function NewRunnerDialog() {
               </DialogHeader>
               <div className="space-y-2">
                 <pre className="overflow-x-auto rounded-md border border-border bg-muted/40 p-3 font-mono text-xs leading-relaxed">
-                  {runCommand(created)}
+                  {runCommand(created, images)}
                 </pre>
                 <Button variant="outline" size="sm" onClick={copyCommand}>
                   {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
                   {copied ? "Copied" : "Copy command"}
                 </Button>
                 <p className="text-xs text-muted-foreground">
-                  STUDIO_URL above is this browser's address. If the runner machine can't reach it
-                  (a local address, a machine behind a firewall), replace it with one that it can —
-                  see <code>make image-runner-cpu</code> / <code>make image-runner-gpu</code> to
-                  build these images.
+                  STUDIO_URL above is the API's address as the runner machine must reach it. It is
+                  filled in with the address this browser uses; if the runner machine can't reach
+                  that (a local address, a firewall), replace it with one it can.
+                  {created.lanes.includes("gpu") && (
+                    <>
+                      {" "}
+                      CI does not publish the GPU image: build it on that machine with{" "}
+                      <code>make image-runner-gpu</code>.
+                    </>
+                  )}
                 </p>
               </div>
               <DialogFooter>

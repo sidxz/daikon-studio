@@ -6,10 +6,10 @@ export type Runner = RunnerResponse;
 export type CreatedRunner = CreatedRunnerResponse;
 
 /**
- * Lanes a runner can serve. `EngineManifestResponse` never surfaces
- * `EngineManifest.lane` (see `backend/src/daikonstudio/application/engines/manifest.py`),
- * so there is no cheap way to read this list from the catalogue -- this
- * mirrors the two values that field actually takes today. Add a lane here
+ * Lanes a runner can serve. `EngineManifestResponse.lane` names the lane each
+ * engine needs, but the New-runner dialog has to offer a lane before any engine
+ * is involved, so this mirrors the two values that field takes today
+ * (`backend/src/daikonstudio/application/engines/manifest.py`). Add a lane here
  * the day a third one ships.
  */
 export const KNOWN_LANES = ["default", "gpu"] as const;

@@ -27,18 +27,20 @@ describe("apiOrigin", () => {
 });
 
 describe("runCommand", () => {
+  const images = { cpu: "ghcr.io/lab/daikon-studio/api", gpu: "registry.lab/daikon-runner:gpu" };
+
   it("overrides CMD for the cpu image, whose default CMD serves the API", () => {
     setApiBaseUrl("http://localhost:8002");
-    const command = runCommand({ ...runner, lanes: ["default"] });
-    expect(command).toContain("daikon-runner:cpu");
+    const command = runCommand({ ...runner, lanes: ["default"] }, images);
+    expect(command).toContain("ghcr.io/lab/daikon-studio/api");
     expect(command).toContain("python -m daikonstudio.infrastructure.runner");
     expect(command).not.toContain("--gpus all");
   });
 
   it("adds --gpus all for the gpu image and does not override its CMD", () => {
     setApiBaseUrl("http://localhost:8002");
-    const command = runCommand({ ...runner, lanes: ["gpu"] });
-    expect(command).toContain("daikon-runner:gpu");
+    const command = runCommand({ ...runner, lanes: ["gpu"] }, images);
+    expect(command).toContain("registry.lab/daikon-runner:gpu");
     expect(command).toContain("--gpus all");
     expect(command).not.toContain("python -m daikonstudio.infrastructure.runner");
   });

@@ -189,7 +189,7 @@ lint: ## Backend lint (ruff + mypy)
 lint-fe: ## Frontend lint (biome)
 	$(FRONTEND) && pnpm lint
 
-image-runner-cpu: ## Build the daikon-runner:cpu image the runners UI's docker command names
+image-runner-cpu: ## Build the API + default-lane runner image locally as daikon-runner:cpu (the Runners UI names APP_RUNNER_IMAGE, the published one, by default)
 	docker build -f backend/Dockerfile -t daikon-runner:cpu backend
 
 image-runner-gpu: ## Build the daikon-runner:gpu image (see backend/Dockerfile.gpu -- x86_64 only)
