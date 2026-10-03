@@ -159,6 +159,19 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
               </span>
             )}
           </div>
+          {verdict.ci && (
+            <p className="mt-1 text-xs text-muted-foreground">
+              95% interval for this {metric}: [<ReadoutValue value={verdict.ci[0]} />,{" "}
+              <ReadoutValue value={verdict.ci[1]} />] (bootstrap over the test set, unpaired)
+            </p>
+          )}
+          {/* Within noise by the interval: the only such verdict with no noise floor. */}
+          {verdict.kind === "within-noise" && verdict.noiseFloor == null && (
+            <p className="mt-2 text-sm">
+              The baseline's number sits inside that interval, so this test set cannot tell the two
+              models apart.
+            </p>
+          )}
           {verdict.kind === "within-noise" && verdict.noiseFloor != null && (
             <p className="mt-2 text-sm">
               The margin is <ReadoutValue value={Math.abs(verdict.delta ?? 0)} precision={3} />, and

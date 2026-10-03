@@ -5,6 +5,7 @@ import { computeOptimismGap, computeVerdict, describeBaseline, higherIsBetter } 
 function scorecard(overrides: Partial<ScorecardResponse>): ScorecardResponse {
   return {
     primary_metric: "r2",
+    primary_metric_ci: null,
     prediction_kind: "numeric",
     metrics: { r2: 0.7 },
     metrics_undefined: null,
@@ -188,5 +189,32 @@ describe("a margin smaller than the assay noise", () => {
       }),
     );
     expect(verdict.kind).toBe("no-better");
+  });
+});
+
+describe("a margin inside the bootstrap interval", () => {
+  it("is within noise when the baseline sits inside the bootstrap interval", () => {
+    const v = computeVerdict(
+      scorecard({
+        metrics: { r2: 0.7 },
+        baseline_metrics: { r2: 0.6 },
+        primary_metric_ci: [0.5, 0.8],
+      }),
+    );
+    expect(v.kind).toBe("within-noise");
+    expect(v.ci).toEqual([0.5, 0.8]);
+  });
+
+  it("still beats when the baseline is outside the interval", () => {
+    expect(computeVerdict(scorecard({ primary_metric_ci: [0.65, 0.75] })).kind).toBe("beats");
+  });
+
+  it("carries no noise floor when the interval, not the assay noise, decides", () => {
+    // The band words the two reasons differently, and an R² margin held against
+    // a noise floor in the readout's units would be arithmetic on unrelated
+    // quantities.
+    const v = computeVerdict(scorecard({ primary_metric_ci: [0.5, 0.8], noise_floor: 0.151 }));
+    expect(v.kind).toBe("within-noise");
+    expect(v.noiseFloor ?? null).toBeNull();
   });
 });

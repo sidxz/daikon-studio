@@ -16,6 +16,8 @@ export interface Verdict {
   delta: number | null;
   /** Set when the margin was judged against the assay's own noise. */
   noiseFloor?: number | null;
+  /** The bootstrap 95% interval on the model's primary metric, when the server computed one. */
+  ci?: [number, number] | null;
 }
 
 /**
@@ -44,6 +46,8 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   const metric = scorecard.primary_metric;
   const model = (scorecard.metrics as Record<string, number | null>)?.[metric] ?? null;
   const baseline = (scorecard.baseline_metrics as Record<string, number | null>)?.[metric] ?? null;
+  const [lo, hi] = scorecard.primary_metric_ci ?? [];
+  const ci: [number, number] | null = lo != null && hi != null ? [lo, hi] : null;
 
   if (scorecard.baseline_is_self) {
     return {
@@ -52,6 +56,7 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
       model,
       baseline: null,
       delta: null,
+      ci,
     };
   }
 
@@ -62,6 +67,7 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
       model,
       baseline,
       delta: null,
+      ci,
     };
   }
 
@@ -69,7 +75,7 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   const better = higherIsBetter(metric) ? delta > 0 : delta < 0;
 
   if (Math.abs(delta) < TIE_EPSILON) {
-    return { kind: "ties", headline: "Identical to the baseline", model, baseline, delta: 0 };
+    return { kind: "ties", headline: "Identical to the baseline", model, baseline, delta: 0, ci };
   }
 
   // A win smaller than the assay's own measurement error is not a win. The
@@ -92,11 +98,29 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
       baseline,
       delta,
       noiseFloor,
+      ci,
+    };
+  }
+
+  // The same question asked of the test set instead of the assay: when the
+  // baseline's number sits inside the bootstrap interval on the model's own,
+  // resampling these test compounds can put the model behind it. No
+  // `noiseFloor` on this verdict, which is how the band tells the two reasons
+  // apart: an R² margin held against a noise floor in the readout's units
+  // would be arithmetic on unrelated quantities.
+  if (better && ci && baseline >= ci[0] && baseline <= ci[1]) {
+    return {
+      kind: "within-noise",
+      headline: "Ahead of the baseline, but within this test set's sampling noise",
+      model,
+      baseline,
+      delta,
+      ci,
     };
   }
 
   return better
-    ? { kind: "beats", headline: "Beats the baseline", model, baseline, delta, noiseFloor }
+    ? { kind: "beats", headline: "Beats the baseline", model, baseline, delta, noiseFloor, ci }
     : {
         kind: "no-better",
         headline: "No better than the baseline",
@@ -104,6 +128,7 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
         baseline,
         delta,
         noiseFloor,
+        ci,
       };
 }
 
