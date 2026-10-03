@@ -1,0 +1,1355 @@
+<title>Studio Explainer Figures</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+/* Layout: a review sheet. Each row pairs an app-faithful mock (left) with its brief and review controls (right); rows stack below 900px.
+   Colors are DAIKON Studio's own design tokens (@structflo/daikon-design-tokens), light and dark. */
+:root {
+  --page: #f1f5f9;
+  --app: #ffffff;
+  --card: #ffffff;
+  --border: #e2e8f0;
+  --border-strong: #cbd5e1;
+  --fg: #0f172a;
+  --fg-2: #475569;
+  --app-muted: #94a3b8;
+  --fig-text: #64748b;
+  --accent: #3b82f6;
+  --accent-soft: #eff6ff;
+  --measured: #3b82f6;
+  --held: #d97706;
+  --pulse: #14b8a6;
+  --ok: #15803d;
+  --ok-soft: #f0fdf4;
+  --warn: #a16207;
+  --warn-soft: #fefce8;
+  --sidebar: #f1f5f9;
+  --sidebar-fg: #475569;
+  --sidebar-active: rgba(59, 130, 246, 0.12);
+  --ic-dashboard: #475569; --ic-datasets: #2563eb; --ic-protocols: #15803d; --ic-sweeps: #7c3aed;
+  --ic-runs: #d97706; --ic-collections: #db2777; --ic-engines: #0d9488; --ic-runners: #0891b2;
+  --sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --page: #020617; --app: #0f172a; --card: #1e293b; --border: #334155; --border-strong: #475569;
+    --fg: #f1f5f9; --fg-2: #94a3b8; --app-muted: #64748b; --fig-text: #94a3b8;
+    --accent: #60a5fa; --accent-soft: rgba(59, 130, 246, 0.15);
+    --measured: #60a5fa; --held: #f59e0b; --pulse: #2dd4bf;
+    --ok: #22c55e; --ok-soft: rgba(34, 197, 94, 0.1); --warn: #f59e0b; --warn-soft: rgba(245, 158, 11, 0.1);
+    --sidebar: #0f172a; --sidebar-fg: #cbd5e1; --sidebar-active: rgba(255, 255, 255, 0.1);
+    --ic-dashboard: #94a3b8; --ic-datasets: #60a5fa; --ic-protocols: #4ade80; --ic-sweeps: #a78bfa;
+    --ic-runs: #fbbf24; --ic-collections: #f472b6; --ic-engines: #2dd4bf; --ic-runners: #22d3ee;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --page: #020617; --app: #0f172a; --card: #1e293b; --border: #334155; --border-strong: #475569;
+  --fg: #f1f5f9; --fg-2: #94a3b8; --app-muted: #64748b; --fig-text: #94a3b8;
+  --accent: #60a5fa; --accent-soft: rgba(59, 130, 246, 0.15);
+  --measured: #60a5fa; --held: #f59e0b; --pulse: #2dd4bf;
+  --ok: #22c55e; --ok-soft: rgba(34, 197, 94, 0.1); --warn: #f59e0b; --warn-soft: rgba(245, 158, 11, 0.1);
+  --sidebar: #0f172a; --sidebar-fg: #cbd5e1; --sidebar-active: rgba(255, 255, 255, 0.1);
+  --ic-dashboard: #94a3b8; --ic-datasets: #60a5fa; --ic-protocols: #4ade80; --ic-sweeps: #a78bfa;
+  --ic-runs: #fbbf24; --ic-collections: #f472b6; --ic-engines: #2dd4bf; --ic-runners: #22d3ee;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--page); color: var(--fg); font: 14px/1.55 var(--sans); padding-inline: 16px; margin: 0; }
+.wrap { max-width: 1120px; margin: 0 auto; padding-block: 40px 96px; }
+h1, h2, h3 { text-wrap: balance; margin: 0; }
+p { margin: 0; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ── page header ── */
+.head { display: grid; gap: 14px; max-width: 760px; }
+.eyebrow { font: 500 11px/1 var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--fg-2); }
+.head h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.01em; }
+.head p { color: var(--fg-2); max-width: 68ch; }
+.legend-inline { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--fg-2); }
+.legend-inline span { display: inline-flex; align-items: center; gap: 6px; }
+.sw { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+.sw.m { background: var(--measured); }
+.sw.h { background: var(--held); }
+.sw.p { background: transparent; border: 1.5px solid var(--fg); }
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px 20px; align-items: center; margin-top: 6px; }
+.toolbar label { font-size: 12px; color: var(--fg-2); margin-right: 8px; }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: 8px; background: var(--card); padding: 2px; gap: 2px; }
+.seg button { border: 0; background: transparent; padding: 4px 10px; border-radius: 6px; font-size: 12.5px; cursor: pointer; color: var(--fg-2); }
+.seg button[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+.seg button:hover { color: var(--fg); }
+
+.decisions { margin-top: 28px; padding: 16px 20px; border: 1px solid var(--border); border-radius: 12px; background: var(--card); max-width: 760px; }
+.decisions h2 { font-size: 14px; font-weight: 600; }
+.decisions ul { margin: 8px 0 0; padding-left: 18px; color: var(--fg-2); font-size: 13.5px; display: grid; gap: 4px; }
+
+/* ── sections ── */
+.sec { margin-top: 64px; }
+.sec-head { display: grid; gap: 6px; max-width: 760px; }
+.sec-head h2 { font-size: 20px; font-weight: 600; letter-spacing: -0.005em; }
+.sec-head p { color: var(--fg-2); }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 24px; align-items: start; margin-top: 22px; }
+.engines .row { grid-template-columns: minmax(0, 480px) minmax(0, 380px); }
+@media (max-width: 900px) { .row, .engines .row { grid-template-columns: minmax(0, 1fr); } }
+
+/* the app frame: what the page looks like inside Studio */
+.app { background: var(--app); border: 1px solid var(--border); border-radius: 12px; padding: 16px; min-width: 0; }
+.crumb { font: 11px/1 var(--mono); color: var(--fg-2); margin-bottom: 12px; display: flex; gap: 6px; }
+.crumb b { font-weight: 500; color: var(--fg); }
+.card { border: 1px solid var(--border); border-radius: 12px; background: var(--card); padding: 16px 20px; display: grid; gap: 10px; min-width: 0; }
+.card-title { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.card-title h3 { font-size: 16px; font-weight: 600; }
+.card-desc { font-size: 14px; color: var(--app-muted); }
+.badge { display: inline-flex; align-items: center; border: 1px solid var(--border); border-radius: 6px; padding: 1px 7px; font-size: 12px; color: var(--fg-2); white-space: nowrap; }
+.badge.solid { background: var(--page); border-color: transparent; }
+.badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.card-foot { border-top: 1px solid var(--border); margin: 4px -20px -16px; padding: 9px 20px; font: 12px var(--mono); color: var(--app-muted); }
+.verdict { border: 1px solid var(--border); border-radius: 8px; padding: 16px 18px; background: var(--page); display: grid; gap: 6px; }
+.verdict .big { font-size: 18px; font-weight: 600; }
+.verdict .sub { font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; color: var(--app-muted); }
+.options { display: grid; gap: 8px; }
+.option { text-align: left; border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; background: transparent; cursor: pointer; display: grid; gap: 2px; }
+.option[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); }
+.option b { font-weight: 500; font-size: 14px; }
+.option b small { font-weight: 400; font-size: 12px; color: var(--app-muted); margin-left: 6px; }
+.option span { font-size: 12px; color: var(--app-muted); }
+.label { font-size: 14px; font-weight: 500; }
+
+/* disclosure: "How this works" */
+.disc { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; padding: 2px 0; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--accent); justify-self: start; }
+.disc svg { width: 14px; height: 14px; transition: transform 160ms ease; }
+.disc[aria-expanded="true"] svg { transform: rotate(90deg); }
+.fig { border-top: 1px solid var(--border); padding-top: 12px; display: grid; gap: 8px; }
+.fig svg.plot { width: 100%; height: auto; display: block; overflow: visible; }
+.fig-foot { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; }
+.fig-cap { font-size: 12.5px; color: var(--fg-2); max-width: 68ch; }
+.replay { flex: none; display: inline-flex; align-items: center; gap: 5px; border: 1px solid var(--border); background: var(--card); border-radius: 6px; padding: 3px 8px; font-size: 12px; color: var(--fg-2); cursor: pointer; }
+.replay:hover { color: var(--fg); border-color: var(--border-strong); }
+.replay svg { width: 12px; height: 12px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; border-radius: 6px; padding: 2px 8px; font-size: 12px; font-weight: 500; }
+.chip.ok { background: var(--ok-soft); color: var(--ok); }
+.chip.warn { background: var(--warn-soft); color: var(--warn); }
+.fig-verdict { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; font-size: 13px; transition: opacity 300ms ease; }
+
+/* SVG marks */
+.t { font: 10px var(--mono); fill: var(--fig-text); }
+.t-s { font: 9px var(--mono); fill: var(--fig-text); }
+.t-fg { fill: var(--fg); }
+.t-held { fill: var(--held); }
+.ax { stroke: var(--border-strong); stroke-width: 1; fill: none; }
+.gridl { stroke: var(--border); stroke-width: 1; fill: none; }
+.edge { stroke: var(--border-strong); stroke-width: 1.5; fill: none; }
+.node { fill: var(--card); stroke: var(--border-strong); stroke-width: 1.5; }
+.m-fill { fill: var(--measured); }
+.h-fill { fill: var(--held); }
+.p-fill { fill: var(--pulse); }
+.m-stroke { stroke: var(--measured); fill: none; }
+.h-stroke { stroke: var(--held); fill: none; }
+.fg-stroke { stroke: var(--fg); fill: none; }
+.fg-fill { fill: var(--fg); }
+.card-fill { fill: var(--card); }
+.pred { fill: var(--card); stroke: var(--fg); stroke-width: 1.5; }
+.h-ring { fill: var(--card); stroke: var(--held); }
+.node-on { fill: var(--card); stroke: var(--measured); stroke-width: 2; }
+.band { fill: var(--measured); fill-opacity: 0.16; }
+.fit { stroke: var(--fg); stroke-width: 1.75; fill: none; stroke-linejoin: round; }
+.box { fill: var(--card); stroke: var(--border-strong); stroke-width: 1.25; }
+.box-on { fill: var(--accent-soft); stroke: var(--measured); stroke-width: 1.5; }
+
+/* review aside */
+.aside { display: grid; gap: 14px; min-width: 0; }
+.brief { display: grid; gap: 8px; }
+.brief .id { font: 500 11px/1 var(--mono); color: var(--fg-2); letter-spacing: 0.06em; }
+.brief h3 { font-size: 15px; font-weight: 600; }
+.brief p, .brief li { font-size: 13px; color: var(--fg-2); }
+.brief ul { margin: 0; padding-left: 16px; display: grid; gap: 3px; }
+.brief dt { font: 500 10.5px/1.4 var(--mono); text-transform: uppercase; letter-spacing: 0.07em; color: var(--fg-2); margin-top: 6px; }
+.brief dd { margin: 2px 0 0; font-size: 13px; color: var(--fg); }
+.review { border: 1px solid var(--border); border-radius: 10px; background: var(--card); padding: 12px; display: grid; gap: 8px; }
+.review .seg { width: 100%; }
+.review .seg button { flex: 1; }
+.review .seg button[data-v="keep"][aria-pressed="true"] { background: var(--ok-soft); color: var(--ok); }
+.review .seg button[data-v="revise"][aria-pressed="true"] { background: var(--warn-soft); color: var(--warn); }
+.review .seg button[data-v="cut"][aria-pressed="true"] { background: var(--page); color: var(--fg); }
+.review textarea { width: 100%; min-height: 64px; resize: vertical; border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; background: var(--app); color: var(--fg); font: 13px/1.45 var(--sans); }
+.review .status { font-size: 11.5px; color: var(--fg-2); min-height: 1em; }
+
+/* icons */
+.icons-grid { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 16px; align-items: start; }
+@media (max-width: 640px) { .icons-grid { grid-template-columns: minmax(0, 1fr); } }
+.sidebar { background: var(--sidebar); border: 1px solid var(--border); border-radius: 10px; padding: 12px 8px; display: grid; gap: 12px; }
+.sb-brand { display: flex; align-items: center; gap: 8px; padding: 0 8px 4px; font-weight: 600; font-size: 14px; }
+.sb-brand .mark { width: 22px; height: 22px; border-radius: 6px; background: var(--page); border: 1px solid var(--border); }
+.sb-group { display: grid; gap: 2px; }
+.sb-label { font-size: 12px; color: var(--app-muted); padding: 0 8px 4px; font-weight: 500; }
+.sb-item { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; font-size: 14px; color: var(--sidebar-fg); }
+.sb-item.active { background: var(--sidebar-active); color: var(--fg); font-weight: 500; }
+.sb-item svg { width: 16px; height: 16px; flex: none; }
+.ico { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.ico .dot { fill: currentColor; stroke: none; }
+.cmp { overflow-x: auto; }
+.cmp table { border-collapse: collapse; width: 100%; font-size: 13px; }
+.cmp th { text-align: left; font: 500 10.5px var(--mono); text-transform: uppercase; letter-spacing: 0.07em; color: var(--fg-2); padding: 0 10px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.cmp td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: middle; color: var(--fg-2); }
+.cmp td:first-child { color: var(--fg); font-weight: 500; white-space: nowrap; }
+.cmp .cell { display: flex; align-items: center; gap: 10px; color: var(--fg); }
+.cmp .cell svg { flex: none; }
+.cmp .s20 { width: 20px; height: 20px; }
+.cmp .s16 { width: 16px; height: 16px; }
+.cmp .lucide { stroke-width: 2; }
+
+.engines { display: grid; gap: 22px; }
+.variants { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+.variant { display: grid; gap: 8px; align-content: start; }
+.variant h4 { margin: 0; font: 500 11px/1.3 var(--mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-2); }
+.variant p { font-size: 12.5px; color: var(--fg-2); }
+.tv-glyph .sb-item svg, .tv-tile .tile { color: var(--hue); }
+.tv-tile .tile { display: inline-grid; place-items: center; width: 24px; height: 24px; margin: -4px 0; border-radius: 6px; background: color-mix(in srgb, var(--hue) 15%, transparent); flex: none; }
+.tv-tile .sb-item svg { width: 15px; height: 15px; }
+.tv-accent .dot { fill: var(--measured); }
+.tv-accent .ring { stroke: var(--held); }
+.tv-accent .chk { stroke: var(--ok); }
+.tv-accent .led { fill: var(--ok); }
+.foot-note { margin-top: 64px; font-size: 12.5px; color: var(--fg-2); max-width: 760px; }
+
+@media (prefers-reduced-motion: reduce) { .disc svg { transition: none; } }
+</style>
+
+<div class="wrap">
+  <header class="head">
+    <div class="eyebrow">DAIKON Studio · figure preview · draft 2</div>
+    <h1>Studio explainer figures</h1>
+    <p>Working prototypes of the figures proposed for Studio, shown inside the screens where they would live. Each figure plays once when it scrolls into view and then rests on its final frame. Hover over it or press Replay to watch it again. With reduced motion, only the final frame is shown.</p>
+    <p>For each figure, choose Keep, Revise or Cut and add a note. Your choices are saved with this page, and Claude reads them back before writing the spec.</p>
+    <div class="legend-inline" aria-label="Color key used by every figure">
+      <span><i class="sw m"></i>Training data, measured values</span>
+      <span><i class="sw h"></i>Test or new inputs</span>
+      <span><i class="sw p"></i>Model output (open ring = predicted)</span>
+    </div>
+    <div class="toolbar">
+      <div><label id="lbl-theme">Theme</label><span class="seg" role="group" aria-labelledby="lbl-theme" id="theme-seg">
+        <button type="button" data-v="system" aria-pressed="true">System</button><button type="button" data-v="light" aria-pressed="false">Light</button><button type="button" data-v="dark" aria-pressed="false">Dark</button></span></div>
+      <div><label id="lbl-motion">Motion</label><span class="seg" role="group" aria-labelledby="lbl-motion" id="motion-seg">
+        <button type="button" data-v="anim" aria-pressed="true">Animate</button><button type="button" data-v="final" aria-pressed="false">Final frame only</button></span></div>
+    </div>
+  </header>
+
+  <section class="decisions" aria-labelledby="dec-h">
+    <h2 id="dec-h">Already decided</h2>
+    <ul>
+      <li>Placements A to D plus custom navigation icons. The dashboard pipeline and empty-state illustrations are out of scope.</li>
+      <li>Each figure sits under a "How this works" disclosure. It is open on the first visit and remembered per browser after that.</li>
+      <li>SVG and CSS only, with no new dependency. None of these figures needed WebGL: the busiest one draws 110 points.</li>
+      <li>Each figure plays once when it comes into view and replays on hover. Training progress is not animated, because the backend does not report it.</li>
+    </ul>
+  </section>
+
+  <!-- ═════════════ A. ENGINES ═════════════ -->
+  <section class="sec" aria-labelledby="sec-a">
+    <div class="sec-head">
+      <div class="eyebrow">A · Engines</div>
+      <h2 id="sec-a">How each engine learns</h2>
+      <p>One figure per engine family, shown on the Engines page cards and beside the engine picker in Train a protocol. Five figures cover all seven engines.</p>
+    </div>
+
+    <div class="engines">
+      <!-- A1 -->
+      <div class="row">
+        <div class="app">
+          <div class="crumb">Studio / <b>Engines</b></div>
+          <article class="card">
+            <div class="card-title"><h3>ECFP4 + Random Forest</h3><span class="badge solid">Default baseline</span></div>
+            <p class="card-desc">Morgan fingerprints with a random forest. Fast, robust, and the default baseline that other models are compared against.</p>
+            <div class="badges"><span class="badge">Regression</span><span class="badge">Binary classification</span></div>
+            <button type="button" class="disc" aria-expanded="true" data-disc="A1"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>How it learns</button>
+            <div class="fig" data-fig="A1">
+              <svg class="plot" viewBox="0 0 360 172" role="img" aria-label="Four decision trees each route one input to a leaf. Their four predictions, 0.58, 0.74, 0.63 and 0.81, average to 0.69, with a spread of plus or minus 0.09."></svg>
+              <div class="fig-foot"><p class="fig-cap">Each tree is trained on a different random sample of the data and asks its own sequence of questions. The forest's prediction is the average of the trees. For regression, Studio reports the spread across trees as the uncertainty. Showing 4 of 500 trees.</p><button type="button" class="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
+            </div>
+            <div class="card-foot">ecfp4-randomforest · v1</div>
+          </article>
+        </div>
+        <aside class="aside">
+          <div class="brief">
+            <div class="id">A1 · RANDOM FOREST</div>
+            <h3>Many trees vote, and the vote is averaged</h3>
+            <dl><dt>Explains</dt><dd>Ensembles, and why the baseline's uncertainty is the disagreement between its trees.</dd>
+            <dt>Used by</dt><dd>ECFP4 + Random Forest</dd></dl>
+          </div>
+          <div class="review" data-review="A1"></div>
+        </aside>
+      </div>
+
+      <!-- A2 -->
+      <div class="row">
+        <div class="app">
+          <div class="crumb">Studio / <b>Engines</b></div>
+          <article class="card">
+            <div class="card-title"><h3>ECFP4 + XGBoost</h3></div>
+            <p class="card-desc">Morgan fingerprints with gradient-boosted trees. Often more accurate than the random-forest baseline, but more sensitive to hyperparameters.</p>
+            <div class="badges"><span class="badge">Regression</span><span class="badge">Binary classification</span></div>
+            <button type="button" class="disc" aria-expanded="true" data-disc="A2"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>How it learns</button>
+            <div class="fig" data-fig="A2">
+              <svg class="plot" viewBox="0 0 360 172" role="img" aria-label="Gradient boosting on 14 points. The fit starts as a flat line at the average; each round adds a small step that reduces the remaining errors, shown as amber lines."></svg>
+              <div class="fig-foot"><p class="fig-cap">The model starts by predicting the average. Each round adds one small tree, fitted to the errors that remain (amber). The errors shrink round by round. Showing 6 of 400 rounds, in one dimension.</p><button type="button" class="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
+            </div>
+            <div class="card-foot">ecfp4-xgboost · v1</div>
+          </article>
+        </div>
+        <aside class="aside">
+          <div class="brief">
+            <div class="id">A2 · GRADIENT BOOSTING</div>
+            <h3>Each new tree corrects the last</h3>
+            <dl><dt>Explains</dt><dd>Boosting, and why it is sensitive to the number of rounds and the learning rate.</dd>
+            <dt>Used by</dt><dd>ECFP4 + XGBoost, ECFP4 + LightGBM, RDKit descriptors + XGBoost</dd></dl>
+          </div>
+          <div class="review" data-review="A2"></div>
+        </aside>
+      </div>
+
+      <!-- A3 -->
+      <div class="row">
+        <div class="app">
+          <div class="crumb">Studio / <b>Engines</b></div>
+          <article class="card">
+            <div class="card-title"><h3>Tanimoto Gaussian Process</h3></div>
+            <p class="card-desc">A Gaussian process with a Tanimoto kernel on ECFP4 fingerprints, suited to small datasets. For regression, its uncertainty is a posterior standard deviation in the target's units.</p>
+            <div class="badges"><span class="badge">Regression</span><span class="badge">Binary classification</span></div>
+            <button type="button" class="disc" aria-expanded="true" data-disc="A3"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>How it learns</button>
+            <div class="fig" data-fig="A3">
+              <svg class="plot" viewBox="0 0 360 172" role="img" aria-label="A Gaussian process fit to five points. The shaded uncertainty band is narrow near observed points and wide in the gap between them."></svg>
+              <div class="fig-foot"><p class="fig-cap">Before any data, every value is equally plausible. Each observation pins the curve near itself, and the shaded band, two standard deviations wide, narrows there. Far from the data the band stays wide. Shown in one dimension; Studio measures closeness with Tanimoto similarity.</p><button type="button" class="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
+            </div>
+            <div class="card-foot">tanimoto-gp · v1</div>
+          </article>
+        </div>
+        <aside class="aside">
+          <div class="brief">
+            <div class="id">A3 · GAUSSIAN PROCESS</div>
+            <h3>Confident near data, uncertain away from it</h3>
+            <dl><dt>Explains</dt><dd>Principled uncertainty, and why the GP's uncertainty means something different from the forest's.</dd>
+            <dt>Used by</dt><dd>Tanimoto Gaussian Process</dd></dl>
+          </div>
+          <div class="review" data-review="A3"></div>
+        </aside>
+      </div>
+
+      <!-- A4 -->
+      <div class="row">
+        <div class="app">
+          <div class="crumb">Studio / <b>Engines</b></div>
+          <article class="card">
+            <div class="card-title"><h3>Chemprop D-MPNN</h3><span class="badge">GPU</span></div>
+            <p class="card-desc">A directed message-passing neural network that learns its own representation from the molecular graph instead of using a fixed fingerprint.</p>
+            <div class="badges"><span class="badge">Regression</span><span class="badge">Binary classification</span></div>
+            <button type="button" class="disc" aria-expanded="true" data-disc="A4"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>How it learns</button>
+            <div class="fig" data-fig="A4">
+              <svg class="plot" viewBox="0 0 360 172" role="img" aria-label="A seven-node graph. Over three rounds, messages pass along edges and the highlighted node's view grows to nodes three steps away. All node states are then summed into one learned vector."></svg>
+              <div class="fig-foot"><p class="fig-cap">In each round, every node collects messages from its neighbors. After three rounds, the outlined node carries information from nodes up to three steps away; the node four steps away is still unseen. The node states are then summed into one vector that the predictor reads. Three rounds is the default depth.</p><button type="button" class="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
+            </div>
+            <div class="card-foot">chemprop-dmpnn · v1</div>
+          </article>
+        </div>
+        <aside class="aside">
+          <div class="brief">
+            <div class="id">A4 · MESSAGE PASSING</div>
+            <h3>The representation is learned, not fixed</h3>
+            <dl><dt>Explains</dt><dd>Graph neural networks, the depth setting, and the difference from a fingerprint.</dd>
+            <dt>Used by</dt><dd>Chemprop D-MPNN</dd></dl>
+          </div>
+          <div class="review" data-review="A4"></div>
+        </aside>
+      </div>
+
+      <!-- A5 -->
+      <div class="row">
+        <div class="app">
+          <div class="crumb">Studio / <b>Engines</b></div>
+          <article class="card">
+            <div class="card-title"><h3>MoLFormer-XL</h3><span class="badge">GPU</span></div>
+            <p class="card-desc">A transformer pretrained on about 1.1 billion molecules that reads the SMILES string directly instead of the molecular graph.</p>
+            <div class="badges"><span class="badge">Regression</span><span class="badge">Binary classification</span></div>
+            <button type="button" class="disc" aria-expanded="true" data-disc="A5"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>How it learns</button>
+            <div class="fig" data-fig="A5">
+              <svg class="plot" viewBox="0 0 360 172" role="img" aria-label="Seven tokens in a sentence. Arcs show how strongly one token attends to each of the others. The pretrained encoder feeds an output layer trained on your data."></svg>
+              <div class="fig-foot"><p class="fig-cap">The input is split into tokens. Each token weighs every other token when building its representation; arc width shows the weight. This step is called attention. The encoder arrives pretrained, and training on your data either fine-tunes it or, with the encoder frozen, trains only the output layer.</p><button type="button" class="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
+            </div>
+            <div class="card-foot">molformer-xl · v1</div>
+          </article>
+        </div>
+        <aside class="aside">
+          <div class="brief">
+            <div class="id">A5 · TRANSFORMER</div>
+            <h3>Every token looks at every other token</h3>
+            <dl><dt>Explains</dt><dd>Attention, pretraining, and the "Freeze the encoder" setting.</dd>
+            <dt>Used by</dt><dd>MoLFormer-XL</dd></dl>
+            <p>The tokens are an English sentence rather than SMILES, following the brief to use plain computer-science examples.</p>
+          </div>
+          <div class="review" data-review="A5"></div>
+        </aside>
+      </div>
+    </div>
+  </section>
+
+  <!-- ═════════════ B. SPLITS ═════════════ -->
+  <section class="sec" aria-labelledby="sec-b">
+    <div class="sec-head">
+      <div class="eyebrow">B · Datasets</div>
+      <h2 id="sec-b">Why the split decides how flattering a score is</h2>
+      <p>Shown in step 4 of the dataset wizard, under the two split options, and on the dataset page beside the train–test similarity card. The options drive the figure.</p>
+    </div>
+    <div class="row">
+      <div class="app">
+        <div class="crumb">Studio / Datasets / <b>New dataset</b> · step 4 of 4</div>
+        <div class="card">
+          <p class="label">How should the test set be held out?</p>
+          <div class="options" id="split-opts">
+            <button type="button" class="option" data-split="scaffold" aria-pressed="true"><b>Scaffold<small>Recommended</small></b><span>Test compounds have Bemis–Murcko scaffolds absent from training. This approximates prediction on a new chemical series and gives a conservative estimate.</span></button>
+            <button type="button" class="option" data-split="random" aria-pressed="false"><b>Random</b><span>Compounds are assigned at random, so close analogs of training compounds appear in the test set. Scores typically overestimate prospective performance.</span></button>
+          </div>
+          <button type="button" class="disc" aria-expanded="true" data-disc="B"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>How this works</button>
+          <div class="fig" data-fig="B">
+            <svg class="plot" viewBox="0 0 640 270" role="img" aria-label="110 points in five clusters. One fifth are held out as the test set, and each test point is joined to its nearest training point. A bar chart compares the median similarity under each split."></svg>
+            <div class="fig-foot"><p class="fig-cap" id="split-cap"></p><button type="button" class="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
+          </div>
+        </div>
+      </div>
+      <aside class="aside">
+        <div class="brief">
+          <div class="id">B · TRAIN–TEST SPLIT</div>
+          <h3>Random splits test on near-copies</h3>
+          <dl><dt>Explains</dt><dd>Data leakage between training and test sets, and what the median-similarity statistic on the dataset page measures.</dd>
+          <dt>Example</dt><dd>Each cluster stands for one group of similar inputs. In Studio, a group is a Bemis–Murcko scaffold.</dd></dl>
+          <p>The similarity here is a stand-in, computed from on-screen distance. The dataset page reports Tanimoto similarity over ECFP4.</p>
+        </div>
+        <div class="review" data-review="B"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ═════════════ C. BOOTSTRAP ═════════════ -->
+  <section class="sec" aria-labelledby="sec-c">
+    <div class="sec-head">
+      <div class="eyebrow">C · Scorecard</div>
+      <h2 id="sec-c">What the 95% interval means</h2>
+      <p>Shown on the scorecard, inside the verdict box, under the interval line. The baseline options switch between the two verdicts the scorecard can reach.</p>
+    </div>
+    <div class="row">
+      <div class="app">
+        <div class="crumb">Studio / Protocols / hERG blockers v2 / <b>Scorecard</b></div>
+        <div class="verdict">
+          <p class="big" id="boot-headline">Not distinguishable from the baseline</p>
+          <p class="sub">scored on a scaffold split: no test scaffold appears in the training set</p>
+          <p style="font-size:14px"><span style="color:var(--app-muted)">accuracy</span> <b style="font-size:18px">0.750</b> &nbsp; <span style="color:var(--app-muted)">baseline</span> <b style="font-size:18px" id="boot-base">0.700</b></p>
+          <p style="font-size:12px;color:var(--app-muted)" id="boot-ci">95% interval for this accuracy: [0.625, 0.875] (bootstrap over the test set, unpaired)</p>
+          <button type="button" class="disc" aria-expanded="true" data-disc="C"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>How the interval is computed</button>
+          <div class="fig" data-fig="C">
+            <div class="seg" role="group" aria-label="Example baseline" id="boot-seg"><button type="button" data-v="0.7" aria-pressed="true">Baseline 0.70</button><button type="button" data-v="0.55" aria-pressed="false">Baseline 0.55</button></div>
+            <svg class="plot" viewBox="0 0 640 300" role="img" aria-label="A test set of 40 examples, 30 predicted correctly. It is resampled with replacement 200 times; each resample's accuracy is stacked as a dot. The middle 95% of dots forms the interval, and the baseline is drawn as a dashed line."></svg>
+            <div class="fig-verdict" id="boot-verdict"></div>
+            <div class="fig-foot"><p class="fig-cap">The test set is redrawn many times with replacement, so some examples appear twice and others not at all. Each redraw is scored, and the middle 95% of those scores is the interval. Shown with accuracy on 200 redraws; Studio uses the protocol's primary metric and 1,000 redraws.</p><button type="button" class="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
+          </div>
+        </div>
+      </div>
+      <aside class="aside">
+        <div class="brief">
+          <div class="id">C · BOOTSTRAP INTERVAL</div>
+          <h3>A score is a draw, not a constant</h3>
+          <dl><dt>Explains</dt><dd>Why a model with a higher number can still be indistinguishable from the baseline. This is the most common question from program leadership.</dd>
+          <dt>Placement</dt><dd>Scorecard verdict. The comparison is unpaired, as on the scorecard.</dd></dl>
+        </div>
+        <div class="review" data-review="C"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ═════════════ D. DOMAIN ═════════════ -->
+  <section class="sec" aria-labelledby="sec-d">
+    <div class="sec-head">
+      <div class="eyebrow">D · Scorecard and triage</div>
+      <h2 id="sec-d">Error grows with distance from the training data</h2>
+      <p>Shown on the scorecard diagnostics, above the measured error-by-similarity chart, and opened from the uncertainty column header in the triage grid.</p>
+    </div>
+    <div class="row">
+      <div class="app">
+        <div class="crumb">Studio / Protocols / hERG blockers v2 / <b>Diagnostics</b></div>
+        <div class="card">
+          <div class="card-title"><h3>Distance from training and error</h3></div>
+          <p class="card-desc">MAE of test compounds, binned by NN similarity (equal-count bins).</p>
+          <button type="button" class="disc" aria-expanded="true" data-disc="D"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M6 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"/></svg>How this works</button>
+          <div class="fig" data-fig="D">
+            <svg class="plot" viewBox="0 0 640 270" role="img" aria-label="A new input moves away from the training data through three positions. Its similarity to the nearest training point falls, its error bar widens, and at position 3 it leaves the applicability domain."></svg>
+            <div class="fig-foot"><p class="fig-cap">A model is most reliable near the examples it learned from. As a new input moves away, its similarity to the nearest training point falls and the typical error rises. Below a similarity of 0.3, the input is outside the applicability domain and its prediction is drawn as an open, dashed ring. The curve is illustrative; the chart below this panel shows your protocol's measured version.</p><button type="button" class="replay"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8a5 5 0 1 0 1.5-3.5M3 3v2.5h2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>Replay</button></div>
+          </div>
+        </div>
+      </div>
+      <aside class="aside">
+        <div class="brief">
+          <div class="id">D · APPLICABILITY DOMAIN</div>
+          <h3>Trust falls with distance</h3>
+          <dl><dt>Explains</dt><dd>The applicability domain, the 0.3 threshold used on the dataset page, and how to read the uncertainty column during triage.</dd>
+          <dt>Semantics</dt><dd>Follows the mark: solid is measured, dashed is predicted. Out-of-domain predictions take the dashed ring.</dd></dl>
+        </div>
+        <div class="review" data-review="D"></div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ═════════════ G. ICONS ═════════════ -->
+  <section class="sec" aria-labelledby="sec-g">
+    <div class="sec-head">
+      <div class="eyebrow">G · Navigation</div>
+      <h2 id="sec-g">Navigation icons</h2>
+      <p>Replaces the lucide icons in the sidebar, the command palette and the dashboard tiles. The icons share one vocabulary: a filled dot is a measured value and an open ring is a prediction, the same distinction the logo draws. They keep lucide's 24-unit grid and 2-unit stroke, so they sit beside the lucide icons that remain on buttons.</p>
+    </div>
+    <div class="row">
+      <div class="app">
+        <div class="crumb">Studio / <b>Sidebar</b> · sizes as shipped</div>
+        <div class="icons-grid">
+          <nav class="sidebar" aria-label="Sidebar mock" id="sb"></nav>
+          <div class="cmp"><table>
+            <thead><tr><th scope="col">Item</th><th scope="col">Lucide today</th><th scope="col">Proposed</th><th scope="col">Reads as</th></tr></thead>
+            <tbody id="cmp-body"></tbody>
+          </table></div>
+        </div>
+      </div>
+      <aside class="aside">
+        <div class="brief">
+          <div class="id">G · ICON SET</div>
+          <h3>Seven icons, one vocabulary</h3>
+          <dl><dt>Kept</dt><dd>Dashboard keeps lucide's tiles, because there is no domain meaning to add.</dd>
+          <dt>Known weak spots</dt><dd>Sweeps can read as a share icon, and Engines as a line chart. Both are open for revision.</dd>
+          <dt>Motion</dt><dd>None. Navigation icons stay still.</dd></dl>
+          <p>Review the 16px column, which is the sidebar size.</p>
+        </div>
+        <div class="review" data-review="G"></div>
+      </aside>
+    </div>
+    <div class="row">
+      <div class="app">
+        <div class="crumb">Studio / <b>Sidebar</b> · color treatments, draft 2</div>
+        <div class="variants" id="variants"></div>
+      </div>
+      <aside class="aside">
+        <div class="brief">
+          <div class="id">G2 · COLOR</div>
+          <h3>Three ways to add color</h3>
+          <dl><dt>Your note</dt><dd>"make them colored"</dd>
+          <dt>Hues</dt><dd>Assigned by meaning where one exists: blue for data, green for validated protocols, amber for predictions. The rest are distinct hues taken from Studio's chart palette, darkened in light mode to keep at least 3:1 contrast.</dd>
+          <dt>Recommended</dt><dd>Colored glyphs. The color is obvious at a glance and the sidebar stays as quiet as it is today.</dd></dl>
+        </div>
+        <div class="review" data-review="G-color" data-options="glyph:Colored glyphs,tile:Tinted tiles,accent:Accent marks"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="sec" aria-labelledby="sec-n">
+    <div class="sec-head">
+      <div class="eyebrow">Overall</div>
+      <h2 id="sec-n">General notes</h2>
+      <p>Anything that applies across figures, such as color, pacing, density or copy.</p>
+    </div>
+    <div class="row"><div class="review" data-review="general" data-nostatus="1"></div><div></div></div>
+  </section>
+
+  <p class="foot-note" id="save-note">Every figure is computed from its own data with a fixed seed: the boosting rounds, the Gaussian process posterior, the bootstrap and the nearest-neighbor lines are real calculations, not drawings.</p>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.525.0/dist/umd/lucide.min.js" integrity="sha384-66NqpHvGmecggY2LhO9Ztqgej60hUyqKWmlIKtarVSeGDlB8gLpO7W8OvPODOql7" crossorigin="anonymous"></script>
+<script>
+(() => {
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => clamp((t - a) / (b - a));
+const ease = (x) => 1 - Math.pow(1 - x, 3);
+const easeIO = (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const lerp = (a, b, p) => a + (b - a) * p;
+const f2 = (v) => v.toFixed(2);
+const f3 = (v) => v.toFixed(3);
+function mk(tag, attrs, parent) {
+  const e = document.createElementNS(NS, tag);
+  if (attrs) for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+}
+function txt(parent, x, y, s, cls, anchor) {
+  const e = mk("text", { x, y, class: cls || "t", "text-anchor": anchor || "start" }, parent);
+  e.textContent = s;
+  return e;
+}
+function rng(seed) {
+  return () => {
+    seed |= 0; seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function gauss(r) { let u = 0; while (u === 0) u = r(); return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * r()); }
+function shuffle(arr, r) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(r() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch {} },
+};
+
+/* ── player: play once in view, replay on hover, final frame under reduced motion ── */
+let finalOnly = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const players = new Map();
+function player(id, dur, draw) {
+  const root = document.querySelector(`[data-fig="${id}"]`);
+  const p = { root, raf: 0, played: false };
+  p.render = (t) => draw(t);
+  p.play = () => {
+    cancelAnimationFrame(p.raf); p.raf = 0;
+    if (finalOnly) { draw(1); return; }
+    const start = performance.now();
+    const step = (now) => {
+      const t = clamp((now - start) / dur);
+      draw(t);
+      p.raf = t < 1 ? requestAnimationFrame(step) : 0;
+    };
+    p.raf = requestAnimationFrame(step);
+  };
+  draw(1);
+  root.addEventListener("mouseenter", () => { if (!p.raf) p.play(); });
+  root.querySelector(".replay")?.addEventListener("click", () => p.play());
+  players.set(id, p);
+  return p;
+}
+const io = new IntersectionObserver((entries) => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    io.unobserve(e.target);
+    for (const p of players.values()) if (p.root === e.target) { p.played = true; p.play(); }
+  }
+}, { threshold: 0.35 });
+
+/* ═════════ A1 · random forest ═════════ */
+function figForest() {
+  const svg = document.querySelector('[data-fig="A1"] svg');
+  const cxs = [54, 138, 222, 306];
+  const paths = [[0, 1], [1, 0], [0, 0], [1, 1]];
+  const leafVals = [[0.52, 0.58, 0.7, 0.77], [0.61, 0.66, 0.74, 0.83], [0.63, 0.69, 0.55, 0.79], [0.57, 0.66, 0.72, 0.81]];
+  const X = (v) => 80 + ((v - 0.4) / 0.6) * 250;
+  const LY = 136;
+  txt(svg, 356, 11, "4 of 500 trees", "t-s", "end");
+  const trees = cxs.map((cx, i) => {
+    const g = mk("g", {}, svg);
+    const root = [cx, 30];
+    const l1 = [[cx - 20, 56], [cx + 20, 56]];
+    const leaves = [[cx - 30, 82], [cx - 10, 82], [cx + 10, 82], [cx + 30, 82]];
+    l1.forEach((n) => mk("line", { x1: root[0], y1: root[1], x2: n[0], y2: n[1], class: "edge" }, g));
+    leaves.forEach((n, j) => { const p = l1[j >> 1]; mk("line", { x1: p[0], y1: p[1], x2: n[0], y2: n[1], class: "edge" }, g); });
+    const h1 = mk("line", { class: "m-stroke", "stroke-width": 2.25, "stroke-linecap": "round" }, g);
+    const h2 = mk("line", { class: "m-stroke", "stroke-width": 2.25, "stroke-linecap": "round" }, g);
+    const rootC = mk("circle", { cx: root[0], cy: root[1], r: 5, class: "node" }, g);
+    const l1C = l1.map((n) => mk("circle", { cx: n[0], cy: n[1], r: 4.5, class: "node" }, g));
+    const leafC = leaves.map((n) => mk("circle", { cx: n[0], cy: n[1], r: 3.5, class: "node" }, g));
+    const [a, b] = paths[i];
+    const mid = l1[a], leaf = leaves[a * 2 + b], value = leafVals[i][a * 2 + b];
+    const lbl = txt(svg, leaf[0], 97, f2(value), "t-s t-fg", "middle");
+    const vote = mk("circle", { r: 4, class: "pred" }, svg);
+    return { g, root, mid, leaf, value, h1, h2, rootC, midC: l1C[a], leafC: leafC[a * 2 + b], lbl, vote };
+  });
+  mk("line", { x1: X(0.4), y1: LY, x2: X(1), y2: LY, class: "ax" }, svg);
+  [0.4, 0.6, 0.8, 1].forEach((v) => { mk("line", { x1: X(v), y1: LY - 3, x2: X(v), y2: LY + 3, class: "ax" }, svg); txt(svg, X(v), LY + 14, v.toFixed(1), "t", "middle"); });
+  txt(svg, 72, LY + 3.5, "prediction", "t", "end");
+  const values = trees.map((t) => t.value);
+  const mean = values.reduce((s, v) => s + v, 0) / values.length;
+  const sd = Math.sqrt(values.reduce((s, v) => s + (v - mean) ** 2, 0) / values.length);
+  const lo = Math.min(...values), hi = Math.max(...values);
+  const spread = mk("g", {}, svg);
+  mk("line", { x1: X(lo), y1: 160, x2: X(hi), y2: 160, class: "fg-stroke", "stroke-width": 1.25 }, spread);
+  mk("line", { x1: X(lo), y1: 156, x2: X(lo), y2: 164, class: "fg-stroke", "stroke-width": 1.25 }, spread);
+  mk("line", { x1: X(hi), y1: 156, x2: X(hi), y2: 164, class: "fg-stroke", "stroke-width": 1.25 }, spread);
+  txt(spread, X(lo) - 6, 163.5, `spread ±${f2(sd)}`, "t", "end");
+  const meanG = mk("g", {}, svg);
+  mk("line", { x1: X(mean), y1: 118, x2: X(mean), y2: 146, class: "fg-stroke", "stroke-width": 2.25, "stroke-linecap": "round" }, meanG);
+  txt(meanG, X(mean), 112, `average ${f2(mean)}`, "t t-fg", "middle");
+
+  player("A1", 5600, (t) => {
+    trees.forEach((tr, i) => {
+      tr.g.setAttribute("opacity", ease(seg(t, i * 0.02, 0.1 + i * 0.02)));
+      const s = 0.14 + i * 0.07;
+      const p1 = ease(seg(t, s, s + 0.1)), p2 = ease(seg(t, s + 0.1, s + 0.2));
+      const set = (ln, a, b, p) => { ln.setAttribute("x1", a[0]); ln.setAttribute("y1", a[1]); ln.setAttribute("x2", lerp(a[0], b[0], p)); ln.setAttribute("y2", lerp(a[1], b[1], p)); ln.setAttribute("opacity", p > 0 ? 1 : 0); };
+      set(tr.h1, tr.root, tr.mid, p1);
+      set(tr.h2, tr.mid, tr.leaf, p2);
+      tr.rootC.setAttribute("class", t >= s ? "node-on" : "node");
+      tr.midC.setAttribute("class", p1 >= 1 ? "m-fill" : "node");
+      tr.leafC.setAttribute("class", p2 >= 1 ? "m-fill" : "node");
+      tr.lbl.setAttribute("opacity", seg(t, s + 0.2, s + 0.26));
+      const d = ease(seg(t, 0.58 + i * 0.04, 0.72 + i * 0.04));
+      tr.vote.setAttribute("cx", lerp(tr.leaf[0], X(tr.value), d));
+      tr.vote.setAttribute("cy", lerp(tr.leaf[1] + 20, LY, d));
+      tr.vote.setAttribute("opacity", d > 0 ? 1 : 0);
+    });
+    spread.setAttribute("opacity", seg(t, 0.84, 0.92));
+    meanG.setAttribute("opacity", seg(t, 0.88, 1));
+  });
+}
+
+/* ═════════ A2 · gradient boosting ═════════ */
+function figBoost() {
+  const svg = document.querySelector('[data-fig="A2"] svg');
+  const r = rng(7), N = 14, R = 6, eta = 0.55;
+  const xs = Array.from({ length: N }, (_, i) => 0.02 + (i / (N - 1)) * 0.96);
+  const ys = xs.map((x) => 0.5 + 0.32 * Math.sin(2 * Math.PI * 0.85 * x + 0.3) + gauss(r) * 0.035);
+  const PX = (x) => 40 + x * 300, PY = (y) => 146 - y * 112;
+  const mean = ys.reduce((s, v) => s + v, 0) / N;
+  const stumps = [];
+  let F = ys.map(() => mean);
+  for (let m = 0; m < R; m++) {
+    const res = ys.map((y, i) => y - F[i]);
+    let best = null;
+    for (let k = 1; k < N; k++) {
+      const s = (xs[k - 1] + xs[k]) / 2;
+      const L = res.slice(0, k), Rr = res.slice(k);
+      const lm = L.reduce((a, b) => a + b, 0) / L.length, rm = Rr.reduce((a, b) => a + b, 0) / Rr.length;
+      const sse = L.reduce((a, v) => a + (v - lm) ** 2, 0) + Rr.reduce((a, v) => a + (v - rm) ** 2, 0);
+      if (!best || sse < best.sse) best = { s, L: eta * lm, R: eta * rm, sse };
+    }
+    stumps.push(best);
+    F = F.map((f, i) => f + (xs[i] < best.s ? best.L : best.R));
+  }
+  const fAt = (k, x) => { let v = mean; for (let j = 0; j < k; j++) v += x < stumps[j].s ? stumps[j].L : stumps[j].R; return v; };
+  const cuts = [...new Set(stumps.map((s) => s.s))].sort((a, b) => a - b);
+  const bounds = [0, ...cuts, 1];
+  const mids = bounds.slice(0, -1).map((b, i) => (b + bounds[i + 1]) / 2);
+  const stage = Array.from({ length: R + 1 }, (_, k) => mids.map((x) => fAt(k, x)));
+  const ptStage = Array.from({ length: R + 1 }, (_, k) => xs.map((x) => fAt(k, x)));
+  mk("line", { x1: 40, y1: 150, x2: 340, y2: 150, class: "ax" }, svg);
+  const resid = xs.map(() => mk("line", { class: "h-stroke", "stroke-width": 1.5, "stroke-linecap": "round" }, svg));
+  const fit = mk("path", { class: "fit" }, svg);
+  const pts = xs.map((x, i) => mk("circle", { cx: PX(x), cy: PY(ys[i]), r: 3.2, class: "m-fill" }, svg));
+  const roundLbl = txt(svg, 40, 12, "", "t t-fg");
+  const errLbl = txt(svg, 340, 12, "", "t", "end");
+  const RS = 0.12, RW = 0.14;
+  player("A2", 7800, (t) => {
+    let k = 0, p = 0;
+    for (let m = 1; m <= R; m++) {
+      const q = easeIO(seg(t, RS + (m - 1) * RW + 0.05, RS + (m - 1) * RW + 0.13));
+      if (q >= 1) k = m; else { p = q; break; }
+    }
+    const vals = stage[k].map((v, j) => (k < R ? lerp(v, stage[k + 1][j], p) : v));
+    let d = `M${PX(0)} ${PY(vals[0])}`;
+    vals.forEach((v, j) => { d += ` V${PY(v)} H${PX(bounds[j + 1])}`; });
+    fit.setAttribute("d", d);
+    fit.setAttribute("opacity", seg(t, 0.06, 0.12));
+    const cur = ptStage[k].map((v, i) => (k < R ? lerp(v, ptStage[k + 1][i], p) : v));
+    const inRound = k < R ? seg(t, RS + k * RW, RS + k * RW + 0.06) : 0;
+    const glow = Math.sin(Math.PI * inRound);
+    let err = 0;
+    xs.forEach((x, i) => {
+      const ln = resid[i];
+      ln.setAttribute("x1", PX(x)); ln.setAttribute("x2", PX(x));
+      ln.setAttribute("y1", PY(ys[i])); ln.setAttribute("y2", PY(cur[i]));
+      ln.setAttribute("opacity", seg(t, 0.08, 0.12) * (0.55 + 0.45 * glow));
+      err += Math.abs(ys[i] - cur[i]);
+      pts[i].setAttribute("opacity", seg(t, (i / N) * 0.06, (i / N) * 0.06 + 0.03));
+    });
+    const shown = Math.min(R, k + (p > 0 || inRound > 0 ? 1 : 0));
+    roundLbl.textContent = t < RS ? "start: predict the average" : `round ${Math.max(shown, 1)} of ${R}`;
+    errLbl.textContent = `mean error ${f3(err / N)}`;
+  });
+}
+
+/* ═════════ A3 · Gaussian process ═════════ */
+function figGP() {
+  const svg = document.querySelector('[data-fig="A3"] svg');
+  const f = (x) => 0.5 + 0.26 * Math.sin(7 * x) + 0.08 * Math.cos(17 * x);
+  const Xo = [0.08, 0.26, 0.36, 0.78, 0.92], Yo = Xo.map(f);
+  const sig = 0.2, ell = 0.085, sn = 0.012, mu0 = 0.5;
+  const k = (a, b) => sig * sig * Math.exp(-((a - b) ** 2) / (2 * ell * ell));
+  const G = 91, grid = Array.from({ length: G }, (_, i) => i / (G - 1));
+  const PX = (x) => 40 + x * 300, PY = (y) => 144 - y * 120;
+  function chol(A) {
+    const n = A.length, L = A.map(() => new Array(n).fill(0));
+    for (let i = 0; i < n; i++) for (let j = 0; j <= i; j++) {
+      let s = A[i][j];
+      for (let q = 0; q < j; q++) s -= L[i][q] * L[j][q];
+      L[i][j] = i === j ? Math.sqrt(s) : s / L[j][j];
+    }
+    return L;
+  }
+  const fwd = (L, b) => { const y = []; for (let i = 0; i < b.length; i++) { let s = b[i]; for (let q = 0; q < i; q++) s -= L[i][q] * y[q]; y.push(s / L[i][i]); } return y; };
+  const bwd = (L, y) => { const n = y.length, x = new Array(n); for (let i = n - 1; i >= 0; i--) { let s = y[i]; for (let q = i + 1; q < n; q++) s -= L[q][i] * x[q]; x[i] = s / L[i][i]; } return x; };
+  const states = [];
+  for (let n = 0; n <= Xo.length; n++) {
+    const X = Xo.slice(0, n), Y = Yo.slice(0, n).map((y) => y - mu0);
+    if (n === 0) { states.push(grid.map(() => [mu0, sig])); continue; }
+    const L = chol(X.map((a, i) => X.map((b, j) => k(a, b) + (i === j ? sn * sn : 0))));
+    const alpha = bwd(L, fwd(L, Y));
+    states.push(grid.map((x) => {
+      const ks = X.map((a) => k(x, a));
+      const w = fwd(L, ks);
+      const v = Math.max(1e-9, k(x, x) - w.reduce((s, z) => s + z * z, 0));
+      return [mu0 + ks.reduce((s, z, i) => s + z * alpha[i], 0), Math.sqrt(v)];
+    }));
+  }
+  const band = mk("path", { class: "band" }, svg);
+  const meanP = mk("path", { class: "fit" }, svg);
+  const pts = Xo.map((x, i) => mk("circle", { cx: PX(x), cy: PY(Yo[i]), r: 3.4, class: "m-fill" }, svg));
+  const ann = mk("g", {}, svg);
+  const gapX = 0.57;
+  const nearX = 0.31;
+  txt(ann, PX(gapX), 12, "wide: no data nearby", "t t-fg", "middle");
+  txt(ann, 40, 12, "narrow: near data", "t t-fg", "start");
+  const tick = mk("line", { class: "fg-stroke", "stroke-width": 1, x1: PX(gapX), x2: PX(gapX), y1: 16 }, ann);
+  const tick2 = mk("line", { class: "fg-stroke", "stroke-width": 1, x1: PX(nearX), x2: PX(nearX), y1: 16 }, ann);
+  const S = (k) => 0.1 + (k - 1) * 0.15;
+  player("A3", 7000, (t) => {
+    let n = 0, p = 0;
+    for (let q = 1; q <= Xo.length; q++) {
+      const m = easeIO(seg(t, S(q) + 0.03, S(q) + 0.13));
+      if (m >= 1) n = q; else { p = m; break; }
+    }
+    const cur = states[n].map((ms, i) => (n < Xo.length ? [lerp(ms[0], states[n + 1][i][0], p), lerp(ms[1], states[n + 1][i][1], p)] : ms));
+    let up = "", lo = "", mid = "";
+    cur.forEach(([m, s], i) => { up += `${i ? "L" : "M"}${PX(grid[i])} ${PY(m + 2 * s)} `; mid += `${i ? "L" : "M"}${PX(grid[i])} ${PY(m)} `; });
+    for (let i = G - 1; i >= 0; i--) lo += `L${PX(grid[i])} ${PY(cur[i][0] - 2 * cur[i][1])} `;
+    band.setAttribute("d", `${up}${lo}Z`);
+    meanP.setAttribute("d", mid);
+    const a0 = seg(t, 0, 0.08);
+    band.setAttribute("opacity", a0); meanP.setAttribute("opacity", a0);
+    pts.forEach((c, i) => { const a = ease(seg(t, S(i + 1), S(i + 1) + 0.04)); c.setAttribute("opacity", a); c.setAttribute("r", 3.4 * (0.4 + 0.6 * a)); });
+    const gi = Math.round(gapX * (G - 1));
+    tick.setAttribute("y2", PY(cur[gi][0] + 2 * cur[gi][1]) - 3);
+    const gn = Math.round(nearX * (G - 1));
+    tick2.setAttribute("y2", PY(cur[gn][0] + 2 * cur[gn][1]) - 4);
+    ann.setAttribute("opacity", seg(t, 0.86, 0.98));
+  });
+}
+
+/* ═════════ A4 · message passing ═════════ */
+function figMPNN() {
+  const svg = document.querySelector('[data-fig="A4"] svg');
+  const nodes = [[34, 92], [78, 52], [82, 130], [128, 90], [172, 42], [178, 130], [222, 86]];
+  const edges = [[0, 1], [0, 2], [1, 3], [2, 3], [3, 4], [3, 5], [4, 6], [5, 6]];
+  const hop = [0, 1, 1, 2, 3, 3, 4];
+  const SUM = [272, 86];
+  const readG = mk("g", {}, svg);
+  mk("path", { d: "M242 34 H250 V138 H242", class: "ax", "stroke-width": 1.5 }, readG);
+  mk("line", { x1: 250, y1: SUM[1], x2: SUM[0] - 9, y2: SUM[1], class: "ax" }, readG);
+  edges.forEach(([a, b]) => mk("line", { x1: nodes[a][0], y1: nodes[a][1], x2: nodes[b][0], y2: nodes[b][1], class: "edge" }, svg));
+  const msgs = [];
+  edges.forEach(([a, b]) => { msgs.push([a, b, mk("circle", { r: 2.4, class: "p-fill" }, svg)]); msgs.push([b, a, mk("circle", { r: 2.4, class: "p-fill" }, svg)]); });
+  const circles = nodes.map((n) => mk("circle", { cx: n[0], cy: n[1], r: 8, class: "node" }, svg));
+  const fills = nodes.map((n) => mk("circle", { cx: n[0], cy: n[1], r: 8, class: "m-fill" }, svg));
+  mk("circle", { cx: nodes[0][0], cy: nodes[0][1], r: 12, class: "m-stroke", "stroke-width": 1.5 }, svg);
+  txt(svg, nodes[6][0], nodes[6][1] + 24, "unseen", "t-s", "middle");
+  const roundLbl = txt(svg, 8, 12, "", "t t-fg");
+  const sumC = mk("circle", { cx: SUM[0], cy: SUM[1], r: 9, class: "box" }, readG);
+  mk("path", { d: `M${SUM[0] - 4} ${SUM[1]} H${SUM[0] + 4} M${SUM[0]} ${SUM[1] - 4} V${SUM[1] + 4}`, class: "fg-stroke", "stroke-width": 1.5 }, readG);
+  const shades = [0.9, 0.35, 0.65, 0.2, 0.8];
+  const cells = shades.map((s, i) => {
+    mk("rect", { x: 292 + i * 12.5, y: 79, width: 11, height: 14, rx: 2, class: "box" }, readG);
+    return mk("rect", { x: 292 + i * 12.5, y: 79, width: 11, height: 14, rx: 2, class: "m-fill", "fill-opacity": s }, readG);
+  });
+  mk("line", { x1: SUM[0] + 10, y1: SUM[1], x2: 289, y2: SUM[1], class: "ax" }, readG);
+  txt(readG, 322, 70, "learned vector", "t-s t-fg", "middle");
+  const RS = (r) => 0.1 + (r - 1) * 0.22, RE = (r) => RS(r) + 0.18;
+  player("A4", 7600, (t) => {
+    let round = 0;
+    for (let r = 1; r <= 3; r++) if (t >= RS(r)) round = r;
+    roundLbl.textContent = t < RS(1) ? "start: each node knows only itself" : t >= 0.76 ? "readout" : `round ${round} of 3`;
+    const a = seg(t, 0, 0.08);
+    circles.forEach((c) => c.setAttribute("opacity", a));
+    msgs.forEach(([u, v, c]) => {
+      let p = -1;
+      for (let r = 1; r <= 3; r++) { const q = seg(t, RS(r), RS(r) + 0.13); if (q > 0 && q < 1) p = ease(q); }
+      c.setAttribute("opacity", p < 0 ? 0 : Math.sin(Math.PI * p) * 0.95);
+      if (p >= 0) { c.setAttribute("cx", lerp(nodes[u][0], nodes[v][0], p)); c.setAttribute("cy", lerp(nodes[u][1], nodes[v][1], p)); }
+    });
+    fills.forEach((c, i) => {
+      const h = hop[i];
+      const on = h === 0 ? a : h <= 3 ? seg(t, RE(h) - 0.04, RE(h)) : 0;
+      c.setAttribute("opacity", on * (1 - h * 0.18));
+    });
+    const rd = seg(t, 0.76, 0.86);
+    readG.setAttribute("opacity", rd);
+    cells.forEach((c, i) => c.setAttribute("opacity", seg(t, 0.84 + i * 0.025, 0.9 + i * 0.025)));
+  });
+}
+
+/* ═════════ A5 · transformer attention ═════════ */
+function figAttention() {
+  const svg = document.querySelector('[data-fig="A5"] svg');
+  const words = ["every", "token", "looks", "at", "every", "other", "token"];
+  const CW = 6.1, PAD = 6, GAP = 7;
+  const widths = words.map((w) => w.length * CW + PAD * 2);
+  let x = (360 - widths.reduce((s, w) => s + w, 0) - GAP * (words.length - 1)) / 2;
+  const toks = words.map((w, i) => { const t = { x, w: widths[i], c: x + widths[i] / 2 }; x += widths[i] + GAP; return t; });
+  mk("rect", { x: 6, y: 4, width: 348, height: 104, rx: 8, class: "box", fill: "none" }, svg).setAttribute("class", "ax");
+  txt(svg, 14, 101, "encoder, pretrained on ~1.1 billion molecules", "t-s");
+  const arcs = words.map(() => mk("path", { class: "m-stroke", "stroke-linecap": "round" }, svg));
+  const boxes = toks.map((t, i) => {
+    const r = mk("rect", { x: t.x, y: 70, width: t.w, height: 18, rx: 4, class: "box" }, svg);
+    txt(svg, t.c, 82.5, words[i], "t t-fg", "middle");
+    return r;
+  });
+  const W = {
+    1: [0.3, 0, 0.15, 0.05, 0.1, 0.1, 0.3],
+    5: [0.05, 0.35, 0.1, 0.05, 0.15, 0, 0.3],
+    2: [0.1, 0.45, 0, 0.25, 0.05, 0.05, 0.1],
+  };
+  const foci = [[1, 0.1, 0.34], [5, 0.36, 0.6], [2, 0.62, 0.86]];
+  mk("line", { x1: 180, y1: 108, x2: 180, y2: 122, class: "ax" }, svg);
+  const head = mk("rect", { x: 72, y: 122, width: 216, height: 22, rx: 5, class: "box" }, svg);
+  txt(svg, 180, 136.5, "output layer, trained on your data", "t t-fg", "middle");
+  mk("line", { x1: 180, y1: 144, x2: 180, y2: 154, class: "ax" }, svg);
+  const out = txt(svg, 180, 166, "prediction", "t", "middle");
+  const flow = mk("circle", { r: 3, class: "m-fill" }, svg);
+  player("A5", 7200, (t) => {
+    let focus = null, env = 0;
+    foci.forEach(([f, a, b], k) => {
+      const last = k === foci.length - 1;
+      const e = last ? seg(t, a, a + 0.06) : Math.min(seg(t, a, a + 0.06), 1 - seg(t, b - 0.04, b));
+      if (t >= a && (last || t < b)) { focus = f; env = e; }
+    });
+    boxes.forEach((b, i) => b.setAttribute("class", focus === i && env > 0.05 ? "box-on" : "box"));
+    arcs.forEach((arc, j) => {
+      if (focus === null || j === focus) { arc.setAttribute("opacity", 0); return; }
+      const w = W[focus][j];
+      const a = toks[focus].c, b = toks[j].c;
+      const h = 12 + Math.abs(a - b) * 0.3;
+      arc.setAttribute("d", `M${a} 68 Q${(a + b) / 2} ${68 - h} ${b} 68`);
+      arc.setAttribute("stroke-width", 0.6 + w * 7);
+      arc.setAttribute("opacity", env * clamp(0.25 + w * 1.6));
+    });
+    const fl = seg(t, 0.88, 0.97);
+    flow.setAttribute("cx", 180); flow.setAttribute("cy", lerp(108, 122, ease(fl)));
+    flow.setAttribute("opacity", fl > 0 && fl < 1 ? 1 : 0);
+    head.setAttribute("class", t >= 0.95 ? "box-on" : "box");
+    out.setAttribute("class", t >= 0.97 ? "t t-fg" : "t");
+  });
+}
+
+/* ═════════ B · train–test split ═════════ */
+function figSplit() {
+  const svg = document.querySelector('[data-fig="B"] svg');
+  const r = rng(11);
+  const clusters = [[78, 70, 24], [196, 52, 20], [318, 112, 22], [112, 196, 18], [262, 206, 26]];
+  const P = [];
+  clusters.forEach(([cx, cy, n], c) => { for (let i = 0; i < n; i++) P.push({ x: cx + gauss(r) * 17, y: cy + gauss(r) * 14, c }); });
+  const N = P.length;
+  const randomTest = shuffle([...Array(N).keys()], rng(5)).slice(0, 22);
+  const scaffoldTest = P.map((p, i) => (p.c === 2 ? i : -1)).filter((i) => i >= 0);
+  const sim = (d) => Math.exp(-d / 45);
+  function nn(test) {
+    const set = new Set(test);
+    return test.map((i) => {
+      let best = -1, bd = Infinity;
+      for (let j = 0; j < N; j++) { if (set.has(j)) continue; const d = Math.hypot(P[i].x - P[j].x, P[i].y - P[j].y); if (d < bd) { bd = d; best = j; } }
+      return { i, j: best, d: bd };
+    });
+  }
+  const median = (a) => { const s = a.slice().sort((x, y) => x - y); return (s[(s.length - 1) >> 1] + s[s.length >> 1]) / 2; };
+  const modes = {
+    random: { test: randomTest, links: nn(randomTest) },
+    scaffold: { test: scaffoldTest, links: nn(scaffoldTest) },
+  };
+  for (const m of Object.values(modes)) m.sim = median(m.links.map((l) => sim(l.d)));
+  const lineG = mk("g", {}, svg);
+  const lines = Array.from({ length: 22 }, () => mk("line", { class: "h-stroke", "stroke-width": 1.25 }, lineG));
+  const dots = P.map((p) => mk("circle", { cx: p.x, cy: p.y, r: 3, class: "m-fill" }, svg));
+  // right panel
+  const RX = 440, RW = 180;
+  txt(svg, RX, 28, "Similarity of each test point", "t t-fg");
+  txt(svg, RX, 42, "to its nearest training point", "t t-fg");
+  txt(svg, RX, 56, "median, 1 = identical", "t-s");
+  const bars = {};
+  [["random", "Random split", 92], ["scaffold", "Scaffold split", 146]].forEach(([k, label, y]) => {
+    txt(svg, RX, y - 8, label, "t");
+    mk("rect", { x: RX, y, width: RW, height: 14, rx: 3, class: "card-fill", stroke: "none" }, svg);
+    mk("rect", { x: RX, y, width: RW, height: 14, rx: 3, class: "ax" }, svg);
+    const bar = mk("rect", { x: RX, y, width: 0, height: 14, rx: 3 }, svg);
+    const val = txt(svg, RX + RW, y - 8, "", "t t-fg", "end");
+    bars[k] = { bar, val, target: modes[k].sim };
+  });
+  [0, 0.5, 1].forEach((v) => txt(svg, RX + v * RW, 178, v.toFixed(1), "t-s", "middle"));
+  // legend
+  const LG = 214;
+  mk("circle", { cx: RX + 4, cy: LG, r: 3.5, class: "m-fill" }, svg); txt(svg, RX + 14, LG + 3.5, "training set (80%)", "t");
+  mk("circle", { cx: RX + 4, cy: LG + 18, r: 3.5, class: "h-fill" }, svg); txt(svg, RX + 14, LG + 21.5, "test set (20%)", "t");
+  mk("line", { x1: RX, y1: LG + 36, x2: RX + 9, y2: LG + 36, class: "h-stroke", "stroke-width": 1.5 }, svg); txt(svg, RX + 14, LG + 39.5, "link to nearest training point", "t");
+  let mode = "scaffold";
+  const cap = document.getElementById("split-cap");
+  const caps = {
+    scaffold: "Scaffold split: whole groups are held out, so each test point is far from anything the model trained on (long amber links). This approximates predicting a new chemical series.",
+    random: "Random split: test points are drawn from every group, so most sit next to a near-identical training point (short amber links). The test then rewards memorization, and scores look better than they will be on new chemistry.",
+  };
+  const p = player("B", 5400, (t) => {
+    const m = modes[mode];
+    const order = new Map(m.test.map((i, k) => [i, k]));
+    dots.forEach((d, i) => {
+      d.setAttribute("opacity", ease(seg(t, (i / N) * 0.12, (i / N) * 0.12 + 0.05)));
+      const k = order.get(i);
+      if (k === undefined) { d.setAttribute("class", "m-fill"); d.setAttribute("r", 3); return; }
+      const c = seg(t, 0.16 + (k / 22) * 0.24, 0.2 + (k / 22) * 0.24);
+      d.setAttribute("class", c > 0.5 ? "h-fill" : "m-fill");
+      d.setAttribute("r", 3 + 1.6 * Math.sin(Math.PI * c) + (c >= 1 ? 0.4 : 0));
+    });
+    m.links.forEach((l, k) => {
+      const q = ease(seg(t, 0.46 + (k / 22) * 0.3, 0.54 + (k / 22) * 0.3));
+      const a = P[l.i], b = P[l.j], ln = lines[k];
+      ln.setAttribute("x1", a.x); ln.setAttribute("y1", a.y);
+      ln.setAttribute("x2", lerp(a.x, b.x, q)); ln.setAttribute("y2", lerp(a.y, b.y, q));
+      ln.setAttribute("opacity", q > 0 ? 0.9 : 0);
+    });
+    const g = ease(seg(t, 0.8, 0.96));
+    for (const [k, b] of Object.entries(bars)) {
+      const active = k === mode;
+      const w = active ? b.target * RW * g : b.target * RW;
+      b.bar.setAttribute("width", Math.max(0, w));
+      b.bar.setAttribute("class", active ? "h-fill" : "ax");
+      b.bar.setAttribute("fill-opacity", active ? 1 : 0);
+      b.bar.style.fill = active ? "" : "var(--border-strong)";
+      b.bar.style.fillOpacity = active ? "" : "0.6";
+      b.val.textContent = f2(active ? b.target * g : b.target);
+    }
+    cap.textContent = caps[mode];
+  });
+  document.querySelectorAll("#split-opts .option").forEach((btn) => btn.addEventListener("click", () => {
+    mode = btn.dataset.split;
+    document.querySelectorAll("#split-opts .option").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+    p.play();
+  }));
+}
+
+/* ═════════ C · bootstrap ═════════ */
+function figBootstrap() {
+  const svg = document.querySelector('[data-fig="C"] svg');
+  const n = 40, B = 200;
+  const correct = new Array(n).fill(false);
+  shuffle([...Array(n).keys()], rng(3)).slice(0, 30).forEach((i) => (correct[i] = true));
+  const r = rng(21);
+  const draws = Array.from({ length: B }, () => Array.from({ length: n }, () => Math.floor(r() * n)));
+  const accs = draws.map((d) => d.filter((i) => correct[i]).length / n);
+  const sorted = accs.slice().sort((a, b) => a - b);
+  const q = (p) => sorted[Math.min(B - 1, Math.max(0, Math.round(p * (B - 1))))];
+  const lo = q(0.025), hi = q(0.975);
+  const SX = (i) => 60 + i * 13;
+  const X = (a) => 60 + ((a - 0.5) / 0.5) * 516;
+  const AXY = 262, STEP = 4.6;
+  txt(svg, 60, 12, "Test set: 40 examples, 30 predicted correctly", "t t-fg");
+  const accLbl = txt(svg, 576, 12, "", "t", "end");
+  const sq = correct.map((c, i) => mk("rect", { x: SX(i), y: 34, width: 9, height: 9, rx: 1.5, class: c ? "m-fill" : "h-ring", "stroke-width": c ? 0 : 1.5 }, svg));
+  const pickG = mk("g", {}, svg);
+  const pickDots = correct.map((_, i) => [0, 1, 2].map((j) => mk("circle", { cx: SX(i) + 4.5, cy: 28 - j * 4, r: 1.5, class: "fg-fill" }, pickG)));
+  const ci = mk("g", {}, svg);
+  mk("rect", { x: X(lo), y: 88, width: X(hi) - X(lo), height: AXY - 88, class: "band" }, ci);
+  mk("line", { x1: X(lo), y1: 88, x2: X(lo), y2: AXY, class: "m-stroke", "stroke-width": 1 }, ci);
+  mk("line", { x1: X(hi), y1: 88, x2: X(hi), y2: AXY, class: "m-stroke", "stroke-width": 1 }, ci);
+  txt(ci, X(hi) - 6, 102, `95% interval ${f3(lo)} to ${f3(hi)}`, "t t-fg", "end");
+  mk("line", { x1: 60, y1: AXY, x2: 576, y2: AXY, class: "ax" }, svg);
+  [0.5, 0.6, 0.7, 0.8, 0.9, 1].forEach((v) => { mk("line", { x1: X(v), y1: AXY, x2: X(v), y2: AXY + 4, class: "ax" }, svg); txt(svg, X(v), AXY + 16, v.toFixed(1), "t", "middle"); });
+  txt(svg, 576, AXY + 32, "accuracy on each redraw", "t", "end");
+  const counts = {};
+  const dotPos = accs.map((a) => { const key = a.toFixed(3); counts[key] = (counts[key] || 0) + 1; return [X(a), AXY - 4 - (counts[key] - 1) * STEP]; });
+  const dots = dotPos.map(() => mk("circle", { r: 2.2, class: "m-fill" }, svg));
+  const baseG = mk("g", {}, svg);
+  const baseLine = mk("line", { y1: 64, y2: AXY, class: "fg-stroke", "stroke-width": 1.5, "stroke-dasharray": "4 3" }, baseG);
+  const baseTxt = txt(baseG, 0, 58, "", "t t-fg", "middle");
+  const verdict = document.getElementById("boot-verdict");
+  let base = 0.7;
+  function verdictCopy() {
+    const inside = base >= lo && base <= hi;
+    document.getElementById("boot-base").textContent = base.toFixed(3);
+    document.getElementById("boot-headline").textContent = inside ? "Not distinguishable from the baseline" : "Beats the baseline";
+    document.getElementById("boot-ci").textContent = `95% interval for this accuracy: [${f3(lo)}, ${f3(hi)}] (bootstrap over the test set, unpaired)`;
+    verdict.innerHTML = inside
+      ? `<span class="chip warn">Within noise</span><span>The baseline's ${f2(base)} lies inside the interval, so the two models are not distinguishable on this test set.</span>`
+      : `<span class="chip ok">Beats the baseline</span><span>The baseline's ${f2(base)} lies below the interval, so the model's advantage is larger than the test set's sampling noise.</span>`;
+  }
+  const DEMO = 3, DW = 0.11, D0 = 0.06;
+  const p = player("C", 9800, (t) => {
+    sq.forEach((s, i) => s.setAttribute("opacity", seg(t, (i / n) * 0.05, (i / n) * 0.05 + 0.02)));
+    let demo = -1;
+    for (let d = 0; d < DEMO; d++) if (t >= D0 + d * DW && t < D0 + (d + 1) * DW) demo = d;
+    pickG.setAttribute("opacity", demo >= 0 ? 1 : 0);
+    if (demo >= 0) {
+      const s0 = D0 + demo * DW;
+      const shownPicks = Math.floor(seg(t, s0, s0 + DW * 0.6) * n);
+      const c = new Array(n).fill(0);
+      for (let k = 0; k < shownPicks; k++) c[draws[demo][k]]++;
+      pickDots.forEach((col, i) => col.forEach((d, j) => d.setAttribute("opacity", j < c[i] ? 1 : 0)));
+      accLbl.textContent = t >= s0 + DW * 0.6 ? `redraw ${demo + 1}: accuracy ${f3(accs[demo])}` : `redraw ${demo + 1}: drawing 40 with replacement`;
+    } else accLbl.textContent = t >= D0 + DEMO * DW ? `${B} redraws` : "";
+    dots.forEach((d, b) => {
+      let a;
+      if (b < DEMO) a = ease(seg(t, D0 + b * DW + DW * 0.7, D0 + (b + 1) * DW));
+      else { const s = 0.4 + ((b - DEMO) / (B - DEMO)) * 0.38; a = ease(seg(t, s, s + 0.02)); }
+      const [x, y] = dotPos[b];
+      d.setAttribute("cx", b < DEMO ? lerp(318, x, a) : x);
+      d.setAttribute("cy", b < DEMO ? lerp(52, y, a) : y - (1 - a) * 10);
+      d.setAttribute("opacity", a > 0 ? 1 : 0);
+    });
+    ci.setAttribute("opacity", seg(t, 0.8, 0.88));
+    baseLine.setAttribute("x1", X(base)); baseLine.setAttribute("x2", X(base));
+    baseTxt.setAttribute("x", X(base)); baseTxt.textContent = `baseline ${f2(base)}`;
+    baseG.setAttribute("opacity", seg(t, 0.88, 0.94));
+    verdict.style.opacity = seg(t, 0.93, 1);
+  });
+  verdictCopy();
+  document.querySelectorAll("#boot-seg button").forEach((btn) => btn.addEventListener("click", () => {
+    base = Number(btn.dataset.v);
+    document.querySelectorAll("#boot-seg button").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+    verdictCopy();
+    p.render(1);
+  }));
+}
+
+/* ═════════ D · applicability domain ═════════ */
+function figDomain() {
+  const svg = document.querySelector('[data-fig="D"] svg');
+  const r = rng(9);
+  const T = [];
+  [[86, 92, 24, 16], [146, 172, 26, 18], [206, 96, 14, 13]].forEach(([cx, cy, n, s]) => { for (let i = 0; i < n; i++) T.push([cx + gauss(r) * s, cy + gauss(r) * s * 0.85]); });
+  const SC = 45, THR = 0.3, DSTAR = -SC * Math.log(THR);
+  const nearest = (x, y) => { let bd = Infinity, bj = 0; T.forEach(([a, b], j) => { const d = Math.hypot(x - a, y - b); if (d < bd) { bd = d; bj = j; } }); return [bd, bj]; };
+  const simAt = (x, y) => Math.exp(-nearest(x, y)[0] / SC);
+  const region = mk("g", { opacity: 0.09 }, svg);
+  T.forEach(([x, y]) => mk("circle", { cx: x, cy: y, r: DSTAR, class: "m-fill" }, region));
+  const dom = txt(svg, 16, 18, "applicability domain (similarity ≥ 0.3)", "t");
+  const tdots = T.map(([x, y]) => mk("circle", { cx: x, cy: y, r: 2.8, class: "m-fill" }, svg));
+  const P0 = [118, 132], P1 = [318, 214];
+  const path = Array.from({ length: 241 }, (_, i) => { const s = i / 240; const x = lerp(P0[0], P1[0], s), y = lerp(P0[1], P1[1], s); return { s, x, y, sim: simAt(x, y) }; });
+  const edgeIdx = path.findIndex((p) => p.sim < THR + 0.06);
+  const stamps = [0, Math.max(1, edgeIdx), path.length - 1].map((i) => path[i]);
+  const err = (s) => 0.12 + 0.86 * Math.pow(1 - s, 2.2);
+  // chart
+  const CX0 = 384, CX1 = 624, CY0 = 30, CY1 = 226;
+  const CX = (s) => CX0 + s * (CX1 - CX0), CY = (e) => CY1 - e * (CY1 - CY0);
+  mk("rect", { x: CX0, y: CY0, width: CX(THR) - CX0, height: CY1 - CY0, class: "h-fill", "fill-opacity": 0.08 }, svg);
+  mk("line", { x1: CX(THR), y1: CY0, x2: CX(THR), y2: CY1, class: "fg-stroke", "stroke-width": 1, "stroke-dasharray": "3 3" }, svg);
+  txt(svg, CX0 + 4, CY1 - 19, "outside", "t-s");
+  txt(svg, CX0 + 4, CY1 - 8, "domain", "t-s");
+  mk("line", { x1: CX0, y1: CY1, x2: CX1, y2: CY1, class: "ax" }, svg);
+  mk("line", { x1: CX0, y1: CY0, x2: CX0, y2: CY1, class: "ax" }, svg);
+  [0, THR, 1].forEach((v) => txt(svg, CX(v), CY1 + 14, v === THR ? "0.3" : v.toFixed(0), "t", "middle"));
+  txt(svg, CX1, CY1 + 30, "similarity to nearest training point", "t", "end");
+  txt(svg, CX0, CY0 - 10, "typical error (illustrative)", "t");
+  let curve = "";
+  for (let i = 0; i <= 60; i++) { const s = i / 60; curve += `${i ? "L" : "M"}${CX(s)} ${CY(err(s))} `; }
+  mk("path", { d: curve, class: "fit" }, svg);
+  const trail = mk("line", { x1: P0[0], y1: P0[1], x2: P1[0], y2: P1[1], class: "ax", "stroke-dasharray": "2 4" }, svg);
+  const nnLine = mk("line", { class: "h-stroke", "stroke-width": 1.25 }, svg);
+  const bar = mk("path", { class: "h-stroke", "stroke-width": 1.5 }, svg);
+  const q = mk("circle", { r: 5.5, "stroke-width": 1.75 }, svg);
+  const cm = mk("circle", { r: 4.5, "stroke-width": 1.5 }, svg);
+  const stampG = stamps.map((st, k) => {
+    const g = mk("g", {}, svg);
+    const out = st.sim < THR;
+    mk("circle", { cx: st.x, cy: st.y, r: 4, class: out ? "h-ring" : "h-fill", "stroke-width": 1.5, "stroke-dasharray": out ? "2.2 2" : "none" }, g);
+    txt(g, st.x + 9, st.y - 7, String(k + 1), "t t-fg");
+    mk("circle", { cx: CX(st.sim), cy: CY(err(st.sim)), r: 3.5, class: out ? "h-ring" : "h-fill", "stroke-width": 1.5, "stroke-dasharray": out ? "2.2 2" : "none" }, g);
+    txt(g, CX(st.sim) + 8, CY(err(st.sim)) - 7, `${k + 1} · ${f2(st.sim)}`, "t t-fg");
+    return { g, st };
+  });
+  player("D", 7800, (t) => {
+    tdots.forEach((d, i) => d.setAttribute("opacity", seg(t, (i / T.length) * 0.1, (i / T.length) * 0.1 + 0.03)));
+    region.setAttribute("opacity", 0.09 * seg(t, 0.08, 0.16));
+    dom.setAttribute("opacity", seg(t, 0.1, 0.16));
+    const s = easeIO(seg(t, 0.18, 0.86));
+    const pt = path[Math.round(s * (path.length - 1))];
+    const [d, j] = nearest(pt.x, pt.y);
+    const out = pt.sim < THR, on = t >= 0.18 ? 1 : 0;
+    nnLine.setAttribute("x1", pt.x); nnLine.setAttribute("y1", pt.y); nnLine.setAttribute("x2", T[j][0]); nnLine.setAttribute("y2", T[j][1]);
+    const e = 5 + 26 * err(pt.sim);
+    bar.setAttribute("d", `M${pt.x} ${pt.y - e} V${pt.y + e} M${pt.x - 4} ${pt.y - e} H${pt.x + 4} M${pt.x - 4} ${pt.y + e} H${pt.x + 4}`);
+    q.setAttribute("cx", pt.x); q.setAttribute("cy", pt.y);
+    q.setAttribute("class", out ? "h-ring" : "h-fill");
+    q.setAttribute("stroke-dasharray", out ? "2.6 2.2" : "none");
+    cm.setAttribute("cx", CX(pt.sim)); cm.setAttribute("cy", CY(err(pt.sim)));
+    cm.setAttribute("class", out ? "h-ring" : "h-fill");
+    cm.setAttribute("stroke-dasharray", out ? "2.6 2.2" : "none");
+    const moving = t > 0.18 && t < 0.9 ? 1 : 0;
+    [nnLine, bar, q, cm].forEach((el) => el.setAttribute("opacity", on * moving));
+    stampG.forEach(({ g, st }) => g.setAttribute("opacity", s >= st.s - 1e-9 && on ? 1 : 0));
+    trail.setAttribute("opacity", seg(t, 0.86, 0.95));
+  });
+}
+
+/* ═════════ G · icons ═════════ */
+const ICONS = {
+  datasets: '<rect x="3.5" y="4" width="17" height="16" rx="2"/><path d="M3.5 9.5h17M3.5 14.5h17M11 12h6M11 17.2h4"/><circle class="dot" cx="7.4" cy="12" r="1.35"/><circle class="dot" cx="7.4" cy="17.2" r="1.35"/>',
+  protocols: '<path d="M12 2.8 19.9 7.4v9.2L12 21.2l-7.9-4.6V7.4z"/><path class="chk" d="m8.6 12.2 2.4 2.4 4.5-4.8"/>',
+  sweeps: '<circle class="dot" cx="4.5" cy="12" r="1.9"/><path d="M6.3 11.1 17 5.6M6.6 12h10.2M6.3 12.9 17 18.4"/><circle class="ring" cx="19" cy="4.6" r="2"/><circle class="ring" cx="19" cy="12" r="2"/><circle class="ring" cx="19" cy="19.4" r="2"/>',
+  runs: '<path d="M4.5 5v14l9-7z"/><circle class="ring" cx="19" cy="8" r="2.2"/><circle class="ring" cx="19" cy="16" r="2.2"/>',
+  collections: '<rect x="3" y="3" width="18" height="18" rx="4" stroke-dasharray="3.2 2.6"/><circle class="dot" cx="9" cy="9.5" r="1.5"/><circle class="dot" cx="15" cy="10.2" r="1.5"/><circle class="dot" cx="11.4" cy="15" r="1.5"/>',
+  engines: '<path d="M3.5 3.5v17h17"/><path d="M7 17c4.5 0 6.5-10 13-10.5"/><circle class="dot" cx="9.6" cy="13.4" r="1.4"/><circle class="dot" cx="14.8" cy="13.4" r="1.4"/><circle class="dot" cx="17.6" cy="3.8" r="1.4"/>',
+  runners: '<rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/><circle class="dot led" cx="7" cy="7.5" r="1.3"/><circle class="dot led" cx="7" cy="16.5" r="1.3"/><path d="M11 7.5h6M11 16.5h3"/>',
+};
+const NAV = [
+  ["Overview", [["Dashboard", "layout-dashboard", null, "Kept as is"]]],
+  ["Curate", [
+    ["Datasets", "database", "datasets", "A table whose rows hold measured values (filled dots)"],
+    ["Protocols", "flask-conical", "protocols", "A validated, published model: a checked hexagon"],
+    ["Sweeps", "layers", "sweeps", "One dataset fanned out to several configurations"],
+  ]],
+  ["Apply", [
+    ["Runs", "circle-play", "runs", "Run a protocol and get predictions (open rings)"],
+    ["Collections", "boxes", "collections", "A selection drawn around a hand-picked set"],
+  ]],
+  ["Catalog", [
+    ["Engines", "cpu", "engines", "A model: a curve fitted through measured points"],
+    ["Runners", "server", "runners", "Machines in lanes, each running jobs"],
+  ]],
+];
+function iconSvg(key, cls) { return `<svg class="ico ${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[key]}</svg>`; }
+function buildIcons() {
+  const sb = document.getElementById("sb");
+  let html = '<div class="sb-brand"><span class="mark" aria-hidden="true"></span>DAIKON Studio</div>';
+  NAV.forEach(([label, items]) => {
+    html += `<div class="sb-group"><div class="sb-label">${label}</div>`;
+    items.forEach(([name, lucideName, key]) => {
+      const icon = key ? iconSvg(key, "") : `<i data-lucide="${lucideName}"></i>`;
+      html += `<div class="sb-item${name === "Protocols" ? " active" : ""}">${icon}<span>${name}</span></div>`;
+    });
+    html += "</div>";
+  });
+  sb.innerHTML = html;
+  const body = document.getElementById("cmp-body");
+  body.innerHTML = NAV.flatMap(([, items]) => items).map(([name, lucideName, key, reads]) => `
+    <tr><td>${name}</td>
+    <td><span class="cell"><i data-lucide="${lucideName}" class="lucide s20"></i><i data-lucide="${lucideName}" class="lucide s16"></i></span></td>
+    <td><span class="cell">${key ? iconSvg(key, "s20") + iconSvg(key, "s16") : '<span style="color:var(--fg-2)">Unchanged</span>'}</span></td>
+    <td>${reads}</td></tr>`).join("");
+  try {
+    if (window.lucide) {
+      window.lucide.createIcons({ icons: window.lucide.icons, attrs: { width: 16, height: 16 } });
+      document.querySelectorAll(".cmp svg.s20").forEach((s) => { s.setAttribute("width", 20); s.setAttribute("height", 20); });
+    } else throw new Error("lucide unavailable");
+  } catch {
+    document.querySelectorAll("i[data-lucide]").forEach((i) => { i.textContent = "·"; i.title = "Lucide did not load"; });
+  }
+}
+
+const VARIANTS = [
+  ["glyph", "1 · Colored glyphs", "Each icon in its own hue. Labels stay neutral."],
+  ["tile", "2 · Tinted tiles", "Each icon on a soft tile of its hue. The friendliest and the loudest option."],
+  ["accent", "3 · Accent marks", "Neutral outlines. Only the meaningful marks take color: measured dots, predicted rings, the validation check, status lights."],
+];
+function buildVariants() {
+  const hue = { Dashboard: "dashboard", Datasets: "datasets", Protocols: "protocols", Sweeps: "sweeps", Runs: "runs", Collections: "collections", Engines: "engines", Runners: "runners" };
+  document.getElementById("variants").innerHTML = VARIANTS.map(([k, title, desc]) => {
+    let html = `<div class="variant"><h4>${title}</h4><nav class="sidebar tv-${k}" aria-label="${title}">`;
+    NAV.forEach(([label, items]) => {
+      html += `<div class="sb-group"><div class="sb-label">${label}</div>`;
+      items.forEach(([name, lucideName, key]) => {
+        let icon = key ? iconSvg(key, "") : `<i data-lucide="${lucideName}"></i>`;
+        if (k === "tile") icon = `<span class="tile">${icon}</span>`;
+        html += `<div class="sb-item${name === "Protocols" ? " active" : ""}" style="--hue: var(--ic-${hue[name]})">${icon}<span>${name}</span></div>`;
+      });
+      html += "</div>";
+    });
+    return `${html}</nav><p>${desc}</p></div>`;
+  }).join("");
+}
+
+/* ═════════ disclosures, remembered per browser ═════════ */
+function buildDisclosures() {
+  document.querySelectorAll(".disc").forEach((btn) => {
+    const id = btn.dataset.disc;
+    const panel = document.querySelector(`[data-fig="${id}"]`);
+    const key = `studio-fig-open:${id}`;
+    const saved = store.get(key);
+    const open = saved === null ? true : saved === "1";
+    btn.setAttribute("aria-expanded", String(open));
+    panel.hidden = !open;
+    btn.addEventListener("click", () => {
+      const next = btn.getAttribute("aria-expanded") !== "true";
+      btn.setAttribute("aria-expanded", String(next));
+      panel.hidden = !next;
+      store.set(key, next ? "1" : "0");
+      if (next) players.get(id)?.play();
+    });
+  });
+}
+
+/* ═════════ toolbar ═════════ */
+function buildToolbar() {
+  const themeBtns = document.querySelectorAll("#theme-seg button");
+  themeBtns.forEach((b) => b.addEventListener("click", () => {
+    const v = b.dataset.v;
+    if (v === "system") document.documentElement.removeAttribute("data-theme");
+    else document.documentElement.setAttribute("data-theme", v);
+    themeBtns.forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+  }));
+  const motionBtns = document.querySelectorAll("#motion-seg button");
+  const syncMotion = () => motionBtns.forEach((x) => x.setAttribute("aria-pressed", String((x.dataset.v === "final") === finalOnly)));
+  syncMotion();
+  motionBtns.forEach((b) => b.addEventListener("click", () => {
+    finalOnly = b.dataset.v === "final";
+    syncMotion();
+    players.forEach((p) => { cancelAnimationFrame(p.raf); p.raf = 0; p.render(1); });
+  }));
+}
+
+/* ═════════ review controls, saved to the artifact's db ═════════ */
+function buildReview() {
+  const panels = [...document.querySelectorAll("[data-review]")];
+  const state = {};
+  let db = null;
+  panels.forEach((el) => {
+    const id = el.dataset.review;
+    const general = id === "general";
+    const opts = (el.dataset.options || "keep:Keep,revise:Revise,cut:Cut").split(",").map((o) => o.split(":"));
+    el.innerHTML = `${general ? "" : `<div class="seg" role="group" aria-label="Decision for ${id}">
+        ${opts.map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="false">${l}</button>`).join("")}</div>`}
+      <label for="note-${id}" style="font-size:12px;color:var(--fg-2)">${general ? "Notes for every figure" : "Note (optional)"}</label>
+      <textarea id="note-${id}" placeholder="${general ? "For example: slower pacing, fewer labels" : "What to change, or why"}"></textarea>
+      <div class="status" aria-live="polite"></div>`;
+    const status = el.querySelector(".status");
+    const ta = el.querySelector("textarea");
+    const btns = el.querySelectorAll(".seg button");
+    state[id] = { status: null, note: "" };
+    const paint = () => btns.forEach((b) => b.setAttribute("aria-pressed", String(state[id].status === b.dataset.v)));
+    let pending = Promise.resolve();
+    const save = () => {
+      if (!db) { status.textContent = "Saving is unavailable in this view. Paste your notes into the chat instead."; return; }
+      status.textContent = "Saving…";
+      const body = { status: state[id].status, note: state[id].note, updatedAt: new Date().toISOString() };
+      pending = pending.then(() => db.doc(`decisions/${id}`).set(body))
+        .then(() => { status.textContent = "Saved"; })
+        .catch((e) => { status.textContent = e && e.code === "invalid_argument" ? "You can view these decisions but not change them." : "Could not save. Try again in a moment."; });
+    };
+    btns.forEach((b) => b.addEventListener("click", () => {
+      state[id].status = state[id].status === b.dataset.v ? null : b.dataset.v;
+      paint(); save();
+    }));
+    let timer = 0;
+    ta.addEventListener("input", () => { state[id].note = ta.value; clearTimeout(timer); timer = setTimeout(save, 700); });
+    el._apply = (data) => {
+      state[id] = { status: data.status ?? null, note: data.note ?? "" };
+      paint();
+      if (document.activeElement !== ta) ta.value = state[id].note;
+    };
+  });
+  (async () => {
+    try {
+      db = window.claude ? await window.claude.use("db") : null;
+    } catch { db = null; }
+    if (!db) return;
+    db.collection("decisions").onSnapshot((snap) => {
+      snap.docs.forEach((d) => { const el = panels.find((p) => p.dataset.review === d.id); if (el && d.exists) el._apply(d.data() || {}); });
+    }, () => {});
+  })();
+}
+
+buildToolbar();
+buildVariants();
+buildIcons();
+figForest(); figBoost(); figGP(); figMPNN(); figAttention();
+figSplit(); figBootstrap(); figDomain();
+buildDisclosures();
+buildReview();
+players.forEach((p) => io.observe(p.root));
+})();
+</script>
