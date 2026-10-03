@@ -1,8 +1,12 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.infrastructure.duar.auth import (
@@ -11,6 +15,7 @@ from daikonstudio.infrastructure.duar.auth import (
     register_service_actions,
 )
 from daikonstudio.interface.error_handlers import register_error_handlers
+from daikonstudio.interface.middleware import RequestIdMiddleware
 from daikonstudio.interface.routes.collections import router as collections_router
 from daikonstudio.interface.routes.datasets import router as datasets_router
 from daikonstudio.interface.routes.engines import router as engines_router
@@ -21,6 +26,21 @@ from daikonstudio.interface.routes.runs import router as runs_router
 from daikonstudio.interface.routes.sweeps import router as sweeps_router
 from daikonstudio.logging import configure_logging
 from daikonstudio.settings import Settings
+
+
+async def check_database(sessions: async_sessionmaker[AsyncSession]) -> str | None:
+    """None when `SELECT 1` answers within 3 s, else the failure's class name.
+
+    The readiness half of `/health`: the liveness probe stays unconditional so
+    a database blip does not restart a healthy API process, while this one tells
+    a load balancer or `docker compose` whether requests can actually succeed.
+    """
+    try:
+        async with asyncio.timeout(3), sessions() as session:
+            await session.execute(text("SELECT 1"))
+    except Exception as exc:  # deliberately broad: a probe reports, it never raises
+        return type(exc).__name__
+    return None
 
 
 def create_app() -> FastAPI:
@@ -77,7 +97,14 @@ def create_app() -> FastAPI:
     # `interface/routes/runners.py`), which stays Duar-protected.
     duar.protect(
         app,
-        exclude_paths=["/health", "/version", "/docs", "/openapi.json", "/api/v1/runner"],
+        exclude_paths=[
+            "/health",
+            "/ready",
+            "/version",
+            "/docs",
+            "/openapi.json",
+            "/api/v1/runner",
+        ],
     )
 
     app.add_middleware(
@@ -87,12 +114,24 @@ def create_app() -> FastAPI:
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    # Outermost (added last), so the request id exists before auth or CORS can
+    # reject anything and is stamped on every response, including a 401.
+    app.add_middleware(RequestIdMiddleware)
 
-    register_error_handlers(app)
+    register_error_handlers(app, cors_origins=settings.cors_origins)
 
     @app.get("/health")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/ready")
+    async def ready() -> JSONResponse:
+        failure = await check_database(app.state.container[async_sessionmaker])
+        if failure is not None:
+            return JSONResponse(
+                status_code=503, content={"status": "unavailable", "detail": failure}
+            )
+        return JSONResponse({"status": "ready"})
 
     @app.get("/version")
     async def version() -> dict[str, str]:
