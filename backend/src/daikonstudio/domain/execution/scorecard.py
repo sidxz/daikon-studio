@@ -194,6 +194,11 @@ class Scorecard:
     noise_floor: float | None
     worst_rows: list[WorstRow]
     applicability_coverage: float | None
+    # 95 % bootstrap interval over the test set for `metrics[primary_metric]`,
+    # unpaired (see `build_scorecard.primary_metric_ci`). None when the test
+    # set is too small or too skewed to support one. A verdict that beats the
+    # baseline by less than this interval's width is a verdict about noise.
+    primary_metric_ci: tuple[float, float] | None = None
     target_unit: str | None
     target_direction: str | None
     split_strategy: str

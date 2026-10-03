@@ -4,6 +4,7 @@
  * daikon-studio
  * OpenAPI spec version: 0.1.0
  */
+import type { ScorecardResponsePrimaryMetricCi } from './scorecardResponsePrimaryMetricCi';
 import type { ScorecardResponseMetrics } from './scorecardResponseMetrics';
 import type { ScorecardResponseValidationMetrics } from './scorecardResponseValidationMetrics';
 import type { ScorecardResponseMetricsUndefined } from './scorecardResponseMetricsUndefined';
@@ -48,6 +49,7 @@ instead of inferring it from `random_split_metrics`/
  */
 export interface ScorecardResponse {
   primary_metric: string;
+  primary_metric_ci: ScorecardResponsePrimaryMetricCi;
   prediction_kind: string;
   metrics: ScorecardResponseMetrics;
   validation_metrics: ScorecardResponseValidationMetrics;

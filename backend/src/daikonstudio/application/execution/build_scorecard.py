@@ -18,8 +18,11 @@ port for one more RDKit function would be a needless abstraction split.
 
 from __future__ import annotations
 
+import math
 import statistics
 from typing import Any
+
+import numpy as np
 
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
@@ -70,6 +73,67 @@ def primary_metric_for(task: TaskType) -> str:
     silent lie about which model won.
     """
     return "mcc" if task is TaskType.BINARY_CLASSIFICATION else "rmse"
+
+
+#: Below this many test rows a bootstrap interval is mostly a statement about
+#: the resampling, not the model; the card then shows no interval at all.
+_CI_MIN_ROWS = 20
+_CI_RESAMPLES = 1000
+
+
+def _mcc(actual: np.ndarray, predicted_positive: np.ndarray) -> float | None:
+    """Matthews correlation from 0/1 labels and a boolean prediction; None when
+    a resample holds one class on either side and the metric is undefined."""
+    positive = actual >= 0.5
+    tp = float(np.sum(positive & predicted_positive))
+    tn = float(np.sum(~positive & ~predicted_positive))
+    fp = float(np.sum(~positive & predicted_positive))
+    fn = float(np.sum(positive & ~predicted_positive))
+    denominator = math.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    return None if denominator == 0 else (tp * tn - fp * fn) / denominator
+
+
+def primary_metric_ci(
+    task: TaskType,
+    actual: list[float],
+    predicted: list[float],
+    *,
+    resamples: int = _CI_RESAMPLES,
+    seed: int = 0,
+) -> tuple[float, float] | None:
+    """A 95 % bootstrap interval over the test set for the headline metric.
+
+    This is what stops "+0.12 over the baseline" at n=197 reading as a win when
+    the baseline's number sits inside [0.49, 0.76] (docs/roadmap.md, Traps). It
+    is *unpaired*, and the UI says so: the baseline's per-compound predictions
+    are not persisted, so this is the sampling noise of this one number, not a
+    paired test of the difference. Still the honest floor under the verdict.
+
+    Recomputed from `actual`/`predicted` with the metric's own definition (MCC
+    at the 0.5 threshold, RMSE), not by re-running the engines' `_score`: the
+    point estimate stays theirs, the interval is ours, and a fixed seed makes it
+    the same on every page load.
+    """
+    n = len(actual)
+    if n < _CI_MIN_ROWS or n != len(predicted):
+        return None
+    a = np.asarray(actual, dtype=float)
+    p = np.asarray(predicted, dtype=float)
+    rng = np.random.default_rng(seed)
+    values: list[float] = []
+    for _ in range(resamples):
+        idx = rng.integers(0, n, n)
+        if task is TaskType.BINARY_CLASSIFICATION:
+            value = _mcc(a[idx], p[idx] >= 0.5)
+            if value is not None:
+                values.append(value)
+        else:
+            values.append(float(np.sqrt(np.mean((a[idx] - p[idx]) ** 2))))
+    if len(values) < resamples // 2:
+        # Most resamples were single-class: the test set is too skewed for an
+        # interval to mean anything, which the undefined-metric reason already says.
+        return None
+    return float(np.percentile(values, 2.5)), float(np.percentile(values, 97.5))
 
 
 def build_scorecard(
@@ -138,6 +202,7 @@ def build_scorecard(
 
     return Scorecard(
         primary_metric=primary_metric_for(task),
+        primary_metric_ci=primary_metric_ci(task, actual, predicted),
         prediction_kind="probability" if is_classification else "value",
         metrics=metrics,
         validation_metrics=validation_metrics,
@@ -192,11 +257,11 @@ def _parity(
 
 
 def _histogram(values: list[float], bins: int) -> Histogram:
-    """Plain-Python binning, no numpy.
+    """Plain-Python binning.
 
-    `application` is free to import numpy -- `build_profile` next door does --
-    but this module deliberately holds no array dependency at all, and one
-    histogram over a few thousand floats does not earn the first one.
+    numpy is imported above for the bootstrap, where a thousand resamples earn
+    it; one histogram over a few thousand floats does not, so this stays as it
+    was written.
     """
     if not values:
         return Histogram(edges=[], counts=[])

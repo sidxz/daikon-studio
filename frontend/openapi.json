@@ -4274,6 +4274,20 @@
             "type": "string",
             "title": "Primary Metric"
           },
+          "primary_metric_ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Primary Metric Ci"
+          },
           "prediction_kind": {
             "type": "string",
             "title": "Prediction Kind"
@@ -4517,6 +4531,7 @@
         "type": "object",
         "required": [
           "primary_metric",
+          "primary_metric_ci",
           "prediction_kind",
           "metrics",
           "validation_metrics",

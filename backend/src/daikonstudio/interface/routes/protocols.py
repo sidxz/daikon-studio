@@ -234,6 +234,10 @@ class ScorecardResponse(BaseModel):
     """
 
     primary_metric: str
+    # `[low, high]`: the 95 % bootstrap interval for `metrics[primary_metric]`
+    # over the test set, unpaired. Null when the test set cannot support one.
+    # A client that renders "beats the baseline" must look at this first.
+    primary_metric_ci: list[float] | None
     prediction_kind: str
     metrics: dict[str, float | None]
     # Tune against this; `metrics` is the verdict. `null` when the split declared
@@ -269,6 +273,7 @@ class ScorecardResponse(BaseModel):
     def from_domain(cls, card: Scorecard) -> ScorecardResponse:
         return cls(
             primary_metric=card.primary_metric,
+            primary_metric_ci=list(card.primary_metric_ci) if card.primary_metric_ci else None,
             prediction_kind=card.prediction_kind,
             metrics=card.metrics,
             validation_metrics=card.validation_metrics,

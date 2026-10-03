@@ -158,6 +158,7 @@ export * from './scorecardResponseMetricsUndefined';
 export * from './scorecardResponseMetricsUndefinedAnyOf';
 export * from './scorecardResponseNoiseFloor';
 export * from './scorecardResponseParitySampledFrom';
+export * from './scorecardResponsePrimaryMetricCi';
 export * from './scorecardResponseRandomSplitMetrics';
 export * from './scorecardResponseRandomSplitMetricsAnyOf';
 export * from './scorecardResponseRandomSplitMetricsUndefined';
