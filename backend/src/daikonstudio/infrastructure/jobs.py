@@ -40,6 +40,7 @@ from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import ConflictError
+from daikonstudio.infrastructure.chem.chemical_space import UmapLayout
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
@@ -88,6 +89,7 @@ async def _train(ctx: dict[str, Any], run: Run) -> str:
         RdkitStructureNormalizer(),
         # `.get`, not `[...]`: a ctx built by hand in a test may carry neither key.
         deadline_seconds=ctx.get("job_deadline_seconds"),
+        layout=UmapLayout(),
     )(run)
 
 

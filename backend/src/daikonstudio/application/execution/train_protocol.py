@@ -45,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import logging
 import math
 import time
 import uuid
@@ -60,6 +61,7 @@ from daikonstudio.application.auth import (
     require_editor,
     require_same_workspace,
 )
+from daikonstudio.application.catalog.chemical_space import write_chemical_space
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
 from daikonstudio.application.data.assign_split import assign_split
 from daikonstudio.application.data.snapshot import snapshot_key
@@ -77,6 +79,10 @@ from daikonstudio.application.execution.build_scorecard import primary_metric_fo
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.failure_message import user_facing_error
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.chemical_space_layout import (
+    ChemicalSpaceLayout,
+    TooFewCompounds,
+)
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
@@ -87,6 +93,8 @@ from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import TargetKind
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
+
+logger = logging.getLogger(__name__)
 
 
 def artifact_key(workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> str:
@@ -415,6 +423,7 @@ class RunTraining:
         engines: EngineRegistry,
         normalizer: StructureNormalizer,
         deadline_seconds: float | None = None,
+        layout: ChemicalSpaceLayout | None = None,
     ) -> None:
         self._datasets = datasets
         self._protocols = protocols
@@ -423,6 +432,7 @@ class RunTraining:
         self._engines = engines
         self._normalizer = normalizer
         self._deadline_seconds = deadline_seconds
+        self._layout = layout
         self._deadline_at: float | None = None
 
     async def __call__(self, run: Run) -> str:
@@ -611,6 +621,26 @@ class RunTraining:
             value=metrics.get(primary),
             baseline_value=baseline_metrics.get(primary),
         )
+
+        if self._layout is not None:
+            await self._progress(run, 0.97, "Mapping chemical space")
+            try:
+                await asyncio.to_thread(
+                    write_chemical_space,
+                    self._store,
+                    run.workspace_id,
+                    protocol_id,
+                    frame,
+                    dataset.structure_column,
+                    dataset.split.seed,
+                    self._layout,
+                )
+            except TooFewCompounds:
+                pass  # a map of four compounds says nothing; the page says "no map"
+            except Exception:
+                # Best-effort by design: a protocol without a map is a whole, honest
+                # protocol, and one that failed to train because a picture failed is not.
+                logger.exception("Chemical-space map failed for protocol %s", protocol_id)
         return result_uri
 
     async def _optimism_gap(
