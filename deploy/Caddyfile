@@ -1,0 +1,18 @@
+# Everything under /api/v1, plus the probes and the schema, is the FastAPI
+# backend. /api/config and /api/auth/mint are Next.js route handlers and MUST
+# reach the frontend, so the matcher is /api/v1/*, not /api/*.
+{$STUDIO_DOMAIN} {
+	encode zstd gzip
+	# Upload cap is 100 MB in the API (MAX_UPLOAD_BYTES); the proxy refuses a
+	# little above it so an oversize body never spools to the API's disk.
+	request_body {
+		max_size 110MB
+	}
+	@backend path /api/v1/* /health /ready /version /docs /openapi.json
+	handle @backend {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy frontend:3000
+	}
+}

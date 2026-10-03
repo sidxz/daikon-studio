@@ -1,0 +1,86 @@
+# Production stack for one host. See deploy/README.md for the runbook.
+# Images come from CI (ghcr.io) or from `make image-runner-cpu image-frontend`.
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment:
+      STUDIO_DOMAIN: "${STUDIO_DOMAIN}"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [api, frontend]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD}"
+      POSTGRES_DB: studio
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U studio -d studio"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # One-shot. The API image carries alembic; nothing else runs migrations.
+  migrate:
+    image: "${STUDIO_API_IMAGE}"
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      STUDIO_DATABASE_URL: "postgresql+asyncpg://studio:${POSTGRES_PASSWORD}@postgres:5432/studio"
+    depends_on:
+      postgres: { condition: service_healthy }
+    restart: "no"
+
+  api:
+    image: "${STUDIO_API_IMAGE}"
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      STUDIO_DATABASE_URL: "postgresql+asyncpg://studio:${POSTGRES_PASSWORD}@postgres:5432/studio"
+      STUDIO_BLOB_BASE_URL: "file:///data/blobs"
+      # Set here, not in .env: a JSON list survives Compose's `environment:`
+      # verbatim, while shell sourcing and docker --env-file disagree about quotes.
+      STUDIO_CORS_ORIGINS: '["https://${STUDIO_DOMAIN}"]'
+      STUDIO_LOG_FORMAT: json
+    volumes: ["blobs:/data/blobs"]
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  frontend:
+    image: "${STUDIO_FRONTEND_IMAGE}"
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      APP_URL: "https://${STUDIO_DOMAIN}"
+      APP_API_BASE_URL: "https://${STUDIO_DOMAIN}"
+      APP_ENV: production
+
+  # The default-lane runner, on the same host. Talks to the API directly, so
+  # the reverse-proxy slash-merging caveat in deploy/README.md does not apply.
+  runner-default:
+    image: "${STUDIO_API_IMAGE}"
+    restart: unless-stopped
+    command: ["python", "-m", "daikonstudio.infrastructure.runner"]
+    environment:
+      STUDIO_URL: "http://api:8000"
+      STUDIO_RUNNER_TOKEN: "${STUDIO_RUNNER_TOKEN_DEFAULT}"
+      STUDIO_LOG_FORMAT: json
+      OMP_NUM_THREADS: "1"
+    depends_on: [api]
+
+volumes:
+  pgdata: {}
+  blobs: {}
+  caddy_data: {}
+  caddy_config: {}
