@@ -62,7 +62,7 @@ WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 
 .DEFAULT_GOAL := help
 .PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
-        seed-runners generate-api test test-api test-all test-fe lint lint-fe nuke \
+        seed-runners backfill-maps generate-api test test-api test-all test-fe lint lint-fe nuke \
         image-runner-cpu image-runner-gpu image-smoke image-frontend
 
 help: ## Show this help
@@ -86,6 +86,9 @@ install: ## Install backend (uv) + frontend (pnpm) dependencies
 
 migrate: ## Apply DB migrations (alembic)
 	$(BACKEND) && $(BE_ENV) && uv run alembic upgrade head
+
+backfill-maps: ## Build chemical-space maps (and run neighbours) for protocols that lack one
+	$(BACKEND) && $(BE_ENV) && uv run python -m daikonstudio.infrastructure.backfill_maps
 
 seed-runners: ## Ensure the two local dev runners exist
 	$(BACKEND) && $(BE_ENV) && STUDIO_DEV_SEED=1 uv run python -m daikonstudio.infrastructure.runner.seed
