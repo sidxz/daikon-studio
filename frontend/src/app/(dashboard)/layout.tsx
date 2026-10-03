@@ -4,6 +4,7 @@ import { AppSidebar } from "@/shared/components/layout/app-sidebar";
 import { Header } from "@/shared/components/layout/header";
 import { SidebarInset, SidebarProvider } from "@/shared/components/ui/sidebar";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { useSessionRenewal } from "@/shared/lib/auth/session-renewal";
 import { useAuthz } from "@duar-auth/nextjs";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -23,6 +24,7 @@ function DashboardSkeleton() {
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { authState, isLoading } = useAuthz();
   const router = useRouter();
+  useSessionRenewal();
 
   useEffect(() => {
     // Only bounce when the session is genuinely gone. `authState` is three-way,

@@ -3,8 +3,8 @@
 import { LogoMark } from "@/shared/components/logo-mark";
 import { useAppConfig } from "@/shared/lib/app-config";
 import { useAuthz } from "@duar-auth/nextjs";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect } from "react";
 
 function GoogleIcon() {
   return (
@@ -27,6 +27,20 @@ function GoogleIcon() {
         d="M12 4.75c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 1.46 14.97.5 12 .5A11 11 0 0 0 2.18 7.05l3.66 2.84C6.71 7.29 9.14 4.75 12 4.75z"
       />
     </svg>
+  );
+}
+
+/** A failed sign-in lands here as `?error=` (see the callback page); say what it was. */
+function LoginError() {
+  const error = useSearchParams().get("error");
+  if (!error) return null;
+  return (
+    <p
+      role="alert"
+      className="mt-3 rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs text-destructive"
+    >
+      {error}
+    </p>
   );
 }
 
@@ -80,6 +94,10 @@ export default function LoginPage() {
           <div className="w-full max-w-[320px] px-6 md:px-0">
             <div style={{ animation: "auth-enter 0.7s ease-out 0.2s both" }}>
               <h2 className="text-sm font-medium text-muted-foreground">Sign in to continue</h2>
+              {/* useSearchParams needs a suspense boundary in the app router. */}
+              <Suspense fallback={null}>
+                <LoginError />
+              </Suspense>
               <button
                 type="button"
                 onClick={() => login("google")}

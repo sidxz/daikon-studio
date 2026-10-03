@@ -124,6 +124,8 @@ export function DatasetWizard() {
       router.push(`/datasets/${dataset.id}`);
     } catch (error) {
       const apiError = error as ApiError;
+      // A 401 the session renewal is already handling: nothing to say here.
+      if (apiError?.silent) return;
       // A 422 body IS the report. Render it; never reduce it to a toast.
       const body = apiError?.body as { detail?: unknown } | undefined;
       const detail = body?.detail;

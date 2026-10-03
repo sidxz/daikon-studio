@@ -26,13 +26,25 @@ export class ApiError extends Error {
   readonly status: number;
   /** Parsed JSON body, or `undefined` when empty or not JSON. Narrow before use. */
   readonly body: unknown;
+  /** True for a 401 that a session renewal is already handling: nothing to toast. */
+  readonly silent: boolean;
 
-  constructor(message: string, status: number, body: unknown) {
+  constructor(message: string, status: number, body: unknown, silent = false) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     this.body = body;
+    this.silent = silent;
   }
+}
+
+let _onUnauthorized: (() => void) | null = null;
+let _unauthorizedNotified = false;
+
+/** Registered by the dashboard layout; fired once per expiry, not once per failed query. */
+export function setUnauthorizedHandler(handler: (() => void) | null): void {
+  _onUnauthorized = handler;
+  _unauthorizedNotified = false;
 }
 
 /** Called by AuthProvider once runtime config has loaded. */
@@ -125,6 +137,13 @@ export const customInstance = async <T>({
       }
     } catch {
       // Body was empty or not JSON -- fall through with no detail.
+    }
+    if (response.status === 401 && _onUnauthorized) {
+      if (!_unauthorizedNotified) {
+        _unauthorizedNotified = true;
+        _onUnauthorized();
+      }
+      throw new ApiError("Your session expired; signing you back in", 401, body, true);
     }
     throw new ApiError(
       detail ? `API error: ${response.status} — ${detail}` : `API error: ${response.status}`,
