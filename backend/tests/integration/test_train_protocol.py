@@ -609,7 +609,8 @@ async def test_progress_is_reported_through_the_named_phases(studio: Studio) -> 
 
     done = await studio.reload(run)
     assert done.progress == 1.0
-    assert done.phase == "Training baseline model"
+    # The chemical-space map is the last step, after the baseline fit.
+    assert done.phase == "Mapping chemical space"
 
 
 async def test_training_another_workspaces_dataset_is_a_not_found(studio: Studio) -> None:
