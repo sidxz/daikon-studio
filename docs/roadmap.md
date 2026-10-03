@@ -1,6 +1,7 @@
 # Roadmap — capability first
 
-**Last updated:** 2026-08-06. Companions: `engine-research.md`, which holds the external
+**Last updated:** 2026-10-02 (traps and deferred items revised after the beta-readiness
+pass, `docs/plans/2026-10-02-beta-readiness.md`). Companions: `engine-research.md`, which holds the external
 evidence (licences, refuted models, what not to add) and is not re-derived here; and
 `study-replication.md`, which measures the platform against one real completed study
 (Mtb ERA → SAC3) and ranks what it would take to host one.
@@ -77,7 +78,9 @@ two libraries actually diverge.
 3. **Start from a prior run's artifact.** "Train from the model I fitted on my other
    assay." Artifacts are already stored and addressable, so this is a condition pointing at
    a previous run rather than new science — and it is worth more at n=200 than any
-   architecture choice on this list.
+   architecture choice on this list. (Retrying a *failed or cancelled* run in place
+   shipped 2026-10-02 — `POST /runs/{id}/retry` — but that re-executes the same
+   instructions; it is not transfer.)
 4. **Combine two engines' predictions.** No averaging, no stacking, no meta-learner
    anywhere. The roster can now cover a study's members but not its ensemble; see
    `study-replication.md` for why the fan-out comparison is worth more than the stacker.
@@ -124,15 +127,27 @@ Carried forward deliberately — each of these has already cost a session.
 - **The locked torch is `2.13.0+cu130` — CUDA 13.0 — while the base image tag says
   12.4.1.** PyPI's linux wheels vendor their own CUDA userspace so this is fine, but the
   *host driver* must be new enough for CUDA 13, not 12.4, and the tag misleads.
-- **Per-lane job timeouts do not exist.** One server-wide `STUDIO_WORKER_JOB_TIMEOUT`
-  serves every runner regardless of lane, which is why no sweep has yet included a
-  chemprop config. The fix is per-lane timeouts, not avoiding the engine.
+- **Per-lane job timeouts exist since 2026-10-02:** `STUDIO_WORKER_JOB_TIMEOUT_BY_LANE`
+  (JSON, e.g. `{"gpu": 7200}`) overrides the server-wide `STUDIO_WORKER_JOB_TIMEOUT`
+  per lane in the claim response, and the deadline is now also checked *between*
+  fits, which is the only check the tree and GP engines ever reach. Predictions
+  still have no deadline, and nothing hard-kills a hung fit: a thread cannot be
+  killed, so an engine that never returns holds its runner until the lease sweep.
+- **A green `docker build` of the CPU image said nothing either.** LightGBM's wheel
+  links `libgomp.so.1`, which `python:3.13-slim` does not ship; the API image built
+  clean for two months and crashed at import. Found 2026-10-02 by booting the image.
+  `make image-smoke` and CI now import the app and every engine inside every image
+  they build. The same lesson as the GPU image's X11 libraries, one bullet up.
 - **`uncertainty` means five different things across the roster** and the triage grid sorts
   across all of them. Only the GP's regression path is a true posterior spread.
-- **The Scorecard's green "Beats the baseline, +0.123" badge is unsupported at n=197** —
-  the baseline's 0.514 sits inside a CI of [0.487, 0.764]. A false claim on screen for
-  single runs, and every added engine multiplies where it appears. This is the one
-  measurement item that is live independently of sweeps.
+- **The Scorecard's green "Beats the baseline, +0.123" badge was unsupported at n=197** —
+  the baseline's 0.514 sat inside a CI of [0.487, 0.764]. Since 2026-10-02 the
+  Scorecard carries a 95 % bootstrap interval on the primary metric
+  (`primary_metric_ci`, 1000 resamples of the test set, fixed seed) and the verdict
+  reads "within this test set's sampling noise" whenever the baseline's number falls
+  inside it. The interval is **unpaired** — the baseline's per-compound predictions
+  are still not persisted — so a paired test of the difference remains open
+  (`publication-grade-gaps`, item 3).
 - **The whole test suite segfaults locally once the gpu extra is installed.** Exit 139,
   in `tests/unit/engines`, and it is the dual-OpenMP collision `Dockerfile.gpu` already
   sets `OMP_NUM_THREADS=1` for — RDKit, sklearn, LightGBM and torch each vendor their
