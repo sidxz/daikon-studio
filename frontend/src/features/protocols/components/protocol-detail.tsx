@@ -20,6 +20,7 @@ import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useState } from "react";
 import { useProtocol, usePublishProtocol, useScorecard } from "../hooks/use-protocols";
+import { ProtocolChemicalSpace } from "./protocol-chemical-space";
 import { ProtocolRuns } from "./protocol-runs";
 import { ScorecardView } from "./scorecard-view";
 
@@ -116,6 +117,8 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
       {scorecard.isLoading && <Skeleton className="h-64 w-full" />}
       {scorecard.isError && <p className="text-sm text-destructive">Could not load scorecard</p>}
       {scorecard.data && <ScorecardView scorecard={scorecard.data} />}
+
+      <ProtocolChemicalSpace protocolId={protocol.id} />
 
       <ProtocolRuns protocolId={protocol.id} />
 

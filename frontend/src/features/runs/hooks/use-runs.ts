@@ -10,10 +10,12 @@ import type {
   PaginatedResponsePredictionResponse,
   PaginatedResponseRunResponse,
   PredictBody,
+  RunChemicalSpaceResponse,
+  RunMapCompoundResponse,
   RunResponse,
   UploadResponse,
 } from "@/shared/lib/api/model";
-import { pollInterval } from "@/shared/lib/query-defaults";
+import { STALE_TIME, pollInterval } from "@/shared/lib/query-defaults";
 import { showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { ResultParams } from "../lib/result-query";
@@ -21,6 +23,37 @@ import type { TriageRow } from "../types";
 import { RUNS_KEY, RUN_KEY } from "./query-keys";
 
 /** Prediction runs, newest first. Training runs live on their Protocol. */
+/** A run's compounds placed on its protocol's map. Fixed once the run is ready. */
+export function useRunChemicalSpace(id: string | undefined) {
+  return useQuery({
+    queryKey: [...RUN_KEY, id, "chemical-space"],
+    queryFn: () =>
+      customInstance<RunChemicalSpaceResponse>({
+        url: `${API_V1}/runs/${id}/chemical-space`,
+        method: "GET",
+      }),
+    enabled: Boolean(id),
+    staleTime: STALE_TIME.LONG,
+  });
+}
+
+/** One scored compound, for a hover tooltip. Null row means nothing hovered. */
+export function useRunMapCompound(id: string, row: number | null) {
+  return useQuery({
+    queryKey: [...RUN_KEY, id, "chemical-space", "compound", row],
+    queryFn: async () =>
+      (
+        await customInstance<RunMapCompoundResponse[]>({
+          url: `${API_V1}/runs/${id}/chemical-space/compounds`,
+          method: "GET",
+          params: { rows: [row] },
+        })
+      )[0] ?? null,
+    enabled: row !== null && row >= 0,
+    staleTime: STALE_TIME.LONG,
+  });
+}
+
 export function useRuns(
   kind: "prediction" | "training" | undefined = "prediction",
   cursor?: string,

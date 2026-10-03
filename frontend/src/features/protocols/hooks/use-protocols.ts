@@ -2,6 +2,8 @@
 
 import { API_V1, ApiError, customInstance } from "@/shared/lib/api/custom-instance";
 import type {
+  ChemicalSpaceResponse,
+  MapCompoundResponse,
   PaginatedResponseProtocolResponse,
   PaginatedResponseRunResponse,
   ProtocolResponse,
@@ -36,6 +38,37 @@ export function useProtocol(id: string | undefined) {
     queryFn: () =>
       customInstance<ProtocolResponse>({ url: `${API_V1}/protocols/${id}`, method: "GET" }),
     enabled: Boolean(id),
+  });
+}
+
+/** The protocol's chemical-space map. Written once at training (or by the backfill). */
+export function useProtocolChemicalSpace(id: string | undefined) {
+  return useQuery({
+    queryKey: [...PROTOCOL_KEY, id, "chemical-space"],
+    queryFn: () =>
+      customInstance<ChemicalSpaceResponse>({
+        url: `${API_V1}/protocols/${id}/chemical-space`,
+        method: "GET",
+      }),
+    enabled: Boolean(id),
+    staleTime: STALE_TIME.LONG,
+  });
+}
+
+/** One compound of the map, for a hover tooltip. Null index means nothing hovered. */
+export function useProtocolMapCompound(id: string, index: number | null) {
+  return useQuery({
+    queryKey: [...PROTOCOL_KEY, id, "chemical-space", "compound", index],
+    queryFn: async () =>
+      (
+        await customInstance<MapCompoundResponse[]>({
+          url: `${API_V1}/protocols/${id}/chemical-space/compounds`,
+          method: "GET",
+          params: { indices: [index] },
+        })
+      )[0] ?? null,
+    enabled: index !== null && index >= 0,
+    staleTime: STALE_TIME.LONG,
   });
 }
 
