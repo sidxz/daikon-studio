@@ -9,6 +9,7 @@ compounds, whose indices count in that same train order.
 import io
 import json
 import uuid
+from typing import Any
 
 import numpy as np
 import polars as pl
@@ -46,7 +47,8 @@ def place(coords: np.ndarray, indices: np.ndarray, similarities: np.ndarray) -> 
     totals = weights.sum(axis=1, keepdims=True)
     width = max(weights.shape[1], 1)
     weights = np.where(totals > 0, weights / np.where(totals > 0, totals, 1.0), 1.0 / width)
-    return np.einsum("nk,nkd->nd", weights, coords[np.asarray(indices)])
+    placed: np.ndarray = np.einsum("nk,nkd->nd", weights, coords[np.asarray(indices)])
+    return placed
 
 
 def build_chemical_space(
@@ -64,10 +66,11 @@ def build_chemical_space(
         }
     )
     described = layout.describe()
+    params = described.get("params")
     meta = {
         **described,
         "version": MAP_VERSION,
-        "params": {**dict(described.get("params", {})), "seed": seed},  # type: ignore[arg-type]
+        "params": {**(params if isinstance(params, dict) else {}), "seed": seed},
         "counts": {name: partition.count(code) for name, code in PARTITION_CODES.items()},
     }
     buffer = io.BytesIO()
@@ -100,7 +103,9 @@ def neighbours_parquet(indices: list[list[int]], similarities: list[list[float]]
     return buffer.getvalue()
 
 
-def read_meta(store: BlobStore, workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> dict | None:
+def read_meta(
+    store: BlobStore, workspace_id: uuid.UUID, protocol_id: uuid.UUID
+) -> dict[str, Any] | None:
     try:
         meta = json.loads(store.get_bytes(chemical_space_meta_key(workspace_id, protocol_id)))
     except (FileNotFoundError, ValueError):

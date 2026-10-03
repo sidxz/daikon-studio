@@ -230,6 +230,7 @@ class GetRunChemicalSpace:
             or neighbours is None
         ):
             return Success(RunChemicalSpaceView(status="missing"))
+        assert run.result_uri is not None  # `_ready_prediction` refuses a run without one
         points = read_points(self._store, protocol.workspace_id, protocol.id)
         results = pl.read_parquet(io.BytesIO(self._store.get_bytes(run.result_uri)))
 
