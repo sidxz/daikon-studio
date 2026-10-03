@@ -189,14 +189,20 @@ class GetProtocolChemicalSpaceCompounds:
             for i in query.indices
             if 0 <= i < len(structures)
         ]
-        dataset = await self._datasets.get(protocol.workspace_id, protocol.dataset_id)
-        if found and dataset is not None:
-            try:
-                ids = await asyncio.to_thread(read_compound_ids, self._store, dataset)
-            except FileNotFoundError:
-                ids = None
-            if ids:
-                found = [replace(item, compound_id=ids.get(item.structure)) for item in found]
+        if found:
+            dataset = await self._datasets.get(protocol.workspace_id, protocol.dataset_id)
+            if dataset is not None:
+                try:
+                    ids = await asyncio.to_thread(
+                        read_compound_ids,
+                        self._store,
+                        dataset,
+                        [item.structure for item in found],
+                    )
+                except FileNotFoundError:
+                    ids = None
+                if ids:
+                    found = [replace(item, compound_id=ids.get(item.structure)) for item in found]
         return Success(found)
 
 

@@ -104,13 +104,19 @@ class GetScorecard:
         )
         # IDs are looked up now rather than stored with the inputs, so naming or
         # changing the dataset's identifier column shows here without retraining.
-        dataset = await self._datasets.get(protocol.workspace_id, protocol.dataset_id)
         ids = None
-        if dataset is not None:
-            try:
-                ids = await asyncio.to_thread(read_compound_ids, self._store, dataset)
-            except FileNotFoundError:
-                ids = None
+        if scorecard.worst_rows:
+            dataset = await self._datasets.get(protocol.workspace_id, protocol.dataset_id)
+            if dataset is not None:
+                try:
+                    ids = await asyncio.to_thread(
+                        read_compound_ids,
+                        self._store,
+                        dataset,
+                        [row.structure for row in scorecard.worst_rows],
+                    )
+                except FileNotFoundError:
+                    ids = None
         if ids:
             scorecard = replace(
                 scorecard,
