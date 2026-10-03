@@ -183,6 +183,9 @@ async def create_protocol(
     # of what the body carried (security review, Important 2).
     protocol.status = ProtocolStatus.DRAFT
     protocol.published_at = None
+    # The creator, for the delete permission, comes from the run, never from the
+    # envelope: a runner token must not be able to name who may delete what.
+    protocol.created_by = run.requested_by
     # A duplicate id raises ConflictError (-> 409) from the repository itself
     # -- same pattern as `SqlAlchemyRunnerRepository.add` -- rather than a raw
     # IntegrityError surfacing here as a 500 with SQL in the traceback.

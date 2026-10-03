@@ -237,3 +237,28 @@ async def test_a_dataset_deleted_while_its_profile_computes_stays_deleted(
         await asyncio.sleep(0.05)
 
     assert not (tmp_path / str(workspace_id) / "datasets" / dataset_id).exists()
+
+
+async def test_the_raw_upload_is_removed_once_its_dataset_exists(
+    client, csv_upload, workspace_id, tmp_path
+):
+    """Otherwise deleting a dataset would leave its raw CSV, usually the largest
+    file it ever had, in storage: nothing records which upload made which dataset."""
+    upload_ref = await csv_upload(test_protocols._csv())
+    upload = tmp_path / str(workspace_id) / "uploads" / f"{upload_ref}.csv"
+    body = {
+        "name": "solubility",
+        "upload_ref": upload_ref,
+        "structure_column": "smiles",
+        "target": {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+        "split": {"strategy": "random", "seed": 1},
+    }
+
+    # A failed create keeps the upload, so it can be retried against the same bytes.
+    failed = await client.post("/api/v1/datasets", json={**body, "structure_column": "nope"})
+    assert failed.status_code >= 400
+    assert upload.exists()
+
+    created = await client.post("/api/v1/datasets", json=body)
+    assert created.status_code == 201, created.text
+    assert not upload.exists()

@@ -13,6 +13,7 @@ not there. The workspace is never read from the request body or the URL.
 
 from __future__ import annotations
 
+import logging
 import uuid
 from dataclasses import dataclass
 
@@ -31,6 +32,8 @@ from daikonstudio.domain.data.split import SplitSpec
 from daikonstudio.domain.data.target import RESERVED_TARGET_COLUMNS, TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import InvalidDatasetError
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
+
+logger = logging.getLogger(__name__)
 
 
 def upload_key(workspace_id: uuid.UUID, upload_ref: uuid.UUID) -> str:
@@ -203,6 +206,14 @@ class CreateDataset:
             created_by=auth.user_id,
         )
         await self._repository.add(dataset)
+        # The upload has served its purpose: the frozen snapshot is the dataset.
+        # Kept on every failure above, so a failed create can be retried against the
+        # same bytes; deleted here so that deleting the dataset frees all its storage
+        # (nothing records which upload made which dataset).
+        try:
+            self._store.delete(key)
+        except Exception:
+            logger.exception("Deleting upload %s failed; it is orphaned", key)
         return Success(dataset)
 
 

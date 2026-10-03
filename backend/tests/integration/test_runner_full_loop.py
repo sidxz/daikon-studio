@@ -160,6 +160,10 @@ async def test_a_training_run_executes_through_the_runner_protocol_unmodified(
     run = finished.json()
     assert run["status"] == "ready", f"[result] run failed: {run.get('error_message')}"
     assert run["protocol_id"] is not None, f"[result] no protocol linked: {run}"
+    # The runner saves the protocol through the wire envelope, which carries no
+    # creator; the server must record the person who asked for the training.
+    detail = (await client.get(f"/api/v1/protocols/{run['protocol_id']}")).json()
+    assert detail["can_delete"] is True, f"[result] creator lost on the runner path: {detail}"
 
     scorecard_response = await client.get(f"/api/v1/protocols/{run['protocol_id']}/scorecard")
     assert scorecard_response.status_code == 200, f"[scorecard] {scorecard_response.text}"
