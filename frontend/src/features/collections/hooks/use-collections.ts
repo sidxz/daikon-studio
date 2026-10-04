@@ -1,7 +1,7 @@
 "use client";
 
 import { API_V1, customInstance } from "@/shared/lib/api/custom-instance";
-import { downloadFile } from "@/shared/lib/api/download";
+import { downloadFile, fileName } from "@/shared/lib/api/download";
 import type {
   CollectionResponse,
   PaginatedResponseCollectionResponse,
@@ -50,16 +50,6 @@ export function useCreateCollection() {
   });
 }
 
-/** `Soluble candidates.csv`, not `collection.csv`. */
-function exportFilename(name: string, format: ExportFormat): string {
-  const slug = name
-    .trim()
-    .replace(/[^\w\s-]/g, "")
-    .replace(/\s+/g, "-")
-    .toLowerCase();
-  return `${slug || "collection"}.${format}`;
-}
-
 /**
  * Export goes through fetch rather than a link: the authz token travels as a
  * header, so a plain `<a href>` would arrive unauthenticated.
@@ -84,7 +74,7 @@ export function useExportCollection() {
     }) =>
       downloadFile({
         url: `${API_V1}/collections/${id}/export?format=${format}`,
-        filename: exportFilename(name, format),
+        filename: fileName(name, format, "collection"),
       }),
   });
 }

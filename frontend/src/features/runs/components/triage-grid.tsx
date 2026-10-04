@@ -3,8 +3,15 @@
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
 import { studioGridTheme } from "@/shared/components/data-grid/ag-grid-theme";
 import { Button } from "@/shared/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "@/shared/components/ui/dropdown-menu";
 import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
+import { fileName } from "@/shared/lib/api/download";
 import type { ReadoutResponse } from "@/shared/lib/api/model";
 import { targetsOf, uncertaintyColumn } from "@/shared/lib/targets";
 import {
@@ -17,7 +24,9 @@ import {
 } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchResultBlock, useResultRanges } from "../hooks/use-runs";
+import { create } from "zustand";
+import { persist } from "zustand/middleware";
+import { fetchResultBlock, useExportRunResults, useResultRanges } from "../hooks/use-runs";
 import { PROBABILITY_SPREAD_MAX, cutoffFor, positionIn } from "../lib/cell-scale";
 import { IN_DOMAIN_FLOOR, buildResultParams } from "../lib/result-query";
 import type { TriageRow } from "../types";
@@ -51,6 +60,24 @@ const NUMBER_FILTER = {
 
 const CENTRED = { display: "flex", alignItems: "center" };
 
+/** Hidden until asked for: the structure drawing already shows the molecule. */
+const HIDDEN_BY_DEFAULT = new Set(["smiles"]);
+
+/** Which grid columns this browser has chosen to show or hide, by column id; one
+ * choice for every run, so hiding SMILES once hides it everywhere. */
+const useColumnChoices = create<{
+  shown: Record<string, boolean>;
+  setShown: (column: string, shown: boolean) => void;
+}>()(
+  persist(
+    (set) => ({
+      shown: {},
+      setShown: (column, shown) => set((state) => ({ shown: { ...state.shown, [column]: shown } })),
+    }),
+    { name: "ds-triage-columns" },
+  ),
+);
+
 function SmilesCell({ value }: { value: string }) {
   return <span className="min-w-0 truncate">{value}</span>;
 }
@@ -64,14 +91,29 @@ function OrDash({ value }: { value: string | number | null }) {
   return value == null ? <span className="text-muted-foreground">—</span> : <span>{value}</span>;
 }
 
+/** This browser's choice for the column, else its default. The ID column stays hidden
+ * for an upload that had no identifier column, whatever was chosen: it would be empty. */
+export function columnHidden(id: string, shown: Record<string, boolean>, hasIds: boolean): boolean {
+  if (id === "compound_id" && !hasIds) return true;
+  return !(shown[id] ?? !HIDDEN_BY_DEFAULT.has(id));
+}
+
+/** A column's id: its own `colId`, or the field AG Grid derives one from. */
+function columnId(column: ColDef<TriageRow>): string {
+  return column.colId ?? String(column.field);
+}
+
 export function TriageGrid({
   runId,
   readouts,
+  exportName,
   onSaveSelection,
   saving,
 }: {
   runId: string;
   readouts: ReadoutResponse[];
+  /** What the downloaded workbook is named after, e.g. the protocol and date. */
+  exportName: string;
   onSaveSelection: (rowIds: number[]) => void;
   saving: boolean;
 }) {
@@ -85,6 +127,25 @@ export function TriageGrid({
   // The scale for each column's bars: the whole run, not the page in view. Until it
   // arrives a continuous column shows its numbers alone.
   const { data: ranges } = useResultRanges(runId);
+  const { shown, setShown } = useColumnChoices();
+  const exporter = useExportRunResults();
+
+  // The grid's own sort, filters and domain switch, exactly as its pages request
+  // them, so the file holds what the grid shows.
+  const exportView = useCallback(() => {
+    const api = apiRef.current;
+    if (!api) return;
+    const sortModel = api
+      .getColumnState()
+      .filter((column) => column.sort)
+      .sort((a, b) => (a.sortIndex ?? 0) - (b.sortIndex ?? 0))
+      .map((column) => ({ colId: column.colId, sort: column.sort as "asc" | "desc" }));
+    exporter.mutate({
+      runId,
+      params: buildResultParams({ sortModel, filterModel: api.getFilterModel(), inDomainOnly }),
+      filename: fileName(exportName, "xlsx", "predictions"),
+    });
+  }, [exporter, runId, inDomainOnly, exportName]);
 
   const columns = useMemo<ColDef<TriageRow>[]>(() => {
     // No column for `__rowId`. AG Grid renders its own checkbox column from
@@ -94,6 +155,7 @@ export function TriageGrid({
     const base: ColDef<TriageRow>[] = [
       {
         headerName: "Structure",
+        colId: "structure",
         field: "structure",
         width: 110,
         sortable: false,
@@ -102,8 +164,9 @@ export function TriageGrid({
       },
       {
         headerName: "SMILES",
+        colId: "smiles",
         field: "structure",
-        flex: 1,
+        flex: 2,
         minWidth: 200,
         sortable: false,
         filter: false,
@@ -119,7 +182,6 @@ export function TriageGrid({
         width: 140,
         sortable: false,
         filter: false,
-        hide: !hasIds,
         cellRenderer: OrDash,
       },
       {
@@ -208,8 +270,15 @@ export function TriageGrid({
       ),
     });
 
-    return base;
-  }, [readouts, hasIds, ranges]);
+    // Every column but the drawing shares the spare width, each at least as wide as
+    // before, so hiding one (SMILES used to take all of it) leaves no blank strip.
+    return base.map((column) => ({
+      ...column,
+      hide: columnHidden(columnId(column), shown, hasIds),
+      flex: column.colId === "structure" ? undefined : (column.flex ?? 1),
+      minWidth: column.minWidth ?? column.width,
+    }));
+  }, [readouts, hasIds, ranges, shown]);
 
   const datasource = useMemo<IDatasource>(
     () => ({
@@ -285,6 +354,29 @@ export function TriageGrid({
               domain
             </span>
           )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="outline">Columns</Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {columns
+                .filter((column) => columnId(column) !== "compound_id" || hasIds)
+                .map((column) => (
+                  <DropdownMenuCheckboxItem
+                    key={columnId(column)}
+                    checked={!column.hide}
+                    onCheckedChange={(checked) => setShown(columnId(column), checked === true)}
+                    // Stays open, so several columns can be switched in one go.
+                    onSelect={(event) => event.preventDefault()}
+                  >
+                    {column.headerName}
+                  </DropdownMenuCheckboxItem>
+                ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <Button variant="outline" disabled={exporter.isPending} onClick={exportView}>
+            {exporter.isPending ? "Exporting…" : "Export to Excel"}
+          </Button>
           <Button
             disabled={selected.length === 0 || saving}
             onClick={() => onSaveSelection(selected)}

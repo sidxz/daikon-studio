@@ -6,6 +6,7 @@ import {
   getApiBaseUrl,
   getAuthHeaders,
 } from "@/shared/lib/api/custom-instance";
+import { downloadFile } from "@/shared/lib/api/download";
 import type {
   ColumnRangeResponse,
   PaginatedResponsePredictionResponse,
@@ -180,4 +181,28 @@ export async function fetchResultBlock(
     rows: page.items.map((item) => ({ ...item, __rowId: item.row_id })),
     nextCursor: page.next_cursor ?? null,
   };
+}
+
+/** The results as a workbook, under the grid's own sort and filters. Through fetch,
+ * not a link: the token travels as a header. Failures toast like any mutation's. */
+export function useExportRunResults() {
+  return useMutation({
+    mutationFn: ({
+      runId,
+      params,
+      filename,
+    }: {
+      runId: string;
+      params: ResultParams;
+      filename: string;
+    }) => {
+      const query = new URLSearchParams(
+        Object.entries(params).filter((entry): entry is [string, string] => entry[1] != null),
+      ).toString();
+      return downloadFile({
+        url: `${API_V1}/runs/${runId}/results/export${query ? `?${query}` : ""}`,
+        filename,
+      });
+    },
+  });
 }

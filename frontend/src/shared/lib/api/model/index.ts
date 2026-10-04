@@ -62,6 +62,8 @@ export * from './direction';
 export * from './engineManifestResponse';
 export * from './exportCollectionApiV1CollectionsCollectionIdExportGetParams';
 export * from './exportFormat';
+export * from './exportRunResultsApiV1RunsRunIdResultsExportGetParams';
+export * from './exportRunResultsApiV1RunsRunIdResultsExportGetSortDir';
 export * from './getChemicalSpaceCompoundsApiV1ProtocolsProtocolIdChemicalSpaceCompoundsGetParams';
 export * from './getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams';
 export * from './getDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetSortDir';

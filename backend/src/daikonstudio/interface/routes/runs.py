@@ -27,6 +27,11 @@ from daikonstudio.application.catalog.get_chemical_space import (
     GetRunChemicalSpaceCompoundsQuery,
     GetRunChemicalSpaceQuery,
 )
+from daikonstudio.application.execution.export_results import (
+    XLSX_MEDIA_TYPE,
+    ExportPredictionResults,
+    ExportPredictionResultsQuery,
+)
 from daikonstudio.application.execution.list_runs import ListRuns, ListRunsQuery
 from daikonstudio.application.execution.predict_with_protocol import (
     CancelRun,
@@ -56,6 +61,9 @@ PredictWithProtocolDep = Annotated[PredictWithProtocol, Depends(use_case(Predict
 GetRunDep = Annotated[GetRun, Depends(use_case(GetRun))]
 CancelRunDep = Annotated[CancelRun, Depends(use_case(CancelRun))]
 GetPredictionResultsDep = Annotated[GetPredictionResults, Depends(use_case(GetPredictionResults))]
+ExportPredictionResultsDep = Annotated[
+    ExportPredictionResults, Depends(use_case(ExportPredictionResults))
+]
 GetPredictionResultRangesDep = Annotated[
     GetPredictionResultRanges, Depends(use_case(GetPredictionResultRanges))
 ]
@@ -384,6 +392,36 @@ async def get_run_results(
     return PaginatedResponse(
         items=[PredictionResponse.from_domain(row) for row in page.items],
         next_cursor=page.next_cursor,
+    )
+
+
+@router.get("/{run_id}/results/export")
+async def export_run_results(
+    run_id: uuid.UUID,
+    auth: AuthDep,
+    service: ExportPredictionResultsDep,
+    sort_by: str | None = None,
+    sort_dir: Literal["asc", "desc"] = "asc",
+    filters: str | None = None,
+) -> Response:
+    """The results as an Excel workbook, under the same `sort_by`/`filters` the grid
+    sends to `results`, so the file holds what the grid showed."""
+    content = result_to_response(
+        await service(
+            ExportPredictionResultsQuery(
+                run_id=run_id,
+                sort=None
+                if sort_by is None
+                else SortSpec(column=sort_by, descending=sort_dir == "desc"),
+                filters=_parse_filters(filters),
+            ),
+            auth=auth,
+        )
+    )
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="results-{run_id}.xlsx"'},
     )
 
 

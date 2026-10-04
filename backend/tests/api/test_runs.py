@@ -947,3 +947,102 @@ async def test_a_retry_body_with_a_non_boolean_or_unknown_field_is_a_422(
         assert response.status_code == 422, (body, response.text)
     # Refused before anything ran: the run is still failed.
     assert (await client.get(f"/api/v1/runs/{run.id}")).json()["status"] == "failed"
+
+
+# The export: what the grid shows, as a workbook, with the upload's own columns.
+_EXPORT_CSV = (
+    b"smiles,name,measured,code,note\n"
+    b'CCO,ethanol,1.5,007,=HYPERLINK("http://x")\n'
+    b"not-a-smiles,broken,2.0,008,dropped\n"
+    b"c1ccccc1,benzene,-0.25,009,plain\n"
+    b"Fc1ccc(F)cc1,difluoro,NA,010,\n"
+)
+
+
+def _sheet(content: bytes, name: str) -> list[list[object]]:
+    from io import BytesIO
+
+    from openpyxl import load_workbook
+
+    book = load_workbook(BytesIO(content))
+    return [[cell.value for cell in row] for row in book[name].iter_rows()]
+
+
+async def test_the_export_holds_the_grids_rows_and_the_uploads_own_columns(
+    client, published_protocol_id, csv_upload
+):
+    upload_ref = await csv_upload(_EXPORT_CSV)
+    run = await _predict(client, published_protocol_id, upload_ref, id_column="name")
+    run_id = run.json()["id"]
+    params = {"sort_by": "y", "sort_dir": "desc"}
+    response = await client.get(f"/api/v1/runs/{run_id}/results/export", params=params)
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"].startswith(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+    header, *rows = _sheet(response.content, "Predictions")
+    assert header == [
+        "ID",
+        "Row",
+        "SMILES",
+        "y (logS, higher is better)",
+        "Uncertainty",
+        "Applicability",
+        "measured",
+        "code",
+        "note",
+    ]
+    # The grid's own rows, in the grid's own order: the unparseable one is not scored.
+    grid = (await client.get(f"/api/v1/runs/{run_id}/results", params=params)).json()["items"]
+    assert [row[0] for row in rows] == [item["compound_id"] for item in grid]
+    assert [row[1] for row in rows] == [item["input_row"] for item in grid]
+    by_id = {row[0]: row for row in rows}
+    # Matched back by row: numbers stay numbers, a leading-zero code stays text,
+    # "NA" leaves the column as text, and a formula stays the text it was.
+    assert by_id["benzene"][6] == "-0.25"
+    assert by_id["benzene"][7] == "009"
+    assert by_id["ethanol"][8] == '=HYPERLINK("http://x")'
+
+    about = _sheet(response.content, "About")
+    facts = {row[0]: row[1] for row in about if row and row[0]}
+    assert facts["Compounds in this file"] == "3 of 3 scored"
+    assert facts["Sorted by"] == "y (logS, higher is better), highest first"
+    assert facts["Filters"] == "None"
+
+
+async def test_the_export_keeps_numeric_upload_columns_numeric_and_applies_filters(
+    client, published_protocol_id, csv_upload
+):
+    upload_ref = await csv_upload(b"smiles,measured\nCCO,1.5\nc1ccccc1,-0.25\nFc1ccc(F)cc1,3\n")
+    run_id = (await _predict(client, published_protocol_id, upload_ref)).json()["id"]
+    filters = '{"applicability": {"min": 0.0, "max": 1.0}}'
+    response = await client.get(
+        f"/api/v1/runs/{run_id}/results/export", params={"filters": filters}
+    )
+    assert response.status_code == 200, response.text
+    header, *rows = _sheet(response.content, "Predictions")
+    assert "ID" not in header
+    assert [row[header.index("measured")] for row in rows] == [1.5, -0.25, 3.0]
+    facts = {row[0]: row[1] for row in _sheet(response.content, "About") if row and row[0]}
+    assert facts["Filters"] == "Applicability: 0 to 1"
+
+
+async def test_a_formula_in_an_upload_is_written_as_text_not_a_formula(
+    client, published_protocol_id, csv_upload
+):
+    from io import BytesIO
+    from zipfile import ZipFile
+
+    upload_ref = await csv_upload(b"smiles,note\nCCO,=1+1\n")
+    run_id = (await _predict(client, published_protocol_id, upload_ref)).json()["id"]
+    response = await client.get(f"/api/v1/runs/{run_id}/results/export")
+    sheet_xml = ZipFile(BytesIO(response.content)).read("xl/worksheets/sheet1.xml")
+    assert b"<f>" not in sheet_xml
+
+
+async def test_exporting_a_training_run_is_a_404(client, csv_upload):
+    dataset_id = await _create_dataset(client, csv_upload)
+    response = await _train(client, dataset_id)
+    export = await client.get(f"/api/v1/runs/{response.json()['id']}/results/export")
+    assert export.status_code == 404, export.text

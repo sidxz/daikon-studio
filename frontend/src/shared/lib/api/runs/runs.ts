@@ -24,6 +24,7 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ExportRunResultsApiV1RunsRunIdResultsExportGetParams,
   GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams,
   GetRunResultRangesApiV1RunsRunIdResultsRangesGet200,
   GetRunResultsApiV1RunsRunIdResultsGetParams,
@@ -578,6 +579,108 @@ export function useGetRunResultsApiV1RunsRunIdResultsGet<TData = Awaited<ReturnT
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetRunResultsApiV1RunsRunIdResultsGetQueryOptions(runId,params,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
+ * The results as an Excel workbook, under the same `sort_by`/`filters` the grid
+sends to `results`, so the file holds what the grid showed.
+ * @summary Export Run Results
+ */
+export const exportRunResultsApiV1RunsRunIdResultsExportGet = (
+    runId: string,
+    params?: ExportRunResultsApiV1RunsRunIdResultsExportGetParams,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<unknown>(
+      {url: `/api/v1/runs/${runId}/results/export`, method: 'GET',
+        params, signal
+    },
+      );
+    }
+  
+
+
+
+export const getExportRunResultsApiV1RunsRunIdResultsExportGetQueryKey = (runId?: string,
+    params?: ExportRunResultsApiV1RunsRunIdResultsExportGetParams,) => {
+    return [
+    `/api/v1/runs/${runId}/results/export`, ...(params ? [params]: [])
+    ] as const;
+    }
+
+    
+export const getExportRunResultsApiV1RunsRunIdResultsExportGetQueryOptions = <TData = Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError = HTTPValidationError>(runId: string,
+    params?: ExportRunResultsApiV1RunsRunIdResultsExportGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getExportRunResultsApiV1RunsRunIdResultsExportGetQueryKey(runId,params);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>> = ({ signal }) => exportRunResultsApiV1RunsRunIdResultsExportGet(runId,params, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(runId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ExportRunResultsApiV1RunsRunIdResultsExportGetQueryResult = NonNullable<Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>>
+export type ExportRunResultsApiV1RunsRunIdResultsExportGetQueryError = HTTPValidationError
+
+
+export function useExportRunResultsApiV1RunsRunIdResultsExportGet<TData = Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError = HTTPValidationError>(
+ runId: string,
+    params: undefined |  ExportRunResultsApiV1RunsRunIdResultsExportGetParams, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>,
+          TError,
+          Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportRunResultsApiV1RunsRunIdResultsExportGet<TData = Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError = HTTPValidationError>(
+ runId: string,
+    params?: ExportRunResultsApiV1RunsRunIdResultsExportGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>,
+          TError,
+          Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useExportRunResultsApiV1RunsRunIdResultsExportGet<TData = Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError = HTTPValidationError>(
+ runId: string,
+    params?: ExportRunResultsApiV1RunsRunIdResultsExportGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Export Run Results
+ */
+
+export function useExportRunResultsApiV1RunsRunIdResultsExportGet<TData = Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError = HTTPValidationError>(
+ runId: string,
+    params?: ExportRunResultsApiV1RunsRunIdResultsExportGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof exportRunResultsApiV1RunsRunIdResultsExportGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getExportRunResultsApiV1RunsRunIdResultsExportGetQueryOptions(runId,params,options)
 
   const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
 

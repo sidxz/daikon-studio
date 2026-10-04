@@ -279,6 +279,7 @@ export function RunDetail({ runId }: { runId: string }) {
           <TriageGrid
             runId={runId}
             readouts={protocol.readouts}
+            exportName={`${protocol.name} predictions ${run.created_at.slice(0, 10)}`}
             saving={createCollection.isPending}
             onSaveSelection={(rowIds) => {
               setPendingRows(rowIds);

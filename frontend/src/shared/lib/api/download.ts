@@ -14,6 +14,17 @@ export function saveBlob(blob: Blob, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
 }
 
+/** `Soluble candidates` -> `soluble-candidates.csv`, so a file is named for what the scientist called it. */
+export function fileName(name: string, extension: string, fallback: string): string {
+  const slug = name
+    .trim()
+    .replace(/[^\w\s-]/g, "")
+    .replace(/\s+/g, "-")
+    .replace(/-{2,}/g, "-")
+    .toLowerCase();
+  return `${slug || fallback}.${extension}`;
+}
+
 /** Save in-memory text -- how every "Download template" button works. */
 export function saveText(text: string, filename: string, mime = "text/csv"): void {
   saveBlob(new Blob([text], { type: mime }), filename);
@@ -54,7 +65,14 @@ export async function downloadFile({
   });
 
   if (!response.ok) {
-    throw new Error(`Download failed (${response.status})`);
+    // The domain error's own words ("an Excel sheet holds at most ..."), not a status code.
+    const body = (await response.json().catch(() => null)) as {
+      message?: unknown;
+      detail?: unknown;
+    } | null;
+    const message = typeof body?.message === "string" ? body.message : null;
+    const detail = typeof body?.detail === "string" ? ` (${body.detail})` : "";
+    throw new Error(message ? `${message}${detail}` : `Download failed (${response.status})`);
   }
 
   saveBlob(

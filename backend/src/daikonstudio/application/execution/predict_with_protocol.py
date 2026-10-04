@@ -579,24 +579,17 @@ class GetPredictionResults:
             )
         limit = clamp_limit(query.limit)
 
-        loaded = await _load_results(self._runs, self._protocols, self._store, query.run_id, auth)
+        loaded = await load_results(self._runs, self._protocols, self._store, query.run_id, auth)
         if not is_successful(loaded):
             return Failure(loaded.failure())
-        protocol, frame = loaded.unwrap()
+        _, protocol, frame = loaded.unwrap()
 
         target_columns = target_columns_of(protocol.readouts)
         uncertainty_columns = {
             column: uncertainty_column(column, target_count=len(target_columns))
             for column in target_columns
         }
-        viewed = apply_result_view(
-            frame,
-            columns={readout.name for readout in protocol.readouts}
-            | set(uncertainty_columns.values())
-            | {"applicability"},
-            sort=query.sort,
-            filters=query.filters,
-        )
+        viewed = view_results(protocol, frame, sort=query.sort, filters=query.filters)
         if not is_successful(viewed):
             return Failure(viewed.failure())
         frame = viewed.unwrap()
@@ -632,14 +625,35 @@ class GetPredictionResults:
         return Success(PageResult(items=items, next_cursor=next_cursor))
 
 
-async def _load_results(
+def view_results(
+    protocol: InSilicoProtocol,
+    frame: pl.DataFrame,
+    *,
+    sort: SortSpec | None,
+    filters: tuple[RangeFilter, ...],
+) -> Result[pl.DataFrame, DomainError]:
+    """`frame` filtered and sorted by the columns this Protocol declares: the one
+    definition the grid's pages and its Excel export share, so a file always holds
+    what the grid showed."""
+    target_columns = target_columns_of(protocol.readouts)
+    return apply_result_view(
+        frame,
+        columns={readout.name for readout in protocol.readouts}
+        | {uncertainty_column(c, target_count=len(target_columns)) for c in target_columns}
+        | {"applicability"},
+        sort=sort,
+        filters=filters,
+    )
+
+
+async def load_results(
     runs: RunRepository,
     protocols: ProtocolRepository,
     store: BlobStore,
     run_id: uuid.UUID,
     auth: AuthContext | None,
-) -> Result[tuple[InSilicoProtocol, pl.DataFrame], DomainError]:
-    """A finished prediction Run's Protocol and its whole results file."""
+) -> Result[tuple[Run, InSilicoProtocol, pl.DataFrame], DomainError]:
+    """A finished prediction Run, its Protocol and its whole results file."""
     require_authenticated(auth)
     assert auth is not None  # require_authenticated has already rejected None
 
@@ -671,7 +685,7 @@ async def _load_results(
     # per-run compound-set sizes. Upgrade path if a run's results grow
     # large: polars' `scan_parquet` (lazy, pushdown-capable) instead of
     # `read_parquet`, or a precomputed row-group index for true partial reads.
-    return Success((protocol, pl.read_parquet(io.BytesIO(raw))))
+    return Success((run, protocol, pl.read_parquet(io.BytesIO(raw))))
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -703,10 +717,10 @@ class GetPredictionResultRanges:
     async def __call__(
         self, query: GetPredictionResultRangesQuery, auth: AuthContext | None = None
     ) -> Result[dict[str, ColumnRange], DomainError]:
-        loaded = await _load_results(self._runs, self._protocols, self._store, query.run_id, auth)
+        loaded = await load_results(self._runs, self._protocols, self._store, query.run_id, auth)
         if not is_successful(loaded):
             return Failure(loaded.failure())
-        protocol, frame = loaded.unwrap()
+        _, protocol, frame = loaded.unwrap()
 
         target_columns = target_columns_of(protocol.readouts)
         columns = [
