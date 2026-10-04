@@ -20,7 +20,7 @@ from tests.fakes.tunable_data import tunable_csv
 from daikonstudio.application.engines.checkpoints import checkpoint_root
 from daikonstudio.application.execution.train_protocol import TrainProtocolCommand
 from daikonstudio.application.ports.blob_store import BlobStore
-from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import InSilicoProtocolModel
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
@@ -848,6 +848,29 @@ async def test_start_over_discards_the_saved_progress_before_requeueing(
     assert [store.exists(key) for key in keys] == [False, False]
     # The requeued attempt ran (inline) and failed on the missing dataset, as designed.
     assert (await client.get(f"/api/v1/runs/{run.id}")).json()["status"] == "failed"
+
+
+async def test_a_start_over_whose_delete_fails_leaves_the_run_stopped_and_its_progress(
+    app, client, session_factory, workspace_id, monkeypatch
+):
+    run, keys = await _failed_training_with_saved_progress(app, session_factory, workspace_id)
+    store = app.state.container[BlobStore]
+
+    def unavailable(prefix: str) -> None:
+        raise OSError("blob store unavailable")
+
+    monkeypatch.setattr(store, "delete_prefix", unavailable)
+    try:
+        response = await client.post(f"/api/v1/runs/{run.id}/retry", json={"fresh": True})
+        assert response.status_code >= 500
+    except OSError:
+        pass  # the test transport re-raises app exceptions instead of answering 500
+    monkeypatch.undo()
+
+    # Not requeued: resuming here would load exactly what the person asked to discard.
+    stored = await SqlAlchemyRunRepository(session_factory).get_by_id(run.id)
+    assert stored is not None and stored.status is RunStatus.FAILED
+    assert [store.exists(key) for key in keys] == [True, True]
 
 
 async def test_a_plain_retry_keeps_the_saved_progress(app, client, session_factory, workspace_id):

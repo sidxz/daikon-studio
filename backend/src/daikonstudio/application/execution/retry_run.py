@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
-from daikonstudio.application.engines.checkpoints import Checkpoints, checkpoint_root
+from daikonstudio.application.engines.checkpoints import checkpoint_root
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.train_protocol import training_lane
@@ -69,13 +69,13 @@ class RetryRun:
             return Failure(error)
         if command.fresh and run.kind is RunKind.TRAINING:
             # Before the update and the enqueue, so the requeued attempt can never load
-            # what it was asked to forget.
-            Checkpoints(
-                self._store,
-                checkpoint_root(
-                    run.workspace_id, uuid.UUID(str(run.params["dataset_id"])), run.id
-                ),
-            ).clear()
+            # what it was asked to forget. `delete_prefix` directly, not the
+            # error-swallowing `Checkpoints.clear`: a Start over whose delete failed must
+            # fail, with the row still unsaved (FAILED or CANCELLED), rather than quietly
+            # resume the progress the person asked to discard.
+            self._store.delete_prefix(
+                checkpoint_root(run.workspace_id, uuid.UUID(str(run.params["dataset_id"])), run.id)
+            )
         # Update, then enqueue. Enqueueing first would let a worker pick up a run
         # whose row still reads FAILED, and `run_job` drops redeliveries for
         # terminal runs -- the retry would vanish silently.
