@@ -522,6 +522,7 @@ def test_a_changed_descriptor_list_is_refused_at_predict():
     engine = ChempropDMPNN()
     result = engine.train(ctx)
     stored = torch.load(io.BytesIO(result.artifact), weights_only=False)
+    assert "callbacks" not in stored  # the descriptor block's save is the artifact too
     names = stored["daikon_descriptors"]["names"]
     stored["daikon_descriptors"]["names"] = names[:-1]  # as if RDKit had dropped one
     tampered = io.BytesIO()
@@ -529,6 +530,40 @@ def test_a_changed_descriptor_list_is_refused_at_predict():
 
     with pytest.raises(ValidationError, match="descriptor"):
         _predict(engine, ctx.frame.head(3), tampered.getvalue())
+
+
+def test_the_artifact_stores_the_model_once_without_the_training_callbacks_state() -> None:
+    """`keep_best` holds a full copy of the best epoch's weights. Lightning writes any
+    callback state into a checkpoint, so without the strip every Protocol would store
+    the model twice."""
+    import io
+
+    import torch
+
+    with_validation = ChempropDMPNN().train(
+        _train_context(_frame([float(i) for i in range(20)]), TaskType.REGRESSION)
+    )
+    no_validation = ChempropDMPNN().train(
+        _train_context(
+            pl.DataFrame(
+                {
+                    "smiles": _SMILES,
+                    "y": [float(i) for i in range(20)],
+                    "split": ["train"] * 16 + ["test"] * 4,
+                }
+            ),
+            TaskType.REGRESSION,
+        )
+    )
+
+    stored = torch.load(
+        io.BytesIO(with_validation.artifact), map_location="cpu", weights_only=False
+    )
+    assert "callbacks" not in stored
+    assert stored["state_dict"]  # the weights are there, once
+    # Without a validation set nothing selects an epoch, so no callback has state to
+    # leak: that artifact is the model alone, and the two must be the same size.
+    assert len(with_validation.artifact) <= 1.1 * len(no_validation.artifact)
 
 
 # --- saved training state and resume ------------------------------------------------

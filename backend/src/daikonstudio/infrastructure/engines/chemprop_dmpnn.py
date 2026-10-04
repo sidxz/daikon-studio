@@ -522,22 +522,26 @@ class ChempropDMPNN:
         # scratch at a fast local NVMe without a setting of our own. The weights
         # serialized here are the restored best epoch's, not the last one's.
         with tempfile.TemporaryDirectory() as scratch:
+            import torch
+
             checkpoint = Path(scratch) / "model.ckpt"
             trainer.save_checkpoint(checkpoint)
+            # map_location="cpu", as Lightning's own loader does: the weights may
+            # sit on a GPU this process cannot read back without it.
+            stored = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            # The callbacks' state is `keep_best`'s `best_state`, a second full copy of
+            # the weights that only a resume reads. Left in, it is stored in every
+            # Protocol for nothing: `predict` never looks at it.
+            stored.pop("callbacks", None)
             if fill is not None:
-                import torch
-
                 from daikonstudio.infrastructure.chem.featurize import DESCRIPTOR_NAMES
 
-                # map_location="cpu", as Lightning's own loader does: the weights may
-                # sit on a GPU this process cannot read back without it.
-                stored = torch.load(checkpoint, map_location="cpu", weights_only=False)
                 # Read back by `predict`; Lightning ignores keys it does not know on load.
                 stored["daikon_descriptors"] = {
                     "names": list(DESCRIPTOR_NAMES),
                     "fill": [float(v) for v in fill],
                 }
-                torch.save(stored, checkpoint)
+            torch.save(stored, checkpoint)
             artifact = checkpoint.read_bytes()
 
         return TrainResult(

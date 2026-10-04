@@ -431,6 +431,9 @@ def test_weighting_and_cutoffs_train_jointly_and_predict():
     # fit and an unweighted one share a format and `predict` needs no branch.
     bundle = torch.load(io.BytesIO(result.artifact), weights_only=True)
     assert not any(key.startswith("_loss.") for key in bundle["state_dict"])
+    # The artifact is a hand-built bundle, so the callbacks' state (`keep_best` holds a
+    # second copy of the weights) never reaches it, unlike a Lightning checkpoint.
+    assert "callbacks" not in bundle
 
     def predict(rows: pl.DataFrame) -> pl.DataFrame:
         return engine.predict(
