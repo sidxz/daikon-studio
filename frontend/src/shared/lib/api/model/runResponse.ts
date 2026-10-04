@@ -10,6 +10,7 @@ import type { RunResponseErrorMessage } from './runResponseErrorMessage';
 import type { RunResponseProtocolId } from './runResponseProtocolId';
 import type { RunResponseMetrics } from './runResponseMetrics';
 import type { RunResponseLane } from './runResponseLane';
+import type { RunResponseName } from './runResponseName';
 
 export interface RunResponse {
   id: string;
@@ -23,5 +24,6 @@ export interface RunResponse {
   protocol_id: RunResponseProtocolId;
   metrics: RunResponseMetrics;
   lane: RunResponseLane;
+  name: RunResponseName;
   created_at: string;
 }

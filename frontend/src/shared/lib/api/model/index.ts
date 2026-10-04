@@ -160,6 +160,7 @@ export * from './runResponseErrorMessage';
 export * from './runResponseLane';
 export * from './runResponseMetrics';
 export * from './runResponseMetricsAnyOf';
+export * from './runResponseName';
 export * from './runResponsePhase';
 export * from './runResponseProtocolId';
 export * from './runResponseResultUri';

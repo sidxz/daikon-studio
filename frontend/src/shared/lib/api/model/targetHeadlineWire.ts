@@ -8,7 +8,9 @@ import type { TargetHeadlineWireValue } from './targetHeadlineWireValue';
 import type { TargetHeadlineWireBaselineValue } from './targetHeadlineWireBaselineValue';
 
 export interface TargetHeadlineWire {
+  /** @maxLength 1024 */
   column: string;
+  /** @maxLength 64 */
   primary_metric: string;
   value: TargetHeadlineWireValue;
   baseline_value: TargetHeadlineWireBaselineValue;

@@ -253,6 +253,19 @@ async def test_a_training_run_has_no_protocol_id_when_it_is_first_accepted(clien
     assert response.json()["protocol_id"] is None
 
 
+async def test_a_training_run_carries_the_name_the_scientist_typed(
+    client, published_protocol_id, prediction_upload_ref
+):
+    """The Protocols page lists a training run before its Protocol exists, and
+    this name is all it has to call it by. A prediction run has none."""
+    await _predict(client, published_protocol_id, prediction_upload_ref)
+
+    trainings = (await client.get("/api/v1/runs?kind=training")).json()["items"]
+    assert [item["name"] for item in trainings] == ["solubility model"]
+    predictions = (await client.get("/api/v1/runs?kind=prediction")).json()["items"]
+    assert [item["name"] for item in predictions] == [None]
+
+
 async def test_polling_a_finished_training_run_yields_the_protocol_it_produced(client, csv_upload):
     """The transition the whole training screen depends on: submit, poll to
     `ready`, then follow `protocol_id` to the Scorecard. Before Run gained the

@@ -4767,6 +4767,7 @@
               "$ref": "#/components/schemas/TargetHeadlineWire"
             },
             "type": "array",
+            "maxItems": 4096,
             "title": "Targets"
           }
         },
@@ -4870,6 +4871,17 @@
             ],
             "title": "Lane"
           },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -4889,6 +4901,7 @@
           "protocol_id",
           "metrics",
           "lane",
+          "name",
           "created_at"
         ],
         "title": "RunResponse"
@@ -5999,10 +6012,12 @@
         "properties": {
           "column": {
             "type": "string",
+            "maxLength": 1024,
             "title": "Column"
           },
           "primary_metric": {
             "type": "string",
+            "maxLength": 64,
             "title": "Primary Metric"
           },
           "value": {

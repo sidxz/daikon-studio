@@ -98,6 +98,10 @@ class RunResponse(BaseModel):
     # inline mode, which has no queue). Together with GET /runners this is what
     # lets a client say "no runner serves the gpu lane right now".
     lane: str | None
+    # The name the scientist typed for a training Run, read from its write-once
+    # `params`. It lets the Protocols page label a run that has no Protocol yet;
+    # a prediction Run carries none.
+    name: str | None
     created_at: datetime
 
     @classmethod
@@ -114,6 +118,7 @@ class RunResponse(BaseModel):
             protocol_id=run.protocol_id,
             metrics=run.metrics,
             lane=run.lane,
+            name=run.params.get("name"),
             created_at=run.created_at,
         )
 

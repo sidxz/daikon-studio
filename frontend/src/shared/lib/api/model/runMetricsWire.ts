@@ -17,5 +17,6 @@ security boundary the module docstring calls out. Pinning the shape
 means a malformed payload is a 422 at the edge, not a write.
  */
 export interface RunMetricsWire {
+  /** @maxItems 4096 */
   targets: TargetHeadlineWire[];
 }
