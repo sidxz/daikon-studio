@@ -44,6 +44,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
     CancelRun,
     GetPredictionResults,
     GetRun,
+    GetRunEpochs,
     PredictWithProtocol,
 )
 from daikonstudio.application.execution.retry_run import RetryRun
@@ -265,6 +266,7 @@ def create_container(settings: Settings | None = None) -> Container:
         ),
     )
     container.define(GetRun, lambda c: GetRun(_runs(c)))
+    container.define(GetRunEpochs, lambda c: GetRunEpochs(_runs(c)))
     container.define(ListRuns, lambda c: ListRuns(_runs(c)))
     container.define(CancelRun, lambda c: CancelRun(_runs(c)))
     container.define(

@@ -59,7 +59,7 @@ from daikonstudio.application.catalog.chemical_space import (
 from daikonstudio.application.catalog.derive_readouts import target_columns_of
 from daikonstudio.application.data.create_dataset import upload_key
 from daikonstudio.application.data.prepare_frame import read_csv_upload
-from daikonstudio.application.engines.context import PredictContext
+from daikonstudio.application.engines.context import EpochPoint, PredictContext
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.result_view import (
@@ -470,6 +470,24 @@ class GetRun:
         if run is None:
             return Failure(NotFoundError("Run", str(query.run_id)))
         return Success(run)
+
+
+class GetRunEpochs:
+    """A training run's finished epochs, for its page's live charts: the latest
+    attempt's, oldest first. Empty for a prediction, and for engines with no epochs."""
+
+    def __init__(self, runs: RunRepository) -> None:
+        self._runs = runs
+
+    async def __call__(
+        self, query: GetRunQuery, auth: AuthContext | None = None
+    ) -> Result[list[EpochPoint], DomainError]:
+        require_authenticated(auth)
+        assert auth is not None  # require_authenticated has already rejected None
+        # The run is read first for its workspace check: epochs carry no workspace.
+        if await self._runs.get(auth.workspace_id, query.run_id) is None:
+            return Failure(NotFoundError("Run", str(query.run_id)))
+        return Success(await self._runs.list_epochs(query.run_id))
 
 
 @dataclass(frozen=True, kw_only=True)

@@ -513,3 +513,150 @@ export function CoverageCurveChart({
   if (!theme) return <Pending height={height} />;
   return <PlotFigure options={options} height={height} caption={caption} />;
 }
+
+export interface EpochLine {
+  label: string;
+  color: string;
+  /** Secondary encoding beside color: SVG dash pattern, solid when omitted. */
+  dash?: string;
+  values: { epoch: number; value: number }[];
+}
+
+const EPOCH_MARGIN_RIGHT = 92;
+const LABEL_GAP_PX = 13;
+
+/** The y range a set of lines spans, padded so no line runs along the frame. */
+function paddedExtent(lines: EpochLine[]): [number, number] {
+  const values = lines.flatMap((line) => line.values.map((point) => point.value));
+  const low = Math.min(...values);
+  const high = Math.max(...values);
+  const pad = (high - low) * 0.08 || Math.abs(high) * 0.05 || 0.05;
+  return [low - pad, high + pad];
+}
+
+/**
+ * Each line's end label, nudged apart so two lines ending close together do not print
+ * their names on top of each other: a label's y in data units, after placing every
+ * label at least LABEL_GAP_PX from the next in screen space.
+ */
+function endLabels(lines: EpochLine[], domain: [number, number], height: number) {
+  const top = 22;
+  const bottom = height - 34;
+  const toPx = (value: number) =>
+    bottom - ((value - domain[0]) / (domain[1] - domain[0])) * (bottom - top);
+  const toValue = (px: number) =>
+    domain[0] + ((bottom - px) / (bottom - top)) * (domain[1] - domain[0]);
+  const ends = lines
+    .filter((line) => line.values.length > 0)
+    .map((line) => {
+      const last = line.values[line.values.length - 1];
+      return { label: line.label, epoch: last.epoch, px: toPx(last.value) };
+    })
+    .sort((a, b) => a.px - b.px);
+  for (let index = 1; index < ends.length; index++) {
+    ends[index].px = Math.max(ends[index].px, ends[index - 1].px + LABEL_GAP_PX);
+  }
+  return ends.map((end) => ({ label: end.label, epoch: end.epoch, value: toValue(end.px) }));
+}
+
+/**
+ * Lines over a fit's epochs, on one axis: the losses on one chart, the validation
+ * scores on another, never both on two scales. `kept` marks the epoch the fit keeps
+ * (lowest validation loss) with a labelled rule; `epochs` fixes the x axis at the
+ * fit's full length, so a live chart shows how far there is still to go.
+ */
+export function EpochCurveChart({
+  lines,
+  epochs,
+  kept,
+  yLabel,
+  format = (value: number) => value.toFixed(3),
+  height = 200,
+  caption,
+}: {
+  lines: EpochLine[];
+  epochs: number;
+  kept?: number | null;
+  yLabel: string;
+  format?: (value: number) => string;
+  height?: number;
+  caption?: React.ReactNode;
+}) {
+  const theme = useChartTheme();
+  const options = useCallback((): Plot.PlotOptions => {
+    const t = theme as ChartTheme;
+    const domain = paddedExtent(lines);
+    const byEpoch = new Map<number, Record<string, number>>();
+    for (const line of lines) {
+      for (const point of line.values) {
+        byEpoch.set(point.epoch, { ...byEpoch.get(point.epoch), [line.label]: point.value });
+      }
+    }
+    // One row per epoch, so the tooltip lists every series at the epoch under the pointer.
+    const rows = [...byEpoch.entries()]
+      .sort(([a], [b]) => a - b)
+      .map(([epoch, values]) => ({ epoch, values }));
+    return {
+      ...baseOptions(t),
+      marginRight: EPOCH_MARGIN_RIGHT,
+      x: {
+        label: "epoch",
+        domain: [1, Math.max(epochs, 2)],
+        ticks: Math.min(6, Math.max(epochs, 2) - 1),
+        tickFormat: "d",
+      },
+      y: { label: yLabel, domain, grid: true, ticks: 4 },
+      marks: [
+        ...(kept != null
+          ? [
+              Plot.ruleX([kept], { stroke: t.muted, strokeDasharray: "2,3" }),
+              Plot.text([kept], {
+                x: (epoch: number) => epoch,
+                frameAnchor: "top",
+                dy: -10,
+                text: () => "kept",
+                fill: t.muted,
+              }),
+            ]
+          : []),
+        ...lines.map((line) =>
+          Plot.line(line.values, {
+            x: "epoch",
+            y: "value",
+            stroke: line.color,
+            strokeWidth: 2,
+            strokeDasharray: line.dash,
+          }),
+        ),
+        Plot.text(endLabels(lines, domain, height), {
+          x: "epoch",
+          y: "value",
+          text: "label",
+          fill: t.text,
+          textAnchor: "start",
+          dx: 6,
+        }),
+        Plot.ruleX(rows, Plot.pointerX({ x: "epoch", stroke: t.grid })),
+        Plot.tip(
+          rows,
+          Plot.pointerX({
+            x: "epoch",
+            frameAnchor: "top-left",
+            title: (row: { epoch: number; values: Record<string, number> }) =>
+              [
+                `epoch ${row.epoch}`,
+                ...lines.map((line) =>
+                  line.label in row.values
+                    ? `${format(row.values[line.label])}  ${line.label}`
+                    : `—  ${line.label}`,
+                ),
+              ].join("\n"),
+          }),
+        ),
+      ],
+    };
+  }, [lines, epochs, kept, yLabel, format, height, theme]);
+
+  if (!theme) return <Pending height={height} />;
+  return <PlotFigure options={options} height={height} caption={caption} />;
+}

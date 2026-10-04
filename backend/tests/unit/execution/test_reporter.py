@@ -223,3 +223,18 @@ async def test_within_the_deadline_the_map_is_drawn_and_its_phase_reported():
         "chemical-space.json",
     ]
     assert rows.updates[-1] == (0.97, "Mapping chemical space")
+
+
+async def test_a_failed_epoch_save_never_stops_the_training_run() -> None:
+    """A chart is not worth a training run: the points are dropped, the fit goes on.
+    `_Rows` has no `append_epochs`, which is as failed as a save gets."""
+    from daikonstudio.application.engines.context import EpochPoint
+    from daikonstudio.application.execution.train_protocol import _EpochBuffer
+
+    run = _running_run()
+    buffer = _EpochBuffer("model")
+    buffer.record(EpochPoint(epoch=1, epochs=2, train_loss=0.5, val_loss=0.4, scores={}))
+
+    await _training(_Rows(run))._flush_epochs(run, buffer)
+
+    assert buffer.take() == []  # taken, then dropped

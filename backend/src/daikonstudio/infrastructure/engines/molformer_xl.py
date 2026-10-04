@@ -53,6 +53,7 @@ from daikonstudio.application.engines.manifest import (
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.engines._lightning import (
     keep_best_by_validation_loss,
+    record_epochs,
     save_training_state,
     saved_training_state,
     training_state_scope,
@@ -300,11 +301,41 @@ def _build_module(
     """
     import torch
     from lightning import pytorch as lightning
+    from torchmetrics.classification import (
+        BinaryAUROC,
+        BinaryAveragePrecision,
+        BinaryMatthewsCorrCoef,
+    )
+    from torchmetrics.regression import MeanAbsoluteError, MeanSquaredError, R2Score
+
+    # Validation scores per epoch for the run page's live charts, logged under the keys
+    # chemprop uses so one recorder reads both engines (`_lightning.SCORE_METRICS`).
+    # Pooled over every target the fit predicts, as chemprop's are. Logging only: the
+    # epoch is still selected by validation loss.
+    score_keys = (
+        {"roc": "val/roc", "prc": "val/prc", "mcc": "val/binary-mcc"}
+        if is_classification
+        else {"rmse": "val/rmse", "mae": "val/mae", "r2": "val/r2"}
+    )
 
     class _MolformerModule(lightning.LightningModule):
         def __init__(self) -> None:
             super().__init__()
             self.backbone = model
+            # Any: mypy reads a ModuleDict's values as Tensor | Module, not as metrics.
+            self._scores: Any = torch.nn.ModuleDict(
+                {
+                    "roc": BinaryAUROC(),
+                    "prc": BinaryAveragePrecision(),
+                    "mcc": BinaryMatthewsCorrCoef(),
+                }
+                if is_classification
+                else {
+                    "rmse": MeanSquaredError(squared=False),
+                    "mae": MeanAbsoluteError(),
+                    "r2": R2Score(),
+                }
+            )
             self._loss = (
                 torch.nn.BCEWithLogitsLoss(
                     pos_weight=None if pos_weight is None else torch.tensor(pos_weight)
@@ -320,16 +351,27 @@ def _build_module(
         def training_step(self, batch: Any, _index: int) -> Any:
             input_ids, attention_mask, targets = batch
             loss = self._loss(self(input_ids, attention_mask), targets)
-            self.log("train_loss", loss, batch_size=len(targets))
+            # on_epoch: the run page charts the epoch's mean, not its last batch.
+            self.log("train_loss", loss, batch_size=len(targets), on_epoch=True)
             return loss
 
         def validation_step(self, batch: Any, _index: int) -> Any:
             input_ids, attention_mask, targets = batch
-            loss = self._loss(self(input_ids, attention_mask), targets)
+            logits = self(input_ids, attention_mask)
+            loss = self._loss(logits, targets)
             # The key `keep_best_by_validation_loss` reads. `batch_size` is explicit
             # because Lightning cannot infer it from a tuple batch and warns per step.
             self.log("val_loss", loss, batch_size=len(targets))
+            predicted = torch.sigmoid(logits) if is_classification else logits
+            truth = targets.int() if is_classification else targets
+            for metric in self._scores.values():
+                metric.update(predicted.flatten(), truth.flatten())
             return loss
+
+        def on_validation_epoch_end(self) -> None:
+            for name, metric in self._scores.items():
+                self.log(score_keys[name], metric.compute())
+                metric.reset()
 
         def predict_step(self, batch: Any, _index: int) -> Any:
             input_ids, attention_mask, _targets = batch
@@ -462,7 +504,17 @@ class MolformerXL:
             )
 
         keep_best = keep_best_by_validation_loss()
-        callbacks: list[Any] = [LambdaCallback(on_train_epoch_end=_report_epoch)]
+        callbacks: list[Any] = [
+            # Before the reporter, which may raise to stop the fit.
+            record_epochs(
+                ctx.record_epoch,
+                epochs=epochs,
+                unit_scale=float(target_std[0])
+                if not is_classification and len(columns) == 1
+                else None,
+            ),
+            LambdaCallback(on_train_epoch_end=_report_epoch),
+        ]
         if validation_loader is not None:
             callbacks.append(keep_best)
 

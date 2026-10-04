@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import polars as pl
@@ -12,6 +13,34 @@ if TYPE_CHECKING:
     from daikonstudio.application.engines.checkpoints import Checkpoints
 
 ProgressReporter = Callable[[float, str], None]
+
+
+@dataclass(frozen=True, kw_only=True)
+class EpochPoint:
+    """One finished epoch of a neural fit: what the run page charts while it trains.
+
+    `scores` are validation scores in the shared vocabulary -- auroc, auprc and mcc (at
+    the 0.5 cutoff) for an active/inactive target; rmse and mae in the target's own unit
+    and r2 for a measured one -- and hold only what the fit could measure. The engine
+    fills the epoch and the numbers; the wrappers above it fill in which target (one
+    fit per target), and which stage of the training run (model, baseline or the
+    random-split comparison) the fit belongs to.
+    """
+
+    epoch: int  # 1-based
+    epochs: int  # the fit's maximum
+    train_loss: float | None
+    val_loss: float | None
+    scores: dict[str, float]
+    device: str | None = None
+    member: int | None = None  # ensemble model, 1-based; None for a single model
+    members: int | None = None
+    target: str | None = None  # None: one fit over every target at once
+    fit: str = "model"
+    at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
+
+EpochRecorder = Callable[[EpochPoint], None]
 
 #: Fewer validation positives or negatives than this for a label and a cutoff tuned on
 #: them fits noise: five actives pick whichever cutoff happens to separate those five.
@@ -48,6 +77,10 @@ def _no_op(fraction: float, phase: str) -> None:
     """The default reporter: an engine that ignores `report` is simply not
     interruptible, which is the honest description of any engine whose work happens
     inside one opaque library call."""
+
+
+def _no_record(point: EpochPoint) -> None:
+    """The default epoch recorder: a fit with no epochs (trees, the GP) has none to tell."""
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -87,6 +120,9 @@ class TrainContext:
     the run is still wanted. `fraction` is progress within *this fit*, 0.0 to 1.0; the
     worker maps it onto the overall run. May raise `RunInterrupted` -- do not catch it.
     Calling it is optional; calling it often is what makes an engine stoppable."""
+    record_epoch: EpochRecorder = _no_record
+    """Called once per finished epoch by an engine that trains in epochs, from the
+    worker thread. Must not raise and must be cheap: the run batches what it is handed."""
 
     @property
     def target_columns(self) -> tuple[str, ...]:

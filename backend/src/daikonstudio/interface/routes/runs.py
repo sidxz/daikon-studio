@@ -41,6 +41,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
     GetPredictionResults,
     GetPredictionResultsQuery,
     GetRun,
+    GetRunEpochs,
     GetRunQuery,
     PredictedReadout,
     PredictionRow,
@@ -59,6 +60,7 @@ router = APIRouter(prefix="/api/v1/runs", tags=["runs"])
 
 PredictWithProtocolDep = Annotated[PredictWithProtocol, Depends(use_case(PredictWithProtocol))]
 GetRunDep = Annotated[GetRun, Depends(use_case(GetRun))]
+GetRunEpochsDep = Annotated[GetRunEpochs, Depends(use_case(GetRunEpochs))]
 CancelRunDep = Annotated[CancelRun, Depends(use_case(CancelRun))]
 GetPredictionResultsDep = Annotated[GetPredictionResults, Depends(use_case(GetPredictionResults))]
 ExportPredictionResultsDep = Annotated[
@@ -225,6 +227,47 @@ async def list_runs(
 async def get_run(run_id: uuid.UUID, auth: AuthDep, service: GetRunDep) -> RunResponse:
     run = result_to_response(await service(GetRunQuery(run_id=run_id), auth=auth))
     return RunResponse.from_domain(run)
+
+
+class EpochResponse(BaseModel):
+    """One finished epoch of a neural fit. `fit` is the training run's stage (model,
+    baseline, random-split); `target` is None for one fit over every target at once;
+    `scores` are validation scores in the shared vocabulary."""
+
+    fit: str
+    target: str | None
+    member: int | None
+    members: int | None
+    epoch: int
+    epochs: int
+    train_loss: float | None
+    val_loss: float | None
+    scores: dict[str, float]
+    device: str | None
+    at: datetime
+
+
+@router.get("/{run_id}/epochs", response_model=list[EpochResponse])
+async def get_run_epochs(
+    run_id: uuid.UUID, auth: AuthDep, service: GetRunEpochsDep
+) -> list[EpochResponse]:
+    points = result_to_response(await service(GetRunQuery(run_id=run_id), auth=auth))
+    return [
+        EpochResponse(
+            fit=point.fit,
+            target=point.target,
+            member=point.member,
+            members=point.members,
+            epoch=point.epoch,
+            epochs=point.epochs,
+            train_loss=point.train_loss,
+            val_loss=point.val_loss,
+            scores=point.scores,
+            device=point.device,
+            at=point.at,
+        )
+        for point in points
+    ]
 
 
 def _parse_filters(raw: str | None) -> tuple[RangeFilter, ...]:

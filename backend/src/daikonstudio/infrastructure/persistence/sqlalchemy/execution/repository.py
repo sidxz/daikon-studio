@@ -25,10 +25,14 @@ from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from daikonstudio.application.engines.context import EpochPoint
 from daikonstudio.application.ports.run_repository import SweepSummary
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import ConcurrencyConflictError
-from daikonstudio.infrastructure.persistence.sqlalchemy.execution.models import RunModel
+from daikonstudio.infrastructure.persistence.sqlalchemy.execution.models import (
+    RunEpochModel,
+    RunModel,
+)
 
 
 def _to_domain(model: RunModel) -> Run:
@@ -83,6 +87,67 @@ def _to_model(run: Run) -> RunModel:
 class SqlAlchemyRunRepository:
     def __init__(self, sessions: async_sessionmaker[AsyncSession]) -> None:
         self._sessions = sessions
+
+    async def append_epochs(self, run_id: uuid.UUID, points: Sequence[EpochPoint]) -> None:
+        if not points:
+            return
+        async with self._sessions() as session:
+            attempt = await session.scalar(select(RunModel.attempts).where(RunModel.id == run_id))
+            if attempt is None:  # the run is gone; so is anything to chart
+                return
+            session.add_all(
+                RunEpochModel(
+                    run_id=run_id,
+                    attempt=attempt,
+                    fit=point.fit,
+                    target=point.target,
+                    member=point.member,
+                    members=point.members,
+                    epoch=point.epoch,
+                    epochs=point.epochs,
+                    train_loss=point.train_loss,
+                    val_loss=point.val_loss,
+                    scores=point.scores,
+                    device=point.device,
+                    recorded_at=point.at,
+                )
+                for point in points
+            )
+            await session.commit()
+
+    async def list_epochs(self, run_id: uuid.UUID) -> builtins.list[EpochPoint]:
+        latest = (
+            select(func.max(RunEpochModel.attempt))
+            .where(RunEpochModel.run_id == run_id)
+            .scalar_subquery()
+        )
+        async with self._sessions() as session:
+            rows = await session.scalars(
+                select(RunEpochModel)
+                .where(RunEpochModel.run_id == run_id, RunEpochModel.attempt == latest)
+                .order_by(RunEpochModel.id)
+            )
+            return [
+                EpochPoint(
+                    epoch=row.epoch,
+                    epochs=row.epochs,
+                    train_loss=row.train_loss,
+                    val_loss=row.val_loss,
+                    scores=row.scores,
+                    device=row.device,
+                    member=row.member,
+                    members=row.members,
+                    target=row.target,
+                    fit=row.fit,
+                    at=row.recorded_at,
+                )
+                for row in rows
+            ]
+
+    async def clear_epochs(self, run_id: uuid.UUID) -> None:
+        async with self._sessions() as session:
+            await session.execute(sa_delete(RunEpochModel).where(RunEpochModel.run_id == run_id))
+            await session.commit()
 
     async def add(self, run: Run) -> None:
         async with self._sessions() as session:

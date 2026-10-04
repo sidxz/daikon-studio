@@ -15,6 +15,7 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Callable
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -979,3 +980,16 @@ def test_a_saved_ensemble_member_that_no_longer_loads_is_fitted_again() -> None:
 
     assert not any(p.startswith("Restored") for p in reported)
     assert any(p.startswith("Training Chemprop D-MPNN model 1 of 2") for p in reported)
+
+
+def test_every_epoch_is_recorded_with_validation_scores() -> None:
+    """What the run page charts while chemprop trains."""
+    points: list[Any] = []
+    frame = _frame([float(i % 2) for i in range(20)])
+    context = _train_context(frame, TaskType.BINARY_CLASSIFICATION)
+
+    ChempropDMPNN().train(replace(context, record_epoch=points.append))
+
+    assert [point.epoch for point in points] == [1, 2]
+    assert all(point.epochs == 2 and point.val_loss is not None for point in points)
+    assert set(points[-1].scores) == {"auroc", "auprc", "mcc"}

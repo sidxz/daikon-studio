@@ -6,7 +6,18 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CheckConstraint, DateTime, Float, Index, Integer, String, Text, Uuid, text
+from sqlalchemy import (
+    CheckConstraint,
+    DateTime,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    Uuid,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -76,3 +87,28 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
             "ix_runs_claimable", "lane", "created_at", postgresql_where=text("status = 'pending'")
         ),
     )
+
+
+class RunEpochModel(Base):
+    """One finished training epoch (application.engines.context.EpochPoint), for the
+    run page's live charts. Append-only; `attempt` is the run's `attempts` when the
+    point arrived, so a redelivered run is charted from its latest attempt alone."""
+
+    __tablename__ = "run_epochs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid, ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False)
+    fit: Mapped[str] = mapped_column(String(32), nullable=False)
+    target: Mapped[str | None] = mapped_column(Text, nullable=True)
+    member: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    members: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    epoch: Mapped[int] = mapped_column(Integer, nullable=False)
+    epochs: Mapped[int] = mapped_column(Integer, nullable=False)
+    train_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    val_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    scores: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    device: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

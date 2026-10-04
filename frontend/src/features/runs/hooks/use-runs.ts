@@ -9,6 +9,7 @@ import {
 import { downloadFile } from "@/shared/lib/api/download";
 import type {
   ColumnRangeResponse,
+  EpochResponse,
   PaginatedResponsePredictionResponse,
   PaginatedResponseRunResponse,
   PredictBody,
@@ -93,6 +94,23 @@ export function useRun(id: string | undefined) {
     queryFn: () => customInstance<RunResponse>({ url: `${API_V1}/runs/${id}`, method: "GET" }),
     enabled: Boolean(id),
     refetchInterval: pollInterval,
+  });
+}
+
+const EPOCH_POLL_MS = 5000;
+
+/**
+ * A training run's finished epochs, for its live charts: polled while it trains, read
+ * once when it has finished. The runner sends them in batches every ten seconds or so,
+ * so polling faster would only redraw the same points.
+ */
+export function useRunEpochs(id: string, live: boolean) {
+  return useQuery({
+    queryKey: [...RUN_KEY, id, "epochs"],
+    queryFn: () =>
+      customInstance<EpochResponse[]>({ url: `${API_V1}/runs/${id}/epochs`, method: "GET" }),
+    enabled: Boolean(id),
+    refetchInterval: live ? EPOCH_POLL_MS : false,
   });
 }
 

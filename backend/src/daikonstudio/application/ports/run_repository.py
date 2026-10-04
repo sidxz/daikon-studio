@@ -21,6 +21,7 @@ from datetime import datetime
 from typing import Protocol
 from uuid import UUID
 
+from daikonstudio.application.engines.context import EpochPoint
 from daikonstudio.domain.execution.run import Run, RunKind
 
 
@@ -103,3 +104,16 @@ class RunRepository(Protocol):
     async def sweep_summaries(
         self, workspace_id: UUID, *, limit: int = 50
     ) -> builtins.list[SweepSummary]: ...
+
+    async def append_epochs(self, run_id: UUID, points: Sequence[EpochPoint]) -> None:
+        """Store a training run's finished epochs. The store stamps them with the run's
+        current attempt, so a redelivered run's charts never mix two attempts."""
+        ...
+
+    async def list_epochs(self, run_id: UUID) -> builtins.list[EpochPoint]:
+        """The latest attempt's epochs, oldest first."""
+        ...
+
+    async def clear_epochs(self, run_id: UUID) -> None:
+        """Forget every epoch, for a retry that starts the run again from nothing."""
+        ...

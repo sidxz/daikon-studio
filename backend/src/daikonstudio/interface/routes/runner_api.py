@@ -48,6 +48,7 @@ from daikonstudio.infrastructure.runner.wire import (
     BlobPutResponse,
     ClaimResponse,
     DatasetEnvelope,
+    EpochBatchWire,
     ProtocolEnvelope,
     RunEnvelope,
     RunUpdateEnvelope,
@@ -323,6 +324,16 @@ async def put_blob(
     body = b"".join(chunks)
 
     return BlobPutResponse(uri=store.put_bytes(key, body))
+
+
+@router.post("/runs/{run_id}/epochs", status_code=204)
+async def append_epochs(
+    run: ClaimedRunWrite, body: EpochBatchWire, runs: RunRepositoryDep
+) -> Response:
+    """Store the training epochs this run finished since its last progress write, for
+    the run page's live charts."""
+    await runs.append_epochs(run.id, [point.to_domain() for point in body.points])
+    return Response(status_code=204)
 
 
 @router.delete("/runs/{run_id}/checkpoints", status_code=204)

@@ -42,6 +42,7 @@ from daikonstudio.application.engines.manifest import (
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.engines._lightning import (
     keep_best_by_validation_loss,
+    record_epochs,
     save_training_state,
     saved_training_state,
     training_state_scope,
@@ -356,6 +357,14 @@ def _build_model(
         MeanAggregation,
         RegressionFFN,
     )
+    from chemprop.nn.metrics import (
+        MAE,
+        RMSE,
+        BinaryAUPRC,
+        BinaryAUROC,
+        BinaryMCCMetric,
+        R2Score,
+    )
 
     from daikonstudio.infrastructure.engines._pretrained import weights_path
 
@@ -391,6 +400,12 @@ def _build_model(
         predictor=predictor,
         batch_norm=batch_norm,
         X_d_transform=x_d_transform,
+        # Validation scores per epoch, for the run page's live charts (see
+        # `_lightning.record_epochs`). Logging only: the epoch is still selected by
+        # validation loss, which chemprop appends after these as `val_loss`.
+        metrics=[BinaryAUROC(), BinaryAUPRC(), BinaryMCCMetric()]
+        if is_classification
+        else [RMSE(), MAE(), R2Score()],
     )
 
 
@@ -562,7 +577,19 @@ class ChempropDMPNN:
             # sanity-check trap it guards against, live in `_lightning.py`.
             selects_best_epoch = len(validation_set) > 0
             keep_best = keep_best_by_validation_loss()
-            callbacks: list[Any] = [LambdaCallback(on_train_epoch_end=_report_epoch)]
+            callbacks: list[Any] = [
+                # Before the reporter, which may raise to stop the fit.
+                record_epochs(
+                    ctx.record_epoch,
+                    epochs=epochs,
+                    member=index + 1 if members > 1 else None,
+                    members=members if members > 1 else None,
+                    unit_scale=float(target_scaler.scale_[0])
+                    if target_scaler is not None and len(columns) == 1
+                    else None,
+                ),
+                LambdaCallback(on_train_epoch_end=_report_epoch),
+            ]
             if selects_best_epoch:
                 callbacks.append(keep_best)
 

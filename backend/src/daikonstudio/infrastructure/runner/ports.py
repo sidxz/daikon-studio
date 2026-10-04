@@ -15,12 +15,14 @@ handler, not a missing feature here.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
 import httpx
 
 from daikonstudio.application.engines.checkpoints import DEFAULT_INTERVAL_SECONDS
+from daikonstudio.application.engines.context import EpochPoint
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.execution.run import Run, RunKind
@@ -28,6 +30,8 @@ from daikonstudio.domain.shared.errors import ConcurrencyConflictError, Validati
 from daikonstudio.infrastructure.runner.wire import (
     BlobPutResponse,
     DatasetEnvelope,
+    EpochBatchWire,
+    EpochWire,
     ProtocolEnvelope,
     RunEnvelope,
     RunUpdateEnvelope,
@@ -88,6 +92,17 @@ class HttpRunRepository:
             return None
         response.raise_for_status()
         return RunEnvelope.model_validate(response.json()).to_domain()
+
+    async def append_epochs(self, run_id: uuid.UUID, points: Sequence[EpochPoint]) -> None:
+        """POST the epochs finished since the last progress write. The training run
+        catches a failure and drops the points: a chart is not worth a training run."""
+        response = await self._client._api.post(
+            f"/runs/{run_id}/epochs",
+            json=EpochBatchWire(points=[EpochWire.from_domain(p) for p in points]).model_dump(
+                mode="json"
+            ),
+        )
+        response.raise_for_status()
 
     async def update(self, run: Run) -> None:
         """POST the run's mutable fields, plus `expected_version` for the

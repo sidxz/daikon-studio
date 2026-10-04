@@ -34,10 +34,11 @@ import type { PredictionCountsWire } from "@/shared/lib/api/model";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useState } from "react";
-import { useCancelRun, useRetryRun, useRun } from "../hooks/use-runs";
+import { useEffect, useRef, useState } from "react";
+import { useCancelRun, useRetryRun, useRun, useRunEpochs } from "../hooks/use-runs";
 import { RUN_STATUS_COPY } from "../types";
 import { RunChemicalSpace } from "./run-chemical-space";
+import { TrainingProgress } from "./training-progress";
 import { TriageGrid } from "./triage-grid";
 
 /**
@@ -74,6 +75,28 @@ export function RunDetail({ runId }: { runId: string }) {
   // error box. With data present `pollInterval` backs off instead of stopping.
   const { data: run, isLoadingError, error, refetch } = useRun(runId);
   const { data: protocol } = useProtocol(run?.protocol_id ?? undefined);
+  const training = run?.kind === "training";
+  const { data: epochs } = useRunEpochs(
+    training ? runId : "",
+    run?.status === "pending" || run?.status === "running",
+  );
+
+  // A training run that finishes while it is being watched opens its results: the
+  // protocol's scorecard. Only on that transition -- a run opened after it finished
+  // stays here, where its training history is.
+  const watchedStatus = useRef(run?.status);
+  useEffect(() => {
+    const before = watchedStatus.current;
+    watchedStatus.current = run?.status;
+    if (
+      (before === "pending" || before === "running") &&
+      run?.status === "ready" &&
+      run.kind === "training" &&
+      run.protocol_id
+    ) {
+      router.push(`/protocols/${run.protocol_id}`);
+    }
+  }, [run?.status, run?.kind, run?.protocol_id, router]);
   const cancel = useCancelRun();
   const retry = useRetryRun();
   const createCollection = useCreateCollection();
@@ -223,15 +246,19 @@ export function RunDetail({ runId }: { runId: string }) {
           ))}
       </div>
 
-      {running && (
-        <Card>
-          <CardContent className="space-y-3 py-6">
-            <p className="text-sm text-muted-foreground">{run.phase ?? "Starting…"}</p>
-            <Progress value={Math.round(run.progress * 100)} />
-            {run.status === "pending" && run.lane && <LaneHint lane={run.lane} />}
-          </CardContent>
-        </Card>
-      )}
+      {running &&
+        (epochs && epochs.length > 0 ? (
+          // A neural fit reports each epoch: its live charts replace the bare bar.
+          <TrainingProgress points={epochs} live phase={run.phase} progress={run.progress} />
+        ) : (
+          <Card>
+            <CardContent className="space-y-3 py-6">
+              <p className="text-sm text-muted-foreground">{run.phase ?? "Starting…"}</p>
+              <Progress value={Math.round(run.progress * 100)} />
+              {run.status === "pending" && run.lane && <LaneHint lane={run.lane} />}
+            </CardContent>
+          </Card>
+        ))}
 
       {run.status === "failed" && (
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
@@ -271,6 +298,10 @@ export function RunDetail({ runId }: { runId: string }) {
             </p>
           </CardContent>
         </Card>
+      )}
+
+      {run.kind === "training" && !running && epochs && epochs.length > 0 && (
+        <TrainingProgress points={epochs} live={false} />
       )}
 
       {run.kind === "prediction" && run.status === "ready" && protocol && (

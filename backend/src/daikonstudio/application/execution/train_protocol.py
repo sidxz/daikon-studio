@@ -77,6 +77,7 @@ from daikonstudio.application.engines.checkpoints import (
 )
 from daikonstudio.application.engines.context import (
     MIN_CUTOFF_CLASS_COUNT,
+    EpochPoint,
     PredictContext,
     ProgressReporter,
     RunInterrupted,
@@ -184,6 +185,23 @@ _STAGE_LABELS = {"baseline": "Baseline", "random-split": "Random-split compariso
 def _staged(scope: str, phase: str) -> str:
     stage = _STAGE_LABELS.get(scope)
     return phase if stage is None else f"{stage}: {phase}"
+
+
+class _EpochBuffer:
+    """One stage's finished epochs, between progress writes. `record` runs on the
+    worker thread, `take` on the event loop; the swap in `take` cannot lose a point,
+    since an append racing it lands in the list `take` already holds."""
+
+    def __init__(self, fit: str) -> None:
+        self._fit = fit
+        self._points: list[EpochPoint] = []
+
+    def record(self, point: EpochPoint) -> None:
+        self._points.append(replace(point, fit=self._fit))
+
+    def take(self) -> list[EpochPoint]:
+        points, self._points = self._points, []
+        return points
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1040,19 +1058,26 @@ class RunTraining:
                         _staged(scope, f"Restored the {manifest.name} fit from saved progress"),
                     )
                     return restored
-        result = await asyncio.to_thread(
-            engine.train,
-            TrainContext(
-                frame=frame,
-                targets=targets,
-                structure_column=dataset.structure_column,
-                conditions=conditions,
-                seed=dataset.split.seed,
-                tune_cutoffs=self._tune_cutoffs,
-                checkpoints=stage,
-                report=self._reporter(run, span, scope),
-            ),
-        )
+        epochs = _EpochBuffer(scope)
+        try:
+            result = await asyncio.to_thread(
+                engine.train,
+                TrainContext(
+                    frame=frame,
+                    targets=targets,
+                    structure_column=dataset.structure_column,
+                    conditions=conditions,
+                    seed=dataset.split.seed,
+                    tune_cutoffs=self._tune_cutoffs,
+                    checkpoints=stage,
+                    report=self._reporter(run, span, scope, epochs=epochs),
+                    record_epoch=epochs.record,
+                ),
+            )
+        finally:
+            # What the fit recorded since the last progress write, stopped or not: the
+            # charts then end where the fit did.
+            await self._flush_epochs(run, epochs)
         if stage is not None:
             # Off the event loop: packing is minutes of compression for a large model, and
             # on a runner the save is an HTTP upload; the loop also carries the heartbeat.
@@ -1060,7 +1085,12 @@ class RunTraining:
         return result
 
     def _reporter(
-        self, run: Run, span: tuple[float, float], scope: str = "model"
+        self,
+        run: Run,
+        span: tuple[float, float],
+        scope: str = "model",
+        *,
+        epochs: _EpochBuffer | None = None,
     ) -> ProgressReporter:
         """A callback the engine invokes from the worker thread.
 
@@ -1091,21 +1121,39 @@ class RunTraining:
             last_written = now
             clamped = min(max(fraction, 0.0), 1.0)
             future = asyncio.run_coroutine_threadsafe(
-                self._checkpoint(run, low + (high - low) * clamped, _staged(scope, phase)), loop
+                self._checkpoint(run, low + (high - low) * clamped, _staged(scope, phase), epochs),
+                loop,
             )
             if not future.result(timeout=_CHECKPOINT_TIMEOUT_SECONDS):
                 raise RunInterrupted("the run was cancelled", cancelled=True)
 
         return report
 
-    async def _checkpoint(self, run: Run, fraction: float, phase: str) -> bool:
-        """Write progress; report whether the run is still wanted."""
+    async def _checkpoint(
+        self, run: Run, fraction: float, phase: str, epochs: _EpochBuffer | None = None
+    ) -> bool:
+        """Write progress, and the epochs finished since the last write; report whether
+        the run is still wanted."""
         current = await self._runs.get_by_id(run.id)
         if current is None or current.status is not RunStatus.RUNNING:
             return False
         run.report_progress(fraction, phase=phase)
         await self._runs.update(run)
+        if epochs is not None:
+            await self._flush_epochs(run, epochs)
         return True
+
+    async def _flush_epochs(self, run: Run, epochs: _EpochBuffer) -> None:
+        points = epochs.take()
+        if not points:
+            return
+        try:
+            await self._runs.append_epochs(run.id, points)
+        except Exception:
+            # A chart is not worth a training run: the points are dropped, the fit goes on.
+            logger.warning(
+                "Saving %d training epochs for run %s failed", len(points), run.id, exc_info=True
+            )
 
     def _check_deadline(self) -> None:
         """Raise past the soft deadline. Called on every `ctx.report` and between

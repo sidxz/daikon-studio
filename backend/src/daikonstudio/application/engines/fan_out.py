@@ -36,6 +36,8 @@ import polars as pl
 
 from daikonstudio.application.engines.checkpoints import Checkpoints, unpack_result
 from daikonstudio.application.engines.context import (
+    EpochPoint,
+    EpochRecorder,
     PredictContext,
     ProgressReporter,
     TrainContext,
@@ -85,7 +87,8 @@ class FanOut:
                 replace(
                     ctx,
                     targets={column: task},
-                    report=_slice(ctx.report, index, count),
+                    report=_slice(ctx.report, index, count, column),
+                    record_epoch=_tagged(ctx.record_epoch, column),
                     checkpoints=saved_scope if saved_scope is not None else ctx.checkpoints,
                 )
             )
@@ -139,14 +142,22 @@ def _restore(scope: Checkpoints | None) -> TrainResult | None:
         return None
 
 
-def _slice(report: ProgressReporter, index: int, count: int) -> ProgressReporter:
+def _slice(report: ProgressReporter, index: int, count: int, column: str) -> ProgressReporter:
     if count == 1:
         return report
 
     def sliced(fraction: float, phase: str) -> None:
-        report((index + min(max(fraction, 0.0), 1.0)) / count, phase)
+        # Named, because the engine's own phase cannot say which target it is fitting.
+        report((index + min(max(fraction, 0.0), 1.0)) / count, f"{column}: {phase}")
 
     return sliced
+
+
+def _tagged(record: EpochRecorder, column: str) -> EpochRecorder:
+    def tagged(point: EpochPoint) -> None:
+        record(replace(point, target=column))
+
+    return tagged
 
 
 def _pack(columns: tuple[str, ...], results: list[TrainResult]) -> bytes:

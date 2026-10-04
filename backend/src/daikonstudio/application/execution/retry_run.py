@@ -76,6 +76,12 @@ class RetryRun:
             self._store.delete_prefix(
                 checkpoint_root(run.workspace_id, uuid.UUID(str(run.params["dataset_id"])), run.id)
             )
+        # The failed execution's epochs go too. Requeueing resets the run's attempt
+        # count, so the retry's epochs would be stamped with the same attempt as the old
+        # ones and the charts would draw both. A resumed retry charts from where it
+        # resumes; the saved progress it resumes from is untouched.
+        if run.kind is RunKind.TRAINING:
+            await self._runs.clear_epochs(run.id)
         # Update, then enqueue. Enqueueing first would let a worker pick up a run
         # whose row still reads FAILED, and `run_job` drops redeliveries for
         # terminal runs -- the retry would vanish silently.

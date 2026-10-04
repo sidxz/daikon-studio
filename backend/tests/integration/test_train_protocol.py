@@ -37,7 +37,7 @@ from daikonstudio.application.data.create_dataset import (
     StoreUpload,
 )
 from daikonstudio.application.engines.checkpoints import checkpoint_root
-from daikonstudio.application.engines.context import RunInterrupted
+from daikonstudio.application.engines.context import EpochPoint, RunInterrupted
 from daikonstudio.application.execution.retry_run import RetryRun, RetryRunCommand
 from daikonstudio.application.execution.train_protocol import (
     ScorecardInputs,
@@ -1261,3 +1261,55 @@ def test_the_note_blames_the_predictions_when_both_classes_were_plentiful() -> N
         "Not tuned: the model's validation predictions could not support a cutoff, so it "
         "stays at 0.5."
     )
+
+
+async def test_each_stages_epochs_are_stored_and_a_retry_starts_them_over(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What a training run's page charts: every epoch each neural fit records, tagged
+    with the stage it belongs to. A tree engine stands in, recording two epochs a fit.
+    The first attempt stops before the random-split stage; the retry restores the model
+    fit from saved progress and records only the random-split fit, and the failed
+    attempt's epochs are gone rather than drawn beside the new ones."""
+    import daikonstudio.application.execution.train_protocol as module
+
+    original = Ecfp4XGBoost.train
+
+    def recording(self, ctx, _original=original):  # type: ignore[no-untyped-def]
+        for epoch in (1, 2):
+            ctx.record_epoch(
+                EpochPoint(epoch=epoch, epochs=2, train_loss=0.5, val_loss=0.4, scores={})
+            )
+        return _original(self, ctx)
+
+    monkeypatch.setattr(Ecfp4XGBoost, "train", recording)
+    real = module.assign_split
+
+    def stop_at_the_random_split(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        if spec.strategy is SplitStrategy.RANDOM:
+            raise RunInterrupted("limit", cancelled=False)
+        return real(frame, structure_column, spec, normalizer)
+
+    monkeypatch.setattr(module, "assign_split", stop_at_the_random_split)
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD)
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    assert (await studio.reload(run)).status is RunStatus.FAILED
+    first = await studio.runs.list_epochs(run.id)
+    assert [(point.fit, point.epoch) for point in first] == [("model", 1), ("model", 2)]
+
+    monkeypatch.setattr(module, "assign_split", real)
+    retry = RetryRun(
+        studio.runs,
+        studio.protocols,
+        InlineEnqueuer(studio.sessions, studio.store),
+        default_registry(),
+        studio.store,
+    )
+    (await retry(RetryRunCommand(run_id=run.id), studio.auth)).unwrap()
+
+    assert (await studio.reload(run)).status is RunStatus.READY
+    retried = await studio.runs.list_epochs(run.id)
+    assert [(point.fit, point.epoch) for point in retried] == [
+        ("random-split", 1),
+        ("random-split", 2),
+    ]

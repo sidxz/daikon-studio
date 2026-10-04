@@ -11,6 +11,9 @@ import {
   trainingKind,
   useEngines,
 } from "@/features/engines";
+// Direct, not through "@/features/runs": that index imports this feature back.
+import { TrainingProgress } from "@/features/runs/components/training-progress";
+import { useRunEpochs } from "@/features/runs/hooks/use-runs";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import {
@@ -92,6 +95,7 @@ export function TrainProtocolForm() {
   const { data: dataset } = useDataset(datasetId || undefined);
   const train = useTrainProtocol();
   const run = useRunPoll(runId);
+  const epochs = useRunEpochs(runId ?? "", Boolean(runId));
 
   // Only engines that can learn every one of this dataset's targets. The two
   // vocabularies differ, and that translation lives in the engines feature.
@@ -246,6 +250,21 @@ export function TrainProtocolForm() {
     (!selfCompare || Boolean(engine?.is_baseline)) &&
     settingsValid &&
     !working;
+
+  if (working && epochs.data && epochs.data.length > 0) {
+    // A neural fit reports each epoch: the same live charts as the run's own page.
+    return (
+      <div className="mx-auto w-full max-w-6xl space-y-4 p-2">
+        <h1 className="text-lg font-semibold">Training {name}</h1>
+        <TrainingProgress
+          points={epochs.data}
+          live
+          phase={run.data?.phase}
+          progress={run.data?.progress}
+        />
+      </div>
+    );
+  }
 
   if (working) {
     return (

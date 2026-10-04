@@ -15,6 +15,7 @@ only paid by a worker that actually trains.
 from __future__ import annotations
 
 import logging
+import math
 from pathlib import Path
 from typing import Any
 
@@ -23,10 +24,12 @@ from daikonstudio.application.engines.checkpoints import (
     TRAINING_STATE_SCOPE,
     Checkpoints,
 )
-from daikonstudio.application.engines.context import RunInterrupted
+from daikonstudio.application.engines.context import EpochPoint, EpochRecorder, RunInterrupted
 
 __all__ = [
+    "SCORE_METRICS",
     "keep_best_by_validation_loss",
+    "record_epochs",
     "save_training_state",
     "saved_training_state",
     "training_state_scope",
@@ -186,3 +189,74 @@ def saved_training_state(
         )
         return None
     return str(path)
+
+
+# What each validation metric is logged as (chemprop's metric aliases, which the
+# MoLFormer module logs under too) and the name the shared vocabulary gives it.
+SCORE_METRICS = {
+    "val/roc": "auroc",
+    "val/prc": "auprc",
+    "val/binary-mcc": "mcc",
+    "val/rmse": "rmse",
+    "val/mae": "mae",
+    "val/r2": "r2",
+}
+# Measured in standardized units (both engines standardize regression targets) and
+# put back into the target's own unit with its training standard deviation.
+_IN_TARGET_UNITS = frozenset({"rmse", "mae"})
+
+
+def record_epochs(
+    record: EpochRecorder,
+    *,
+    epochs: int,
+    member: int | None = None,
+    members: int | None = None,
+    unit_scale: float | None = None,
+) -> Any:
+    """A callback that hands `record` one EpochPoint per finished epoch.
+
+    At `on_train_epoch_end` Lightning already holds the epoch's mean training loss and
+    the validation loss and scores, since validation runs first. Place it before the
+    progress reporter, which may raise to stop the fit: the epoch is recorded first.
+    `unit_scale` is the target's training standard deviation, for a regression fit on
+    one target; with none, rmse and mae are left out rather than shown in the wrong
+    unit (r2 needs no unit). A score that is not finite -- AUROC on a validation set
+    with one class -- is left out too.
+    """
+    from lightning.pytorch.callbacks import LambdaCallback
+
+    def _record(trainer: Any, _module: Any) -> None:
+        logged = trainer.callback_metrics
+
+        def value(key: str) -> float | None:
+            raw = logged.get(key)
+            number = None if raw is None else float(raw)
+            return number if number is not None and math.isfinite(number) else None
+
+        scores: dict[str, float] = {}
+        for key, name in SCORE_METRICS.items():
+            number = value(key)
+            if number is None:
+                continue
+            if name in _IN_TARGET_UNITS:
+                if unit_scale is None:
+                    continue
+                number *= unit_scale
+            scores[name] = number
+        record(
+            EpochPoint(
+                epoch=trainer.current_epoch + 1,
+                epochs=epochs,
+                train_loss=value("train_loss_epoch")
+                if "train_loss_epoch" in logged
+                else value("train_loss"),
+                val_loss=value("val_loss"),
+                scores=scores,
+                device=str(trainer.strategy.root_device),
+                member=member,
+                members=members,
+            )
+        )
+
+    return LambdaCallback(on_train_epoch_end=_record)

@@ -23,6 +23,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from daikonstudio.application.engines.context import EpochPoint
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
 from daikonstudio.domain.data.dataset import Dataset
@@ -433,6 +434,66 @@ class ClaimResponse(BaseModel):
     run: RunEnvelope
     deadline_seconds: int
     lease_seconds: int
+
+
+class EpochWire(BaseModel):
+    """One finished training epoch, runner to API (application.engines.context.EpochPoint).
+
+    Bounded field by field, like everything else a self-hosted runner writes: the
+    rows land in the API's database and are drawn on a scientist's screen."""
+
+    model_config = _FORBID
+
+    epoch: int = Field(ge=1, le=100_000)
+    epochs: int = Field(ge=1, le=100_000)
+    train_loss: float | None = None
+    val_loss: float | None = None
+    scores: dict[str, float] = Field(max_length=16)
+    device: str | None = Field(default=None, max_length=64)
+    member: int | None = Field(default=None, ge=1, le=1_000)
+    members: int | None = Field(default=None, ge=1, le=1_000)
+    target: str | None = Field(default=None, max_length=512)
+    fit: str = Field(max_length=32)
+    at: datetime
+
+    @classmethod
+    def from_domain(cls, point: EpochPoint) -> EpochWire:
+        return cls(
+            epoch=point.epoch,
+            epochs=point.epochs,
+            train_loss=point.train_loss,
+            val_loss=point.val_loss,
+            scores=point.scores,
+            device=point.device,
+            member=point.member,
+            members=point.members,
+            target=point.target,
+            fit=point.fit,
+            at=point.at,
+        )
+
+    def to_domain(self) -> EpochPoint:
+        return EpochPoint(
+            epoch=self.epoch,
+            epochs=self.epochs,
+            train_loss=self.train_loss,
+            val_loss=self.val_loss,
+            scores={key[:32]: value for key, value in self.scores.items()},
+            device=self.device,
+            member=self.member,
+            members=self.members,
+            target=self.target,
+            fit=self.fit,
+            at=self.at,
+        )
+
+
+class EpochBatchWire(BaseModel):
+    """What a runner posts at each progress write: the epochs finished since the last."""
+
+    model_config = _FORBID
+
+    points: list[EpochWire] = Field(max_length=1_000)
 
 
 class BlobPutResponse(BaseModel):

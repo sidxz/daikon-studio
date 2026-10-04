@@ -1641,6 +1641,53 @@
         }
       }
     },
+    "/api/v1/runner/runs/{run_id}/epochs": {
+      "post": {
+        "tags": [
+          "runner-protocol"
+        ],
+        "summary": "Append Epochs",
+        "description": "Store the training epochs this run finished since its last progress write, for\nthe run page's live charts.",
+        "operationId": "append_epochs_api_v1_runner_runs__run_id__epochs_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EpochBatchWire"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runner/runs/{run_id}/checkpoints": {
       "delete": {
         "tags": [
@@ -1942,6 +1989,53 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/RunResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/runs/{run_id}/epochs": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run Epochs",
+        "operationId": "get_run_epochs_api_v1_runs__run_id__epochs_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EpochResponse"
+                  },
+                  "title": "Response Get Run Epochs Api V1 Runs  Run Id  Epochs Get"
                 }
               }
             }
@@ -3829,6 +3923,252 @@
         ],
         "title": "EngineManifestResponse",
         "description": "An engine's manifest: its identity, capabilities, and parameter specifications."
+      },
+      "EpochBatchWire": {
+        "properties": {
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/EpochWire"
+            },
+            "type": "array",
+            "maxItems": 1000,
+            "title": "Points"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "points"
+        ],
+        "title": "EpochBatchWire",
+        "description": "What a runner posts at each progress write: the epochs finished since the last."
+      },
+      "EpochResponse": {
+        "properties": {
+          "fit": {
+            "type": "string",
+            "title": "Fit"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "member": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member"
+          },
+          "members": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Members"
+          },
+          "epoch": {
+            "type": "integer",
+            "title": "Epoch"
+          },
+          "epochs": {
+            "type": "integer",
+            "title": "Epochs"
+          },
+          "train_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Loss"
+          },
+          "val_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Loss"
+          },
+          "scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Scores"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "fit",
+          "target",
+          "member",
+          "members",
+          "epoch",
+          "epochs",
+          "train_loss",
+          "val_loss",
+          "scores",
+          "device",
+          "at"
+        ],
+        "title": "EpochResponse",
+        "description": "One finished epoch of a neural fit. `fit` is the training run's stage (model,\nbaseline, random-split); `target` is None for one fit over every target at once;\n`scores` are validation scores in the shared vocabulary."
+      },
+      "EpochWire": {
+        "properties": {
+          "epoch": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Epoch"
+          },
+          "epochs": {
+            "type": "integer",
+            "maximum": 100000.0,
+            "minimum": 1.0,
+            "title": "Epochs"
+          },
+          "train_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Train Loss"
+          },
+          "val_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Val Loss"
+          },
+          "scores": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "maxProperties": 16,
+            "title": "Scores"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Device"
+          },
+          "member": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Member"
+          },
+          "members": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 1000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Members"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target"
+          },
+          "fit": {
+            "type": "string",
+            "maxLength": 32,
+            "title": "Fit"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "epoch",
+          "epochs",
+          "scores",
+          "fit",
+          "at"
+        ],
+        "title": "EpochWire",
+        "description": "One finished training epoch, runner to API (application.engines.context.EpochPoint).\n\nBounded field by field, like everything else a self-hosted runner writes: the\nrows land in the API's database and are drawn on a scientist's screen."
       },
       "ExportFormat": {
         "type": "string",
