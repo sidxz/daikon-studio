@@ -25,6 +25,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from daikonstudio.application.auth import AuthContext, is_editor, may_delete
+from daikonstudio.application.data.build_dataset import GetDatasetBuild, StartDatasetBuild
 from daikonstudio.application.data.create_dataset import (
     CreateDataset,
     CreateDatasetCommand,
@@ -51,6 +52,7 @@ from daikonstudio.application.data.set_dataset_id_column import (
     SetDatasetIdColumnCommand,
 )
 from daikonstudio.domain.data.dataset import Dataset
+from daikonstudio.domain.data.dataset_build import DatasetBuild
 from daikonstudio.domain.data.profile import DatasetProfile, profile_to_dict
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy, split_to_dict
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec, target_to_dict
@@ -70,6 +72,8 @@ MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 StoreUploadDep = Annotated[StoreUpload, Depends(use_case(StoreUpload))]
 CreateDatasetDep = Annotated[CreateDataset, Depends(use_case(CreateDataset))]
+StartDatasetBuildDep = Annotated[StartDatasetBuild, Depends(use_case(StartDatasetBuild))]
+GetDatasetBuildDep = Annotated[GetDatasetBuild, Depends(use_case(GetDatasetBuild))]
 GetDatasetDep = Annotated[GetDataset, Depends(use_case(GetDataset))]
 DeleteDatasetDep = Annotated[DeleteDataset, Depends(use_case(DeleteDataset))]
 SetDatasetIdColumnDep = Annotated[SetDatasetIdColumn, Depends(use_case(SetDatasetIdColumn))]
@@ -117,6 +121,38 @@ class CreateDatasetBody(BaseModel):
 
 class UploadResponse(BaseModel):
     upload_ref: uuid.UUID
+
+
+class DatasetBuildResponse(BaseModel):
+    """A dataset being built. `done` of `total` rows through `stage`; `total` is 0 for a
+    stage with no row count. On `failed`, `error` is the body `POST /datasets` would
+    have answered with (a 422's `detail` is the whole validation report)."""
+
+    id: uuid.UUID
+    name: str
+    status: Literal["running", "succeeded", "failed"]
+    stage: str
+    done: int
+    total: int
+    dataset_id: uuid.UUID | None
+    error: dict[str, object] | None
+    created_at: datetime
+    updated_at: datetime
+
+    @classmethod
+    def from_domain(cls, build: DatasetBuild) -> DatasetBuildResponse:
+        return cls(
+            id=build.id,
+            name=build.name,
+            status=build.status.value,
+            stage=build.stage,
+            done=build.done,
+            total=build.total,
+            dataset_id=build.dataset_id,
+            error=build.error,
+            created_at=build.created_at,
+            updated_at=build.updated_at,
+        )
 
 
 class InvalidRowResponse(BaseModel):
@@ -360,10 +396,7 @@ async def upload_dataset_file(
     return UploadResponse(upload_ref=upload_ref)
 
 
-@router.post("", response_model=DatasetResponse, status_code=201)
-async def create_dataset(
-    body: CreateDatasetBody, auth: AuthDep, service: CreateDatasetDep
-) -> DatasetResponse:
+def _create_command(body: CreateDatasetBody) -> CreateDatasetCommand:
     try:
         split = SplitSpec(
             strategy=body.split.strategy, seed=body.split.seed, fractions=body.split.fractions
@@ -372,7 +405,7 @@ async def create_dataset(
         # SplitSpec enforces its own invariants (fractions sum to 1, none negative).
         raise ValidationError(str(error)) from error
 
-    command = CreateDatasetCommand(
+    return CreateDatasetCommand(
         name=body.name,
         upload_ref=body.upload_ref,
         structure_column=body.structure_column,
@@ -383,9 +416,34 @@ async def create_dataset(
         split=split,
         id_column=body.id_column,
     )
+
+
+@router.post("", response_model=DatasetResponse, status_code=201)
+async def create_dataset(
+    body: CreateDatasetBody, auth: AuthDep, service: CreateDatasetDep
+) -> DatasetResponse:
+    """Build the dataset within the request, for scripts. A large file takes minutes;
+    the wizard uses `POST /datasets/builds` instead, which reports progress."""
     return DatasetResponse.from_domain(
-        result_to_response(await service(command, auth=auth)), auth=auth
+        result_to_response(await service(_create_command(body), auth=auth)), auth=auth
     )
+
+
+@router.post("/builds", response_model=DatasetBuildResponse, status_code=202)
+async def start_dataset_build(
+    body: CreateDatasetBody, auth: AuthDep, service: StartDatasetBuildDep
+) -> DatasetBuildResponse:
+    """Start building the dataset in the background; poll `GET /datasets/builds/{id}`."""
+    return DatasetBuildResponse.from_domain(
+        result_to_response(await service(_create_command(body), auth=auth))
+    )
+
+
+@router.get("/builds/{build_id}", response_model=DatasetBuildResponse)
+async def get_dataset_build(
+    build_id: uuid.UUID, auth: AuthDep, service: GetDatasetBuildDep
+) -> DatasetBuildResponse:
+    return DatasetBuildResponse.from_domain(result_to_response(await service(build_id, auth=auth)))
 
 
 @router.get("", response_model=PaginatedResponse[DatasetResponse])

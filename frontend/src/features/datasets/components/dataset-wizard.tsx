@@ -16,12 +16,12 @@ import {
 } from "@/shared/components/ui/select";
 import type { ApiError } from "@/shared/lib/api/custom-instance";
 import { saveText } from "@/shared/lib/api/download";
-import { showError } from "@/shared/lib/toast";
+import { showError, showSuccess } from "@/shared/lib/toast";
 import { Download, FileUp } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useDropzone } from "react-dropzone";
-import { useCreateDataset, useUploadDatasetFile } from "../hooks/use-datasets";
+import { useDatasetBuild, useStartDatasetBuild, useUploadDatasetFile } from "../hooks/use-datasets";
 import { draftFromUpload, toggleTarget, withColumns } from "../lib/draft-from-upload";
 import {
   type CsvPreview,
@@ -37,6 +37,7 @@ import {
   TARGET_KIND_COPY,
   type ValidationReport,
 } from "../types";
+import { DatasetBuildProgress } from "./dataset-build-progress";
 import { ValidationReportView } from "./validation-report-view";
 
 const STEPS = ["File", "Columns", "Targets", "Split"] as const;
@@ -77,7 +78,9 @@ export function DatasetWizard() {
   const [rejection, setRejection] = useState<ValidationReport | null>(null);
 
   const upload = useUploadDatasetFile();
-  const create = useCreateDataset();
+  const start = useStartDatasetBuild();
+  const [buildId, setBuildId] = useState<string | null>(null);
+  const build = useDatasetBuild(buildId);
   const patch = (changes: Partial<DatasetDraft>) => setDraft((prev) => ({ ...prev, ...changes }));
   function patchTarget(column: string, changes: Partial<DraftTarget>) {
     setDraft((prev) => ({
@@ -113,7 +116,7 @@ export function DatasetWizard() {
     setRejection(null);
     try {
       const uploadRef = await upload.mutateAsync(draft.file);
-      const dataset = await create.mutateAsync({
+      const started = await start.mutateAsync({
         name: draft.name.trim(),
         upload_ref: uploadRef,
         structure_column: draft.structureColumn,
@@ -126,7 +129,7 @@ export function DatasetWizard() {
         })),
         split: { strategy: draft.strategy, seed: draft.seed },
       });
-      router.push(`/datasets/${dataset.id}`);
+      setBuildId(started.id);
     } catch (error) {
       const apiError = error as ApiError;
       // A 401 the session renewal is already handling: nothing to say here.
@@ -147,13 +150,46 @@ export function DatasetWizard() {
     }
   }
 
-  const busy = upload.isPending || create.isPending;
+  // A build that has ended: open the dataset, or show why it was refused -- a
+  // rejected file's validation report, exactly as a rejected request shows it.
+  useEffect(() => {
+    if (build.isError) {
+      setBuildId(null);
+      showError("Lost contact with the server during the build. Check the dataset list.");
+      return;
+    }
+    const ended = build.data;
+    if (!ended || ended.status === "running") return;
+    setBuildId(null);
+    if (ended.status === "succeeded" && ended.dataset_id) {
+      showSuccess("Dataset frozen");
+      router.push(`/datasets/${ended.dataset_id}`);
+      return;
+    }
+    const detail = ended.error?.detail;
+    if (detail && typeof detail === "object" && "total_rows" in detail) {
+      setRejection(detail as ValidationReport);
+      return;
+    }
+    const message = ended.error?.message;
+    showError(typeof message === "string" ? message : "Could not create the dataset");
+  }, [build.data, build.isError, router]);
+
+  const busy = upload.isPending || start.isPending || buildId !== null;
   const canContinue = [
     Boolean(draft.file),
     Boolean(draft.name.trim() && draft.structureColumn && draft.targets.length > 0),
     draft.targets.length > 0,
     Boolean(draft.strategy),
   ][step];
+
+  if (buildId !== null && build.data?.status === "running") {
+    return (
+      <div className="p-2">
+        <DatasetBuildProgress build={build.data} />
+      </div>
+    );
+  }
 
   if (rejection) {
     return (

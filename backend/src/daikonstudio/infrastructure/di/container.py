@@ -22,6 +22,7 @@ from daikonstudio.application.catalog.get_chemical_space import (
 from daikonstudio.application.catalog.get_scorecard import GetScorecard
 from daikonstudio.application.catalog.list_protocols import GetProtocol, ListProtocols
 from daikonstudio.application.catalog.publish_protocol import PublishProtocol
+from daikonstudio.application.data.build_dataset import GetDatasetBuild, StartDatasetBuild
 from daikonstudio.application.data.create_collection import CreateCollection, GetCollection
 from daikonstudio.application.data.create_dataset import CreateDataset, StoreUpload
 from daikonstudio.application.data.delete_dataset import DeleteDataset
@@ -54,6 +55,7 @@ from daikonstudio.application.execution.sweeps import (
 )
 from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.dataset_build_repository import DatasetBuildRepository
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
@@ -67,6 +69,9 @@ from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
 from daikonstudio.infrastructure.persistence.session import create_session_factory
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
+)
+from daikonstudio.infrastructure.persistence.sqlalchemy.data.build_repository import (
+    SqlAlchemyDatasetBuildRepository,
 )
 from daikonstudio.infrastructure.persistence.sqlalchemy.data.collection_repository import (
     SqlAlchemyCollectionRepository,
@@ -137,6 +142,15 @@ def create_container(settings: Settings | None = None) -> Container:
             c[StructureNormalizer],
         ),
     )
+    container.define(
+        DatasetBuildRepository,  # type: ignore[type-abstract]
+        lambda c: SqlAlchemyDatasetBuildRepository(c[async_sessionmaker]),
+    )
+    container.define(
+        StartDatasetBuild,
+        lambda c: StartDatasetBuild(c[DatasetBuildRepository], c[CreateDataset]),
+    )
+    container.define(GetDatasetBuild, lambda c: GetDatasetBuild(c[DatasetBuildRepository]))
     container.define(GetDataset, lambda c: GetDataset(_datasets(c)))
     container.define(ListDatasets, lambda c: ListDatasets(_datasets(c)))
     container.define(

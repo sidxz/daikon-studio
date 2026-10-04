@@ -31,6 +31,17 @@ class DomainError(Exception):
         """
         return {}
 
+    def to_body(self) -> dict[str, Any]:
+        """The JSON body this error answers with. Shared by the HTTP error handler and
+        a background build that stores its failure for the client to read later."""
+        body: dict[str, Any] = {"error": type(self).__name__, "message": self.message}
+        if self.detail:
+            body["detail"] = self.detail
+        # Last, so a structured payload (e.g. a whole ValidationReport) replaces the
+        # human-readable `detail` rather than being shadowed by it.
+        body.update(self.body_extras())
+        return body
+
 
 class NotFoundError(DomainError):
     """Raised when a requested entity does not exist."""

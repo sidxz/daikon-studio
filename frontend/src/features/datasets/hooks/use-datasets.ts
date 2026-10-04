@@ -9,6 +9,7 @@ import {
 } from "@/shared/lib/api/custom-instance";
 import type {
   CompoundPageResponse,
+  DatasetBuildResponse,
   DatasetColumnsResponse,
   DatasetProfileResponse,
   DatasetResponse,
@@ -22,6 +23,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Dataset } from "../types";
 import {
   DATASETS_KEY,
+  DATASET_BUILD_KEY,
   DATASET_COMPOUNDS_KEY,
   DATASET_KEY,
   DATASET_PROFILE_KEY,
@@ -96,24 +98,48 @@ export interface CreateDatasetInput {
 }
 
 /**
- * Freeze a Dataset.
+ * Start building a Dataset in the background. Building runs RDKit over every row,
+ * which takes minutes on a large file, so the server answers at once and the
+ * caller follows the build with `useDatasetBuild`.
  *
- * Silent to the global toast: a 422 here carries the entire ValidationReport,
- * and that report is the useful part of the rejection. The caller renders it as
- * a page, and toasts any other failure itself. Collapsing the report into a
- * toast would throw away exactly the information the scientist needs to fix
- * their file.
+ * Silent to the global toast, like every create in this feature: the caller
+ * decides what a failure looks like.
  */
-export function useCreateDataset() {
-  const queryClient = useQueryClient();
-  return useMutation<Dataset, ApiError, CreateDatasetInput>({
+export function useStartDatasetBuild() {
+  return useMutation<DatasetBuildResponse, ApiError, CreateDatasetInput>({
     meta: { silent: true },
     mutationFn: (data) =>
-      customInstance<Dataset>({ url: `${API_V1}/datasets`, method: "POST", data }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: DATASETS_KEY });
-      showSuccess("Dataset frozen");
+      customInstance<DatasetBuildResponse>({
+        url: `${API_V1}/datasets/builds`,
+        method: "POST",
+        data,
+      }),
+  });
+}
+
+const BUILD_POLL_MS = 1000;
+
+/**
+ * A dataset build, polled every second until it succeeds or fails. On success the
+ * dataset list is refreshed, so the new dataset is there when the caller navigates.
+ */
+export function useDatasetBuild(id: string | null) {
+  const queryClient = useQueryClient();
+  return useQuery({
+    queryKey: [...DATASET_BUILD_KEY, id],
+    queryFn: async ({ signal }) => {
+      const build = await customInstance<DatasetBuildResponse>({
+        url: `${API_V1}/datasets/builds/${id}`,
+        method: "GET",
+        signal,
+      });
+      if (build.status === "succeeded") {
+        await queryClient.invalidateQueries({ queryKey: DATASETS_KEY });
+      }
+      return build;
     },
+    enabled: id !== null,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? BUILD_POLL_MS : false),
   });
 }
 

@@ -16,7 +16,7 @@ into the data; grouping before canonicalizing would treat equivalent SMILES as d
 from __future__ import annotations
 
 import io
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import polars as pl
 
@@ -24,6 +24,25 @@ from daikonstudio.application.ports.structure_normalizer import StructureNormali
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ConflictRow, InvalidRow, ValidationReport
 from daikonstudio.domain.shared.errors import ValidationError
+
+# Called with how many rows a per-row RDKit pass has finished, every `_PROGRESS_EVERY`
+# rows and once at the end. A background dataset build reports it to the wizard.
+RowProgress = Callable[[int], None]
+_PROGRESS_EVERY = 1000
+
+
+def map_rows[T, R](
+    fn: Callable[[T], R], items: Sequence[T], on_row: RowProgress | None
+) -> list[R]:
+    if on_row is None:
+        return [fn(item) for item in items]
+    out: list[R] = []
+    for count, item in enumerate(items, 1):
+        out.append(fn(item))
+        if count % _PROGRESS_EVERY == 0:
+            on_row(count)
+    on_row(len(items))
+    return out
 
 
 def read_csv_upload(raw: bytes) -> pl.DataFrame:
@@ -104,6 +123,7 @@ def prepare_frame(
     structure_column: str,
     targets: Sequence[TargetSpec],
     normalizer: StructureNormalizer,
+    on_row: RowProgress | None = None,
 ) -> tuple[pl.DataFrame, ValidationReport]:
     total_rows = frame.height
     if total_rows == 0:
@@ -114,7 +134,7 @@ def prepare_frame(
         # instead of returning a well-formed empty report.
         return frame, ValidationReport(total_rows=0, valid_rows=0)
     raw_structures = [str(value) for value in frame[structure_column].to_list()]
-    canonical = [normalizer.canonicalize(smiles) for smiles in raw_structures]
+    canonical = map_rows(normalizer.canonicalize, raw_structures, on_row)
 
     invalid = [
         InvalidRow(

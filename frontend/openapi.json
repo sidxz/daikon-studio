@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "daikon-studio",
-    "version": "0.1.0"
+    "version": "0.0.0+dev"
   },
   "paths": {
     "/health": {
@@ -309,6 +309,7 @@
           "datasets"
         ],
         "summary": "Create Dataset",
+        "description": "Build the dataset within the request, for scripts. A large file takes minutes;\nthe wizard uses `POST /datasets/builds` instead, which reports progress.",
         "operationId": "create_dataset_api_v1_datasets_post",
         "requestBody": {
           "required": true,
@@ -390,6 +391,91 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/PaginatedResponse_DatasetResponse_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/builds": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Start Dataset Build",
+        "description": "Start building the dataset in the background; poll `GET /datasets/builds/{id}`.",
+        "operationId": "start_dataset_build_api_v1_datasets_builds_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatasetBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetBuildResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/builds/{build_id}": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Get Dataset Build",
+        "operationId": "get_dataset_build_api_v1_datasets_builds__build_id__get",
+        "parameters": [
+          {
+            "name": "build_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Build Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetBuildResponse"
                 }
               }
             }
@@ -3266,6 +3352,89 @@
           "created_at"
         ],
         "title": "CreatedRunnerResponse"
+      },
+      "DatasetBuildResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "stage",
+          "done",
+          "total",
+          "dataset_id",
+          "error",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "DatasetBuildResponse",
+        "description": "A dataset being built. `done` of `total` rows through `stage`; `total` is 0 for a\nstage with no row count. On `failed`, `error` is the body `POST /datasets` would\nhave answered with (a 422's `detail` is the whole validation report)."
       },
       "DatasetColumnsResponse": {
         "properties": {

@@ -57,3 +57,18 @@ class CollectionModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
         # Backs the newest-first keyset listing, as on datasets and runs.
         Index("ix_collections_workspace_created_at", "workspace_id", "created_at"),
     )
+
+
+class DatasetBuildModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
+    """A dataset being built in the background (domain.data.dataset_build)."""
+
+    __tablename__ = "dataset_builds"
+
+    created_by: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
+    name: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    stage: Mapped[str] = mapped_column(String(64), nullable=False)
+    done: Mapped[int] = mapped_column(Integer, nullable=False)
+    total: Mapped[int] = mapped_column(Integer, nullable=False)
+    dataset_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    error: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)

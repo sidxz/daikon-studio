@@ -243,3 +243,19 @@ def test_a_column_name_with_braces_is_reported_verbatim():
     frame = pl.DataFrame({"smiles": ["CCO", "CCN"], "IC50 {nM}": ["1.0", "NA"]})
     _, report = prepare_frame(frame, "smiles", (target,), NORMALIZER)
     assert report.invalid[0].reason == "Target 'IC50 {nM}' is not numeric: 'NA'"
+
+
+def test_prepare_frame_reports_progress_every_thousand_rows_and_at_the_end():
+    """What the wizard's progress bar is fed during a background build."""
+    frame = pl.DataFrame({"smiles": ["CCO", "CCN"] * 1250, "y": [1.0, 2.0] * 1250})
+    seen: list[int] = []
+
+    prepare_frame(
+        frame,
+        "smiles",
+        (TargetSpec(column="y", kind=TargetKind.NUMERIC),),
+        RdkitStructureNormalizer(),
+        on_row=seen.append,
+    )
+
+    assert seen == [1000, 2000, 2500]

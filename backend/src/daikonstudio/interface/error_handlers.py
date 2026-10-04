@@ -47,14 +47,9 @@ def _error_to_status(error: DomainError) -> int:
 
 
 def _error_to_body(error: DomainError) -> dict[str, Any]:
-    body: dict[str, Any] = {"error": type(error).__name__, "message": error.message}
-    if error.detail:
-        body["detail"] = error.detail
+    body = error.to_body()
     if isinstance(error, ConcurrencyConflictError):
         body["retry"] = True
-    # Last, so a structured payload (e.g. a whole ValidationReport) replaces the
-    # human-readable `detail` rather than being shadowed by it.
-    body.update(error.body_extras())
     return body
 
 

@@ -26,6 +26,7 @@ import hashlib
 import numpy as np
 import polars as pl
 
+from daikonstudio.application.data.prepare_frame import RowProgress, map_rows
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.shared.errors import ValidationError
@@ -48,11 +49,12 @@ def assign_split(
     structure_column: str,
     spec: SplitSpec,
     normalizer: StructureNormalizer,
+    on_row: RowProgress | None = None,
 ) -> pl.DataFrame:
     if spec.strategy is SplitStrategy.RANDOM:
         labels = _random_labels(frame.height, spec)
     else:
-        labels = _scaffold_labels(frame, structure_column, spec, normalizer)
+        labels = _scaffold_labels(frame, structure_column, spec, normalizer, on_row)
     # "split" is one of `domain.data.target.RESERVED_TARGET_COLUMNS` (C1,
     # whole-branch review): `with_columns` below silently overwrites any
     # existing same-named column, including a target's, which is exactly why
@@ -97,12 +99,13 @@ def _scaffold_labels(
     structure_column: str,
     spec: SplitSpec,
     normalizer: StructureNormalizer,
+    on_row: RowProgress | None = None,
 ) -> list[str]:
     n = frame.height
     if n == 0:
         return []
     structures = [str(s) for s in frame[structure_column].to_list()]
-    scaffolds = [normalizer.murcko_scaffold(structure) for structure in structures]
+    scaffolds = map_rows(normalizer.murcko_scaffold, structures, on_row)
 
     # An empty scaffold means "acyclic or invalid", not "same family" -- chemically,
     # two acyclic molecules share nothing just because neither has a ring. Lumping

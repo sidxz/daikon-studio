@@ -65,6 +65,7 @@ and exports normally.
 
 from __future__ import annotations
 
+import asyncio
 import io
 import uuid
 from collections import Counter
@@ -169,7 +170,10 @@ class ExportCollection:
             content = _render_csv(frame, protocol.readouts, generation_method)
             media_type = "text/csv"
         else:
-            content = _render_sdf(frame, protocol.readouts, generation_method)
+            # RDKit parses every row: off the event loop, like every other RDKit pass here.
+            content = await asyncio.to_thread(
+                _render_sdf, frame, protocol.readouts, generation_method
+            )
             media_type = "chemical/x-mdl-sdfile"
 
         return Success(
