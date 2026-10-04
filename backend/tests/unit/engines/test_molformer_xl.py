@@ -22,9 +22,12 @@ import pytest
 
 pytest.importorskip("transformers")
 
-from daikonstudio.application.engines.context import PredictContext, TrainContext
+from daikonstudio.application.engines.checkpoints import Checkpoints
+from daikonstudio.application.engines.context import PredictContext, RunInterrupted, TrainContext
 from daikonstudio.application.engines.manifest import ConditionType, TaskType
+from daikonstudio.infrastructure.engines._lightning import training_state_scope
 from daikonstudio.infrastructure.engines.molformer_xl import MolformerXL
+from tests.fakes.blob_store import InMemoryBlobStore
 
 _WEIGHTS_DIR = Path(
     os.environ.get("STUDIO_PRETRAINED_WEIGHTS_DIR", "~/.cache/daikon-studio/weights")
@@ -484,3 +487,40 @@ def test_a_default_classification_fit_has_no_cutoffs():
         _context(_frame([float(i % 2) for i in range(12)]), TaskType.BINARY_CLASSIFICATION)
     )
     assert result.cutoffs is None
+
+
+@needs_weights
+def test_a_fit_stopped_by_its_time_limit_resumes_at_the_next_epoch() -> None:
+    store = InMemoryBlobStore()
+    checkpoints = Checkpoints(
+        store, "ws/datasets/d/runs/r/checkpoints/", interval_seconds=1e9
+    ).scoped("model")
+    reported: list[tuple[float, str]] = []
+    resuming = False
+
+    def stop_after_epoch_one(fraction: float, phase: str) -> None:
+        reported.append((fraction, phase))
+        if phase.startswith("Training") and fraction >= 1 / 3 and not resuming:
+            raise RunInterrupted("time limit", cancelled=False)
+
+    ctx = TrainContext(
+        frame=_frame([float(i) for i in range(12)]),
+        targets={"y": TaskType.REGRESSION},
+        structure_column="smiles",
+        conditions={**_FAST, "epochs": 3},
+        seed=13,
+        checkpoints=checkpoints,
+        report=stop_after_epoch_one,
+    )
+    with pytest.raises(RunInterrupted):
+        MolformerXL().train(ctx)
+    assert training_state_scope(checkpoints, "transformers").load("training-state") is not None
+
+    reported.clear()
+    resuming = True
+    result = MolformerXL().train(ctx)
+
+    training = [f for f, p in reported if p.startswith("Training")]
+    assert training[0] == pytest.approx(2 / 3)  # epoch 2 of 3 is the first one run
+    assert any(p.startswith("Resuming") for _, p in reported)
+    assert result.metrics["y"]

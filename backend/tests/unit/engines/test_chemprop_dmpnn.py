@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
 
 import polars as pl
@@ -21,9 +22,12 @@ import pytest
 
 pytest.importorskip("chemprop")
 
-from daikonstudio.application.engines.context import PredictContext, TrainContext
+from daikonstudio.application.engines.checkpoints import Checkpoints
+from daikonstudio.application.engines.context import PredictContext, RunInterrupted, TrainContext
 from daikonstudio.application.engines.manifest import ConditionType, TaskType
+from daikonstudio.infrastructure.engines._lightning import training_state_scope
 from daikonstudio.infrastructure.engines.chemprop_dmpnn import ChempropDMPNN
+from tests.fakes.blob_store import InMemoryBlobStore
 
 _SMILES = [
     "CCO",
@@ -525,3 +529,125 @@ def test_a_changed_descriptor_list_is_refused_at_predict():
 
     with pytest.raises(ValidationError, match="descriptor"):
         _predict(engine, ctx.frame.head(3), tampered.getvalue())
+
+
+# --- saved training state and resume ------------------------------------------------
+
+_FOUR_EPOCHS = {**_FAST, "epochs": 4}
+
+
+def _resumable_context(
+    store: InMemoryBlobStore,
+    report: Callable[[float, str], None],
+    *,
+    interval_seconds: float = 1e9,
+) -> TrainContext:
+    checkpoints = Checkpoints(
+        store, "ws/datasets/d/runs/r/checkpoints/", interval_seconds=interval_seconds
+    ).scoped("model")
+    return TrainContext(
+        frame=_frame([float(i) for i in range(20)]),
+        targets={"y": TaskType.REGRESSION},
+        structure_column="smiles",
+        conditions=_FOUR_EPOCHS,
+        seed=13,
+        checkpoints=checkpoints,
+        report=report,
+    )
+
+
+def _stopping_after_epoch_two(
+    reported: list[tuple[float, str]], *, cancelled: bool = False
+) -> Callable[[float, str], None]:
+    def report(fraction: float, phase: str) -> None:
+        reported.append((fraction, phase))
+        if phase.startswith("Training") and fraction >= 2 / 4:
+            raise RunInterrupted("stopped", cancelled=cancelled)
+
+    return report
+
+
+def _training_state(ctx: TrainContext) -> Checkpoints:
+    scope = training_state_scope(ctx.checkpoints, "chemprop")
+    assert scope is not None
+    return scope
+
+
+def _saved_state(ctx: TrainContext) -> bytes | None:
+    return _training_state(ctx).load("training-state")
+
+
+def test_a_fit_stopped_by_its_time_limit_resumes_at_the_next_epoch() -> None:
+    store = InMemoryBlobStore()
+    reported: list[tuple[float, str]] = []
+    first = _resumable_context(store, _stopping_after_epoch_two(reported))
+    with pytest.raises(RunInterrupted):
+        ChempropDMPNN().train(first)
+    assert _saved_state(first) is not None
+
+    reported.clear()
+    resumed = _resumable_context(store, lambda fraction, phase: reported.append((fraction, phase)))
+    result = ChempropDMPNN().train(resumed)
+
+    training = [f for f, p in reported if p.startswith("Training")]
+    assert training[0] == pytest.approx(3 / 4)  # epoch 3 of 4 is the first one run
+    assert any(p.startswith("Resuming") for _, p in reported)
+    assert result.metrics["y"]
+
+
+def test_a_cancelled_fit_saves_nothing() -> None:
+    """The run row is already CANCELLED and the runner API refuses the write."""
+    store = InMemoryBlobStore()
+    ctx = _resumable_context(store, _stopping_after_epoch_two([], cancelled=True))
+
+    with pytest.raises(RunInterrupted):
+        ChempropDMPNN().train(ctx)
+
+    assert _saved_state(ctx) is None
+
+
+def test_a_store_that_cannot_save_never_fails_the_fit() -> None:
+    class Failing(InMemoryBlobStore):
+        def put_bytes(self, key: str, data: bytes) -> str:
+            raise OSError("upload refused")
+
+    result = ChempropDMPNN().train(
+        _resumable_context(Failing(), lambda fraction, phase: None, interval_seconds=0)
+    )
+
+    assert result.metrics["y"]
+
+
+def test_the_best_epoch_is_part_of_the_saved_state(tmp_path: Path) -> None:
+    import math
+
+    import torch
+
+    store = InMemoryBlobStore()
+    ctx = _resumable_context(store, _stopping_after_epoch_two([]))
+    with pytest.raises(RunInterrupted):
+        ChempropDMPNN().train(ctx)
+
+    saved = tmp_path / "state.ckpt"
+    saved.write_bytes(_saved_state(ctx) or b"")
+    state = torch.load(saved, map_location="cpu", weights_only=False)
+
+    assert any(
+        math.isfinite(entry["best_loss"])
+        for entry in state["callbacks"].values()
+        if "best_loss" in entry
+    )
+
+
+def test_a_corrupt_but_checksum_valid_state_is_discarded() -> None:
+    store = InMemoryBlobStore()
+    reported: list[tuple[float, str]] = []
+    ctx = _resumable_context(store, lambda fraction, phase: reported.append((fraction, phase)))
+    _training_state(ctx).save("training-state", b"not a checkpoint")
+
+    result = ChempropDMPNN().train(ctx)
+
+    training = [f for f, p in reported if p.startswith("Training")]
+    assert training[0] == pytest.approx(1 / 4)
+    assert not any(p.startswith("Resuming") for _, p in reported)
+    assert result.metrics["y"]

@@ -35,7 +35,9 @@ from __future__ import annotations
 
 import io
 import os
+import tempfile
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import polars as pl
@@ -49,7 +51,12 @@ from daikonstudio.application.engines.manifest import (
     validate_conditions,
 )
 from daikonstudio.domain.shared.errors import ValidationError
-from daikonstudio.infrastructure.engines._lightning import keep_best_by_validation_loss
+from daikonstudio.infrastructure.engines._lightning import (
+    keep_best_by_validation_loss,
+    save_training_state,
+    saved_training_state,
+    training_state_scope,
+)
 from daikonstudio.infrastructure.engines._options import POSITIVE_WEIGHTING, positive_weight
 from daikonstudio.infrastructure.engines._scoring import (
     classification_by_column,
@@ -459,16 +466,38 @@ class MolformerXL:
         if validation_loader is not None:
             callbacks.append(keep_best)
 
-        trainer = lightning.Trainer(
-            accelerator="auto",
-            devices=1,
-            max_epochs=epochs,
-            enable_checkpointing=False,
-            logger=False,
-            enable_progress_bar=False,
-            callbacks=callbacks,
-        )
-        trainer.fit(module, train_loader, validation_loader)
+        # The scratch directory holds the training state a save writes and a resume
+        # reads; it only has to outlive `fit`. The trainer does not need it afterwards.
+        with tempfile.TemporaryDirectory() as state_dir:
+            state = training_state_scope(ctx.checkpoints, "transformers")
+            resume_from = saved_training_state(state, Path(state_dir), module)
+            # After the reporter: it raises in `on_train_epoch_end` when the time limit
+            # stops the fit, and the save then happens in `on_exception`.
+            if state is not None:
+                callbacks.append(save_training_state(state, Path(state_dir)))
+            if resume_from is not None:
+
+                def _report_resume(trainer: Any, _module: Any) -> None:
+                    ctx.report(
+                        trainer.current_epoch / epochs,
+                        f"Resuming {_MANIFEST.name} from epoch {trainer.current_epoch + 1} "
+                        f"of {epochs}",
+                    )
+
+                callbacks.append(LambdaCallback(on_train_start=_report_resume))
+
+            trainer = lightning.Trainer(
+                accelerator="auto",
+                devices=1,
+                max_epochs=epochs,
+                enable_checkpointing=False,
+                logger=False,
+                enable_progress_bar=False,
+                callbacks=callbacks,
+            )
+            trainer.fit(
+                module, train_loader, validation_loader, ckpt_path=resume_from, weights_only=False
+            )
 
         # Restore the selected epoch before anything is scored or saved, so the
         # numbers on the Scorecard and the weights in the artifact are one model.
