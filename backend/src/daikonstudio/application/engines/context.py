@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 import polars as pl
 
 from daikonstudio.application.engines.manifest import TaskType
+
+if TYPE_CHECKING:
+    from daikonstudio.application.engines.checkpoints import Checkpoints
 
 ProgressReporter = Callable[[float, str], None]
 
@@ -74,6 +78,10 @@ class TrainContext:
     # the same value for the model, its baseline and the random-split comparison, so a
     # tuned model is never measured against an untuned baseline.
     tune_cutoffs: bool = False
+    # Where this fit's saved progress lives, already scoped to it; `None` when nothing
+    # is saved (tests, and any caller without a run). An engine that trains for long
+    # saves its in-progress state here and resumes from it -- see `_lightning.py`.
+    checkpoints: Checkpoints | None = None
     report: ProgressReporter = _no_op
     """Called periodically during long work to publish progress and to check whether
     the run is still wanted. `fraction` is progress within *this fit*, 0.0 to 1.0; the
