@@ -68,6 +68,10 @@ jobs:
           file: backend/Dockerfile
           load: true
           tags: daikon-runner:cpu
+          # Layer cache in GitHub's cache service: without it every run rebuilt and
+          # re-pushed the multi-GB dependency layers even when uv.lock had not changed.
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
           build-args: |
             APP_VERSION=${{ steps.ver.outputs.api_version }}
             APP_GIT_SHA=${{ steps.ver.outputs.api_git_sha }}
@@ -84,6 +88,8 @@ jobs:
           file: frontend/Dockerfile
           load: true
           tags: daikon-frontend:ci
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,mode=max,scope=frontend
           build-args: |
             APP_VERSION=${{ steps.ver.outputs.fe_version }}
             APP_GIT_SHA=${{ steps.ver.outputs.fe_git_sha }}
