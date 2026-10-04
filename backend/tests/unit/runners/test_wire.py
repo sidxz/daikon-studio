@@ -61,8 +61,10 @@ def _dataset() -> Dataset:
         workspace_id=uuid.uuid4(),
         name="herg-binders",
         structure_column="smiles",
-        target=TargetSpec(
-            column="ic50", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW
+        # Two targets, so the round trip also pins that their order survives the wire.
+        targets=(
+            TargetSpec(column="ic50", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW),
+            TargetSpec(column="active", kind=TargetKind.BINARY),
         ),
         split=SplitSpec(strategy=SplitStrategy.SCAFFOLD, seed=42, fractions=(0.7, 0.15, 0.15)),
         content_hash="b" * 64,
@@ -76,11 +78,11 @@ def _dataset() -> Dataset:
                 InvalidRow(row_number=91, value="", reason="missing target value"),
             ],
             conflicting=[
-                ConflictRow(structure="CCO", values=[1, 0], row_numbers=[12, 88]),
+                ConflictRow(structure="CCO", column="active", values=[1, 0], row_numbers=[12, 88]),
             ],
             duplicates_collapsed=9,
             salts_flagged=2,
-            duplicate_spread=0.038,
+            duplicate_spread={"ic50": 0.038},
         ),
         created_at=_EARLIER,
         updated_at=_NOW,

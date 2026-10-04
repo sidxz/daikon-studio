@@ -22,7 +22,8 @@ class DatasetModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
 
     name: Mapped[str] = mapped_column(String(256), nullable=False)
     structure_column: Mapped[str] = mapped_column(String(128), nullable=False)
-    target: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    # Ordered as the scientist chose them; see `Dataset.targets`.
+    targets: Mapped[list[dict[str, Any]]] = mapped_column(JSONB, nullable=False)
     split: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     snapshot_uri: Mapped[str] = mapped_column(Text, nullable=False)

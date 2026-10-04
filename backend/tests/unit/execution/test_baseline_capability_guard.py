@@ -59,7 +59,7 @@ def _binary_dataset() -> Dataset:
         workspace_id=uuid.uuid4(),
         name="a dataset",
         structure_column="smiles",
-        target=TargetSpec(column="y", kind=TargetKind.BINARY),
+        targets=(TargetSpec(column="y", kind=TargetKind.BINARY),),
         split=SplitSpec(strategy=SplitStrategy.RANDOM, seed=7),
         content_hash="deadbeef",
         snapshot_uri="file:///snapshot.parquet",

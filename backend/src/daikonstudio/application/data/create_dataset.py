@@ -147,7 +147,7 @@ class CreateDataset:
                     frame.columns,
                     id_column=command.id_column,
                     structure_column=command.structure_column,
-                    target_column=command.target.column,
+                    target_columns=(command.target.column,),
                 )
             except ValidationError as error:
                 return Failure(error)
@@ -209,7 +209,7 @@ class CreateDataset:
             workspace_id=workspace_id,
             name=command.name,
             structure_column=command.structure_column,
-            target=command.target,
+            targets=(command.target,),
             split=command.split,
             content_hash=content_hash,
             snapshot_uri=snapshot_uri,

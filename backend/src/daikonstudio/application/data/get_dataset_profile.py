@@ -161,7 +161,7 @@ class GetDatasetProfile:
                 build_profile,
                 frame=pl.read_parquet(io.BytesIO(raw)),
                 structure_column=dataset.structure_column,
-                target=dataset.target,
+                target=dataset.single_target(),
                 normalizer=self._normalizer,
             )
             if not self._store.exists(snapshot_key(dataset.workspace_id, dataset.id)):

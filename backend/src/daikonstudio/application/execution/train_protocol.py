@@ -536,6 +536,7 @@ class RunTraining:
             if chosen.validation_metrics is not None
             else None
         )
+        target = dataset.single_target()
         inputs = ScorecardInputs(
             protocol_id=str(protocol_id),
             run_id=str(run.id),
@@ -545,7 +546,7 @@ class RunTraining:
             conditions=conditions,
             metrics=metrics,
             validation_metrics=validation_metrics,
-            actual=[float(value) for value in test_rows[dataset.target.column].to_list()],
+            actual=[float(value) for value in test_rows[target.column].to_list()],
             predicted=[float(value) for value in predictions["value"].to_list()],
             prediction_kind=("probability" if task is TaskType.BINARY_CLASSIFICATION else "value"),
             structures=[str(s) for s in test_rows[dataset.structure_column].to_list()],
@@ -560,11 +561,9 @@ class RunTraining:
             metrics_undefined=_undefined_reasons(
                 undefined | baseline_undefined, dataset, train_rows, test_rows
             ),
-            duplicate_spread=dataset.validation_report.duplicate_spread,
-            target_unit=dataset.target.unit,
-            target_direction=(
-                dataset.target.direction.value if dataset.target.direction is not None else None
-            ),
+            duplicate_spread=dataset.validation_report.duplicate_spread.get(target.column),
+            target_unit=target.unit,
+            target_direction=target.direction.value if target.direction is not None else None,
             split_strategy=dataset.split.strategy.value,
         )
 
@@ -602,7 +601,7 @@ class RunTraining:
                 # Derived from the Dataset's TargetSpec, which is what makes a
                 # predicted IC50 arrive in the same unit and direction as a
                 # measured one. Created in DRAFT; Task 16 publishes it.
-                readouts=derive_readouts(dataset.target, task),
+                readouts=derive_readouts(dataset.single_target(), task),
                 conditions=conditions,
                 # The person who asked for the training, not the runner that ran it.
                 created_by=run.requested_by,
@@ -752,7 +751,7 @@ class RunTraining:
                 frame=frame,
                 task=task,
                 structure_column=dataset.structure_column,
-                target_column=dataset.target.column,
+                target_column=dataset.single_target().column,
                 conditions=conditions,
                 seed=dataset.split.seed,
                 report=self._reporter(run, span),
@@ -887,7 +886,7 @@ def _undefined_reasons(
     """
     if not undefined:
         return None
-    column = dataset.target.column
+    column = dataset.single_target().column
     if test_rows[column].n_unique() < 2:
         reason = (
             f"Undefined: all test-set compounds have the same '{column}' value. Add "
@@ -949,6 +948,6 @@ def _task_for(dataset: Dataset) -> TaskType:
     """
     return (
         TaskType.BINARY_CLASSIFICATION
-        if dataset.target.kind is TargetKind.BINARY
+        if dataset.single_target().kind is TargetKind.BINARY
         else TaskType.REGRESSION
     )

@@ -17,6 +17,9 @@ class InvalidRow:
 @dataclass(frozen=True, kw_only=True)
 class ConflictRow:
     structure: str
+    # A compound can conflict in one binary target and agree in another, and the
+    # file is fixed in that column, so a conflict has to say which one it is in.
+    column: str
     values: list[int]
     # 1-indexed positions in the *uploaded* file, matching `InvalidRow.row_number`'s
     # own convention -- a conflict spans several rows (the replicate measurements
@@ -35,7 +38,10 @@ class ValidationReport:
     conflicting: list[ConflictRow] = field(default_factory=list)
     duplicates_collapsed: int = 0
     salts_flagged: int = 0
-    duplicate_spread: float | None = None
+    # Keyed by target column. Only numeric targets with at least one replicate group
+    # appear: a binary target has no spread, and a column with no replicates has
+    # nothing to measure, which is different from a spread of zero.
+    duplicate_spread: dict[str, float] = field(default_factory=dict)
 
 
 def report_to_dict(report: ValidationReport) -> dict[str, Any]:
@@ -51,7 +57,7 @@ def report_from_dict(data: Mapping[str, Any]) -> ValidationReport:
         conflicting=[ConflictRow(**row) for row in data.get("conflicting", [])],
         duplicates_collapsed=data.get("duplicates_collapsed", 0),
         salts_flagged=data.get("salts_flagged", 0),
-        duplicate_spread=data.get("duplicate_spread"),
+        duplicate_spread=dict(data.get("duplicate_spread") or {}),
     )
 
 

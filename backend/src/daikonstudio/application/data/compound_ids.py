@@ -31,7 +31,7 @@ def snapshot_columns(store: BlobStore, dataset: Dataset) -> list[str]:
 
 
 def eligible_id_columns(columns: list[str], dataset: Dataset) -> list[str]:
-    reserved = {dataset.structure_column, dataset.target.column, "split"}
+    reserved = {dataset.structure_column, *dataset.target_columns, "split"}
     return [column for column in columns if column not in reserved]
 
 

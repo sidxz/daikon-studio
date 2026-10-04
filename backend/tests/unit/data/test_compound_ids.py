@@ -44,7 +44,7 @@ def _dataset(id_column: str | None = "name") -> Dataset:
         workspace_id=uuid.uuid4(),
         name="a dataset",
         structure_column="smiles",
-        target=TargetSpec(column="y", kind=TargetKind.NUMERIC),
+        targets=(TargetSpec(column="y", kind=TargetKind.NUMERIC),),
         split=SplitSpec(strategy=SplitStrategy.RANDOM, seed=7),
         content_hash="deadbeef",
         snapshot_uri="file:///snapshot.parquet",

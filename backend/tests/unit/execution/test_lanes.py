@@ -115,7 +115,7 @@ def training_setup() -> Any:
         workspace_id=auth.workspace_id,
         name="a dataset",
         structure_column="smiles",
-        target=TargetSpec(column="y", kind=TargetKind.NUMERIC),
+        targets=(TargetSpec(column="y", kind=TargetKind.NUMERIC),),
         split=SplitSpec(strategy=SplitStrategy.RANDOM, seed=7),
         content_hash="deadbeef",
         snapshot_uri="file:///snapshot.parquet",

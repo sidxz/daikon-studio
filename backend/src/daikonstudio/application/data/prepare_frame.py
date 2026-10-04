@@ -177,7 +177,7 @@ def prepare_frame(
         spreads = [
             float(spread) for n, spread in zip(group_sizes, group_spreads, strict=True) if n > 1
         ]
-        duplicate_spread = sum(spreads) / len(spreads) if spreads else None
+        duplicate_spread = {target.column: sum(spreads) / len(spreads)} if spreads else {}
         prepared = grouped.drop("_n", "_spread")
         return prepared, ValidationReport(
             total_rows=total_rows,
@@ -213,6 +213,7 @@ def prepare_frame(
     conflicting = [
         ConflictRow(
             structure=str(row[structure_column]),
+            column=target.column,
             values=list(row["_values"]),
             row_numbers=sorted(row_numbers_by_structure[str(row[structure_column])]),
         )

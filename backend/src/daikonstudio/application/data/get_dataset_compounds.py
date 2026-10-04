@@ -94,7 +94,7 @@ class GetDatasetCompounds:
         # measurably slow.
         frame = pl.read_parquet(io.BytesIO(raw)).select(
             pl.col(dataset.structure_column).alias("structure"),
-            pl.col(dataset.target.column).cast(pl.Float64, strict=False).alias("target"),
+            pl.col(dataset.single_target().column).cast(pl.Float64, strict=False).alias("target"),
             pl.col("split"),
             (
                 id_text(dataset.id_column)

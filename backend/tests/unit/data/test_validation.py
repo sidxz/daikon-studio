@@ -24,7 +24,7 @@ def test_numeric_duplicates_are_averaged_and_spread_retained():
     assert prepared.height == 2
     assert prepared.filter(pl.col("smiles") == "CCO")["y"].item() == 2.0
     assert report.duplicates_collapsed == 1
-    assert report.duplicate_spread == pytest.approx(2.0)  # |1.0 - 3.0|
+    assert report.duplicate_spread == {"y": pytest.approx(2.0)}  # |1.0 - 3.0|
 
 
 def test_conflicting_binary_duplicates_are_rejected_not_voted():
@@ -34,6 +34,12 @@ def test_conflicting_binary_duplicates_are_rejected_not_voted():
     assert prepared.height == 0
     assert report.conflicting[0].values == [0, 1]
     assert report.conflicting[0].row_numbers == [1, 2]
+
+
+def test_a_conflict_names_the_target_column_its_labels_disagree_in():
+    frame = pl.DataFrame({"smiles": ["CCO", "OCC"], "y": [0, 1]})
+    _, report = prepare_frame(frame, "smiles", BINARY, NORMALIZER)
+    assert report.conflicting[0].column == "y"
 
 
 def test_conflicting_row_numbers_are_positions_in_the_uploaded_file_not_in_a_filtered_frame():
@@ -89,7 +95,7 @@ def test_all_rows_invalid_yields_an_empty_but_well_formed_report():
     assert prepared.height == 0
     assert report.valid_rows == 0
     assert len(report.invalid) == 2
-    assert report.duplicate_spread is None
+    assert report.duplicate_spread == {}
 
 
 def test_numeric_duplicates_with_identical_values_have_zero_spread_and_still_count():
@@ -99,7 +105,7 @@ def test_numeric_duplicates_with_identical_values_have_zero_spread_and_still_cou
     prepared, report = prepare_frame(frame, "smiles", NUMERIC, NORMALIZER)
     assert prepared.height == 1
     assert report.duplicates_collapsed == 1
-    assert report.duplicate_spread == pytest.approx(0.0)
+    assert report.duplicate_spread == {"y": pytest.approx(0.0)}
 
 
 def test_empty_frame_yields_a_well_formed_report_without_crashing():

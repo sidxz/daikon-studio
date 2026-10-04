@@ -124,6 +124,9 @@ class InvalidRowResponse(BaseModel):
 
 class ConflictRowResponse(BaseModel):
     structure: str
+    # A compound can conflict in one binary target and agree in another, and the
+    # file is fixed in that column, so a conflict has to say which one it is in.
+    column: str
     values: list[int]
     row_numbers: list[int]
 
@@ -147,7 +150,8 @@ class ValidationReportResponse(BaseModel):
     conflicting: list[ConflictRowResponse]
     duplicates_collapsed: int
     salts_flagged: int
-    duplicate_spread: float | None
+    # Keyed by target column; numeric targets with replicates only.
+    duplicate_spread: dict[str, float]
 
 
 class DatasetResponse(BaseModel):
@@ -182,7 +186,7 @@ class DatasetResponse(BaseModel):
             workspace_id=dataset.workspace_id,
             name=dataset.name,
             structure_column=dataset.structure_column,
-            target=TargetBody.model_validate(target_to_dict(dataset.target)),
+            target=TargetBody.model_validate(target_to_dict(dataset.single_target())),
             split=SplitBody.model_validate(split_to_dict(dataset.split)),
             content_hash=dataset.content_hash,
             snapshot_uri=dataset.snapshot_uri,

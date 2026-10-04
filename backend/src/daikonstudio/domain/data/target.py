@@ -39,6 +39,10 @@ RESERVED_TARGET_COLUMNS = frozenset(
         # Written by RunPrediction beside every scored row (predict_with_protocol.py).
         "input_row",
         "compound_id",
+        # The long-format column every engine's `predict()` output carries once a
+        # Dataset can hold several targets (`application/engines/fan_out.py`). Never
+        # persisted today; reserved for the same defensive reason as `row_id`.
+        "target",
     }
 )
 

@@ -129,7 +129,7 @@ class ValidationReportWire(BaseModel):
     conflicting: list[ConflictRow] = []
     duplicates_collapsed: int = 0
     salts_flagged: int = 0
-    duplicate_spread: float | None = None
+    duplicate_spread: dict[str, float] = {}
 
     @classmethod
     def from_domain(cls, report: ValidationReport) -> ValidationReportWire:
@@ -289,7 +289,7 @@ class DatasetEnvelope(BaseModel):
     workspace_id: uuid.UUID
     name: str
     structure_column: str
-    target: TargetSpecWire
+    targets: list[TargetSpecWire]
     split: SplitSpecWire
     content_hash: str
     snapshot_uri: str
@@ -306,7 +306,7 @@ class DatasetEnvelope(BaseModel):
             workspace_id=dataset.workspace_id,
             name=dataset.name,
             structure_column=dataset.structure_column,
-            target=TargetSpecWire.from_domain(dataset.target),
+            targets=[TargetSpecWire.from_domain(t) for t in dataset.targets],
             split=SplitSpecWire.from_domain(dataset.split),
             content_hash=dataset.content_hash,
             snapshot_uri=dataset.snapshot_uri,
@@ -323,7 +323,7 @@ class DatasetEnvelope(BaseModel):
             workspace_id=self.workspace_id,
             name=self.name,
             structure_column=self.structure_column,
-            target=self.target.to_domain(),
+            targets=tuple(t.to_domain() for t in self.targets),
             split=self.split.to_domain(),
             content_hash=self.content_hash,
             snapshot_uri=self.snapshot_uri,

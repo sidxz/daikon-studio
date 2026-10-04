@@ -53,7 +53,7 @@ class SetDatasetIdColumn:
                     columns,
                     id_column=command.id_column,
                     structure_column=dataset.structure_column,
-                    target_column=dataset.target.column,
+                    target_columns=dataset.target_columns,
                 )
             except ValidationError as error:
                 return Failure(error)

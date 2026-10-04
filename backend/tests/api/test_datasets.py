@@ -79,7 +79,7 @@ async def test_validation_report_records_collapsed_duplicates_and_assay_spread(c
     body = response.json()
     assert body["row_count"] == 3
     assert body["validation_report"]["duplicates_collapsed"] == 1
-    assert body["validation_report"]["duplicate_spread"] == 2.0
+    assert body["validation_report"]["duplicate_spread"] == {"y": 2.0}
 
 
 async def test_dataset_is_scoped_to_the_callers_workspace(

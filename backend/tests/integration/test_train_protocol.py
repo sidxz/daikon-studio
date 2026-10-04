@@ -234,7 +234,7 @@ async def test_training_produces_a_draft_protocol_with_derived_readouts(studio: 
 
     protocol = await studio.protocol_for(run)
     assert protocol.status.value == "draft"
-    assert protocol.readouts[0].unit == dataset.target.unit
+    assert protocol.readouts[0].unit == dataset.single_target().unit
     assert protocol.engine_id == "ecfp4-xgboost"
     assert protocol.dataset_id == dataset.id
     assert (await studio.reload(run)).status is RunStatus.READY

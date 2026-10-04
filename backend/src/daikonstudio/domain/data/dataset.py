@@ -38,7 +38,7 @@ class Dataset(AggregateRoot):
         workspace_id: uuid.UUID,
         name: str,
         structure_column: str,
-        target: TargetSpec,
+        targets: tuple[TargetSpec, ...],
         split: SplitSpec,
         content_hash: str,
         snapshot_uri: str,
@@ -59,7 +59,11 @@ class Dataset(AggregateRoot):
         # later consumer -- training, prediction, scaffold analysis -- must
         # featurize exactly the column the validation pass canonicalized.
         self.structure_column = structure_column
-        self.target = target
+        # What the scientist is predicting, in the order they chose the columns, and
+        # never empty (`check_targets`, at creation). There is deliberately no `target`
+        # shortcut to the first one: a caller that took it would train on one target
+        # and silently drop the rest.
+        self.targets = targets
         self.split = split
         self.content_hash = content_hash
         self.snapshot_uri = snapshot_uri
@@ -72,12 +76,28 @@ class Dataset(AggregateRoot):
         # metadata: not part of `content_hash`, and changeable after freezing.
         self.id_column = id_column
 
+    @property
+    def target_columns(self) -> tuple[str, ...]:
+        return tuple(target.column for target in self.targets)
+
+    def single_target(self) -> TargetSpec:
+        """Transitional, deleted by Task 9 of the multi-task plan: the one target of a
+        one-target Dataset. Raises rather than picking the first, for the reason
+        `targets` gives."""
+        if len(self.targets) != 1:
+            raise ValidationError("This step does not handle datasets with several targets yet.")
+        return self.targets[0]
+
 
 def check_id_column(
-    columns: Sequence[str], *, id_column: str, structure_column: str, target_column: str
+    columns: Sequence[str],
+    *,
+    id_column: str,
+    structure_column: str,
+    target_columns: Sequence[str],
 ) -> None:
     """An identifier is any stored column but the ones that already mean something."""
-    if id_column in (structure_column, target_column, "split"):
+    if id_column in (structure_column, "split") or id_column in target_columns:
         raise ValidationError(
             "Choose an identifier column other than the structure, target or split column."
         )
