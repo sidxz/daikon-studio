@@ -66,7 +66,7 @@ WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 .DEFAULT_GOAL := help
 .PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
         seed-runners backfill-maps generate-api test test-api test-all test-fe lint lint-fe nuke \
-        image-runner-cpu image-runner-gpu image-smoke image-frontend security-scan
+        image-runner-cpu image-runner-gpu image-smoke image-frontend security-scan publish-runner-gpu
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -203,8 +203,32 @@ image-runner-cpu: ## Build the API + default-lane runner image locally as daikon
 	$(call BUILD_INFO,backend) && docker build -f backend/Dockerfile -t daikon-runner:cpu \
 		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE backend
 
-image-runner-gpu: ## Build the daikon-runner:gpu image (see backend/Dockerfile.gpu -- x86_64 only)
-	docker build -f backend/Dockerfile.gpu -t daikon-runner:gpu backend
+# The CUDA runner image is built, GPU-tested, scanned and pushed on atlantic: x86_64, an
+# NVIDIA GPU, a lasting layer cache, and room for a ~22 GB image a GitHub-hosted runner
+# lacks. Driven over the `atlantic` docker context (SSH) rather than registered as a
+# self-hosted GitHub runner, because this repo is public and any fork PR could target one.
+GPU_CONTEXT ?= atlantic
+GPU_IMAGE   := ghcr.io/sidxz/daikon-studio/runner-gpu
+GPU_DOCKER  := docker --context $(GPU_CONTEXT)
+
+image-runner-gpu: ## Build the CUDA runner image on atlantic as daikon-runner:gpu (backend/Dockerfile.gpu)
+	$(call BUILD_INFO,backend) && $(GPU_DOCKER) build -f backend/Dockerfile.gpu -t daikon-runner:gpu \
+		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE backend
+
+# ponytail: the scan runs Trivy in a container on atlantic, which cannot see a local
+# .trivyignore (there is none yet); mount or copy it in once one exists.
+publish-runner-gpu: ## Backend release: build the CUDA runner on atlantic, test it on the GPU, Trivy-scan it, push to ghcr
+	@git describe --exact-match --match 'backend-v*' HEAD >/dev/null 2>&1 && git diff --quiet HEAD \
+	  || { echo "publish-runner-gpu: check out a backend-v* tag, with a clean tree, first (RELEASING.md)"; exit 1; }
+	$(MAKE) image-runner-gpu
+	$(GPU_DOCKER) run --rm --gpus all daikon-runner:gpu python -c "import torch, chemprop; \
+		assert torch.cuda.is_available(), 'torch cannot see the GPU: host driver too old for this torch build?'; \
+		x = torch.ones(1024, 1024, device='cuda'); print(torch.__version__, torch.cuda.get_device_name(0), float((x @ x).sum()))"
+	$(GPU_DOCKER) run --rm -v /var/run/docker.sock:/var/run/docker.sock -v daikon-trivy-cache:/root/.cache \
+		aquasec/trivy:0.75.0 image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-runner:gpu
+	$(call BUILD_INFO,backend) && case "$$APP_VERSION" in *-*) tags=$$APP_VERSION ;; \
+		*) tags="$$APP_VERSION $${APP_VERSION%.*} $${APP_VERSION%%.*} latest" ;; esac \
+	  && for t in $$tags; do $(GPU_DOCKER) tag daikon-runner:gpu $(GPU_IMAGE):$$t && $(GPU_DOCKER) push $(GPU_IMAGE):$$t || exit 1; done
 
 # A green build says nothing about whether the image works (docs/roadmap.md, Traps):
 # the CPU image built clean for two months while LightGBM could not import inside it.

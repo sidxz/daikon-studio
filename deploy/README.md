@@ -42,12 +42,14 @@ from this directory.
 4. `docker compose logs runner-default` shows `runner agent started`, and the
    Runners page shows it online.
 
-A GPU runner (chemprop, MoLFormer) runs on its own x86_64 host with an NVIDIA GPU
-and the NVIDIA Container Toolkit:
+A GPU runner (chemprop, MoLFormer) runs on its own x86_64 host with an NVIDIA GPU,
+a driver for CUDA 12.x (525+; `nvidia-smi` shows the CUDA version it supports), and
+the NVIDIA Container Toolkit:
 
-5. In a checkout on that host: `make image-runner-gpu` (CI does not publish it).
+5. The image is `ghcr.io/sidxz/daikon-studio/runner-gpu:<backend version>`, published
+   with each backend release by `make publish-runner-gpu` (RELEASING.md), not by CI.
 6. Add runner again, GPU lane only, and run the command the dialog prints there:
-   `docker run -d --restart unless-stopped --gpus all -e STUDIO_URL=https://<domain> -e STUDIO_RUNNER_TOKEN=drt_… daikon-runner:gpu`
+   `docker run -d --restart unless-stopped --gpus all -e STUDIO_URL=https://<domain> -e STUDIO_RUNNER_TOKEN=drt_… ghcr.io/sidxz/daikon-studio/runner-gpu:<version>`
 
 That runner reaches the API through the reverse proxy, and prediction artifact
 reads put a full `file:///…` URI in the request path. Caddy forwards it intact.

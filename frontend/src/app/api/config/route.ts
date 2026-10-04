@@ -28,6 +28,6 @@ export function GET() {
     // What the Runners page's `docker run` names. `||`, not `??`: an empty
     // value (an unset Compose variable) would print a command with no image.
     runnerImage: process.env.APP_RUNNER_IMAGE || "ghcr.io/sidxz/daikon-studio/api",
-    runnerGpuImage: process.env.APP_RUNNER_GPU_IMAGE || "daikon-runner:gpu",
+    runnerGpuImage: process.env.APP_RUNNER_GPU_IMAGE || "ghcr.io/sidxz/daikon-studio/runner-gpu",
   });
 }

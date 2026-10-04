@@ -34,13 +34,10 @@ dependencies = [
 # Networked blob backends. `BLOB_BASE_URL=file://...` needs neither.
 s3 = ["s3fs>=2024.10"]
 azure = ["adlfs>=2024.7"]
-# The GPU lane. chemprop pulls torch, lightning and rdkit itself, so listing them
-# again here would only create a second place for their floors to drift. No CUDA index
-# is pinned in [tool.uv.sources] on purpose: it would break `uv sync --extra gpu` on a
-# developer's Mac, where the ordinary PyPI wheel is the one that reaches the Mac's own
-# GPU through MPS -- which is how these engines are exercised on real GPU hardware
-# locally rather than only in the CUDA image.
-gpu = ["chemprop>=2.2,<3", "transformers>=4.44"]
+# The GPU lane. chemprop pulls torch, lightning and rdkit itself and owns their floors;
+# torch is listed bare, with no version, only so [tool.uv.sources] below can pick its
+# build (uv applies sources to direct dependencies only).
+gpu = ["chemprop>=2.2,<3", "transformers>=4.44", "torch"]
 
 [dependency-groups]
 dev = [
@@ -120,3 +117,18 @@ modules = [
     "daikonstudio.domain.data",
     "daikonstudio.domain.execution",
 ]
+
+# Linux x86_64 torch comes from PyTorch's CUDA 12.6 index, for the CUDA runner image
+# (Dockerfile.gpu). PyPI's linux torch is built for CUDA 13, which needs NVIDIA driver
+# 580+; atlantic's RTX 6000 Ada runs driver 555 (CUDA 12.5), where a cu130 torch cannot
+# see the GPU and chemprop silently trains on CPU. cu126 runs on any 12.x driver (CUDA
+# minor-version compatibility). Everywhere else -- a developer's Mac, reaching its GPU
+# through MPS -- keeps the ordinary PyPI wheel. Move to a newer index only once every
+# GPU host's driver supports it: `nvidia-smi` prints the highest CUDA the driver takes.
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux' and platform_machine == 'x86_64'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true

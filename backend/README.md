@@ -97,14 +97,10 @@ is the check that would have caught it; CI runs the same check on every push.
 `deploy/README.md` is the runbook for a single-host production stack (Caddy, API,
 migrate step, frontend, Postgres, a default-lane runner) via `deploy/compose.yml`.
 
-The GPU runner image (`backend/Dockerfile.gpu`, CUDA, x86_64 only) must be built on
-an x86 host; this laptop is arm64. After building it, **run** it:
-
-```bash
-docker --context ned build -f backend/Dockerfile.gpu -t daikon-runner:gpu backend \
-  && docker --context ned run --rm daikon-runner:gpu \
-       python -c "import chemprop, transformers, lightgbm; print('gpu image imports ok')"
-```
+The GPU runner image (`backend/Dockerfile.gpu`, CUDA, x86_64 only) is built on
+atlantic, which has the NVIDIA GPU, over the `atlantic` docker context: `make
+image-runner-gpu`. `make publish-runner-gpu` also runs it on the GPU, Trivy-scans it
+and pushes it to ghcr, and is part of a backend release (RELEASING.md).
 
 ## Layout
 

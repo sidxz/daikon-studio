@@ -10,6 +10,7 @@ version, and publishes a changelog + GitHub Release.
 |-----------|-------------------|------------------------------------------------|
 | Backend   | `backend-vX.Y.Z`  | `ghcr.io/sidxz/daikon-studio/api:X.Y.Z`        |
 | Frontend  | `frontend-vX.Y.Z` | `ghcr.io/sidxz/daikon-studio/frontend:X.Y.Z`   |
+| GPU runner | `backend-vX.Y.Z` | `ghcr.io/sidxz/daikon-studio/runner-gpu:X.Y.Z` (step 6, not CI) |
 
 The backend image is both the API and the default-lane (CPU) runner, so a
 backend release versions both. Pushing a tag in one namespace builds, tags, and
@@ -58,6 +59,17 @@ frontend and any deployed runners are compatible.
    - generates a `git-cliff` changelog scoped to that component since its
      previous tag and publishes a **GitHub Release** ("Backend v1.4.0").
 
+6. **Backend releases only:** publish the CUDA runner from the tag:
+   ```bash
+   git checkout backend-v1.4.0 && make publish-runner-gpu && git checkout main
+   ```
+   It builds `backend/Dockerfile.gpu` on atlantic (x86_64, NVIDIA GPU, lasting layer
+   cache) over the `atlantic` docker context, fails unless torch can see the GPU, runs
+   the same Trivy gate on the image, and pushes `1.4.0`, `1.4`, `1` and `latest`. Not
+   in CI: the image is ~22 GB, and atlantic is not a self-hosted GitHub runner because
+   this repo is public, so any fork PR could target one. One-time setup: `docker login
+   ghcr.io` on atlantic with a token that has `write:packages`.
+
 To deploy a release, pin `STUDIO_API_IMAGE` / `STUDIO_FRONTEND_IMAGE` in
 `deploy/.env` to the version instead of `:latest`.
 
@@ -70,8 +82,7 @@ To deploy a release, pin `STUDIO_API_IMAGE` / `STUDIO_FRONTEND_IMAGE` in
 - **Backend `GET /version`:** unauthenticated JSON
   `{name, version, git_sha, build_date, environment}` — handy for `curl`/monitoring.
 
-The GPU runner image (`make image-runner-gpu`) is built by hand, not by CI, and
-carries no version.
+The GPU runner carries the backend's version: same code, a CUDA build of torch.
 
 ## Between releases
 

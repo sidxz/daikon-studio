@@ -31,7 +31,7 @@ const defaultConfig: AppConfig = {
   uiBuildDate: "unknown",
   environment: "development",
   runnerImage: "ghcr.io/sidxz/daikon-studio/api",
-  runnerGpuImage: "daikon-runner:gpu",
+  runnerGpuImage: "ghcr.io/sidxz/daikon-studio/runner-gpu",
 };
 
 const AppConfigContext = createContext<AppConfig>(defaultConfig);

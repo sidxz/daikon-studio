@@ -8,7 +8,7 @@
 # resolves to MPS and a real chemprop fit runs on `mps:0`. This file is the CUDA
 # backend for the same lane; the engines and the lane routing are identical.
 #
-# Build this on x86_64 (CI or a swarm node), not on an Apple Silicon Mac. The target is
+# Build this on x86_64 (`make image-runner-gpu` builds on atlantic), not on an Apple Silicon Mac. The target is
 # linux/amd64, so a Mac must build it under `--platform linux/amd64` QEMU emulation,
 # which pushes several GB of torch and vendored CUDA through an emulator: measured here,
 # dependency download alone took 7m05s and the bytecode-compile step did not finish
@@ -42,30 +42,26 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 # reaching Ubuntu's own archive, so the objection is answered rather than ignored.
 RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
  && apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends libxrender1 libxext6 libexpat1 libgomp1 \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_INSTALL_DIR=/opt/uv-python
-RUN uv python install 3.13
+# uv owns the venv; the interpreter's own pip (and the wheels ensurepip carries) only add
+# a dependency tree that scanners flag and nothing at runtime uses.
+RUN uv python install 3.13 \
+ && rm -rf /opt/uv-python/*/lib/python3.13/site-packages/pip \
+           /opt/uv-python/*/lib/python3.13/site-packages/pip-*.dist-info \
+           /opt/uv-python/*/lib/python3.13/ensurepip
 
 WORKDIR /app
 
-# Torch comes from the lock, not from a CUDA index pinned here.
-#
-# An earlier draft set UV_INDEX=pytorch-cu124 at this point, claiming it was where the
-# CUDA build got selected. Under `uv sync --frozen` that is dead config: frozen installs
-# exactly the artifacts uv.lock names, and uv.lock resolves torch 2.13.0 from pypi.org
-# (`grep -c download.pytorch.org uv.lock` -> 0). The env var changed nothing, so it is
-# gone rather than left behind to be believed.
-#
-# It is not needed either. PyPI's linux torch wheels vendor their own CUDA userspace as
-# the nvidia-*-cu13 dependency wheels, so the runtime CUDA that matters is bundled, not
-# inherited from the base image. What the HOST must supply is a driver new enough for
-# the CUDA major the locked torch was built against -- see the CUDA note in
-# docs/roadmap.md. Keeping the cu124 index out of pyproject.toml is still right, for
-# the reason recorded there: it would break `uv sync --extra gpu` on a developer's Mac,
-# where the plain PyPI wheel is what reaches the Mac's own GPU through MPS.
+# Torch comes from the lock: on linux x86_64 that is 2.13.0+cu126 from PyTorch's CUDA 12.6
+# index ([tool.uv.sources] in pyproject.toml), and its wheels vendor their own CUDA
+# userspace (the nvidia-*-cu12 dependency wheels). The base image's CUDA tag is therefore
+# not what torch runs on. What the HOST must supply is a driver for CUDA 12.x (525+);
+# PyPI's own linux torch is built for CUDA 13 and needs 580+, which atlantic's 555 is not.
 
 # Both extras in ONE sync. Extras are not additive across separate `uv sync` runs --
 # a second `uv sync --extra gpu` uninstalls what `--extra s3` put there.
@@ -73,7 +69,11 @@ COPY pyproject.toml uv.lock ./
 # The uv cache lives in a BuildKit cache mount, not in the layer: with UV_LINK_MODE=copy
 # a cached package would otherwise be stored twice (cache + .venv). On the CI runner that
 # duplication ran the API image out of disk once numba/llvmlite (umap-learn) joined.
-RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra gpu --extra s3 --no-install-project
+# padelpy (via aimsim-core) bundles PaDEL-Descriptor's Java jars, log4j 1.x among them.
+# This image has no JVM and nothing here calls padelpy, so they can never run; deleted in
+# the same layer that installs them, so no layer carries them.
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra gpu --extra s3 --no-install-project \
+ && rm -rf /app/.venv/lib/python3.13/site-packages/padelpy/PaDEL-Descriptor
 
 # Bake CheMeleon in so a production worker never reaches Zenodo, and an
 # air-gapped deployment works. 34,859,448 bytes, MIT licensed.
@@ -110,6 +110,14 @@ RUN mkdir -p /scratch \
 # ponytail: costs intra-op parallelism in the baseline fit. Raise it only with a
 # measurement showing this platform does not have the duplicate-runtime problem.
 ENV OMP_NUM_THREADS=1
+
+# Build identity, read by daikonstudio/version.py (RELEASING.md). The GPU runner ships
+# with the backend's version: same code, different torch. Last, so a fresh build date
+# does not bust the multi-GB layers above.
+ARG APP_VERSION=0.0.0+dev
+ARG APP_GIT_SHA=unknown
+ARG APP_BUILD_DATE=unknown
+ENV APP_VERSION=$APP_VERSION APP_GIT_SHA=$APP_GIT_SHA APP_BUILD_DATE=$APP_BUILD_DATE
 
 USER studio
 
