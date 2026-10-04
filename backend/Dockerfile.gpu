@@ -40,10 +40,15 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 # is exactly what failed the first time ("File has unexpected size ... Mirror sync in
 # progress?"). Dropping the cuda source keeps that mirror out of the build while still
 # reaching Ubuntu's own archive, so the objection is answered rather than ignored.
+# gcc and libc6-dev are runtime dependencies, not build tools. On CUDA, torch 2.13 routes
+# MoLFormer's attention backward (bmm_outer_product) to a Triton kernel, and Triton compiles
+# a small C launcher the first time it runs. Without a compiler every MoLFormer fit dies with
+# "RuntimeError: Failed to find C compiler" -- found 2026-10-04 by the first MoLFormer run on
+# atlantic; a Mac never takes this path (MPS has no Triton).
 RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
  && apt-get update \
  && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends libxrender1 libxext6 libexpat1 libgomp1 \
+ && apt-get install -y --no-install-recommends libxrender1 libxext6 libexpat1 libgomp1 gcc libc6-dev \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -93,9 +98,14 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra 
 
 # TMPDIR is where chemprop's checkpoint round-trip lands. Bind a fast local NVMe at
 # /scratch on a node that has one; everything written there is transient.
+# expandable_segments: torch's caching allocator otherwise holds far more GPU memory than
+# it uses, which matters on a card shared with other services (atlantic runs Ollama).
+# Measured 2026-10-04, MoLFormer fit on atlantic, reserved without -> with: batch 32
+# 4.6 -> 3.4 GB, batch 64 14.4 -> 6.0 GB, batch 256 36.2 -> 21.6 GB, same speed.
 ENV PATH="/app/.venv/bin:$PATH" \
     NVIDIA_VISIBLE_DEVICES=all \
     NVIDIA_DRIVER_CAPABILITIES=compute,utility \
+    PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     TMPDIR=/scratch
 
 RUN mkdir -p /scratch \
