@@ -122,6 +122,8 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in th
 dev-be: ## (Re)start the backend only, in the background
 	@mkdir -p $(LOGDIR)
 	@lsof -ti tcp:8002 -sTCP:LISTEN | xargs kill 2>/dev/null || true
+	@# Wait for the old server to release the port, or the new one dies with EADDRINUSE.
+	@for i in $$(seq 50); do lsof -ti tcp:8002 -sTCP:LISTEN >/dev/null || break; sleep 0.2; done
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec uv run uvicorn daikonstudio.interface.app:app --reload --port 8002' \
 		> $(LOGDIR)/backend.log 2>&1 & echo "$$!" > $(LOGDIR)/backend.pid
 	@echo "Backend (re)started on :8002 (log $(LOGDIR)/backend.log)"
@@ -129,6 +131,8 @@ dev-be: ## (Re)start the backend only, in the background
 dev-fe: ## (Re)start the frontend only, in the background
 	@mkdir -p $(LOGDIR)
 	@lsof -ti tcp:3003 -sTCP:LISTEN | xargs kill 2>/dev/null || true
+	@# Wait for the old server to release the port, or the new one dies with EADDRINUSE.
+	@for i in $$(seq 50); do lsof -ti tcp:3003 -sTCP:LISTEN >/dev/null || break; sleep 0.2; done
 	@nohup sh -c '$(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
 	@echo "Frontend (re)started on :3003 (log $(LOGDIR)/frontend.log)"
