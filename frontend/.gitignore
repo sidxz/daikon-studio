@@ -6,3 +6,6 @@ coverage/
 next-env.d.ts
 .env.local
 public/*.wasm
+# Written by `next dev` (16.3+) on every start
+AGENTS.md
+CLAUDE.md
