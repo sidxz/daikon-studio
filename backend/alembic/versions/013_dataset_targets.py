@@ -9,6 +9,9 @@ something per target once there can be several:
   (empty when there was nothing to measure);
 - every `conflicting` entry gains the `column` its labels disagree in.
 
+A training run's flat `runs.metrics` headline is nested under its dataset's single
+target, so every reader sees one shape.
+
 Downgrade restores the single-target shapes, and refuses while any dataset has
 more than one target: dropping the others would silently destroy data that
 protocols and runs still cite.
@@ -86,10 +89,31 @@ SET validation_report = jsonb_set(
 WHERE jsonb_typeof(validation_report -> 'conflicting') = 'array'
 """
 
+# `-> 'primary_metric' IS NOT NULL` rather than the `?` operator: a bare `?` reads
+# as a bind marker to some drivers.
+NEST_RUN_METRICS = """
+UPDATE runs AS r
+SET metrics = jsonb_build_object(
+    'targets',
+    jsonb_build_array(r.metrics || jsonb_build_object('column', d.targets -> 0 ->> 'column'))
+)
+FROM datasets AS d
+WHERE r.kind = 'training'
+  AND r.metrics -> 'primary_metric' IS NOT NULL
+  AND d.id::text = r.params ->> 'dataset_id'
+"""
+
+FLATTEN_RUN_METRICS = """
+UPDATE runs
+SET metrics = (metrics -> 'targets' -> 0) - 'column'
+WHERE kind = 'training' AND metrics -> 'targets' IS NOT NULL
+"""
+
 
 def upgrade() -> None:
     op.add_column("datasets", sa.Column("targets", postgresql.JSONB(), nullable=True))
     op.execute(TARGETS_FROM_TARGET)
+    op.execute(NEST_RUN_METRICS)
     op.execute(KEY_SPREAD_BY_TARGET)
     op.execute(TAG_CONFLICT_COLUMNS)
     op.alter_column("datasets", "targets", nullable=False)
@@ -103,6 +127,7 @@ def downgrade() -> None:
             "single-target schema would silently drop the others. Delete those datasets "
             "and their protocols first."
         )
+    op.execute(FLATTEN_RUN_METRICS)
     op.add_column("datasets", sa.Column("target", postgresql.JSONB(), nullable=True))
     op.execute(TARGET_FROM_TARGETS)
     op.execute(UNKEY_SPREAD)

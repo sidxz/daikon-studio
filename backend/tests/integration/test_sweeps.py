@@ -36,7 +36,7 @@ from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
-from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, TargetHeadline
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import DbEnqueuer
@@ -177,16 +177,18 @@ async def test_sweep_id_and_metrics_round_trip(sessions) -> None:
     await repository.add(run)
 
     run.start()
-    run.record_metrics(primary_metric="mcc", value=0.603, baseline_value=0.632)
+    run.record_metrics(
+        [TargetHeadline(column="y", primary_metric="mcc", value=0.603, baseline_value=0.632)]
+    )
     await repository.update(run)
 
     stored = await repository.get(workspace_id, run.id)
     assert stored is not None
     assert stored.sweep_id == sweep_id
     assert stored.metrics == {
-        "primary_metric": "mcc",
-        "value": 0.603,
-        "baseline_value": 0.632,
+        "targets": [
+            {"column": "y", "primary_metric": "mcc", "value": 0.603, "baseline_value": 0.632}
+        ]
     }
 
 

@@ -182,9 +182,10 @@ async def test_a_training_run_executes_through_the_runner_protocol_unmodified(
     domain_run = await app.state.container[RunRepository].get_by_id(uuid.UUID(run_id))
     assert domain_run is not None
     assert domain_run.metrics is not None, "metrics never crossed the runner protocol"
-    assert domain_run.metrics["primary_metric"] == "mcc"
-    assert isinstance(domain_run.metrics["value"], float)
-    assert isinstance(domain_run.metrics["baseline_value"], float)
+    [headline] = domain_run.metrics["targets"]
+    assert headline["primary_metric"] == "mcc"
+    assert isinstance(headline["value"], float)
+    assert isinstance(headline["baseline_value"], float)
 
     # --- Publish: lock the Protocol so a prediction run can target it ---
     protocol_id = run["protocol_id"]

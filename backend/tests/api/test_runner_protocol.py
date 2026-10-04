@@ -33,6 +33,9 @@ from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.interface.app import create_app
 from daikonstudio.settings import Settings
 
+_HEADLINE_METRICS = {
+    "targets": [{"column": "y", "primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5}]
+}
 SOLUBILITY_CSV = b"smiles,y\nCCO,1.0\nc1ccccc1,5.0\nCCN,2.0\nc1ccncc1,6.0\n"
 
 _UPDATE_BODY: dict[str, Any] = {
@@ -829,7 +832,7 @@ async def test_update_run_applies_metrics(anonymous_client, app, workspace_id):
         json={
             "status": "running",
             "expected_version": claimed["run"]["version"],
-            "metrics": {"primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5},
+            "metrics": _HEADLINE_METRICS,
         },
     )
     assert response.status_code == 200, response.text
@@ -848,7 +851,7 @@ async def test_update_run_without_metrics_does_not_clear_them(anonymous_client, 
         json={
             "status": "running",
             "expected_version": claimed["run"]["version"],
-            "metrics": {"primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5},
+            "metrics": _HEADLINE_METRICS,
         },
     )
     assert first.status_code == 200, first.text
@@ -861,11 +864,7 @@ async def test_update_run_without_metrics_does_not_clear_them(anonymous_client, 
     assert second.status_code == 200, second.text
 
     fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
-    assert fetched.json()["metrics"] == {
-        "primary_metric": "mcc",
-        "value": 0.6,
-        "baseline_value": 0.5,
-    }
+    assert fetched.json()["metrics"] == _HEADLINE_METRICS
 
 
 async def test_update_run_rejects_a_malformed_metrics_payload(anonymous_client, app, workspace_id):
@@ -882,7 +881,9 @@ async def test_update_run_rejects_a_malformed_metrics_payload(anonymous_client, 
         json={
             "status": "running",
             "expected_version": claimed["run"]["version"],
-            "metrics": {"primary_metric": "mcc", "value": 0.6, "not_a_real_field": "x"},
+            "metrics": {
+                "targets": [{"column": "y", "primary_metric": "mcc", "not_a_real_field": 1}]
+            },
         },
     )
     assert response.status_code == 422, response.text

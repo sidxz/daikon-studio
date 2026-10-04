@@ -201,13 +201,15 @@ def test_run_update_metrics_accepts_both_closed_shapes_and_nothing_else():
     training = RunUpdateEnvelope(
         status="ready",
         expected_version=1,
-        metrics={"primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5},
+        metrics={
+            "targets": [
+                {"column": "y", "primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5}
+            ]
+        },
     )
     assert training.metrics is not None
     assert training.metrics.model_dump() == {
-        "primary_metric": "mcc",
-        "value": 0.6,
-        "baseline_value": 0.5,
+        "targets": [{"column": "y", "primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5}]
     }
 
     prediction = RunUpdateEnvelope(

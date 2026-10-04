@@ -18,7 +18,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -43,6 +44,16 @@ class RunStatus(StrEnum):
     def label(self) -> str:
         """The status as user-facing copy (American spelling)."""
         return "canceled" if self is RunStatus.CANCELLED else self.value
+
+
+@dataclass(frozen=True, kw_only=True)
+class TargetHeadline:
+    """One target's headline number on a training Run, and its baseline's."""
+
+    column: str
+    primary_metric: str
+    value: float | None
+    baseline_value: float | None
 
 
 _TERMINAL = {RunStatus.READY, RunStatus.FAILED, RunStatus.CANCELLED}
@@ -154,10 +165,9 @@ class Run(AggregateRoot):
         self.protocol_id = protocol_id
         self._touch()
 
-    def record_metrics(
-        self, *, primary_metric: str, value: float | None, baseline_value: float | None
-    ) -> None:
-        """The one number a sweep ranks on, plus what it was measured against.
+    def record_metrics(self, headlines: Sequence[TargetHeadline]) -> None:
+        """The one number per target a sweep ranks on, plus what each was measured
+        against.
 
         Deliberately not the full metric dict: everything else a scientist
         needs is in the Scorecard, and the reason this lives on the row at all
@@ -168,12 +178,12 @@ class Run(AggregateRoot):
         single-class test split makes every classification metric meaningless,
         and the Scorecard already says so. A ranked list shows such a run as
         unranked rather than as zero.
+
+        One headline per target, in the Dataset's order, as a list rather than an
+        object keyed by column: JSONB does not keep key order, and the sweep table
+        shows targets in the order the scientist chose them.
         """
-        self.metrics = {
-            "primary_metric": primary_metric,
-            "value": value,
-            "baseline_value": baseline_value,
-        }
+        self.metrics = {"targets": [asdict(headline) for headline in headlines]}
         self._touch()
 
     def record_prediction_counts(self, *, uploaded_rows: int, scored_rows: int) -> None:

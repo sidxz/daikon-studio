@@ -182,3 +182,45 @@ async def test_013_downgrade_counts_the_datasets_it_would_truncate(migrated_sess
         {"id": uuid.uuid4(), "ws": uuid.uuid4()},
     )
     assert await migrated_session.scalar(text(migration.COUNT_MULTI_TARGET)) == 1
+
+
+@pytest.mark.asyncio
+async def test_013_nests_a_training_runs_headline_under_its_datasets_target(migrated_session):
+    migration = _load_migration("013_dataset_targets")
+    workspace, dataset_id, run_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    await migrated_session.execute(
+        text(
+            "INSERT INTO datasets (id, workspace_id, name, structure_column, targets, split,"
+            " content_hash, snapshot_uri, row_count, validation_report, version, created_at,"
+            ' updated_at) VALUES (:id, :ws, \'d\', \'smiles\', \'[{"column": "y", "kind":'
+            " \"numeric\"}]', '{}', 'h3', 'x', 3, '{}', 1, now(), now())"
+        ),
+        {"id": dataset_id, "ws": workspace},
+    )
+    flat = {"primary_metric": "rmse", "value": 0.5, "baseline_value": 0.7}
+    await migrated_session.execute(
+        text(
+            "INSERT INTO runs (id, workspace_id, kind, requested_by, cache_key, params, status,"
+            " progress, attempts, version, created_at, updated_at, metrics) VALUES (:id, :ws,"
+            " 'training', :by, 'k', CAST(CAST(:params AS text) AS jsonb), 'ready', 1, 0, 1,"
+            " now(), now(), CAST(CAST(:metrics AS text) AS jsonb))"
+        ),
+        {
+            "id": run_id,
+            "ws": workspace,
+            "by": uuid.uuid4(),
+            "params": json.dumps({"dataset_id": str(dataset_id)}),
+            "metrics": json.dumps(flat),
+        },
+    )
+
+    await migrated_session.execute(text(migration.NEST_RUN_METRICS))
+    assert await _json(
+        migrated_session, "SELECT metrics::text FROM runs WHERE id = :id", id=run_id
+    ) == {"targets": [{"column": "y", **flat}]}
+
+    await migrated_session.execute(text(migration.FLATTEN_RUN_METRICS))
+    assert (
+        await _json(migrated_session, "SELECT metrics::text FROM runs WHERE id = :id", id=run_id)
+        == flat
+    )

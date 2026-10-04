@@ -823,6 +823,7 @@ async def test_training_records_its_headline_metric(studio: Studio) -> None:
 
     trained_run = await studio.reload(run)
     assert trained_run.metrics is not None
-    assert trained_run.metrics["primary_metric"] == "mcc"
-    assert isinstance(trained_run.metrics["value"], float)
-    assert isinstance(trained_run.metrics["baseline_value"], float)
+    [headline] = trained_run.metrics["targets"]
+    assert headline["primary_metric"] == "mcc"
+    assert isinstance(headline["value"], float)
+    assert isinstance(headline["baseline_value"], float)

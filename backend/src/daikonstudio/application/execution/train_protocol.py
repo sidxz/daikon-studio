@@ -91,7 +91,13 @@ from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import TargetKind
-from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
+from daikonstudio.domain.execution.run import (
+    Run,
+    RunKind,
+    RunStatus,
+    TargetHeadline,
+    compute_cache_key,
+)
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -619,9 +625,14 @@ class RunTraining:
         # can never be READY with no metric on it.
         primary = primary_metric_for(task)
         run.record_metrics(
-            primary_metric=primary,
-            value=metrics.get(primary),
-            baseline_value=baseline_metrics.get(primary),
+            [
+                TargetHeadline(
+                    column=target.column,
+                    primary_metric=primary,
+                    value=metrics.get(primary),
+                    baseline_value=baseline_metrics.get(primary),
+                )
+            ]
         )
 
         await self._map_chemical_space(run, protocol_id, frame, dataset)

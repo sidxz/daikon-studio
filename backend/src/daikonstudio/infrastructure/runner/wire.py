@@ -222,10 +222,19 @@ class RunEnvelope(BaseModel):
         )
 
 
+class TargetHeadlineWire(BaseModel):
+    model_config = _FORBID
+
+    column: str
+    primary_metric: str
+    value: float | None
+    baseline_value: float | None
+
+
 class RunMetricsWire(BaseModel):
-    """Mirrors the exact three keys `Run.record_metrics` writes
-    (`domain/execution/run.py`) -- the only shape a runner-reported `metrics`
-    payload is allowed to take.
+    """Mirrors exactly what `Run.record_metrics` writes (`domain/execution/run.py`):
+    one headline per target -- the only shape a runner-reported training `metrics`
+    payload may take.
 
     A free `dict[str, Any]` here would let a self-hosted runner store
     arbitrary JSON verbatim in the `runs.metrics` column, inside the same
@@ -235,9 +244,7 @@ class RunMetricsWire(BaseModel):
 
     model_config = _FORBID
 
-    primary_metric: str
-    value: float | None
-    baseline_value: float | None
+    targets: list[TargetHeadlineWire]
 
 
 class PredictionCountsWire(BaseModel):

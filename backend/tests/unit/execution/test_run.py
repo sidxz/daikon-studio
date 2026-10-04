@@ -8,7 +8,13 @@ import uuid
 
 import pytest
 
-from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
+from daikonstudio.domain.execution.run import (
+    Run,
+    RunKind,
+    RunStatus,
+    TargetHeadline,
+    compute_cache_key,
+)
 from daikonstudio.domain.shared.errors import ConflictError
 
 
@@ -176,3 +182,19 @@ def test_retry_refuses_pending_running_and_ready(prepare):
     prepare(run)
     with pytest.raises(ConflictError):
         run.retry()
+
+
+def test_headline_metrics_are_recorded_per_target_in_order():
+    run = _pending()
+    run.record_metrics(
+        [
+            TargetHeadline(column="b", primary_metric="mcc", value=0.4, baseline_value=0.3),
+            TargetHeadline(column="a", primary_metric="rmse", value=None, baseline_value=0.9),
+        ]
+    )
+    assert run.metrics == {
+        "targets": [
+            {"column": "b", "primary_metric": "mcc", "value": 0.4, "baseline_value": 0.3},
+            {"column": "a", "primary_metric": "rmse", "value": None, "baseline_value": 0.9},
+        ]
+    }
