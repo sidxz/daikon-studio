@@ -121,14 +121,14 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in th
 
 dev-be: ## (Re)start the backend only, in the background
 	@mkdir -p $(LOGDIR)
-	@lsof -ti:8002 | xargs kill 2>/dev/null || true
+	@lsof -ti tcp:8002 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec uv run uvicorn daikonstudio.interface.app:app --reload --port 8002' \
 		> $(LOGDIR)/backend.log 2>&1 & echo "$$!" > $(LOGDIR)/backend.pid
 	@echo "Backend (re)started on :8002 (log $(LOGDIR)/backend.log)"
 
 dev-fe: ## (Re)start the frontend only, in the background
 	@mkdir -p $(LOGDIR)
-	@lsof -ti:3003 | xargs kill 2>/dev/null || true
+	@lsof -ti tcp:3003 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 	@nohup sh -c '$(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
 	@echo "Frontend (re)started on :3003 (log $(LOGDIR)/frontend.log)"
@@ -157,8 +157,8 @@ stop: ## Stop the backend + frontend + runner-agent dev processes
 	@[ -f $(LOGDIR)/frontend.pid ] && kill $$(cat $(LOGDIR)/frontend.pid) 2>/dev/null || true
 	@[ -f $(LOGDIR)/worker.pid ]   && kill $$(cat $(LOGDIR)/worker.pid)   2>/dev/null || true
 	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
-	@lsof -ti:8002 | xargs kill 2>/dev/null || true
-	@lsof -ti:3003 | xargs kill 2>/dev/null || true
+	@lsof -ti tcp:8002 -sTCP:LISTEN | xargs kill 2>/dev/null || true
+	@lsof -ti tcp:3003 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 	@pkill -f 'daikonstudio.infrastructure.runner' 2>/dev/null || true
 	@rm -f $(LOGDIR)/backend.pid $(LOGDIR)/frontend.pid $(LOGDIR)/worker.pid $(LOGDIR)/worker-gpu.pid
 	@echo "Dev servers stopped."
