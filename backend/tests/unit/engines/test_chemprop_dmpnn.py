@@ -16,6 +16,7 @@ import os
 import re
 from collections.abc import Callable
 from pathlib import Path
+from typing import Any
 
 import polars as pl
 import pytest
@@ -630,6 +631,29 @@ def test_a_fit_stopped_by_its_time_limit_resumes_at_the_next_epoch() -> None:
     assert result.metrics["y"]
 
 
+def test_a_periodic_save_alone_lets_a_cancelled_fit_resume() -> None:
+    """A cancel saves nothing, so after one only the periodic save can hold progress:
+    two epochs are done and saved when the cancel arrives at the end of the third."""
+    store = InMemoryBlobStore()
+
+    def cancel_at_the_third_epoch(fraction: float, phase: str) -> None:
+        if phase.startswith("Training") and fraction >= 3 / 4:
+            raise RunInterrupted("cancelled", cancelled=True)
+
+    first = _resumable_context(store, cancel_at_the_third_epoch, interval_seconds=0)
+    with pytest.raises(RunInterrupted):
+        ChempropDMPNN().train(first)
+    assert _saved_state(first) is not None
+
+    reported: list[tuple[float, str]] = []
+    resumed = _resumable_context(store, lambda fraction, phase: reported.append((fraction, phase)))
+    ChempropDMPNN().train(resumed)
+
+    training = [f for f, p in reported if p.startswith("Training")]
+    assert training[0] == pytest.approx(3 / 4)  # epoch 3 of 4 is the first one run
+    assert any(p.startswith("Resuming") for _, p in reported)
+
+
 def test_a_cancelled_fit_saves_nothing() -> None:
     """The run row is already CANCELLED and the runner API refuses the write."""
     store = InMemoryBlobStore()
@@ -672,6 +696,41 @@ def test_the_best_epoch_is_part_of_the_saved_state(tmp_path: Path) -> None:
         for entry in state["callbacks"].values()
         if "best_loss" in entry
     )
+
+
+def test_a_resumed_fit_keeps_the_best_epoch_of_the_attempt_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Without it a resumed fit forgets its best epoch and could ship a worse one: the
+    callback must hold the first attempt's best loss before any resumed epoch runs."""
+    import math
+
+    from daikonstudio.infrastructure.engines import chemprop_dmpnn
+
+    created: list[Any] = []
+    real = chemprop_dmpnn.keep_best_by_validation_loss
+
+    def spying() -> Any:
+        callback = real()
+        created.append(callback)
+        return callback
+
+    monkeypatch.setattr(chemprop_dmpnn, "keep_best_by_validation_loss", spying)
+    store = InMemoryBlobStore()
+    with pytest.raises(RunInterrupted):
+        ChempropDMPNN().train(_resumable_context(store, _stopping_after_epoch_two([])))
+    saved_best = created[0].best_loss
+    assert math.isfinite(saved_best)
+
+    at_resume: list[float] = []
+
+    def watch(fraction: float, phase: str) -> None:
+        if phase.startswith("Resuming"):  # reported before the first resumed epoch
+            at_resume.append(created[1].best_loss)
+
+    ChempropDMPNN().train(_resumable_context(store, watch))
+
+    assert at_resume == [saved_best]
 
 
 def test_a_corrupt_but_checksum_valid_state_is_discarded() -> None:
