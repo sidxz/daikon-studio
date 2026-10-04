@@ -600,6 +600,17 @@
               "format": "uuid",
               "title": "Dataset Id"
             }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Target"
+            }
           }
         ],
         "responses": {
@@ -693,6 +704,17 @@
                 }
               ],
               "title": "Sort"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "title": "Target"
             }
           },
           {
@@ -1022,7 +1044,11 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ScorecardResponse"
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ScorecardResponse"
+                  },
+                  "title": "Response Get Scorecard Api V1 Protocols  Protocol Id  Scorecard Get"
                 }
               }
             }
@@ -2647,16 +2673,19 @@
             "type": "string",
             "title": "Structure"
           },
-          "target": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Target"
+          "targets": {
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
+            "title": "Targets"
           },
           "split": {
             "type": "string",
@@ -2677,7 +2706,7 @@
         "type": "object",
         "required": [
           "structure",
-          "target",
+          "targets",
           "split",
           "compound_id"
         ],
@@ -2772,6 +2801,10 @@
             "type": "string",
             "title": "Structure"
           },
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
           "values": {
             "items": {
               "type": "integer"
@@ -2790,6 +2823,7 @@
         "type": "object",
         "required": [
           "structure",
+          "column",
           "values",
           "row_numbers"
         ],
@@ -2801,6 +2835,10 @@
             "type": "string",
             "title": "Structure"
           },
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
           "values": {
             "items": {
               "type": "integer"
@@ -2819,6 +2857,7 @@
         "type": "object",
         "required": [
           "structure",
+          "column",
           "values",
           "row_numbers"
         ],
@@ -2869,8 +2908,13 @@
             "maxLength": 128,
             "title": "Structure Column"
           },
-          "target": {
-            "$ref": "#/components/schemas/TargetBody"
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetBody"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Targets"
           },
           "split": {
             "$ref": "#/components/schemas/SplitBody"
@@ -2894,7 +2938,7 @@
           "name",
           "upload_ref",
           "structure_column",
-          "target",
+          "targets",
           "split"
         ],
         "title": "CreateDatasetBody"
@@ -2997,8 +3041,12 @@
             "type": "string",
             "title": "Structure Column"
           },
-          "target": {
-            "$ref": "#/components/schemas/TargetSpecWire"
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetSpecWire"
+            },
+            "type": "array",
+            "title": "Targets"
           },
           "split": {
             "$ref": "#/components/schemas/SplitSpecWire"
@@ -3040,7 +3088,7 @@
           "workspace_id",
           "name",
           "structure_column",
-          "target",
+          "targets",
           "split",
           "content_hash",
           "snapshot_uri",
@@ -3174,8 +3222,12 @@
             "type": "string",
             "title": "Structure Column"
           },
-          "target": {
-            "$ref": "#/components/schemas/TargetBody"
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetBody"
+            },
+            "type": "array",
+            "title": "Targets"
           },
           "split": {
             "$ref": "#/components/schemas/SplitBody"
@@ -3230,7 +3282,7 @@
           "workspace_id",
           "name",
           "structure_column",
-          "target",
+          "targets",
           "split",
           "content_hash",
           "snapshot_uri",
@@ -3322,6 +3374,10 @@
             "type": "boolean",
             "title": "Is Baseline"
           },
+          "supports_multitask": {
+            "type": "boolean",
+            "title": "Supports Multitask"
+          },
           "lane": {
             "type": "string",
             "title": "Lane"
@@ -3336,6 +3392,7 @@
           "tasks",
           "conditions",
           "is_baseline",
+          "supports_multitask",
           "lane"
         ],
         "title": "EngineManifestResponse",
@@ -3843,14 +3900,17 @@
             "title": "Readouts"
           },
           "uncertainty": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "additionalProperties": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "object",
             "title": "Uncertainty"
           },
           "applicability": {
@@ -3898,7 +3958,7 @@
           "compound_id"
         ],
         "title": "PredictionResponse",
-        "description": "One scored compound. `readouts` holds one entry per Readout the\nProtocol declares (a numeric value for regression; probability and class\nfor classification), each carrying its own unit and direction so a\nprediction can be lined up against a measurement without a second call --\nsee `PredictionRow`'s own docstring for why `uncertainty` and\n`applicability` are shaped the way they are."
+        "description": "One scored compound. `readouts` holds one entry per Readout the\nProtocol declares (a numeric value for regression; probability and class\nfor classification), each carrying its own unit and direction so a\nprediction can be lined up against a measurement without a second call --\nsee `PredictionRow`'s own docstring for why `uncertainty` and\n`applicability` are shaped the way they are. `uncertainty` has one entry per\ntarget, keyed by its column."
       },
       "ProfileComputingResponse": {
         "properties": {
@@ -4702,42 +4762,21 @@
       },
       "RunMetricsWire": {
         "properties": {
-          "primary_metric": {
-            "type": "string",
-            "title": "Primary Metric"
-          },
-          "value": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Value"
-          },
-          "baseline_value": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Baseline Value"
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetHeadlineWire"
+            },
+            "type": "array",
+            "title": "Targets"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "primary_metric",
-          "value",
-          "baseline_value"
+          "targets"
         ],
         "title": "RunMetricsWire",
-        "description": "Mirrors the exact three keys `Run.record_metrics` writes\n(`domain/execution/run.py`) -- the only shape a runner-reported `metrics`\npayload is allowed to take.\n\nA free `dict[str, Any]` here would let a self-hosted runner store\narbitrary JSON verbatim in the `runs.metrics` column, inside the same\nsecurity boundary the module docstring calls out. Pinning the shape\nmeans a malformed payload is a 422 at the edge, not a write."
+        "description": "Mirrors exactly what `Run.record_metrics` writes (`domain/execution/run.py`):\none headline per target -- the only shape a runner-reported training `metrics`\npayload may take.\n\nA free `dict[str, Any]` here would let a self-hosted runner store\narbitrary JSON verbatim in the `runs.metrics` column, inside the same\nsecurity boundary the module docstring calls out. Pinning the shape\nmeans a malformed payload is a 422 at the edge, not a write."
       },
       "RunResponse": {
         "properties": {
@@ -5119,6 +5158,14 @@
       },
       "ScorecardResponse": {
         "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "joint_model": {
+            "type": "boolean",
+            "title": "Joint Model"
+          },
           "primary_metric": {
             "type": "string",
             "title": "Primary Metric"
@@ -5379,6 +5426,8 @@
         },
         "type": "object",
         "required": [
+          "target",
+          "joint_model",
           "primary_metric",
           "primary_metric_ci",
           "prediction_kind",
@@ -5408,7 +5457,7 @@
           "calibration"
         ],
         "title": "ScorecardResponse",
-        "description": "Every field here is load-bearing for honest rendering -- see\n`domain/execution/scorecard.py`'s docstring for what each one means and\nwhy it exists. In particular: `baseline_is_self` true means the chosen\nengine *is* the baseline (render \"this model is the baseline\", not a\nhead-to-head that never happened); `metrics_undefined` is why a metric in\n`metrics` reads `null` instead of a number; `random_split_unavailable`\ndistinguishes \"not applicable\" (`None`/`None`) from \"could not be\ncomputed\" (`None`/a reason) for `random_split_metrics`;\n`random_split_metrics_undefined` is `metrics_undefined`'s own counterpart\nfor `random_split_metrics` -- a *different* partition that can disagree\nwith the Dataset's own split about which metrics are undefined and why,\nso a renderer must not reuse `metrics_undefined` to explain a\n`random_split_metrics` null.\n\n`unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'\n`actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and\nwhich way is better. `split_strategy` (`\"random\"` or `\"scaffold\"`) is\nwhich split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this\ninstead of inferring it from `random_split_metrics`/\n`random_split_unavailable` both being `None`."
+        "description": "One card per target; `joint_model` says whether one model learned them all.\n\nEvery field here is load-bearing for honest rendering -- see\n`domain/execution/scorecard.py`'s docstring for what each one means and\nwhy it exists. In particular: `baseline_is_self` true means the chosen\nengine *is* the baseline (render \"this model is the baseline\", not a\nhead-to-head that never happened); `metrics_undefined` is why a metric in\n`metrics` reads `null` instead of a number; `random_split_unavailable`\ndistinguishes \"not applicable\" (`None`/`None`) from \"could not be\ncomputed\" (`None`/a reason) for `random_split_metrics`;\n`random_split_metrics_undefined` is `metrics_undefined`'s own counterpart\nfor `random_split_metrics` -- a *different* partition that can disagree\nwith the Dataset's own split about which metrics are undefined and why,\nso a renderer must not reuse `metrics_undefined` to explain a\n`random_split_metrics` null.\n\n`unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'\n`actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and\nwhich way is better. `split_strategy` (`\"random\"` or `\"scaffold\"`) is\nwhich split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this\ninstead of inferring it from `random_split_metrics`/\n`random_split_unavailable` both being `None`."
       },
       "SetIdColumnBody": {
         "properties": {
@@ -5946,6 +5995,49 @@
         ],
         "title": "TargetDistributionResponse"
       },
+      "TargetHeadlineWire": {
+        "properties": {
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
+          "primary_metric": {
+            "type": "string",
+            "title": "Primary Metric"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "baseline_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "column",
+          "primary_metric",
+          "value",
+          "baseline_value"
+        ],
+        "title": "TargetHeadlineWire"
+      },
       "TargetKind": {
         "type": "string",
         "enum": [
@@ -6131,14 +6223,10 @@
             "title": "Salts Flagged"
           },
           "duplicate_spread": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
             "title": "Duplicate Spread"
           }
         },
@@ -6192,15 +6280,12 @@
             "default": 0
           },
           "duplicate_spread": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Duplicate Spread"
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": "object",
+            "title": "Duplicate Spread",
+            "default": {}
           }
         },
         "additionalProperties": false,

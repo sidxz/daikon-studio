@@ -7,6 +7,7 @@
 
 export interface ConflictRow {
   structure: string;
+  column: string;
   values: number[];
   row_numbers: number[];
 }

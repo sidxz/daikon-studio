@@ -5,4 +5,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type RunMetricsWireBaselineValue = number | null;
+export type GetDatasetProfileApiV1DatasetsDatasetIdProfileGetParams = {
+/**
+ * @minimum 0
+ */
+target?: number;
+};

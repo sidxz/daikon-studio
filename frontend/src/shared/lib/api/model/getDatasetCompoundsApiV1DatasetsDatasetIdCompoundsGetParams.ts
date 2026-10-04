@@ -10,6 +10,10 @@ export type GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams = {
 offset?: number;
 limit?: number;
 sort?: 'target' | 'split' | null;
+/**
+ * @minimum 0
+ */
+target?: number;
 sort_dir?: GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetSortDir;
 split?: 'train' | 'validation' | 'test' | null;
 q?: string | null;

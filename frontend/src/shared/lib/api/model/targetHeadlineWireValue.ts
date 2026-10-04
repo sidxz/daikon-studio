@@ -5,4 +5,4 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export type CompoundResponseTarget = number | null;
+export type TargetHeadlineWireValue = number | null;

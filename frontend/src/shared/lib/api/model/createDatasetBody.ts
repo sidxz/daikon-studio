@@ -14,7 +14,8 @@ export interface CreateDatasetBody {
   upload_ref: string;
   /** @maxLength 128 */
   structure_column: string;
-  target: TargetBody;
+  /** @minItems 1 */
+  targets: TargetBody[];
   split: SplitBody;
   id_column?: CreateDatasetBodyIdColumn;
 }

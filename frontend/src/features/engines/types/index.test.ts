@@ -3,7 +3,9 @@ import {
   type Engine,
   PINNED_BY_PRETRAINED,
   TASK_FOR_TARGET_KIND,
-  enginesForTargetKind,
+  enginesForTargets,
+  jointEnginesRefused,
+  trainingKind,
 } from "./index";
 
 function engine(id: string, tasks: string[]): Engine {
@@ -15,6 +17,7 @@ function engine(id: string, tasks: string[]): Engine {
     tasks,
     conditions: [],
     is_baseline: false,
+    supports_multitask: false,
     lane: "default",
   };
 }
@@ -33,17 +36,51 @@ describe("engine/target-kind translation", () => {
   });
 
   it("offers regression engines for a numeric target", () => {
-    expect(enginesForTargetKind(ENGINES, "numeric").map((e) => e.id)).toEqual([
+    expect(enginesForTargets(ENGINES, [{ kind: "numeric" }]).map((e) => e.id)).toEqual([
       "regressor",
       "both",
     ]);
   });
 
   it("offers classifiers for a binary target", () => {
-    expect(enginesForTargetKind(ENGINES, "binary").map((e) => e.id)).toEqual([
+    expect(enginesForTargets(ENGINES, [{ kind: "binary" }]).map((e) => e.id)).toEqual([
       "classifier",
       "both",
     ]);
+  });
+});
+
+describe("engines for several targets", () => {
+  const rf = {
+    ...engine("rf", ["regression", "binary_classification"]),
+    supports_multitask: false,
+  };
+  const chemprop = {
+    ...engine("chemprop", ["regression", "binary_classification"]),
+    supports_multitask: true,
+  };
+  const regressor = engine("gp-reg", ["regression"]);
+
+  it("offers an engine only if it supports every target's task", () => {
+    expect(enginesForTargets([rf, regressor], [{ kind: "numeric" }, { kind: "binary" }])).toEqual([
+      rf,
+    ]);
+  });
+
+  it("withholds a joint engine from a dataset that mixes kinds, and names it", () => {
+    const mixed = [{ kind: "numeric" as const }, { kind: "binary" as const }];
+    expect(enginesForTargets([rf, chemprop], mixed)).toEqual([rf]);
+    expect(jointEnginesRefused([rf, chemprop], mixed)).toEqual([chemprop]);
+    expect(enginesForTargets([rf, chemprop], [{ kind: "binary" }, { kind: "binary" }])).toEqual([
+      rf,
+      chemprop,
+    ]);
+  });
+
+  it("says how an engine trains several targets, and nothing for one", () => {
+    expect(trainingKind(chemprop, 4)).toBe("Trains one joint model on all 4 targets.");
+    expect(trainingKind(rf, 4)).toBe("Trains 4 separate models, one per target.");
+    expect(trainingKind(rf, 1)).toBeNull();
   });
 });
 

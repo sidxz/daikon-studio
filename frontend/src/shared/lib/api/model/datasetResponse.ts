@@ -14,7 +14,7 @@ export interface DatasetResponse {
   workspace_id: string;
   name: string;
   structure_column: string;
-  target: TargetBody;
+  targets: TargetBody[];
   split: SplitBody;
   content_hash: string;
   snapshot_uri: string;

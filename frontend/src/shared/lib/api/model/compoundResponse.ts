@@ -4,12 +4,12 @@
  * daikon-studio
  * OpenAPI spec version: 0.1.0
  */
-import type { CompoundResponseTarget } from './compoundResponseTarget';
+import type { CompoundResponseTargets } from './compoundResponseTargets';
 import type { CompoundResponseCompoundId } from './compoundResponseCompoundId';
 
 export interface CompoundResponse {
   structure: string;
-  target: CompoundResponseTarget;
+  targets: CompoundResponseTargets;
   split: string;
   compound_id: CompoundResponseCompoundId;
 }

@@ -4,7 +4,9 @@ export {
   PINNED_BY_PRETRAINED,
   TASK_FOR_TARGET_KIND,
   TASK_LABELS,
-  enginesForTargetKind,
+  enginesForTargets,
+  jointEnginesRefused,
+  trainingKind,
 } from "./types";
 export { useEngines } from "./hooks/use-engines";
 export { ENGINES_KEY } from "./hooks/query-keys";

@@ -362,7 +362,7 @@ export const getScorecardApiV1ProtocolsProtocolIdScorecardGet = (
 ) => {
       
       
-      return customInstance<ScorecardResponse>(
+      return customInstance<ScorecardResponse[]>(
       {url: `/api/v1/protocols/${protocolId}/scorecard`, method: 'GET', signal
     },
       );

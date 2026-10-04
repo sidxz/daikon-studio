@@ -26,7 +26,9 @@ import type { BinResponse } from './binResponse';
 import type { ScaffoldErrorResponse } from './scaffoldErrorResponse';
 
 /**
- * Every field here is load-bearing for honest rendering -- see
+ * One card per target; `joint_model` says whether one model learned them all.
+
+Every field here is load-bearing for honest rendering -- see
 `domain/execution/scorecard.py`'s docstring for what each one means and
 why it exists. In particular: `baseline_is_self` true means the chosen
 engine *is* the baseline (render "this model is the baseline", not a
@@ -48,6 +50,8 @@ instead of inferring it from `random_split_metrics`/
 `random_split_unavailable` both being `None`.
  */
 export interface ScorecardResponse {
+  target: string;
+  joint_model: boolean;
   primary_metric: string;
   primary_metric_ci: ScorecardResponsePrimaryMetricCi;
   prediction_kind: string;

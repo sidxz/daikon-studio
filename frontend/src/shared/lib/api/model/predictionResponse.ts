@@ -16,7 +16,8 @@ Protocol declares (a numeric value for regression; probability and class
 for classification), each carrying its own unit and direction so a
 prediction can be lined up against a measurement without a second call --
 see `PredictionRow`'s own docstring for why `uncertainty` and
-`applicability` are shaped the way they are.
+`applicability` are shaped the way they are. `uncertainty` has one entry per
+target, keyed by its column.
  */
 export interface PredictionResponse {
   row_id: number;

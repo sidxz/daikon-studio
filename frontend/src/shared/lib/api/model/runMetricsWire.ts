@@ -4,13 +4,12 @@
  * daikon-studio
  * OpenAPI spec version: 0.1.0
  */
-import type { RunMetricsWireValue } from './runMetricsWireValue';
-import type { RunMetricsWireBaselineValue } from './runMetricsWireBaselineValue';
+import type { TargetHeadlineWire } from './targetHeadlineWire';
 
 /**
- * Mirrors the exact three keys `Run.record_metrics` writes
-(`domain/execution/run.py`) -- the only shape a runner-reported `metrics`
-payload is allowed to take.
+ * Mirrors exactly what `Run.record_metrics` writes (`domain/execution/run.py`):
+one headline per target -- the only shape a runner-reported training `metrics`
+payload may take.
 
 A free `dict[str, Any]` here would let a self-hosted runner store
 arbitrary JSON verbatim in the `runs.metrics` column, inside the same
@@ -18,7 +17,5 @@ security boundary the module docstring calls out. Pinning the shape
 means a malformed payload is a 422 at the edge, not a write.
  */
 export interface RunMetricsWire {
-  primary_metric: string;
-  value: RunMetricsWireValue;
-  baseline_value: RunMetricsWireBaselineValue;
+  targets: TargetHeadlineWire[];
 }

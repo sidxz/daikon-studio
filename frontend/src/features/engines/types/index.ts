@@ -1,4 +1,4 @@
-import type { ConditionResponse, EngineManifestResponse } from "@/shared/lib/api/model";
+import type { ConditionResponse, EngineManifestResponse, TargetBody } from "@/shared/lib/api/model";
 
 // Generated DTOs, re-exported under domain names. Never redeclare their shape --
 // `pnpm generate:api` is what keeps them true.
@@ -47,13 +47,36 @@ export const PINNED_BY_PRETRAINED: Record<string, Record<string, number>> = {
   CheMeleon: { message_hidden_dim: 2048, depth: 6 },
 };
 
-/** Engines that can be trained on a dataset with this target kind. */
-export function enginesForTargetKind(
-  engines: Engine[],
-  kind: keyof typeof TASK_FOR_TARGET_KIND,
-): Engine[] {
-  const task = TASK_FOR_TARGET_KIND[kind];
-  return engines.filter((engine) => engine.tasks.includes(task));
+type HasKind = Pick<TargetBody, "kind">;
+
+/**
+ * Engines that can train on every one of these targets. An engine must support
+ * each target's task; a joint engine (`supports_multitask`) learns them all in one
+ * model, so the server refuses it a dataset that mixes measured values and
+ * active/inactive labels, and so does this list.
+ */
+export function enginesForTargets(engines: Engine[], targets: HasKind[]): Engine[] {
+  const kinds = new Set(targets.map((target) => target.kind));
+  const tasks = [...kinds].map((kind) => TASK_FOR_TARGET_KIND[kind]);
+  return engines.filter(
+    (engine) =>
+      tasks.every((task) => engine.tasks.includes(task)) &&
+      (!engine.supports_multitask || kinds.size <= 1),
+  );
+}
+
+/** Joint engines left out of `enginesForTargets` because the targets mix kinds. */
+export function jointEnginesRefused(engines: Engine[], targets: HasKind[]): Engine[] {
+  const mixed = new Set(targets.map((target) => target.kind)).size > 1;
+  return mixed ? engines.filter((engine) => engine.supports_multitask) : [];
+}
+
+/** How an engine trains on several targets; nothing to say about one. */
+export function trainingKind(engine: Engine, targetCount: number): string | null {
+  if (targetCount < 2) return null;
+  return engine.supports_multitask
+    ? `Trains one joint model on all ${targetCount} targets.`
+    : `Trains ${targetCount} separate models, one per target.`;
 }
 
 /**

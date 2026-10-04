@@ -16,7 +16,7 @@ export interface DatasetEnvelope {
   workspace_id: string;
   name: string;
   structure_column: string;
-  target: TargetSpecWire;
+  targets: TargetSpecWire[];
   split: SplitSpecWire;
   content_hash: string;
   snapshot_uri: string;
