@@ -49,6 +49,13 @@ class ConditionSpec:
     # other task -- one target of a mixed dataset, fanned out.
     tasks: tuple[TaskType, ...] = ()
 
+    def __post_init__(self) -> None:
+        if self.option_labels and len(self.option_labels) != len(self.options):
+            raise ValueError(
+                f"Condition {self.key!r} has {len(self.option_labels)} option labels "
+                f"for {len(self.options)} options."
+            )
+
 
 @dataclass(frozen=True, kw_only=True)
 class EngineManifest:

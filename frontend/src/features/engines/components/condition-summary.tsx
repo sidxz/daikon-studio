@@ -2,14 +2,19 @@
 
 import type { Condition } from "../types";
 
+/** The label a form shows for one of a condition's option values, or the value itself. */
+function optionLabel(condition: Condition, value: unknown): string {
+  const index = condition.options.indexOf(String(value));
+  return (index >= 0 && condition.option_labels[index]) || String(value);
+}
+
 function describeBounds(condition: Condition): string | null {
   const { minimum, maximum } = condition;
   if (minimum != null && maximum != null) return `${minimum}–${maximum}`;
   if (minimum != null) return `≥ ${minimum}`;
   if (maximum != null) return `≤ ${maximum}`;
   if (condition.options.length > 0) {
-    const labels = condition.option_labels.length > 0 ? condition.option_labels : condition.options;
-    return labels.join(" · ");
+    return condition.options.map((option) => optionLabel(condition, option)).join(" · ");
   }
   return null;
 }
@@ -42,7 +47,7 @@ export function ConditionSummary({ conditions }: { conditions: Condition[] }) {
               )}
               {condition.default != null && (
                 <span className="font-mono text-xs font-normal text-muted-foreground">
-                  default {String(condition.default)}
+                  default {optionLabel(condition, condition.default)}
                 </span>
               )}
               {bounds && (

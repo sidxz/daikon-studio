@@ -272,3 +272,14 @@ def test_a_setting_for_a_task_the_dataset_lacks_is_reset_to_its_default():
     assert regression == {"n_estimators": 7, "weighting": "none", "typo": 1}
     for tasks in ({TaskType.BINARY_CLASSIFICATION}, set(TaskType)):
         assert reset_inapplicable_conditions(manifest, supplied, tasks) == supplied
+
+
+def test_option_labels_must_line_up_with_options():
+    with pytest.raises(ValueError, match="2 option labels for 3 options"):
+        ConditionSpec(
+            key="mode",
+            label="Mode",
+            type=ConditionType.ENUM,
+            options=("a", "b", "c"),
+            option_labels=("A", "B"),
+        )
