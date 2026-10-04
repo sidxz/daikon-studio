@@ -171,6 +171,9 @@ async def test_013_moves_a_single_target_into_a_list_and_back(migrated_session):
 @pytest.mark.asyncio
 async def test_013_downgrade_counts_the_datasets_it_would_truncate(migrated_session):
     migration = _load_migration("013_dataset_targets")
+    # Relative, not absolute: the container is shared with every other integration
+    # test, and some of them commit multi-target datasets of their own.
+    before = await migrated_session.scalar(text(migration.COUNT_MULTI_TARGET))
     await migrated_session.execute(
         text(
             "INSERT INTO datasets (id, workspace_id, name, structure_column, targets, split,"
@@ -181,7 +184,7 @@ async def test_013_downgrade_counts_the_datasets_it_would_truncate(migrated_sess
         ),
         {"id": uuid.uuid4(), "ws": uuid.uuid4()},
     )
-    assert await migrated_session.scalar(text(migration.COUNT_MULTI_TARGET)) == 1
+    assert await migrated_session.scalar(text(migration.COUNT_MULTI_TARGET)) == before + 1
 
 
 @pytest.mark.asyncio
