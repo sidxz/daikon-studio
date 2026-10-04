@@ -35,7 +35,7 @@ import type { SweepRun } from "../types";
 
 function SweepDetailSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
+    <div className="mx-auto w-full max-w-6xl space-y-4 p-2">
       <Skeleton className="h-8 w-64" />
       <Skeleton className="h-64 w-full" />
     </div>
@@ -70,7 +70,7 @@ export function SweepDetail({ id }: { id: string }) {
   if (isLoadingError) {
     const missing = error instanceof ApiError && error.status === 404;
     return (
-      <div className="mx-auto w-full max-w-4xl p-2">
+      <div className="mx-auto w-full max-w-6xl p-2">
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm font-medium text-destructive">
             {missing ? "This sweep does not exist in this workspace" : "Could not load this sweep"}
@@ -95,7 +95,7 @@ export function SweepDetail({ id }: { id: string }) {
   const live = sweep.runs.filter((run) => !isTerminal(run.status));
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
+    <div className="mx-auto w-full max-w-6xl space-y-4 p-2">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold">{sweep.name ?? "Sweep"}</h1>
@@ -179,7 +179,7 @@ export function SweepDetail({ id }: { id: string }) {
                         over a `Progress` bar -- so a chemprop sweep shows
                         which of ten identical "Running" rows is nearly done. */}
                     {!isTerminal(run.status) && (
-                      <div className="mt-1.5 w-28 space-y-0.5">
+                      <div className="mt-1.5 w-28 space-y-0.5 whitespace-normal">
                         <Progress value={Math.round(run.progress * 100)} />
                         <p className="text-xs text-muted-foreground">{run.phase ?? "Starting…"}</p>
                       </div>
