@@ -134,12 +134,13 @@ class PredictionResponse(BaseModel):
     for classification), each carrying its own unit and direction so a
     prediction can be lined up against a measurement without a second call --
     see `PredictionRow`'s own docstring for why `uncertainty` and
-    `applicability` are shaped the way they are."""
+    `applicability` are shaped the way they are. `uncertainty` has one entry per
+    target, keyed by its column."""
 
     row_id: int
     structure: str
     readouts: dict[str, PredictedReadoutResponse]
-    uncertainty: float | None
+    uncertainty: dict[str, float | None]
     applicability: float | None
     # The row's 1-based position in the uploaded file, and the value of the
     # upload's identifier column when the request named one. Both null on runs

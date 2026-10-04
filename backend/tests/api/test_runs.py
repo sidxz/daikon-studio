@@ -169,9 +169,66 @@ async def test_results_carry_structure_readouts_uncertainty_and_applicability(
     assert predicted["direction"] == readout["direction"]
     assert "uncertainty" in row
     # ecfp4-xgboost: no ensemble spread to report, never a fabricated number.
-    assert row["uncertainty"] is None
+    assert row["uncertainty"] == {"y": None}
     assert isinstance(row["applicability"], float)
     assert 0.0 <= row["applicability"] <= 1.0
+
+
+async def test_a_one_target_results_file_keeps_the_plain_uncertainty_column(
+    client, published_protocol_id, prediction_upload_ref
+):
+    """Every results file written before several targets existed has `uncertainty`,
+    not `y_uncertainty`; a one-target protocol must keep writing and sorting by it."""
+    run_id = (await _predict(client, published_protocol_id, prediction_upload_ref)).json()["id"]
+    response = await client.get(
+        f"/api/v1/runs/{run_id}/results", params={"sort_by": "uncertainty"}
+    )
+    assert response.status_code == 200, response.text
+
+
+def _two_target_training_csv() -> bytes:
+    rows = "\n".join(
+        f"{smiles},{1.0 + 0.37 * index},{(index // 2) % 2}"
+        for index, smiles in enumerate(_STRUCTURES)
+    )
+    return f"smiles,y,active\n{rows}\n".encode()
+
+
+async def test_a_two_target_protocol_writes_every_readout_and_its_own_uncertainty(
+    client, csv_upload, prediction_upload_ref
+):
+    upload_ref = await csv_upload(_two_target_training_csv())
+    dataset = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "panel",
+            "upload_ref": upload_ref,
+            "structure_column": "smiles",
+            "targets": [
+                {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+                {"column": "active", "kind": "binary"},
+            ],
+            "split": {"strategy": "random", "seed": 1},
+        },
+    )
+    assert dataset.status_code == 201, dataset.text
+    trained = await _train(client, dataset.json()["id"], engine_id="ecfp4-randomforest")
+    assert trained.status_code == 202, trained.text
+    protocol_id = (await client.get("/api/v1/protocols")).json()["items"][0]["id"]
+    assert (await client.post(f"/api/v1/protocols/{protocol_id}/publish")).status_code == 204
+
+    run_id = (await _predict(client, protocol_id, prediction_upload_ref)).json()["id"]
+    response = await client.get(
+        f"/api/v1/runs/{run_id}/results",
+        params={"sort_by": "active_uncertainty", "sort_dir": "desc"},
+    )
+    assert response.status_code == 200, response.text
+    row = response.json()["items"][0]
+    assert set(row["readouts"]) == {"y", "active_probability", "active"}
+    assert set(row["uncertainty"]) == {"y", "active"}
+    # the random forest reports a spread for each target separately
+    assert isinstance(row["uncertainty"]["y"], float)
+    assert isinstance(row["uncertainty"]["active"], float)
 
 
 async def test_run_response_carries_the_protocol_id_for_a_prediction(

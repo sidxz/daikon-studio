@@ -75,6 +75,8 @@ from daikonstudio.application.ports.protocol_repository import ProtocolRepositor
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
+from daikonstudio.domain.catalog.readout import ReadoutType
+from daikonstudio.domain.data.target import probability_column, uncertainty_column
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, compute_cache_key
 from daikonstudio.domain.shared.errors import (
     ConflictError,
@@ -358,37 +360,43 @@ class RunPrediction:
             # `build_scorecard.py`'s own guard).
             similarities = [None] * len(structures)
 
-        values = predictions["value"].to_list()
-        # "structure"/"uncertainty"/"applicability" below, and the readout
-        # name(s) they sit alongside, are exactly what
+        # "structure"/"uncertainty"/"applicability" below, `{target}_uncertainty`
+        # beside each target of a several-target Protocol, and the readout name(s)
+        # they sit alongside, are exactly what
         # `domain.data.target.RESERVED_TARGET_COLUMNS` reserves against a
         # TargetSpec (C1, whole-branch review): a target sharing one of these
         # literal names would have this dict's later write silently overwrite
         # the earlier one. If this dict ever grows another literal key, add
         # it to that set too.
+        target_columns = target_columns_of(protocol.readouts)
+        readouts = {readout.name: readout for readout in protocol.readouts}
         columns: dict[str, pl.Series] = {"structure": pl.Series(structures)}
         columns["input_row"] = pl.Series(input_rows, dtype=pl.Int64)
         if compound_ids is not None:
             columns["compound_id"] = pl.Series(compound_ids, dtype=pl.String)
-        if len(protocol.readouts) == 1:
-            columns[protocol.readouts[0].name] = pl.Series(values, dtype=pl.Float64)
-        else:
-            # Classification: `derive_readouts` always orders these
-            # (probability, class). `value` is P(class=1); the hard label is
-            # the standard 0.5 decision threshold over it -- the engine's own
-            # `predict()` only ever returns the probability (see
-            # `_scoring.py`), so this is the one place a class label exists.
-            #
-            # ponytail: 0.5 is fixed, not configurable -- there is nowhere for
-            # a scientist to ask for a different operating point (e.g. to
-            # trade recall for precision on an imbalanced assay). Upgrade
-            # path: accept it as a prediction condition once someone needs one.
-            probability_readout, class_readout = protocol.readouts
-            columns[probability_readout.name] = pl.Series(values, dtype=pl.Float64)
-            columns[class_readout.name] = pl.Series(
-                [1.0 if v >= 0.5 else 0.0 for v in values], dtype=pl.Float64
-            )
-        columns["uncertainty"] = predictions["uncertainty"]
+        for column in target_columns:
+            # One row per (compound, target) from `predict`; this target's, in input order.
+            part = predictions.filter(pl.col("target") == column).sort("row_id")
+            values = part["value"].to_list()
+            if readouts[column].type is ReadoutType.CLASS:
+                # `value` is P(class=1); the hard label is the standard 0.5 decision
+                # threshold over it -- the engine's own `predict()` only ever returns
+                # the probability (see `_scoring.py`), so this is the one place a
+                # class label exists.
+                #
+                # ponytail: 0.5 is fixed, not configurable -- there is nowhere for a
+                # scientist to ask for a different operating point (e.g. to trade
+                # recall for precision on an imbalanced assay). Upgrade path: accept
+                # it as a prediction condition once someone needs one.
+                columns[probability_column(column)] = pl.Series(values, dtype=pl.Float64)
+                columns[column] = pl.Series(
+                    [1.0 if v >= 0.5 else 0.0 for v in values], dtype=pl.Float64
+                )
+            else:
+                columns[column] = pl.Series(values, dtype=pl.Float64)
+            columns[uncertainty_column(column, target_count=len(target_columns))] = part[
+                "uncertainty"
+            ]
         columns["applicability"] = pl.Series(similarities, dtype=pl.Float64)
 
         # Rides out on run_job's own `succeed()` + `update()`, like a training
@@ -513,7 +521,9 @@ class PredictionRow:
     structure: str
     row_id: int
     readouts: dict[str, PredictedReadout]
-    uncertainty: float | None
+    # Keyed by target column: each target's own model's spread, `None` per target
+    # where the engine has none to report.
+    uncertainty: dict[str, float | None]
     applicability: float | None
     # Both None on results written before 2026-10-02; see `RunPrediction`.
     input_row: int | None
@@ -597,10 +607,16 @@ class GetPredictionResults:
         # `read_parquet`, or a precomputed row-group index for true partial reads.
         frame = pl.read_parquet(io.BytesIO(raw))
 
+        target_columns = target_columns_of(protocol.readouts)
+        uncertainty_columns = {
+            column: uncertainty_column(column, target_count=len(target_columns))
+            for column in target_columns
+        }
         viewed = apply_result_view(
             frame,
             columns={readout.name for readout in protocol.readouts}
-            | {"uncertainty", "applicability"},
+            | set(uncertainty_columns.values())
+            | {"applicability"},
             sort=query.sort,
             filters=query.filters,
         )
@@ -626,7 +642,9 @@ class GetPredictionResults:
                     )
                     for readout in protocol.readouts
                 },
-                uncertainty=row["uncertainty"],
+                uncertainty={
+                    column: row.get(name) for column, name in uncertainty_columns.items()
+                },
                 applicability=row["applicability"],
                 # `.get`: results files written before these columns existed stay readable.
                 input_row=row.get("input_row"),
