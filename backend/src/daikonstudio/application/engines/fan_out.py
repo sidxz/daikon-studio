@@ -34,11 +34,7 @@ from dataclasses import replace
 
 import polars as pl
 
-from daikonstudio.application.engines.checkpoints import (
-    Checkpoints,
-    pack_result,
-    unpack_result,
-)
+from daikonstudio.application.engines.checkpoints import Checkpoints, unpack_result
 from daikonstudio.application.engines.context import (
     PredictContext,
     ProgressReporter,
@@ -94,7 +90,7 @@ class FanOut:
                 )
             )
             if saved_scope is not None:
-                saved_scope.save("result", pack_result(result))
+                saved_scope.save_result(result)
             results.append(result)
         validation = {
             key: value

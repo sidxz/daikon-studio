@@ -636,6 +636,69 @@ async def test_a_retried_run_resumes_from_the_fits_an_earlier_attempt_saved(
     assert not saved.exists()  # success removes the run's saved progress
 
 
+async def test_a_finished_fits_training_state_is_emptied_once_its_result_is_saved(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A neural fit's in-progress state is hundreds of megabytes that nothing resumes
+    from once the fit's result is saved, and a stopped or abandoned run keeps its saved
+    progress indefinitely. The tree engines here stand in with a planted state."""
+    import daikonstudio.application.execution.train_protocol as module
+
+    for engine in (Ecfp4XGBoost, Ecfp4RandomForest):
+        original = engine.train
+
+        def planting(self, ctx, _original=original):  # type: ignore[no-untyped-def]
+            result = _original(self, ctx)
+            ctx.checkpoints.scoped("lightning", torch="2.1").save("training-state", b"x" * 64)
+            return result
+
+        monkeypatch.setattr(engine, "train", planting)
+
+    real = module.assign_split
+
+    def stop_at_the_random_split(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        if spec.strategy is SplitStrategy.RANDOM:
+            raise RunInterrupted("limit", cancelled=False)
+        return real(frame, structure_column, spec, normalizer)
+
+    monkeypatch.setattr(module, "assign_split", stop_at_the_random_split)
+
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD)
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+
+    assert (await studio.reload(run)).status is RunStatus.FAILED
+    saved = studio.blobs / checkpoint_root(studio.auth.workspace_id, dataset.id, run.id)
+    for stage in ("model", "baseline"):
+        assert (saved / stage / "result.json").stat().st_size > 0  # the result is kept
+        state = sorted((saved / stage / "lightning").glob("training-state.*"))
+        assert [path.name for path in state] == [
+            "training-state.a",
+            "training-state.b",
+            "training-state.json",
+        ]
+        assert [path.stat().st_size for path in state] == [0, 0, 0]
+
+
+async def test_a_fit_that_cannot_be_packed_for_saving_does_not_fail_the_run(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Saved progress is best effort: a result too large to pack costs a resume that fit,
+    never the run."""
+    import daikonstudio.application.engines.checkpoints as checkpoints
+
+    def explode(result):  # type: ignore[no-untyped-def]
+        raise MemoryError("too large to pack")
+
+    monkeypatch.setattr(checkpoints, "pack_result", explode)
+
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD)
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+
+    assert (await studio.reload(run)).status is RunStatus.READY
+    assert (await studio.scorecard_for(run)).targets[0].metrics
+
+
 async def test_the_task_comes_from_the_target_spec_not_from_the_values(
     studio: Studio,
 ) -> None:

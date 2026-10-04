@@ -41,6 +41,11 @@ DEFAULT_INTERVAL_SECONDS = 600.0
 #: `pack_result` changes and older saves read as absent instead of misreading.
 RESULT_FORMAT = "2"
 
+#: Where a neural engine keeps its Lightning training state inside a fit's scope. Named
+#: here so `discard` can free it without importing the engines.
+TRAINING_STATE_SCOPE = "lightning"
+TRAINING_STATE = "training-state"
+
 _SAFE_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
 
@@ -83,7 +88,7 @@ class Checkpoints:
             fingerprint={**self._fingerprint, **fingerprint},
         )
 
-    def save(self, name: str, data: bytes) -> None:
+    def save(self, name: str, data: bytes) -> bool:
         _require_safe(name)
         digest = hashlib.sha256(data).hexdigest()
         marker_key = f"{self.root}{name}.json"
@@ -111,7 +116,17 @@ class Checkpoints:
                 name,
                 exc_info=True,
             )
-            return
+            return False
+        return True
+
+    def save_result(self, result: TrainResult) -> bool:
+        """`save` of a finished fit, with the packing inside the best-effort guard: a
+        result too large to pack costs a resume this fit, never the run. True when saved."""
+        try:
+            return self.save("result", pack_result(result))
+        except Exception:
+            logger.warning("Could not pack the fit saved under %s", self.root, exc_info=True)
+            return False
 
     def load(self, name: str) -> bytes | None:
         _require_safe(name)
@@ -134,6 +149,23 @@ class Checkpoints:
             return None
         return data
 
+    def discard(self, name: str) -> None:
+        """Free what `name` holds. A runner cannot delete a single blob, so both slots and
+        the marker are overwritten with nothing, which `load` reads as not saved. The
+        fingerprint plays no part: whatever was saved under another one is freed too.
+        Nothing is written for a name that was never saved."""
+        _require_safe(name)
+        marker_key = f"{self.root}{name}.json"
+        try:
+            self._store.get_bytes(marker_key)  # absent: nothing to free
+            for key in (f"{name}.a", f"{name}.b"):
+                self._store.put_bytes(self.root + key, b"")
+            self._store.put_bytes(marker_key, b"")
+        except FileNotFoundError:
+            return
+        except Exception:
+            logger.warning("Could not discard %s%s", self.root, name, exc_info=True)
+
     def clear(self) -> None:
         try:
             self._store.delete_prefix(self.root)
@@ -145,7 +177,12 @@ class Checkpoints:
             raw = self._store.get_bytes(key)
         except FileNotFoundError:
             return None
-        value = json.loads(raw)
+        # A marker that does not parse (a torn write, or `discard`'s empty one) is no
+        # marker: the next save overwrites it instead of being skipped under it forever.
+        try:
+            value = json.loads(raw)
+        except ValueError:
+            return None
         return value if isinstance(value, dict) else None
 
 

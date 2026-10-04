@@ -116,3 +116,76 @@ def test_a_train_result_round_trips_exactly():
     assert restored.validation_metrics is None
     assert restored.cutoffs == {"y": 0.31}
     assert unpack_result(pack_result(TrainResult(artifact=b"", metrics={}))).cutoffs is None
+
+
+def test_an_unreadable_marker_does_not_block_later_saves():
+    store = InMemoryBlobStore()
+    stage = Checkpoints(store, ROOT).scoped("model")
+    store.put_bytes(ROOT + "model/result.json", b"{ torn")
+
+    stage.save("result", b"payload")
+
+    assert stage.load("result") == b"payload"
+
+
+def test_a_marker_that_is_not_an_object_reads_as_nothing_saved():
+    store = InMemoryBlobStore()
+    stage = Checkpoints(store, ROOT).scoped("model")
+    store.put_bytes(ROOT + "model/result.json", b"[1, 2]")
+
+    assert stage.load("result") is None
+    stage.save("result", b"payload")
+    assert stage.load("result") == b"payload"
+
+
+def test_discard_empties_both_slots_and_the_marker_whatever_the_fingerprint():
+    store = InMemoryBlobStore()
+    saved = Checkpoints(store, ROOT).scoped("lightning", torch="2.1")
+    saved.save("training-state", b"first")
+    saved.save("training-state", b"second")  # both slots now hold something
+
+    # A scope built without the fingerprint the state was saved under, as the caller
+    # that frees it has none to give.
+    Checkpoints(store, ROOT).scoped("lightning").discard("training-state")
+
+    assert saved.load("training-state") is None
+    names = ("training-state.a", "training-state.b", "training-state.json")
+    assert [store.blobs[f"{ROOT}lightning/{name}"] for name in names] == [b"", b"", b""]
+
+
+def test_discard_writes_nothing_for_a_name_that_was_never_saved():
+    store = InMemoryBlobStore()
+
+    Checkpoints(store, ROOT).scoped("lightning").discard("training-state")
+
+    assert store.blobs == {}
+
+
+def test_a_save_after_a_discard_is_loadable():
+    store = InMemoryBlobStore()
+    stage = Checkpoints(store, ROOT).scoped("lightning")
+    stage.save("training-state", b"old")
+    stage.discard("training-state")
+
+    stage.save("training-state", b"new")
+
+    assert stage.load("training-state") == b"new"
+
+
+def test_a_result_that_cannot_be_packed_is_not_saved_and_does_not_raise(monkeypatch):
+    import daikonstudio.application.engines.checkpoints as module
+
+    def explode(result):
+        raise MemoryError("too large")
+
+    monkeypatch.setattr(module, "pack_result", explode)
+    store = InMemoryBlobStore()
+
+    saved = (
+        Checkpoints(store, ROOT)
+        .scoped("model")
+        .save_result(TrainResult(artifact=b"x", metrics={}))
+    )
+
+    assert saved is False
+    assert store.blobs == {}

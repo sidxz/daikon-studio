@@ -69,9 +69,10 @@ from daikonstudio.application.data.snapshot import snapshot_key
 from daikonstudio.application.engines.checkpoints import (
     DEFAULT_INTERVAL_SECONDS,
     RESULT_FORMAT,
+    TRAINING_STATE,
+    TRAINING_STATE_SCOPE,
     Checkpoints,
     checkpoint_root,
-    pack_result,
     unpack_result,
 )
 from daikonstudio.application.engines.context import (
@@ -1012,9 +1013,9 @@ class RunTraining:
             ),
         )
         if stage is not None:
-            # Off the event loop: on a runner this is an HTTP upload, and the loop also
-            # carries the run's heartbeat.
-            await asyncio.to_thread(stage.save, "result", pack_result(result))
+            # Off the event loop: packing is minutes of compression for a large model, and
+            # on a runner the save is an HTTP upload; the loop also carries the heartbeat.
+            await asyncio.to_thread(_save_result, stage, result)
         return result
 
     def _reporter(self, run: Run, span: tuple[float, float]) -> ProgressReporter:
@@ -1122,6 +1123,15 @@ class RunTraining:
         self._check_deadline()
         run.report_progress(fraction, phase=phase)
         await self._runs.update(run)
+
+
+def _save_result(stage: Checkpoints, result: TrainResult) -> None:
+    """Save a finished fit, then free the training state it no longer needs: a neural
+    fit's in-progress state is hundreds of megabytes that nothing will resume from now.
+    Kept when the save failed, since the next attempt would then resume from it. A
+    runner cannot delete one blob, so `discard` empties it."""
+    if stage.save_result(result):
+        stage.scoped(TRAINING_STATE_SCOPE).discard(TRAINING_STATE)
 
 
 def _measured(metrics: dict[str, float]) -> tuple[dict[str, float | None], set[str]]:

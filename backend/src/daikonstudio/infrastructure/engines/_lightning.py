@@ -18,7 +18,11 @@ import logging
 from pathlib import Path
 from typing import Any
 
-from daikonstudio.application.engines.checkpoints import Checkpoints
+from daikonstudio.application.engines.checkpoints import (
+    TRAINING_STATE,
+    TRAINING_STATE_SCOPE,
+    Checkpoints,
+)
 from daikonstudio.application.engines.context import RunInterrupted
 
 __all__ = [
@@ -106,9 +110,8 @@ def training_state_scope(checkpoints: Checkpoints | None, *libraries: str) -> Ch
         return None
     from importlib.metadata import version
 
-    return checkpoints.scoped(
-        "lightning", **{name: version(name) for name in ("torch", "lightning", *libraries)}
-    )
+    versions = {name: version(name) for name in ("torch", "lightning", *libraries)}
+    return checkpoints.scoped(TRAINING_STATE_SCOPE, **versions)
 
 
 def save_training_state(checkpoints: Checkpoints, scratch: Path) -> Any:
@@ -131,7 +134,7 @@ def save_training_state(checkpoints: Checkpoints, scratch: Path) -> Any:
             path = scratch / "training-state.ckpt"
             try:
                 trainer.save_checkpoint(path)
-                checkpoints.save("training-state", path.read_bytes())
+                checkpoints.save(TRAINING_STATE, path.read_bytes())
             except Exception:  # best effort: a failed save must not stop the fit
                 logger.warning("Could not save training state", exc_info=True)
             self._last = time.monotonic()
@@ -159,12 +162,13 @@ def saved_training_state(
     """
     if checkpoints is None:
         return None
-    data = checkpoints.load("training-state")
+    data = checkpoints.load(TRAINING_STATE)
     if data is None:
         return None
     path = scratch / "resume.ckpt"
-    path.write_bytes(data)
     try:
+        # Inside the try: a full TMPDIR must train from the start, not fail the run.
+        path.write_bytes(data)
         import torch
 
         # weights_only=False: a Lightning training state pickles chemprop objects (the
@@ -178,7 +182,7 @@ def saved_training_state(
         module.load_state_dict(state["state_dict"])
     except Exception:
         logger.warning(
-            "Saved training state did not fit this model; training from the start", exc_info=True
+            "Could not restore the saved training state; training from the start", exc_info=True
         )
         return None
     return str(path)
