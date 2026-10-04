@@ -46,19 +46,22 @@ export function parseCsvPreview(file: File): Promise<CsvPreview> {
 }
 
 /**
- * A column whose sampled values are exactly two distinct entries looks like a
- * binary label. Used only to preselect the target kind -- the backend is what
+ * A column looks like a binary label when it has at least one value and every
+ * value is a 0 or a 1 (so "0", "1", "0.0" and "1.0" all count). A rare label
+ * can show a single value in the preview rows, so two distinct values is not
+ * required. Used only to preselect the target kind -- the backend is what
  * actually decides, and it rejects the file if this guess was wrong.
  */
 export function looksBinary(rows: Record<string, string>[], column: string): boolean {
-  const seen = new Set<string>();
+  let any = false;
   for (const row of rows) {
     const value = row[column]?.trim();
     if (value === undefined || value === "") continue;
-    seen.add(value);
-    if (seen.size > 2) return false;
+    const number = Number(value);
+    if (number !== 0 && number !== 1) return false;
+    any = true;
   }
-  return seen.size === 2;
+  return any;
 }
 
 /**

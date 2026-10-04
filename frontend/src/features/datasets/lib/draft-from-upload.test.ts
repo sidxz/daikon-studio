@@ -4,7 +4,6 @@ import { draftFromUpload, toggleTarget, withColumns } from "./draft-from-upload"
 const rows = [
   { smiles: "CCO", solubility: "1.2", reactive: "0", id: "A1" },
   { smiles: "CCN", solubility: "3.4", reactive: "1", id: "A2" },
-  // A third distinct value, or the two-valued solubility column reads as binary.
   { smiles: "CCC", solubility: "5.6", reactive: "1", id: "A3" },
 ];
 const columns = ["smiles", "solubility", "reactive", "id"];
