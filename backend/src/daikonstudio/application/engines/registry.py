@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from daikonstudio.application.engines.fan_out import FanOut
 from daikonstudio.application.engines.manifest import EngineManifest
 from daikonstudio.application.engines.protocol import Engine
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError
@@ -37,13 +38,20 @@ class UnknownEngineError(NotFoundError):
         DomainError.__init__(self, message)
 
 
+def _uniform(engine: Engine) -> Engine:
+    """Every engine as one that accepts several targets: as itself when it learns
+    them jointly, inside `FanOut` otherwise. Applied at lookup so no caller can
+    reach an unwrapped single-target engine by accident."""
+    return engine if engine.manifest().supports_multitask else FanOut(engine)
+
+
 class EngineRegistry:
     def __init__(self, engines: dict[str, Engine]) -> None:
         self._engines = engines
 
     def get(self, engine_id: str) -> Engine:
         try:
-            return self._engines[engine_id]
+            return _uniform(self._engines[engine_id])
         except KeyError as exc:
             raise UnknownEngineError(
                 f"Engine '{engine_id}' is not available on this server."
@@ -61,4 +69,4 @@ class EngineRegistry:
             raise UnknownEngineError(
                 f"More than one baseline engine is configured: {', '.join(ids)}."
             )
-        return baselines[0]
+        return _uniform(baselines[0])

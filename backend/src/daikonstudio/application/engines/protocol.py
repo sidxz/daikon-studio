@@ -28,8 +28,9 @@ from daikonstudio.application.engines.manifest import EngineManifest
 class Engine(Protocol):
     """Structural — an engine matches this shape; no base class, no registration."""
 
-    @staticmethod
-    def manifest() -> EngineManifest: ...
+    # An instance method, not a staticmethod: `FanOut` forwards its inner engine's
+    # manifest, so it needs `self`. Every concrete engine's staticmethod still fits.
+    def manifest(self) -> EngineManifest: ...
 
     def train(self, ctx: TrainContext) -> TrainResult: ...
 
