@@ -64,17 +64,20 @@ export function ValidationReportView({
         />
       </div>
 
-      {report.duplicate_spread != null && (
+      {Object.keys(report.duplicate_spread).length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Assay noise floor</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-sm">
-              Repeat measurements of the same compound disagreed by{" "}
-              <span className="font-mono font-medium">{report.duplicate_spread.toFixed(3)}</span> on
-              average.
-            </p>
+            <ul className="space-y-1 text-sm">
+              {Object.entries(report.duplicate_spread).map(([column, spread]) => (
+                <li key={column}>
+                  Repeat measurements of <span className="font-mono">{column}</span> disagreed by{" "}
+                  <span className="font-mono font-medium">{spread.toFixed(3)}</span> on average.
+                </li>
+              ))}
+            </ul>
             <p className="mt-1 text-sm text-muted-foreground">
               Model error below this level is within experimental error. The scorecard reports it as
               the noise floor.
@@ -135,16 +138,18 @@ export function ValidationReportView({
               <thead className="sticky top-0 bg-card">
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="pb-2 pr-4 font-medium">Rows</th>
+                  <th className="pb-2 pr-4 font-medium">Target</th>
                   <th className="pb-2 pr-4 font-medium">Labels</th>
                   <th className="pb-2 font-medium">Structure</th>
                 </tr>
               </thead>
               <tbody>
                 {report.conflicting.map((row) => (
-                  <tr key={row.structure} className="border-b last:border-0">
+                  <tr key={`${row.structure}-${row.column}`} className="border-b last:border-0">
                     <td className="py-1.5 pr-4 font-mono tabular-nums">
                       {row.row_numbers.join(", ")}
                     </td>
+                    <td className="py-1.5 pr-4 font-mono text-xs">{row.column}</td>
                     <td className="py-1.5 pr-4 font-mono">{row.values.join(" vs ")}</td>
                     <td className="py-1.5 font-mono text-xs break-all">{row.structure}</td>
                   </tr>

@@ -218,13 +218,14 @@ export function profileRefetchInterval(
  * rather than starting another, so polling (and reloading) is safe. Once saved it
  * never changes, so a ready profile is never refetched.
  */
-export function useDatasetProfile(id: string | undefined) {
+export function useDatasetProfile(id: string | undefined, target = 0) {
   return useQuery({
-    queryKey: [...DATASET_PROFILE_KEY, id],
+    queryKey: [...DATASET_PROFILE_KEY, id, target],
     queryFn: () =>
       customInstance<DatasetProfileResponse | ProfileComputingResponse>({
         url: `${API_V1}/datasets/${id}/profile`,
         method: "GET",
+        params: { target },
       }),
     enabled: Boolean(id),
     staleTime: (query) => (isComputing(query.state.data) ? 0 : Number.POSITIVE_INFINITY),
@@ -237,6 +238,8 @@ export interface CompoundQuery extends Record<string, unknown> {
   offset?: number;
   limit?: number;
   sort?: "target" | "split";
+  /** Which target `sort: "target"` orders by, as an index into the dataset's targets. */
+  target?: number;
   sort_dir?: "asc" | "desc";
   split?: "train" | "validation" | "test";
   /** Case-insensitive "contains" on the compound's ID. */

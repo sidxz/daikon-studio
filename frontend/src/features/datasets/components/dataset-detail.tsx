@@ -3,10 +3,19 @@
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Label } from "@/shared/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
+import { useState } from "react";
 import { isComputing, useDataset, useDatasetProfile } from "../hooks/use-datasets";
 import { SPLIT_COPY } from "../types";
 import { CompoundBrowser } from "./compound-browser";
@@ -30,7 +39,8 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
   // Fetched alongside the Dataset rather than on tab activation: the first ever
   // request starts the server computing the profile (minutes for a large
   // dataset), so it is better started while the reader is still on the overview.
-  const profile = useDatasetProfile(datasetId);
+  const [profileTarget, setProfileTarget] = useState(0);
+  const profile = useDatasetProfile(datasetId, profileTarget);
 
   // Declared explicitly so the breadcrumb never prints the id from the URL.
   useBreadcrumbTrail(
@@ -90,32 +100,28 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
               <CardTitle className="text-base">What this predicts</CardTitle>
             </CardHeader>
             <CardContent>
-              <dl className="grid gap-4 sm:grid-cols-5">
+              <dl className="grid gap-4 sm:grid-cols-3">
                 <Field
                   label="Structures"
                   value={<span className="font-mono">{dataset.structure_column}</span>}
                 />
                 <Field
-                  label="Target"
-                  value={<span className="font-mono">{dataset.target.column}</span>}
-                />
-                <Field
-                  label="Kind"
-                  value={dataset.target.kind === "numeric" ? "Measured value" : "Active / inactive"}
-                />
-                <Field
-                  label="Unit and direction"
+                  label={dataset.targets.length === 1 ? "Target" : "Targets"}
                   value={
-                    dataset.target.unit || dataset.target.direction ? (
-                      <span className="font-mono">
-                        {dataset.target.unit ?? "—"}
-                        {dataset.target.direction
-                          ? ` · ${dataset.target.direction === "high" ? "higher" : "lower"} is better`
-                          : ""}
-                      </span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )
+                    <ul className="space-y-1">
+                      {dataset.targets.map((target) => (
+                        <li key={target.column}>
+                          <span className="font-mono">{target.column}</span>
+                          <span className="ml-2 text-muted-foreground">
+                            {target.kind === "numeric" ? "Measured value" : "Active / inactive"}
+                            {target.unit ? ` · ${target.unit}` : ""}
+                            {target.direction
+                              ? ` · ${target.direction === "high" ? "higher" : "lower"} is better`
+                              : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
                   }
                 />
                 <Field label="Identifier column" value={<IdColumnField dataset={dataset} />} />
@@ -165,7 +171,29 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
           </div>
         </TabsContent>
 
-        <TabsContent value="diversity">
+        <TabsContent value="diversity" className="space-y-4">
+          {dataset.targets.length > 1 && (
+            <div className="flex items-center gap-2">
+              <Label htmlFor="profile-target" className="text-sm font-normal">
+                Profile for
+              </Label>
+              <Select
+                value={String(profileTarget)}
+                onValueChange={(value) => setProfileTarget(Number(value))}
+              >
+                <SelectTrigger id="profile-target" className="w-56">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {dataset.targets.map((target, index) => (
+                    <SelectItem key={target.column} value={String(index)}>
+                      {target.column}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           {profile.isLoading ? (
             <DatasetProfileSkeleton />
           ) : profile.isError || !profile.data ? (
@@ -183,7 +211,11 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
               compounds={profile.data.compounds}
             />
           ) : (
-            <DatasetProfileView dataset={dataset} profile={profile.data} />
+            <DatasetProfileView
+              dataset={dataset}
+              target={dataset.targets[profileTarget]}
+              profile={profile.data}
+            />
           )}
         </TabsContent>
 

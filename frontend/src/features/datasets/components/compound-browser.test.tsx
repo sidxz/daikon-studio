@@ -15,7 +15,9 @@ vi.mock("../hooks/use-datasets", () => ({
       isLoading: false,
       isError: false,
       data: {
-        items: [{ structure: "CCO", target: 1, split: "train", compound_id: "RU-7" }],
+        items: [
+          { structure: "CCO", targets: { y: 1, active: 0 }, split: "train", compound_id: "RU-7" },
+        ],
         total: 1,
       },
     };
@@ -26,7 +28,10 @@ const dataset = (idColumn: string | null) =>
   ({
     id: "d-1",
     id_column: idColumn,
-    target: { column: "y", unit: null },
+    targets: [
+      { column: "y", kind: "numeric", unit: null },
+      { column: "active", kind: "binary", unit: null },
+    ],
   }) as unknown as DatasetResponse;
 
 describe("CompoundBrowser", () => {
@@ -46,6 +51,14 @@ describe("CompoundBrowser", () => {
 
     expect(hoisted.queries.at(-1)).toMatchObject({ q: "RU-7", offset: 0 });
     vi.useRealTimers();
+  });
+
+  it("shows a column per target and sorts by the one clicked", () => {
+    render(<CompoundBrowser dataset={dataset("RU ID")} />);
+    expect(screen.getByRole("columnheader", { name: "active" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /active/ }));
+    expect(hoisted.queries.at(-1)).toMatchObject({ sort: "target", target: 1 });
   });
 
   it("offers no search without an identifier column", () => {

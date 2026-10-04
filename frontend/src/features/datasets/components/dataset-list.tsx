@@ -23,8 +23,12 @@ function DatasetRow({ dataset }: { dataset: Dataset }) {
       </div>
       <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
         <span>{dataset.row_count.toLocaleString()} compounds</span>
-        <span className="font-mono">{dataset.target.column}</span>
-        {dataset.target.unit && <span className="font-mono">{dataset.target.unit}</span>}
+        <span className="font-mono">
+          {dataset.targets.map((target) => target.column).join(", ")}
+        </span>
+        {dataset.targets.length === 1 && dataset.targets[0].unit && (
+          <span className="font-mono">{dataset.targets[0].unit}</span>
+        )}
         <span>{new Date(dataset.created_at).toLocaleDateString()}</span>
       </div>
     </Link>

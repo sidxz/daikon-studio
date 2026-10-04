@@ -34,6 +34,7 @@ const PARTITIONS = ["train", "validation", "test"] as const;
 export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
   const [offset, setOffset] = useState(0);
   const [descending, setDescending] = useState(false);
+  const [sortTarget, setSortTarget] = useState(0);
   const [split, setSplit] = useState<(typeof PARTITIONS)[number] | undefined>();
   // What the search box shows, and what was last sent: one request per pause
   // in typing, not per keystroke, since each reads the whole snapshot.
@@ -51,6 +52,7 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
     offset,
     limit: PAGE_SIZE,
     sort: "target",
+    target: sortTarget,
     sort_dir: descending ? "desc" : "asc",
     split,
     q: q || undefined,
@@ -104,10 +106,32 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
             </Button>
           ))}
         </div>
-        <Button variant="ghost" size="sm" onClick={() => reset(() => setDescending((d) => !d))}>
-          {dataset.target.column}
-          {descending ? <ArrowDown className="size-3.5" /> : <ArrowUp className="size-3.5" />}
-        </Button>
+        <div className="flex flex-wrap gap-1">
+          {dataset.targets.map((target, index) => (
+            <Button
+              key={target.column}
+              variant={index === sortTarget ? "secondary" : "ghost"}
+              size="sm"
+              onClick={() =>
+                reset(() => {
+                  if (index === sortTarget) setDescending((d) => !d);
+                  else {
+                    setSortTarget(index);
+                    setDescending(false);
+                  }
+                })
+              }
+            >
+              {target.column}
+              {index === sortTarget &&
+                (descending ? (
+                  <ArrowDown className="size-3.5" />
+                ) : (
+                  <ArrowUp className="size-3.5" />
+                ))}
+            </Button>
+          ))}
+        </div>
       </div>
 
       <Table>
@@ -116,7 +140,11 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
             <TableHead className="w-[120px]">Structure</TableHead>
             {dataset.id_column && <TableHead>{dataset.id_column}</TableHead>}
             <TableHead>SMILES</TableHead>
-            <TableHead className="text-right">{dataset.target.column}</TableHead>
+            {dataset.targets.map((target) => (
+              <TableHead key={target.column} className="text-right">
+                {target.column}
+              </TableHead>
+            ))}
             <TableHead className="w-[110px]">Partition</TableHead>
           </TableRow>
         </TableHeader>
@@ -125,7 +153,7 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
             ? Array.from({ length: 6 }, (_, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length skeleton, no identity
                 <TableRow key={index}>
-                  <TableCell colSpan={dataset.id_column ? 5 : 4}>
+                  <TableCell colSpan={3 + dataset.targets.length + (dataset.id_column ? 1 : 0)}>
                     <Skeleton className="h-16 w-full" />
                   </TableCell>
                 </TableRow>
@@ -143,13 +171,15 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
                   <TableCell className="max-w-[1px] truncate font-mono text-xs text-muted-foreground">
                     {compound.structure}
                   </TableCell>
-                  <TableCell className="text-right">
-                    <ReadoutValue
-                      value={compound.target}
-                      unit={dataset.target.unit}
-                      precision={3}
-                    />
-                  </TableCell>
+                  {dataset.targets.map((target) => (
+                    <TableCell key={target.column} className="text-right">
+                      <ReadoutValue
+                        value={compound.targets[target.column] ?? null}
+                        unit={target.unit}
+                        precision={3}
+                      />
+                    </TableCell>
+                  ))}
                   <TableCell>
                     <Badge variant="outline" className="font-normal">
                       {compound.split}

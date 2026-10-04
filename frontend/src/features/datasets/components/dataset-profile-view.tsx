@@ -12,6 +12,7 @@ import { SPLIT_MS, SplitFigure, splitCaption } from "@/shared/components/explain
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import type { TargetBody } from "@/shared/lib/api/model";
 import type { Dataset, DatasetProfile } from "../types";
 import { descriptorLabel } from "../types";
 
@@ -69,35 +70,30 @@ export function DatasetProfileSkeleton() {
 
 export function DatasetProfileView({
   dataset,
+  target,
   profile,
 }: {
   dataset: Dataset;
+  /** The target this profile was computed for. */
+  target: TargetBody;
   profile: DatasetProfile;
 }) {
-  const unit = dataset.target.unit;
   const isScaffoldSplit = dataset.split.strategy === "scaffold";
 
   return (
     <div className="space-y-4">
-      <TargetSection dataset={dataset} profile={profile} unit={unit} />
+      <TargetSection target={target} profile={profile} />
       <SplitHonestySection profile={profile} isScaffoldSplit={isScaffoldSplit} />
       <ScaffoldSection profile={profile} />
       <DescriptorSection profile={profile} />
-      <CliffSection dataset={dataset} profile={profile} unit={unit} />
+      <CliffSection dataset={dataset} target={target} profile={profile} />
     </div>
   );
 }
 
 /** Is the target worth modelling, and did the split keep the two sides alike? */
-function TargetSection({
-  dataset,
-  profile,
-  unit,
-}: {
-  dataset: Dataset;
-  profile: DatasetProfile;
-  unit?: string | null;
-}) {
+function TargetSection({ target, profile }: { target: TargetBody; profile: DatasetProfile }) {
+  const unit = target.unit;
   const distribution = profile.target_distribution;
   const balance = profile.class_balance;
 
@@ -142,7 +138,7 @@ function TargetSection({
             </div>
             <SplitHistogramChart
               bins={distribution.histogram}
-              xLabel={`${dataset.target.column}${unit ? ` (${unit})` : ""}`}
+              xLabel={`${target.column}${unit ? ` (${unit})` : ""}`}
             />
           </>
         )}
@@ -430,15 +426,16 @@ function DescriptorSection({ profile }: { profile: DatasetProfile }) {
 /** The pairs no featurization can separate. */
 function CliffSection({
   dataset,
+  target,
   profile,
-  unit,
 }: {
   dataset: Dataset;
+  target: TargetBody;
   profile: DatasetProfile;
-  unit?: string | null;
 }) {
+  const unit = target.unit;
   const cliffs = profile.activity_cliffs;
-  const noiseFloor = dataset.validation_report.duplicate_spread;
+  const noiseFloor = dataset.validation_report.duplicate_spread[target.column] ?? null;
 
   if (cliffs.length === 0) {
     return (
