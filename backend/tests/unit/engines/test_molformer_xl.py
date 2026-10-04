@@ -128,10 +128,11 @@ def test_predict_returns_the_contracted_schema_and_dtypes() -> None:
         )
     )
 
-    assert predictions.columns == ["row_id", "value", "uncertainty"]
+    assert predictions.columns == ["row_id", "value", "uncertainty", "target"]
     assert predictions.schema["row_id"] == pl.Int64
     assert predictions.schema["value"] == pl.Float64
     assert predictions.schema["uncertainty"] == pl.Float64
+    assert predictions.schema["target"] == pl.String
     assert predictions.height == 2
 
 
@@ -211,7 +212,7 @@ def test_classification_predictions_are_probabilities() -> None:
 def test_freezing_the_encoder_leaves_only_the_head_trainable() -> None:
     from daikonstudio.infrastructure.engines.molformer_xl import _load_backbone
 
-    _tokenizer, model = _load_backbone(freeze_encoder=True)
+    _tokenizer, model = _load_backbone(freeze_encoder=True, num_labels=1)
 
     assert not any(p.requires_grad for p in model.molformer.parameters())
     assert all(p.requires_grad for p in model.classifier.parameters())
@@ -239,3 +240,121 @@ def test_report_is_called_once_per_epoch() -> None:
     phase = calls[-1][1]
     assert phase.startswith("Training MoLFormer-XL on ")
     assert re.fullmatch(r"cpu|mps(:\d+)?|cuda(:\d+)?", phase.rsplit(" ", 1)[-1]), phase
+
+
+@needs_weights
+def test_two_targets_train_jointly_and_predict_in_long_format() -> None:
+    frame = _frame([float(i) for i in range(12)]).with_columns(
+        (pl.col("y") * 2.0 + 1.0).alias("z")
+    )
+    engine = MolformerXL()
+    result = engine.train(
+        TrainContext(
+            frame=frame,
+            targets={"y": TaskType.REGRESSION, "z": TaskType.REGRESSION},
+            structure_column="smiles",
+            conditions=_FAST,
+            seed=13,
+        )
+    )
+    assert list(result.metrics) == ["y", "z"]
+    assert "rmse" in result.metrics["z"]
+    assert result.validation_metrics is not None
+    assert list(result.validation_metrics) == ["y", "z"]
+
+    predictions = engine.predict(
+        PredictContext(
+            frame=frame,
+            structure_column="smiles",
+            artifact=result.artifact,
+            conditions={},
+            target_columns=("y", "z"),
+        )
+    )
+    assert predictions.height == 2 * frame.height
+    assert predictions["target"].unique().sort().to_list() == ["y", "z"]
+
+
+@needs_weights
+def test_each_target_is_standardized_on_its_own_scale() -> None:
+    """One mean and deviation per column: a shared pair would drag the small-scale
+    target toward the large one and return it in the wrong unit."""
+    frame = _frame([float(i) for i in range(12)]).with_columns(
+        (pl.col("y") * 0.001 + 1000.0).alias("z")
+    )
+    engine = MolformerXL()
+    trained = engine.train(
+        TrainContext(
+            frame=frame,
+            targets={"y": TaskType.REGRESSION, "z": TaskType.REGRESSION},
+            structure_column="smiles",
+            conditions=_FAST,
+            seed=13,
+        )
+    )
+
+    predictions = engine.predict(
+        PredictContext(
+            frame=frame,
+            structure_column="smiles",
+            artifact=trained.artifact,
+            conditions={},
+            target_columns=("y", "z"),
+        )
+    )
+
+    z = predictions.filter(pl.col("target") == "z")["value"].to_list()
+    assert all(999.0 < value < 1001.0 for value in z)
+
+
+@needs_weights
+def test_two_classification_targets_are_scored_per_column() -> None:
+    frame = _frame([float(i % 2) for i in range(12)]).with_columns((1.0 - pl.col("y")).alias("z"))
+
+    result = MolformerXL().train(
+        TrainContext(
+            frame=frame,
+            targets={"y": TaskType.BINARY_CLASSIFICATION, "z": TaskType.BINARY_CLASSIFICATION},
+            structure_column="smiles",
+            conditions=_FAST,
+            seed=13,
+        )
+    )
+
+    assert sorted(result.metrics["z"]) == ["auprc", "auroc", "balanced_accuracy", "mcc"]
+
+
+@needs_weights
+def test_an_artifact_from_before_multi_task_still_predicts() -> None:
+    """Old bundles hold a scalar mean and deviation and no `n_tasks`; every Protocol
+    trained before targets could be several is stored that way."""
+    import io
+
+    import torch
+
+    trained = MolformerXL().train(
+        _context(_frame([1000.0 + i for i in range(12)]), TaskType.REGRESSION)
+    )
+    bundle = torch.load(io.BytesIO(trained.artifact), weights_only=True)
+    (bundle["target_mean"],) = bundle.pop("target_mean")
+    (bundle["target_std"],) = bundle.pop("target_std")
+    del bundle["n_tasks"]
+    legacy = io.BytesIO()
+    torch.save(bundle, legacy)
+
+    predictions = MolformerXL().predict(
+        PredictContext(
+            frame=pl.DataFrame({"smiles": _SMILES}),
+            structure_column="smiles",
+            artifact=legacy.getvalue(),
+            conditions={},
+            target_columns=("y",),
+        )
+    )
+
+    assert predictions.height == len(_SMILES)
+    assert all(900.0 < value < 1100.0 for value in predictions["value"].to_list())
+
+
+def test_molformer_declares_that_it_learns_targets_jointly() -> None:
+    assert MolformerXL.manifest().supports_multitask is True

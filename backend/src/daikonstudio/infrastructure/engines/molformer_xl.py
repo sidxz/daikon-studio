@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import io
 import os
+from collections.abc import Sequence
 from typing import Any
 
 import polars as pl
@@ -78,9 +79,9 @@ _MANIFEST = EngineManifest(
     name="MoLFormer-XL",
     description=(
         "A transformer pretrained on ~1.1 billion molecules that reads the SMILES "
-        "string directly instead of the molecular graph. Fine-tuning takes minutes to "
-        "hours on a GPU; freezing the encoder trains only the output layer, in a "
-        "fraction of the time."
+        "string directly instead of the molecular graph. Learns every target of a "
+        "dataset in one model. Fine-tuning takes minutes to hours on a GPU; freezing "
+        "the encoder trains only the output layer, in a fraction of the time."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(
@@ -128,6 +129,7 @@ _MANIFEST = EngineManifest(
         ),
     ),
     lane="gpu",
+    supports_multitask=True,
 )
 
 
@@ -151,14 +153,14 @@ def _require_transformers(weights_dir: str) -> None:
         ) from exc
 
 
-def _load_backbone(*, freeze_encoder: bool) -> tuple[Any, Any]:
+def _load_backbone(*, freeze_encoder: bool, num_labels: int) -> tuple[Any, Any]:
     """The tokenizer and the classification model, both pinned to `_REVISION`.
 
-    `num_labels=1` for both tasks: one logit, read as a value for regression and
-    through a sigmoid for classification. The loss is computed by the Lightning module
+    One logit per target (`num_labels`), read as a value for regression and through a
+    sigmoid for classification. The loss is computed by the Lightning module
     rather than by passing `labels=` into the model, because the model's own
     `problem_type` inference would pick mean-squared error for a single label -- which
-    is wrong for a probability. One logit and an explicit loss keeps both tasks on one
+    is wrong for a probability. Logits and an explicit loss keep both tasks on one
     code path with nothing inferred.
     """
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
@@ -170,7 +172,7 @@ def _load_backbone(*, freeze_encoder: bool) -> tuple[Any, Any]:
         _MODEL_ID,
         revision=_REVISION,
         trust_remote_code=True,
-        num_labels=1,
+        num_labels=num_labels,
         # See this module's docstring: without it, every forward pass redraws the
         # linear-attention random features and the same molecule scores differently
         # on each call.
@@ -192,9 +194,10 @@ def _collate(tokenizer: Any) -> Any:
     """
     import torch
 
-    def collate(batch: list[tuple[str, float]]) -> tuple[Any, Any, Any]:
+    def collate(batch: Sequence[tuple[str, Sequence[float]]]) -> tuple[Any, Any, Any]:
         smiles = [item[0] for item in batch]
-        targets = torch.tensor([item[1] for item in batch], dtype=torch.float32)
+        # (batch, n_tasks): one column per target.
+        targets = torch.tensor([list(item[1]) for item in batch], dtype=torch.float32)
         encoded = tokenizer(
             smiles,
             padding=True,
@@ -208,14 +211,14 @@ def _collate(tokenizer: Any) -> Any:
 
 
 def _loader(
-    examples: list[tuple[str, float]],
+    examples: Sequence[tuple[str, Sequence[float]]],
     *,
     collate: Any,
     batch_size: int,
     shuffle: bool = False,
     seed: int | None = None,
 ) -> Any:
-    """A DataLoader over `(smiles, target)` pairs.
+    """A DataLoader over `(smiles, targets)` pairs, one target per task.
 
     A plain list is already a map-style dataset, so there is no Dataset subclass here
     to hold two parallel lists and re-implement `__len__`.
@@ -233,7 +236,7 @@ def _loader(
 
 
 def _logits(trainer: Any, module: Any, loader: Any) -> Any:
-    """The model's raw outputs over `loader`, flattened to one per molecule.
+    """The model's raw outputs over `loader`, shaped (molecules, n_tasks).
 
     `trainer.predict` rather than calling the module directly: it is what puts the
     module in eval mode, which is what freezes MoLFormer's random features (see this
@@ -243,32 +246,33 @@ def _logits(trainer: Any, module: Any, loader: Any) -> Any:
     import torch
 
     batches: Any = trainer.predict(module, loader)
-    return torch.cat(batches).cpu().numpy().reshape(-1)
+    return torch.cat(batches).cpu().numpy()
 
 
-def _unlabelled(structures: list[str]) -> list[tuple[str, float]]:
-    """Structures paired with a placeholder target, for inference.
+def _unlabelled(structures: list[str], n_tasks: int) -> list[tuple[str, tuple[float, ...]]]:
+    """Structures paired with placeholder targets, for inference.
 
     `_collate` builds a target tensor unconditionally; zero is never read, because
     nothing computes a loss on a predict pass.
     """
-    return [(smiles, 0.0) for smiles in structures]
+    return [(smiles, (0.0,) * n_tasks) for smiles in structures]
 
 
-def _to_values(
-    logits: Any, *, is_classification: bool, target_mean: float, target_std: float
-) -> Any:
+def _to_values(logits: Any, *, is_classification: bool, target_mean: Any, target_std: Any) -> Any:
     """Raw logits to the numbers a scientist sees.
 
     One function, called by both the training-time scoring and `predict`, so the
     Scorecard can never describe a different transform than the one production uses --
     a divergence here would be invisible in both places.
+
+    `target_mean` and `target_std` broadcast against the (molecules, n_tasks) logits:
+    a per-column list from a current bundle, or the single scalar an older one holds.
     """
     import numpy as np
 
     if is_classification:
         return 1.0 / (1.0 + np.exp(-logits))
-    return logits * target_std + target_mean
+    return np.asarray(logits) * np.asarray(target_std) + np.asarray(target_mean)
 
 
 def _build_module(*, model: Any, learning_rate: float, is_classification: bool) -> Any:
@@ -284,8 +288,7 @@ def _build_module(*, model: Any, learning_rate: float, is_classification: bool) 
 
         def forward(self, input_ids: Any, attention_mask: Any) -> Any:
             output = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
-            # (batch, 1) -> (batch,). num_labels is 1 for both tasks.
-            return output.logits.reshape(-1)
+            return output.logits
 
         def training_step(self, batch: Any, _index: int) -> Any:
             input_ids, attention_mask, targets = batch
@@ -315,8 +318,8 @@ def _build_module(*, model: Any, learning_rate: float, is_classification: bool) 
     return _MolformerModule()
 
 
-def _standardize(targets: list[float]) -> tuple[float, float]:
-    """Mean and standard deviation of the training targets, for regression.
+def _standardize(targets: Sequence[Sequence[float]]) -> tuple[list[float], list[float]]:
+    """Per-target mean and standard deviation of the training values, for regression.
 
     A transformer fine-tuned with mean-squared error against raw assay values --
     percent inhibition, IC50 in micromolar, log units -- has its gradients scaled by
@@ -327,12 +330,14 @@ def _standardize(targets: list[float]) -> tuple[float, float]:
 
     A zero standard deviation (every training value identical) would divide by zero;
     1.0 leaves the values as they are, which is the honest answer for a constant column.
+    Each column gets its own, so a target on a small scale is not dragged toward one on
+    a large scale.
     """
     import numpy as np
 
     array = np.asarray(targets, dtype=float)
-    deviation = float(array.std())
-    return float(array.mean()), deviation if deviation > 0.0 else 1.0
+    deviation = array.std(axis=0)
+    return array.mean(axis=0).tolist(), np.where(deviation > 0.0, deviation, 1.0).tolist()
 
 
 class MolformerXL:
@@ -354,6 +359,9 @@ class MolformerXL:
         batch_size = int(conditions["batch_size"])
         learning_rate = float(conditions["learning_rate"])
         freeze_encoder = bool(conditions["freeze_encoder"])
+        columns = ctx.target_columns
+        # One task for the whole fit: a joint engine is only ever handed a dataset
+        # whose targets share a kind (`joint_kind_error`, at enqueue).
         is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
 
         lightning.seed_everything(ctx.seed, workers=True)
@@ -365,20 +373,25 @@ class MolformerXL:
         # Regression targets are standardized; classification targets are already
         # 0/1 and BCEWithLogitsLoss expects them that way.
         target_mean, target_std = (
-            (0.0, 1.0)
+            ([0.0] * len(columns), [1.0] * len(columns))
             if is_classification
-            else _standardize(train_rows[ctx.target_column].to_list())
+            else _standardize(train_rows.select(columns).rows())
         )
 
-        def examples(rows: pl.DataFrame) -> list[tuple[str, float]]:
+        def examples(rows: pl.DataFrame) -> list[tuple[str, tuple[float, ...]]]:
             structures = rows[ctx.structure_column].to_list()
-            targets = rows[ctx.target_column].to_list()
             return [
-                (smiles, (float(target) - target_mean) / target_std)
-                for smiles, target in zip(structures, targets, strict=True)
+                (
+                    smiles,
+                    tuple(
+                        (float(value) - mean) / std
+                        for value, mean, std in zip(row, target_mean, target_std, strict=True)
+                    ),
+                )
+                for smiles, row in zip(structures, rows.select(columns).rows(), strict=True)
             ]
 
-        tokenizer, model = _load_backbone(freeze_encoder=freeze_encoder)
+        tokenizer, model = _load_backbone(freeze_encoder=freeze_encoder, num_labels=len(columns))
         module = _build_module(
             model=model, learning_rate=learning_rate, is_classification=is_classification
         )
@@ -430,11 +443,9 @@ class MolformerXL:
         if keep_best.best_state is not None:
             module.load_state_dict(keep_best.best_state)
 
-        train_has_both_classes = train_rows[ctx.target_column].n_unique() >= 2
-
         def infer(rows: pl.DataFrame) -> Any:
             loader = _loader(
-                _unlabelled(rows[ctx.structure_column].to_list()),
+                _unlabelled(rows[ctx.structure_column].to_list(), len(columns)),
                 collate=collate,
                 batch_size=_PREDICT_BATCH_SIZE,
             )
@@ -445,22 +456,24 @@ class MolformerXL:
                 target_std=target_std,
             )
 
-        def score(rows: pl.DataFrame) -> dict[str, float]:
+        def score(rows: pl.DataFrame) -> dict[str, dict[str, float]]:
             values = infer(rows)
-            truth = rows[ctx.target_column].to_numpy()
-            if is_classification:
-                return classification_metrics(
-                    truth,
-                    (values >= 0.5).astype(float),
-                    values,
-                    train_has_both_classes=train_has_both_classes,
-                )
-            return regression_metrics(truth, values)
+            scored: dict[str, dict[str, float]] = {}
+            for index, column in enumerate(columns):
+                truth = rows[column].to_numpy()
+                if is_classification:
+                    scored[column] = classification_metrics(
+                        truth,
+                        (values[:, index] >= 0.5).astype(float),
+                        values[:, index],
+                        train_has_both_classes=train_rows[column].n_unique() >= 2,
+                    )
+                else:
+                    scored[column] = regression_metrics(truth, values[:, index])
+            return scored
 
-        metrics = {ctx.target_column: score(test_rows)}
-        validation_metrics = (
-            {ctx.target_column: score(validation_rows)} if validation_rows.height > 0 else None
-        )
+        metrics = score(test_rows)
+        validation_metrics = score(validation_rows) if validation_rows.height > 0 else None
 
         # The whole fine-tuned model, not just the head. Under `freeze_encoder` most
         # of these ~190 MB duplicate the public checkpoint, which is wasteful -- and
@@ -478,6 +491,7 @@ class MolformerXL:
                 "is_classification": is_classification,
                 "target_mean": target_mean,
                 "target_std": target_std,
+                "n_tasks": len(columns),
                 "revision": _REVISION,
             },
             buffer,
@@ -495,14 +509,17 @@ class MolformerXL:
         import torch
         from lightning import pytorch as lightning
 
-        # weights_only=True: the artifact holds tensors and plain scalars, so there is
-        # no reason to allow the pickle in it to execute anything.
+        # weights_only=True: the artifact holds tensors, plain scalars and lists of them,
+        # so there is no reason to allow the pickle in it to execute anything.
         bundle = torch.load(io.BytesIO(ctx.artifact), weights_only=True)
         is_classification = bool(bundle["is_classification"])
+        # An artifact from before targets could be several has no `n_tasks` and a scalar
+        # mean and deviation; one task, and `_to_values` broadcasts the scalars.
+        n_tasks = int(bundle.get("n_tasks", 1))
 
         # `freeze_encoder=False` here regardless of how it was trained: the flag only
         # controls which parameters receive gradients, and nothing is training now.
-        tokenizer, model = _load_backbone(freeze_encoder=False)
+        tokenizer, model = _load_backbone(freeze_encoder=False, num_labels=n_tasks)
         module = _build_module(
             model=model, learning_rate=1e-4, is_classification=is_classification
         )
@@ -512,7 +529,7 @@ class MolformerXL:
         module.load_state_dict(bundle["state_dict"])
 
         loader = _loader(
-            _unlabelled(ctx.frame[ctx.structure_column].to_list()),
+            _unlabelled(ctx.frame[ctx.structure_column].to_list(), n_tasks),
             collate=_collate(tokenizer),
             batch_size=_PREDICT_BATCH_SIZE,
         )
@@ -526,8 +543,8 @@ class MolformerXL:
         values = _to_values(
             _logits(trainer, module, loader),
             is_classification=is_classification,
-            target_mean=float(bundle["target_mean"]),
-            target_std=float(bundle["target_std"]),
+            target_mean=bundle["target_mean"],
+            target_std=bundle["target_std"],
         )
 
         # Explicit dtypes, matching every other engine: an all-None uncertainty list
@@ -538,10 +555,22 @@ class MolformerXL:
         # produce one through MC-dropout or a deep ensemble; a fabricated number would
         # be plotted by the triage grid as "the model is confident here", which is
         # worse than an admitted absent one.
-        return pl.DataFrame(
-            {
-                "row_id": pl.Series(list(range(len(values))), dtype=pl.Int64),
-                "value": pl.Series([float(value) for value in values], dtype=pl.Float64),
-                "uncertainty": pl.Series([None] * len(values), dtype=pl.Float64),
-            }
+        #
+        # Long format, one block per target: a joint engine is not wrapped in `FanOut`,
+        # so it tags its own rows.
+        row_ids = pl.Series(range(values.shape[0]), dtype=pl.Int64)
+        return pl.concat(
+            [
+                pl.DataFrame(
+                    {
+                        "row_id": row_ids,
+                        "value": pl.Series(
+                            [float(value) for value in values[:, index]], dtype=pl.Float64
+                        ),
+                        "uncertainty": pl.Series([None] * values.shape[0], dtype=pl.Float64),
+                        "target": pl.Series([column] * values.shape[0], dtype=pl.String),
+                    }
+                )
+                for index, column in enumerate(ctx.target_columns)
+            ]
         )

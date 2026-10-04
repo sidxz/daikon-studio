@@ -42,7 +42,7 @@ async def test_every_manifest_says_whether_it_learns_targets_jointly(client):
     response = await client.get("/api/v1/engines")
     assert response.status_code == 200, response.text
     joint = {e["id"] for e in response.json() if e["supports_multitask"]}
-    assert joint == {"chemprop-dmpnn"}
+    assert joint == {"chemprop-dmpnn", "molformer-xl"}
 
 
 async def test_conditions_carry_all_form_metadata(client):
