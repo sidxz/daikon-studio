@@ -22,6 +22,7 @@ export interface ConditionResponse {
   minimum: ConditionResponseMinimum;
   maximum: ConditionResponseMaximum;
   options: string[];
+  option_labels: string[];
   help: ConditionResponseHelp;
   tasks: string[];
 }

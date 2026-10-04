@@ -11,12 +11,13 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Switch } from "@/shared/components/ui/switch";
+import { appliesToTasks } from "../lib/conditions";
 
 /**
  * The run form's inputs, rendered entirely from the engine manifest.
  *
  * `key`, `label`, `type`, `required`, `default`, `minimum`, `maximum`,
- * `options` and `help` are everything a form needs, and the labels and help
+ * `options`, `option_labels` and `help` are everything a form needs, and the labels and help
  * strings are already written as biochemist-facing copy. Nothing about any
  * engine is hardcoded, which is what makes a Protocol self-describing enough
  * to be run by someone who has never heard of the engine underneath.
@@ -49,10 +50,7 @@ export function ConditionFields({
    */
   tasks?: string[];
 }) {
-  const shown = conditions.filter(
-    (condition) =>
-      !condition.tasks?.length || !tasks || condition.tasks.some((task) => tasks.includes(task)),
-  );
+  const shown = conditions.filter((condition) => appliesToTasks(condition, tasks));
 
   if (shown.length === 0) {
     return (
@@ -87,9 +85,9 @@ export function ConditionFields({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  {condition.options.map((option) => (
+                  {condition.options.map((option, index) => (
                     <SelectItem key={option} value={option}>
-                      {option}
+                      {condition.option_labels?.[index] ?? option}
                     </SelectItem>
                   ))}
                 </SelectContent>

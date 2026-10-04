@@ -11,6 +11,8 @@ export {
   useScorecard,
 } from "./hooks/use-protocols";
 export { PROTOCOLS_KEY, PROTOCOL_KEY, SCORECARD_KEY } from "./hooks/query-keys";
+export { appliesToTasks, withoutInapplicable } from "./lib/conditions";
+export { formatCutoff } from "./lib/format-cutoff";
 export { ConditionFields } from "./components/condition-fields";
 export { MapCompoundTooltip } from "./components/protocol-chemical-space";
 export { ProtocolDetail } from "./components/protocol-detail";

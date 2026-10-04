@@ -32,6 +32,16 @@ const RF_ENGINE = {
       required: false,
       options: [],
     },
+    {
+      key: "positive_weighting",
+      label: "Positive-class weighting",
+      type: "enum",
+      default: "none",
+      options: ["none", "balanced"],
+      option_labels: ["None", "Balanced"],
+      required: false,
+      tasks: ["binary_classification"],
+    },
   ],
 };
 
@@ -191,5 +201,50 @@ describe("the tune-cutoffs option", () => {
     const submit = await startSweep();
     expect(screen.queryByRole("checkbox", { name: "Tune decision cutoffs" })).toBeNull();
     expect((await submit()).tune_cutoffs).toBe(false);
+  });
+});
+
+// --- A setting the form hides for this dataset is not submitted ---
+
+describe("settings that do not apply to the dataset", () => {
+  afterEach(() => {
+    mutateAsync.mockClear();
+    hoisted.targets = [{ kind: "numeric", column: "logS", unit: null }];
+  });
+
+  async function submitAfterWeighting() {
+    hoisted.targets = [{ kind: "binary", column: "reactive", unit: null }];
+    render(<SweepForm />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByRole("option", { name: /Solubility/ }));
+    fireEvent.click(screen.getByText("Choose an engine"));
+    fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
+    const weightings = await screen.findAllByRole("combobox", { name: "Positive-class weighting" });
+    fireEvent.click(weightings[weightings.length - 1]);
+    fireEvent.click(await screen.findByRole("option", { name: "Balanced" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sweep" } });
+  }
+
+  it("sends the value while the dataset has a classification target", async () => {
+    await submitAfterWeighting();
+    fireEvent.click(screen.getByText("Start sweep"));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync.mock.calls[0][0].configs[0].conditions).toEqual({
+      n_estimators: 500,
+      positive_weighting: "balanced",
+    });
+  });
+
+  it("drops it once the dataset has none, in the configurations and the baseline", async () => {
+    await submitAfterWeighting();
+    hoisted.targets = [{ kind: "numeric", column: "logS", unit: null }];
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sweep 2" } });
+    fireEvent.click(screen.getByText("Start sweep"));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    const payload = mutateAsync.mock.calls[0][0];
+    expect(payload.configs[0].conditions).toEqual({ n_estimators: 500 });
+    expect(payload.baseline_conditions).not.toHaveProperty("positive_weighting");
   });
 });

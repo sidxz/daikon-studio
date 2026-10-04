@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { ConditionFields } from "./condition-fields";
 
@@ -11,6 +11,7 @@ const WEIGHTING = {
   minimum: null,
   maximum: null,
   options: ["none", "balanced"],
+  option_labels: [] as string[],
   help: null,
   tasks: ["binary_classification"],
 };
@@ -23,6 +24,7 @@ const EPOCHS = {
   minimum: 1,
   maximum: 500,
   options: [],
+  option_labels: [] as string[],
   help: null,
   tasks: [],
 };
@@ -54,5 +56,28 @@ describe("ConditionFields task scoping", () => {
     show(undefined);
     expect(screen.getByText("Positive-class weighting")).toBeInTheDocument();
     expect(screen.getByText("Training epochs")).toBeInTheDocument();
+  });
+});
+
+describe("ConditionFields option labels", () => {
+  const LABELED = { ...WEIGHTING, option_labels: ["None", "Balanced"] };
+
+  it("shows each option's label and submits the option itself", async () => {
+    const onChange = vi.fn();
+    render(<ConditionFields conditions={[LABELED]} values={{}} onChange={onChange} />);
+
+    fireEvent.click(screen.getByRole("combobox"));
+    expect(await screen.findByRole("option", { name: "None" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "balanced" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "Balanced" }));
+
+    expect(onChange).toHaveBeenCalledWith("positive_weighting", "balanced");
+  });
+
+  it("shows the raw options when the setting has no labels", async () => {
+    render(<ConditionFields conditions={[WEIGHTING]} values={{}} onChange={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole("combobox"));
+    expect(await screen.findByRole("option", { name: "balanced" })).toBeInTheDocument();
   });
 });

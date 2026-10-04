@@ -35,6 +35,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRunPoll, useTrainProtocol } from "../hooks/use-protocols";
+import { withoutInapplicable } from "../lib/conditions";
 import { ConditionFields } from "./condition-fields";
 import { TuneCutoffsField } from "./tune-cutoffs-field";
 
@@ -192,9 +193,15 @@ export function TrainProtocolForm() {
         name: name.trim(),
         dataset_id: datasetId,
         engine_id: engineId,
-        conditions,
+        // Settings the form hides for this dataset are not sent. The server resets
+        // them anyway; this keeps the request what the scientist saw.
+        conditions: withoutInapplicable(engine?.conditions ?? [], conditions, tasks),
         baseline_engine_id: baselineEngineId,
-        baseline_conditions: baselineConditions,
+        baseline_conditions: withoutInapplicable(
+          baselineEngine?.conditions ?? [],
+          baselineConditions,
+          tasks,
+        ),
         // Not just the checkbox: it may have been ticked before the dataset
         // changed to one with no active/inactive target.
         tune_cutoffs: canTuneCutoffs && tuneCutoffs,
@@ -213,11 +220,12 @@ export function TrainProtocolForm() {
 
   // The client-side mirror of the server's `baseline_is_self` -- computed once
   // here so both the submit gate and the warning below agree on it.
+  // A hidden setting does not count: the server resets it before comparing.
   const selfCompare = comparesAgainstItself(
     engineId,
-    conditions,
+    withoutInapplicable(engine?.conditions ?? [], conditions, tasks),
     baselineEngineId,
-    baselineConditions,
+    withoutInapplicable(baselineEngine?.conditions ?? [], baselineConditions, tasks),
     engine?.conditions ?? [],
     baselineEngine?.conditions ?? [],
   );

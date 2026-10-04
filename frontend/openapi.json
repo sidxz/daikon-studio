@@ -2768,6 +2768,13 @@
             "type": "array",
             "title": "Options"
           },
+          "option_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Option Labels"
+          },
           "help": {
             "anyOf": [
               {
@@ -2797,6 +2804,7 @@
           "minimum",
           "maximum",
           "options",
+          "option_labels",
           "help",
           "tasks"
         ],

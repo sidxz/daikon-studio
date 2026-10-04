@@ -91,6 +91,29 @@ const RF_ENGINE = {
   conditions: [],
 };
 
+// An engine with a classification-only setting, to see it stripped from a numeric dataset.
+const WEIGHTED_ENGINE = {
+  id: "weighted-forest",
+  version: "1.0.0",
+  name: "Weighted forest",
+  description: "",
+  tasks: ["regression", "binary_classification"],
+  supports_multitask: false,
+  is_baseline: false,
+  conditions: [
+    {
+      key: "positive_weighting",
+      label: "Positive-class weighting",
+      type: "enum",
+      default: "none",
+      options: ["none", "balanced"],
+      option_labels: ["None", "Balanced"],
+      required: false,
+      tasks: ["binary_classification"],
+    },
+  ],
+};
+
 // One numeric target unless a test says otherwise; the mixed-kind case is the
 // one that withholds a joint engine.
 const hoisted = vi.hoisted(() => ({
@@ -127,7 +150,7 @@ vi.mock("@/features/engines", async () => {
   const actual = await vi.importActual<typeof import("@/features/engines")>("@/features/engines");
   return {
     ...actual,
-    useEngines: () => ({ data: [CHEMPROP_ENGINE, RF_ENGINE] }),
+    useEngines: () => ({ data: [CHEMPROP_ENGINE, RF_ENGINE, WEIGHTED_ENGINE] }),
   };
 });
 
@@ -327,5 +350,52 @@ describe("the tune-cutoffs option", () => {
     const submit = await trainWithRf();
     expect(screen.queryByRole("checkbox", { name: "Tune decision cutoffs" })).toBeNull();
     expect((await submit()).tune_cutoffs).toBe(false);
+  });
+});
+
+// --- A setting the form hides for this dataset is not submitted ---
+
+describe("settings that do not apply to the dataset", () => {
+  afterEach(() => {
+    mutateAsync.mockClear();
+    hoisted.targets = [{ kind: "numeric", column: "logS" }];
+  });
+
+  async function trainWeightedForest(targets: { kind: string; column: string }[]) {
+    hoisted.targets = targets;
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TrainProtocolForm />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByText(/Solubility/));
+    fireEvent.click(screen.getByText("Choose an engine"));
+    fireEvent.click(await screen.findByRole("option", { name: /Weighted forest/ }));
+    // Set the weighting while it is visible, as a scientist who then changes dataset would.
+    fireEvent.click(await screen.findByRole("combobox", { name: "Positive-class weighting" }));
+    fireEvent.click(await screen.findByRole("option", { name: "Balanced" }));
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
+  }
+
+  it("drops a stale value once the dataset has no classification target", async () => {
+    await trainWeightedForest([{ kind: "binary", column: "reactive" }]);
+    hoisted.targets = [{ kind: "numeric", column: "logS" }];
+    // Any state change re-renders the form against the new dataset.
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol 2" } });
+    await waitFor(() => expect(screen.getByText("Train")).not.toBeDisabled());
+    fireEvent.click(screen.getByText("Train"));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync.mock.calls[0][0].conditions).toEqual({});
+  });
+
+  it("sends the value while the dataset has a classification target", async () => {
+    await trainWeightedForest([{ kind: "binary", column: "reactive" }]);
+    await waitFor(() => expect(screen.getByText("Train")).not.toBeDisabled());
+    fireEvent.click(screen.getByText("Train"));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync.mock.calls[0][0].conditions).toEqual({ positive_weighting: "balanced" });
   });
 });

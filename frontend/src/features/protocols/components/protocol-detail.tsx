@@ -22,6 +22,7 @@ import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useState } from "react";
 import { useProtocol, usePublishProtocol, useScorecard } from "../hooks/use-protocols";
+import { formatCutoff } from "../lib/format-cutoff";
 import { DeleteProtocolButton } from "./delete-protocol-button";
 import { ProtocolChemicalSpace } from "./protocol-chemical-space";
 import { ProtocolRuns } from "./protocol-runs";
@@ -147,7 +148,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
                 )}
                 {readout.type === "class" && readout.threshold != null && (
                   <span className="ml-1 text-xs text-muted-foreground">
-                    class at cutoff {readout.threshold.toPrecision(2)}
+                    class at cutoff {formatCutoff(readout.threshold)}
                   </span>
                 )}
               </span>

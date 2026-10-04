@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui
 import { Progress } from "@/shared/components/ui/progress";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
+import { formatCutoff } from "../lib/format-cutoff";
 import { type Verdict, computeOptimismGap, computeVerdict, describeBaseline } from "../lib/verdict";
 import { metricLabel } from "../types";
 import { LargestErrors } from "./largest-errors";
@@ -113,20 +114,36 @@ export function showsBootstrapExplainer(verdict: Verdict): boolean {
 }
 
 /**
- * The decision cutoff behind the MCC above, or why tuning did not happen.
- * Absent when tuning was not requested: the cutoff is then 0.5 and unremarkable.
- * The baseline's cutoff can be missing while the model's is set, when only the
- * baseline had too few validation compounds of one class.
+ * The decision cutoff behind the MCC, or why tuning did not happen. Absent when tuning
+ * was not requested: the cutoff is then 0.5 and unremarkable.
+ *
+ * `cutoff` is set only when tuning was requested and succeeded for the model. The
+ * baseline can still lack one when the model has one: both see the same validation set,
+ * so class counts are not the cause, but the baseline's probabilities can be constant
+ * or its training rows single-class. Say so, because the comparison is then tuned
+ * against 0.5. `comparesBaseline` is false when the baseline is the same fit.
  */
-function CutoffLine({ scorecard }: { scorecard: ScorecardResponse }) {
+function CutoffLine({
+  scorecard,
+  comparesBaseline,
+}: {
+  scorecard: ScorecardResponse;
+  comparesBaseline: boolean;
+}) {
   const { cutoff, baseline_cutoff: baselineCutoff, cutoff_note: note } = scorecard;
-  if (note) return <p className="mt-1 text-xs text-muted-foreground">{note}</p>;
-  if (cutoff == null) return null;
+  const model = cutoff != null ? `At cutoff ${formatCutoff(cutoff)}, tuned on validation.` : note;
+  if (!model) return null;
+  const baseline = !comparesBaseline
+    ? null
+    : baselineCutoff != null
+      ? `Baseline at its own tuned cutoff ${formatCutoff(baselineCutoff)}.`
+      : cutoff != null
+        ? "Baseline at 0.5: its validation predictions could not support a cutoff."
+        : null;
   return (
-    <p className="mt-1 text-xs text-muted-foreground">
-      At cutoff {cutoff.toPrecision(2)}, tuned on validation.
-      {baselineCutoff != null &&
-        ` Baseline at its own tuned cutoff ${baselineCutoff.toPrecision(2)}.`}
+    <p className="mt-2 text-xs text-muted-foreground">
+      {model}
+      {baseline && ` ${baseline}`}
     </p>
   );
 }
@@ -193,7 +210,6 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
               <ReadoutValue value={verdict.ci[1]} />] (bootstrap over the test set, unpaired)
             </p>
           )}
-          <CutoffLine scorecard={scorecard} />
           {/* Within noise by the interval: the only such verdict with no noise floor. */}
           {verdict.kind === "within-noise" && verdict.noiseFloor == null && (
             <p className="mt-2 text-sm">
@@ -231,6 +247,9 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
         </>
       )}
 
+      {/* Outside the comparison branch, like the honesty stats: every metric on the page
+          was measured at this cutoff, whatever the verdict says about the baseline. */}
+      <CutoffLine scorecard={scorecard} comparesBaseline={verdict.kind !== "is-baseline"} />
       <HonestyStats scorecard={scorecard} />
     </div>
   );

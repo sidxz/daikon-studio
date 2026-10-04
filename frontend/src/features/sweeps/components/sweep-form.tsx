@@ -2,7 +2,12 @@
 
 import { useDataset, useDatasets } from "@/features/datasets";
 import { TargetsHint, enginesForTargets, tasksForTargets, useEngines } from "@/features/engines";
-import { ConditionFields, TuneCutoffsField, resolveConditions } from "@/features/protocols";
+import {
+  ConditionFields,
+  TuneCutoffsField,
+  resolveConditions,
+  withoutInapplicable,
+} from "@/features/protocols";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
@@ -54,6 +59,13 @@ export function SweepForm() {
   const specsFor = (engineId: string) =>
     available.find((engine) => engine.id === engineId)?.conditions ?? [];
 
+  // Resolved against manifest defaults, minus the settings the form hides for this
+  // dataset (the server resets those anyway; this keeps the request honest).
+  const submitted = (engineId: string, values: Record<string, unknown>) => {
+    const specs = specsFor(engineId);
+    return withoutInapplicable(specs, resolveConditions(specs, values), tasks);
+  };
+
   function updateConfig(index: number, patch: Partial<ConfigRow>) {
     setConfigs((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
@@ -64,7 +76,7 @@ export function SweepForm() {
         name,
         dataset_id: datasetId,
         baseline_engine_id: baselineEngineId || null,
-        baseline_conditions: resolveConditions(specsFor(baselineEngineId), baselineConditions),
+        baseline_conditions: submitted(baselineEngineId, baselineConditions),
         // Resolved against manifest defaults, exactly as the train form does.
         // Sending raw form state would make `{}` and `{n_estimators: 500}` two
         // different requests for work the server resolves identically -- which
@@ -72,7 +84,7 @@ export function SweepForm() {
         // different sweep members.
         configs: configs.map((row) => ({
           engine_id: row.engineId,
-          conditions: resolveConditions(specsFor(row.engineId), row.conditions),
+          conditions: submitted(row.engineId, row.conditions),
         })),
         // Not just the checkbox: it may have been ticked before the dataset
         // changed to one with no active/inactive target.
