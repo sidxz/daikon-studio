@@ -102,7 +102,11 @@ export default function SettingsPage() {
             ) : api.isError ? (
               <p className="text-xs text-muted-foreground">Unavailable</p>
             ) : (
-              <VersionRow label="Version" value={api.data?.version ?? "unknown"} />
+              <>
+                <VersionRow label="Version" value={api.data?.version ?? "unknown"} />
+                <VersionRow label="Commit" value={api.data?.git_sha ?? "unknown"} />
+                <VersionRow label="Built" value={api.data?.build_date ?? "unknown"} />
+              </>
             )}
           </div>
           <VersionRow label="Environment" value={config.environment} />

@@ -5,8 +5,11 @@ import { STALE_TIME } from "@/shared/lib/query-defaults";
 import { useQuery } from "@tanstack/react-query";
 
 interface ApiVersion {
-  service: string;
+  name: string;
   version: string;
+  git_sha: string;
+  build_date: string;
+  environment: string;
 }
 
 /** Backend build identity, for the About card. Unauthenticated endpoint. */

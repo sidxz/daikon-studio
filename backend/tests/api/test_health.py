@@ -15,7 +15,19 @@ def test_health_returns_ok():
 
 def test_version_reports_service_name():
     client = TestClient(create_app())
-    assert response_json(client)["service"] == "daikon-studio"
+    assert response_json(client)["name"] == "daikon-studio"
+
+
+def test_version_reports_the_baked_in_build(monkeypatch):
+    monkeypatch.setenv("APP_VERSION", "1.4.0")
+    monkeypatch.setenv("APP_GIT_SHA", "abc1234")
+    monkeypatch.delenv("APP_BUILD_DATE", raising=False)
+    body = response_json(TestClient(create_app()))
+    assert (body["version"], body["git_sha"], body["build_date"]) == (
+        "1.4.0",
+        "abc1234",
+        "unknown",
+    )
 
 
 def response_json(client):

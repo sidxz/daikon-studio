@@ -46,6 +46,13 @@ RUN useradd --create-home --uid 10001 studio \
 # measurement showing this platform does not have the duplicate-runtime problem.
 ENV OMP_NUM_THREADS=1
 
+# Build identity, read by daikonstudio/version.py for /version (RELEASING.md).
+# Last, so a fresh APP_BUILD_DATE does not bust the dependency layers above.
+ARG APP_VERSION=0.0.0+dev
+ARG APP_GIT_SHA=unknown
+ARG APP_BUILD_DATE=unknown
+ENV APP_VERSION=$APP_VERSION APP_GIT_SHA=$APP_GIT_SHA APP_BUILD_DATE=$APP_BUILD_DATE
+
 USER studio
 
 # For a worker, override CMD to `["python", "-m", "daikonstudio.infrastructure.runner"]`

@@ -1,4 +1,5 @@
 import asyncio
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -26,6 +27,7 @@ from daikonstudio.interface.routes.runs import router as runs_router
 from daikonstudio.interface.routes.sweeps import router as sweeps_router
 from daikonstudio.logging import configure_logging
 from daikonstudio.settings import Settings
+from daikonstudio.version import build_info
 
 
 async def check_database(sessions: async_sessionmaker[AsyncSession]) -> str | None:
@@ -76,7 +78,8 @@ def create_app() -> FastAPI:
             await register_service_actions(duar)
             yield
 
-    app = FastAPI(title="daikon-studio", version="0.1.0", lifespan=lifespan)
+    info = build_info()
+    app = FastAPI(title="daikon-studio", version=info.version, lifespan=lifespan)
 
     # Built here rather than in the lifespan: every binding is lazy, so this
     # touches no database, filesystem or network, and an app that has not been
@@ -135,7 +138,13 @@ def create_app() -> FastAPI:
 
     @app.get("/version")
     async def version() -> dict[str, str]:
-        return {"service": settings.service_name, "version": app.version}
+        return {
+            "name": settings.service_name,
+            "version": info.version,
+            "git_sha": info.git_sha,
+            "build_date": info.build_date,
+            "environment": os.environ.get("APP_ENV", "development"),
+        }
 
     app.include_router(collections_router)
     app.include_router(datasets_router)

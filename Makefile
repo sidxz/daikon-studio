@@ -28,6 +28,9 @@ ROOT     := $(patsubst %/,%,$(dir $(abspath $(lastword $(MAKEFILE_LIST)))))
 BLOBS    := $(ROOT)/.blobs
 # Load backend/.env (DATABASE_URL, DUAR_*) into the recipe shell.
 BE_ENV   := set -a && . ./.env && set +a
+# Export APP_VERSION / APP_GIT_SHA / APP_BUILD_DATE for a component, from the
+# same script CI bakes into the images (RELEASING.md). $(call BUILD_INFO,backend)
+BUILD_INFO = eval "$$($(ROOT)/scripts/build-info.sh $(1) | sed s/^/export\ APP_/)"
 # Runner agents replace the arq workers: same jobs, but claimed over the HTTP
 # runner protocol (see backend/README.md).
 # Lanes live on the server-side runner rows that `make seed-runners` ensures.
@@ -63,7 +66,7 @@ WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 .DEFAULT_GOAL := help
 .PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
         seed-runners backfill-maps generate-api test test-api test-all test-fe lint lint-fe nuke \
-        image-runner-cpu image-runner-gpu image-smoke image-frontend
+        image-runner-cpu image-runner-gpu image-smoke image-frontend security-scan
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -96,10 +99,10 @@ seed-runners: ## Ensure the two local dev runners exist
 dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in the background
 	@mkdir -p $(LOGDIR)
 	@echo "Starting backend on :8002..."
-	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec uv run uvicorn daikonstudio.interface.app:app --reload --port 8002' \
+	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec uv run uvicorn daikonstudio.interface.app:app --reload --port 8002' \
 		> $(LOGDIR)/backend.log 2>&1 & echo "$$!" > $(LOGDIR)/backend.pid
 	@echo "Starting frontend on :3003..."
-	@nohup sh -c '$(FRONTEND) && exec pnpm dev' \
+	@nohup sh -c '$(call BUILD_INFO,frontend) && $(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
 	@echo "Starting runner agent (default lane)..."
 	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
@@ -124,7 +127,7 @@ dev-be: ## (Re)start the backend only, in the background
 	@lsof -ti tcp:8002 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 	@# Wait for the old server to release the port, or the new one dies with EADDRINUSE.
 	@for i in $$(seq 50); do lsof -ti tcp:8002 -sTCP:LISTEN >/dev/null || break; sleep 0.2; done
-	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec uv run uvicorn daikonstudio.interface.app:app --reload --port 8002' \
+	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec uv run uvicorn daikonstudio.interface.app:app --reload --port 8002' \
 		> $(LOGDIR)/backend.log 2>&1 & echo "$$!" > $(LOGDIR)/backend.pid
 	@echo "Backend (re)started on :8002 (log $(LOGDIR)/backend.log)"
 
@@ -133,7 +136,7 @@ dev-fe: ## (Re)start the frontend only, in the background
 	@lsof -ti tcp:3003 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 	@# Wait for the old server to release the port, or the new one dies with EADDRINUSE.
 	@for i in $$(seq 50); do lsof -ti tcp:3003 -sTCP:LISTEN >/dev/null || break; sleep 0.2; done
-	@nohup sh -c '$(FRONTEND) && exec pnpm dev' \
+	@nohup sh -c '$(call BUILD_INFO,frontend) && $(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
 	@echo "Frontend (re)started on :3003 (log $(LOGDIR)/frontend.log)"
 
@@ -197,7 +200,8 @@ lint-fe: ## Frontend lint (biome)
 	$(FRONTEND) && pnpm lint
 
 image-runner-cpu: ## Build the API + default-lane runner image locally as daikon-runner:cpu (the Runners UI names APP_RUNNER_IMAGE, the published one, by default)
-	docker build -f backend/Dockerfile -t daikon-runner:cpu backend
+	$(call BUILD_INFO,backend) && docker build -f backend/Dockerfile -t daikon-runner:cpu \
+		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE backend
 
 image-runner-gpu: ## Build the daikon-runner:gpu image (see backend/Dockerfile.gpu -- x86_64 only)
 	docker build -f backend/Dockerfile.gpu -t daikon-runner:gpu backend
@@ -210,10 +214,15 @@ image-smoke: image-runner-cpu ## Build the CPU image and prove it can import the
 		python -c "import daikonstudio.interface.app, daikonstudio.infrastructure.engines.registry as r; print('engines:', sorted(m.id for m in r.default_registry().manifests()))"
 
 image-frontend: ## Build the daikon-frontend:local image (Next standalone + RDKit wasm)
-	docker build -f frontend/Dockerfile -t daikon-frontend:local \
-		--build-arg APP_VERSION=$$(git describe --tags --always) \
-		--build-arg APP_GIT_SHA=$$(git rev-parse --short HEAD) \
-		--build-arg APP_BUILD_DATE=$$(date -u +%Y-%m-%dT%H:%M:%SZ) frontend
+	$(call BUILD_INFO,frontend) && docker build -f frontend/Dockerfile -t daikon-frontend:local \
+		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE frontend
+
+security-scan: image-runner-cpu image-frontend ## Trivy gate before a release: lockfiles + secrets, then both images; fails on fixable HIGH/CRITICAL
+	@command -v trivy >/dev/null || { echo "trivy is not installed: brew install trivy"; exit 1; }
+	trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+	  --skip-dirs node_modules,.venv,.next,.claude,.logs,.blobs,.superpowers,docs .
+	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-runner:cpu
+	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-frontend:local
 
 nuke: ## Stop containers and DELETE all data volumes + local blobs
 	$(COMPOSE) down -v
