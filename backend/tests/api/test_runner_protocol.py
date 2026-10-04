@@ -966,3 +966,41 @@ async def test_update_run_rejects_an_unbounded_metrics_payload(
 
     fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
     assert fetched.json()["metrics"] is None
+
+
+async def test_a_runner_may_write_its_own_runs_saved_progress(anonymous_client, app, workspace_id):
+    dataset_id = uuid.uuid4()
+    run = await _seed_run(
+        app, workspace_id, kind=RunKind.TRAINING, params={"dataset_id": str(dataset_id)}
+    )
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    key = f"{checkpoint_root(workspace_id, dataset_id, run.id)}model/lightning/training-state.a"
+    response = await anonymous_client.put(
+        f"/api/v1/runner/runs/{run.id}/blobs/{key}", headers=headers, content=b"state"
+    )
+
+    assert response.status_code == 200, response.text
+
+
+async def test_a_runner_may_not_write_another_runs_saved_progress(
+    anonymous_client, app, workspace_id
+):
+    """Saved training state is unpickled when its run resumes: workspace confinement
+    alone would let the runner of one run plant state another run then loads."""
+    dataset_id = uuid.uuid4()
+    run = await _seed_run(
+        app, workspace_id, kind=RunKind.TRAINING, params={"dataset_id": str(dataset_id)}
+    )
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+
+    other_run = uuid.uuid4()
+    key = f"{checkpoint_root(workspace_id, dataset_id, other_run)}model/lightning/training-state.a"
+    response = await anonymous_client.put(
+        f"/api/v1/runner/runs/{run.id}/blobs/{key}", headers=headers, content=b"payload"
+    )
+
+    assert response.status_code == 403, response.text
+    assert not app.state.container[BlobStore].exists(key)

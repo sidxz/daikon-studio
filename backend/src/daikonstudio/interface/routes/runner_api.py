@@ -20,6 +20,7 @@ one rule that matters for the security boundary -- a runner can never report
 from __future__ import annotations
 
 import posixpath
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
@@ -34,7 +35,7 @@ from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.catalog.protocol import ProtocolStatus
-from daikonstudio.domain.execution.run import RunKind, RunStatus
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import (
     AuthorizationError,
     ConcurrencyConflictError,
@@ -242,6 +243,25 @@ def _guard_workspace_prefix(workspace_id: uuid.UUID, key: str) -> None:
         raise AuthorizationError(f"Blob key '{key}' is outside this run's workspace")
 
 
+_CHECKPOINT_FOLDER = re.compile(r"/runs/[^/]+/checkpoints/")
+
+
+def _guard_checkpoint_folder(run: Run, key: str) -> None:
+    """Saved training state is unpickled when its run resumes, so a checkpoint folder
+    takes writes only from the runner holding THAT run's claim. Workspace confinement
+    alone would let the runner of one run plant state that another run then loads."""
+    if not _CHECKPOINT_FOLDER.search(key):
+        return
+    dataset_id = run.params.get("dataset_id")
+    own = (
+        checkpoint_root(run.workspace_id, uuid.UUID(str(dataset_id)), run.id)
+        if run.kind is RunKind.TRAINING and dataset_id
+        else None
+    )
+    if own is None or not key.startswith(own):
+        raise AuthorizationError(f"Blob key '{key}' is another run's saved progress")
+
+
 @router.get("/runs/{run_id}/blobs/{key:path}")
 async def get_blob(
     run: ClaimedRunRead, key: str, store: BlobStoreDep, settings: SettingsDep
@@ -265,6 +285,7 @@ async def put_blob(
 ) -> BlobPutResponse:
     key = _normalize_blob_key(key, settings.blob_base_url)
     _guard_workspace_prefix(run.workspace_id, key)
+    _guard_checkpoint_folder(run, key)
 
     # `.isdigit()` rather than a bare `int(...)`: a garbage or negative
     # Content-Length (a client can send anything) must not raise and 500 --
