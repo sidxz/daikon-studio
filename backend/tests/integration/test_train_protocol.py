@@ -18,9 +18,12 @@ because a mocked baseline is exactly the failure this file exists to prevent.
 
 from __future__ import annotations
 
+import io
 import json
 import uuid
+import zipfile
 from collections.abc import AsyncIterator
+from dataclasses import replace
 from pathlib import Path
 
 import polars as pl
@@ -47,6 +50,7 @@ from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
 from daikonstudio.domain.execution.run import Run, RunStatus
+from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import InlineEnqueuer
@@ -99,6 +103,22 @@ def _csv(values: tuple[float, ...] | None = None) -> bytes:
         f"{smiles},{value}" for smiles, value in zip(_STRUCTURES, numbers, strict=True)
     )
     return f"smiles,y\n{rows}\n".encode()
+
+
+def _two_target_csv() -> bytes:
+    numbers = tuple(1.0 + 0.37 * index for index in range(len(_STRUCTURES)))
+    labels = _alternating_values()
+    rows = "\n".join(
+        f"{smiles},{number},{int(label)}"
+        for smiles, number, label in zip(_STRUCTURES, numbers, labels, strict=True)
+    )
+    return f"smiles,y,active\n{rows}\n".encode()
+
+
+MIXED = (
+    TargetSpec(column="y", kind=TargetKind.NUMERIC, unit="logS", direction=Direction.HIGH),
+    TargetSpec(column="active", kind=TargetKind.BINARY),
+)
 
 
 def _alternating_values() -> tuple[float, ...]:
@@ -158,13 +178,16 @@ class Studio:
         kind: TargetKind = TargetKind.NUMERIC,
         values: tuple[float, ...] | None = None,
         unit: str | None = "logS",
+        targets: tuple[TargetSpec, ...] | None = None,
+        csv: bytes | None = None,
     ) -> Dataset:
-        upload_ref = (await self._upload(_csv(values), self.auth)).unwrap()
+        upload_ref = (await self._upload(csv or _csv(values), self.auth)).unwrap()
         command = CreateDatasetCommand(
             name=f"dataset-{strategy.value}-{kind.value}",
             upload_ref=str(upload_ref),
             structure_column="smiles",
-            targets=(TargetSpec(column="y", kind=kind, unit=unit, direction=Direction.HIGH),),
+            targets=targets
+            or (TargetSpec(column="y", kind=kind, unit=unit, direction=Direction.HIGH),),
             split=SplitSpec(strategy=strategy, seed=7),
         )
         return (await self._create(command, self.auth)).unwrap()
@@ -235,7 +258,7 @@ async def test_training_produces_a_draft_protocol_with_derived_readouts(studio: 
 
     protocol = await studio.protocol_for(run)
     assert protocol.status.value == "draft"
-    assert protocol.readouts[0].unit == dataset.single_target().unit
+    assert protocol.readouts[0].unit == dataset.targets[0].unit
     assert protocol.engine_id == "ecfp4-xgboost"
     assert protocol.dataset_id == dataset.id
     assert (await studio.reload(run)).status is RunStatus.READY
@@ -847,3 +870,84 @@ async def test_training_records_its_headline_metric(studio: Studio) -> None:
     assert headline["primary_metric"] == "mcc"
     assert isinstance(headline["value"], float)
     assert isinstance(headline["baseline_value"], float)
+
+
+async def test_a_mixed_kind_dataset_trains_one_model_per_target(studio: Studio) -> None:
+    dataset = await studio.dataset(targets=MIXED, csv=_two_target_csv())
+    run = await studio.wait(
+        await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    )
+    assert run.status is RunStatus.READY, run.error_message
+
+    protocol = await studio.protocol_for(run)
+    assert [(r.name, r.type.value) for r in protocol.readouts] == [
+        ("y", "numeric"),
+        ("active_probability", "probability"),
+        ("active", "class"),
+    ]
+    inputs = await studio.scorecard_for(run)
+    assert [(t.column, t.task) for t in inputs.targets] == [
+        ("y", "regression"),
+        ("active", "binary_classification"),
+    ]
+    assert inputs.joint_model is False
+    assert "rmse" in inputs.targets[0].metrics
+    assert "mcc" in inputs.targets[1].baseline_metrics
+    assert len(inputs.targets[1].predicted) == len(inputs.structures)
+    assert [h["column"] for h in run.metrics["targets"]] == ["y", "active"]
+    artifact = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))
+    assert zipfile.is_zipfile(io.BytesIO(artifact))
+
+
+async def test_a_single_target_protocol_still_stores_a_bare_artifact(studio: Studio) -> None:
+    dataset = await studio.dataset()
+    run = await studio.wait(
+        await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    )
+    protocol = await studio.protocol_for(run)
+    artifact = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))
+    assert not zipfile.is_zipfile(io.BytesIO(artifact))
+
+
+@pytest.fixture
+def chemprop_is_joint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chemprop declares `supports_multitask` only once Task 12 teaches it several
+    targets; until then this stands in for that declaration so the refusal is
+    exercised against the real registry entry. Redundant after Task 12."""
+    from daikonstudio.infrastructure.engines import chemprop_dmpnn
+
+    monkeypatch.setattr(
+        chemprop_dmpnn, "_MANIFEST", replace(chemprop_dmpnn._MANIFEST, supports_multitask=True)
+    )
+
+
+async def test_a_joint_engine_is_refused_a_mixed_kind_dataset_before_a_run_exists(
+    studio: Studio, chemprop_is_joint: None
+) -> None:
+    dataset = await studio.dataset(targets=MIXED, csv=_two_target_csv())
+    result = await studio._train(
+        TrainProtocolCommand(
+            name="joint", dataset_id=dataset.id, engine_id="chemprop-dmpnn", conditions={}
+        ),
+        studio.auth,
+    )
+    error = result.failure()
+    assert isinstance(error, ValidationError)
+    assert "same kind" in str(error)
+
+
+async def test_a_joint_baseline_is_refused_a_mixed_kind_dataset_too(
+    studio: Studio, chemprop_is_joint: None
+) -> None:
+    dataset = await studio.dataset(targets=MIXED, csv=_two_target_csv())
+    result = await studio._train(
+        TrainProtocolCommand(
+            name="joint baseline",
+            dataset_id=dataset.id,
+            engine_id="ecfp4-xgboost",
+            conditions={},
+            baseline_engine_id="chemprop-dmpnn",
+        ),
+        studio.auth,
+    )
+    assert isinstance(result.failure(), ValidationError)

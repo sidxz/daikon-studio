@@ -31,6 +31,7 @@ from daikonstudio.application.engines.registry import EngineRegistry, UnknownEng
 from daikonstudio.application.execution.train_protocol import (
     TrainProtocol,
     TrainProtocolCommand,
+    joint_kind_error,
 )
 from daikonstudio.application.pagination import clamp_limit
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
@@ -147,6 +148,20 @@ class SubmitSweep:
                 self._engines.get(command.baseline_engine_id)
             except UnknownEngineError:
                 return Failure(NotFoundError("Engine", command.baseline_engine_id))
+
+        # Same pre-flight reason as the existence checks above: a refusal from
+        # `TrainProtocol` halfway through the loop below would leave a sweep that
+        # looks complete and is not.
+        baseline = (
+            self._engines.get(command.baseline_engine_id)
+            if command.baseline_engine_id
+            else self._engines.baseline()
+        )
+        engine_ids = sorted({config.engine_id for config in command.configs})
+        for engine in [*(self._engines.get(engine_id) for engine_id in engine_ids), baseline]:
+            refused = joint_kind_error(engine.manifest(), dataset)
+            if refused is not None:
+                return Failure(refused)
 
         sweep_id = uuid.uuid4()
         runs: list[Run] = []

@@ -80,14 +80,6 @@ class Dataset(AggregateRoot):
     def target_columns(self) -> tuple[str, ...]:
         return tuple(target.column for target in self.targets)
 
-    def single_target(self) -> TargetSpec:
-        """Transitional, deleted by Task 9 of the multi-task plan: the one target of a
-        one-target Dataset. Raises rather than picking the first, for the reason
-        `targets` gives."""
-        if len(self.targets) != 1:
-            raise ValidationError("This step does not handle datasets with several targets yet.")
-        return self.targets[0]
-
 
 def check_id_column(
     columns: Sequence[str],

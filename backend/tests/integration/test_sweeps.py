@@ -8,6 +8,7 @@ not prove either.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -91,6 +92,14 @@ def _csv() -> bytes:
     return f"smiles,y\n{rows}\n".encode()
 
 
+def _mixed_csv() -> bytes:
+    rows = "\n".join(
+        f"{smiles},{1.0 + 0.37 * index},{(index // 2) % 2}"
+        for index, smiles in enumerate(_STRUCTURES)
+    )
+    return f"smiles,y,active\n{rows}\n".encode()
+
+
 @pytest.fixture
 def auth() -> FakeAuth:
     return FakeAuth()
@@ -117,6 +126,27 @@ async def dataset(sessions: async_sessionmaker, tmp_path: Path, auth: FakeAuth) 
         structure_column="smiles",
         targets=(
             TargetSpec(column="y", kind=TargetKind.NUMERIC, unit="logS", direction=Direction.HIGH),
+        ),
+        split=SplitSpec(strategy=SplitStrategy.RANDOM, seed=7),
+    )
+    return (await create(command, auth)).unwrap()
+
+
+@pytest_asyncio.fixture
+async def mixed_dataset(sessions: async_sessionmaker, tmp_path: Path, auth: FakeAuth) -> Dataset:
+    """Two targets of different kinds: the shape a joint engine must refuse."""
+    store = FsspecBlobStore(f"file://{tmp_path}")
+    datasets = SqlAlchemyDatasetRepository(sessions)
+    upload = StoreUpload(store)
+    create = CreateDataset(datasets, store, RdkitStructureNormalizer())
+    upload_ref = (await upload(_mixed_csv(), auth)).unwrap()
+    command = CreateDatasetCommand(
+        name="mixed sweep dataset",
+        upload_ref=str(upload_ref),
+        structure_column="smiles",
+        targets=(
+            TargetSpec(column="y", kind=TargetKind.NUMERIC),
+            TargetSpec(column="active", kind=TargetKind.BINARY),
         ),
         split=SplitSpec(strategy=SplitStrategy.RANDOM, seed=7),
     )
@@ -455,3 +485,34 @@ async def test_get_sweep_returns_members_in_submission_order(sessions, get_sweep
     runs = (await get_sweep(GetSweepQuery(sweep_id=sweep_id), auth=auth)).unwrap()
 
     assert [run.params["name"] for run in runs] == ["s #1", "s #2", "s #3"]
+
+
+@pytest.fixture
+def chemprop_is_joint(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Chemprop declares `supports_multitask` only once Task 12 teaches it several
+    targets; until then this stands in for that declaration so the refusal is
+    exercised against the real registry entry. Redundant after Task 12."""
+    from daikonstudio.infrastructure.engines import chemprop_dmpnn
+
+    monkeypatch.setattr(
+        chemprop_dmpnn, "_MANIFEST", replace(chemprop_dmpnn._MANIFEST, supports_multitask=True)
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_joint_engine_in_the_last_config_on_a_mixed_dataset_creates_no_runs(
+    submit_sweep, mixed_dataset, auth, runs_repository, chemprop_is_joint
+) -> None:
+    result = await submit_sweep(
+        SubmitSweepCommand(
+            name="doomed",
+            dataset_id=mixed_dataset.id,
+            configs=[
+                SweepConfig(engine_id="ecfp4-randomforest", conditions={}),
+                SweepConfig(engine_id="chemprop-dmpnn", conditions={}),
+            ],
+        ),
+        auth=auth,
+    )
+    assert isinstance(result, Failure)
+    assert await runs_repository.sweep_summaries(auth.workspace_id) == []

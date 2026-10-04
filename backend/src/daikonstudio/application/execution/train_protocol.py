@@ -72,7 +72,12 @@ from daikonstudio.application.engines.context import (
     TrainContext,
     TrainResult,
 )
-from daikonstudio.application.engines.manifest import TaskType, lane_for, validate_conditions
+from daikonstudio.application.engines.manifest import (
+    EngineManifest,
+    TaskType,
+    lane_for,
+    validate_conditions,
+)
 from daikonstudio.application.engines.protocol import Engine
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.build_scorecard import primary_metric_for
@@ -90,7 +95,7 @@ from daikonstudio.application.ports.structure_normalizer import StructureNormali
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
-from daikonstudio.domain.data.target import TargetKind
+from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.execution.run import (
     Run,
     RunKind,
@@ -325,6 +330,32 @@ class TrainProtocolCommand:
         )
 
 
+def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationError | None:
+    """Why a joint engine cannot train on this Dataset, or None when it can.
+
+    An engine that declares `supports_multitask` learns every target in one model
+    with one loss, and adding a squared error to a cross-entropy needs a relative
+    weighting nobody can set honestly. So a Dataset that mixes measured values and
+    active/inactive labels trains only on engines that fit one model per target.
+    Checked at enqueue (`TrainProtocol`, `SubmitSweep`), which refuse before a Run
+    exists, and again by the worker for a Run enqueued before the rule existed.
+    """
+    kinds = {target.kind for target in dataset.targets}
+    if not manifest.supports_multitask or len(kinds) < 2:
+        return None
+    numeric = [t.column for t in dataset.targets if t.kind is TargetKind.NUMERIC]
+    binary = [t.column for t in dataset.targets if t.kind is TargetKind.BINARY]
+    return ValidationError(
+        f"{manifest.name} trains one joint model, so every target must be the same kind. "
+        f"This dataset has measured values ({', '.join(numeric)}) and active/inactive "
+        f"labels ({', '.join(binary)}).",
+        detail=(
+            "Choose an engine that trains one model per target, or a dataset whose "
+            "targets are all one kind."
+        ),
+    )
+
+
 def training_lane(engines: EngineRegistry, engine_id: str, baseline_engine_id: str | None) -> str:
     """The lane a training Run needs: the chosen engine and its baseline fit inside
     one job, so the queue has to serve both. Shared by enqueue (`TrainProtocol`)
@@ -383,7 +414,7 @@ class TrainProtocol:
         assert auth is not None  # require_authenticated has already rejected None
 
         try:
-            self._engines.get(command.engine_id)
+            engine = self._engines.get(command.engine_id)
         except UnknownEngineError:
             return Failure(NotFoundError("Engine", command.engine_id))
 
@@ -407,6 +438,11 @@ class TrainProtocol:
         # this cannot fire today. It stays because it is the guard that has to
         # hold if a future caller ever hands us a Dataset it fetched elsewhere.
         require_same_workspace(auth, dataset.workspace_id, entity_type="Dataset")
+
+        for candidate in (engine, baseline):
+            refused = joint_kind_error(candidate.manifest(), dataset)
+            if refused is not None:
+                return Failure(refused)
 
         # Pin the resolved id into what gets persisted. `params` is write-once,
         # so a Run storing `None` would be measured against whatever the registry
@@ -493,12 +529,8 @@ class RunTraining:
         manifest = engine.manifest()
         # Before any compute, in this order: is the engine capable of this task,
         # and are the conditions legal? Both are milliseconds; a fit is minutes.
-        task = _task_for(dataset)
-        if task not in manifest.tasks:
-            raise ValidationError(
-                f"{manifest.name} does not support {_task_label(task)}. "
-                f"Supported tasks: {', '.join(map(_task_label, manifest.tasks))}."
-            )
+        targets = {target.column: _task_for(target) for target in dataset.targets}
+        _check_capable(manifest, dataset)
         conditions = validate_conditions(manifest, command.conditions)
 
         # Resolved at enqueue for new Runs; `None` only on a row written before
@@ -509,12 +541,7 @@ class RunTraining:
             else self._engines.baseline()
         )
         baseline_manifest = baseline.manifest()
-        if task not in baseline_manifest.tasks:
-            raise ValidationError(
-                f"The baseline engine ({baseline_manifest.name}) does not support "
-                f"{_task_label(task)}. Supported tasks: "
-                f"{', '.join(map(_task_label, baseline_manifest.tasks))}."
-            )
+        _check_capable(baseline_manifest, dataset, baseline=True)
         baseline_conditions = validate_conditions(baseline_manifest, command.baseline_conditions)
 
         frame = pl.read_parquet(
@@ -522,7 +549,7 @@ class RunTraining:
         )
         _require_structure_column(dataset, frame)
 
-        chosen = await self._fit(run, engine, dataset, task, conditions, frame, _CHOSEN_SPAN)
+        chosen = await self._fit(run, engine, dataset, targets, conditions, frame, _CHOSEN_SPAN)
 
         # The baseline is unconditional -- with one exception that is *not* an
         # exception to the rule. When the chosen engine is the baseline engine on
@@ -542,18 +569,16 @@ class RunTraining:
                 run,
                 baseline,
                 dataset,
-                task,
+                targets,
                 baseline_conditions,
                 frame,
                 _BASELINE_SPAN,
                 "Training baseline model",
             )
 
-        (
-            random_split_metrics,
-            random_split_unavailable,
-            random_split_metrics_undefined,
-        ) = await self._optimism_gap(run, engine, dataset, task, conditions, frame)
+        random_split, random_split_unavailable = await self._optimism_gap(
+            run, engine, dataset, targets, conditions, frame
+        )
 
         train_rows = frame.filter(pl.col("split") == "train")
         test_rows = frame.filter(pl.col("split") == "test")
@@ -573,14 +598,55 @@ class RunTraining:
         )
 
         protocol_id = uuid.uuid4()
-        target = dataset.single_target()
-        metrics, undefined = _measured(chosen.metrics[target.column])
-        baseline_metrics, baseline_undefined = _measured(baseline_result.metrics[target.column])
-        validation_metrics = (
-            _measured(chosen.validation_metrics[target.column])[0]
-            if chosen.validation_metrics is not None
-            else None
-        )
+        per_target: list[TargetInputs] = []
+        headlines: list[TargetHeadline] = []
+        for target in dataset.targets:
+            task = targets[target.column]
+            metrics, undefined = _measured(chosen.metrics[target.column])
+            baseline_metrics, baseline_undefined = _measured(
+                baseline_result.metrics[target.column]
+            )
+            gap = random_split.get(target.column) if random_split is not None else None
+            # `predict` returns one row per (compound, target); this target's rows, in
+            # test-set order, line up with `actual` below.
+            predicted = predictions.filter(pl.col("target") == target.column).sort("row_id")
+            per_target.append(
+                TargetInputs(
+                    column=target.column,
+                    task=task.value,
+                    metrics=metrics,
+                    validation_metrics=(
+                        _measured(chosen.validation_metrics[target.column])[0]
+                        if chosen.validation_metrics is not None
+                        else None
+                    ),
+                    actual=[float(value) for value in test_rows[target.column].to_list()],
+                    predicted=[float(value) for value in predicted["value"].to_list()],
+                    prediction_kind=(
+                        "probability" if task is TaskType.BINARY_CLASSIFICATION else "value"
+                    ),
+                    baseline_metrics=baseline_metrics,
+                    random_split_metrics=gap[0] if gap is not None else None,
+                    random_split_metrics_undefined=gap[1] if gap is not None else None,
+                    metrics_undefined=_undefined_reasons(
+                        undefined | baseline_undefined, target.column, train_rows, test_rows
+                    ),
+                    duplicate_spread=dataset.validation_report.duplicate_spread.get(target.column),
+                    target_unit=target.unit,
+                    target_direction=(
+                        target.direction.value if target.direction is not None else None
+                    ),
+                )
+            )
+            primary = primary_metric_for(task)
+            headlines.append(
+                TargetHeadline(
+                    column=target.column,
+                    primary_metric=primary,
+                    value=metrics.get(primary),
+                    baseline_value=baseline_metrics.get(primary),
+                )
+            )
         inputs = ScorecardInputs(
             protocol_id=str(protocol_id),
             run_id=str(run.id),
@@ -595,30 +661,7 @@ class RunTraining:
             random_split_unavailable=random_split_unavailable,
             split_strategy=dataset.split.strategy.value,
             joint_model=manifest.supports_multitask,
-            targets=[
-                TargetInputs(
-                    column=target.column,
-                    task=task.value,
-                    metrics=metrics,
-                    validation_metrics=validation_metrics,
-                    actual=[float(value) for value in test_rows[target.column].to_list()],
-                    predicted=[float(value) for value in predictions["value"].to_list()],
-                    prediction_kind=(
-                        "probability" if task is TaskType.BINARY_CLASSIFICATION else "value"
-                    ),
-                    baseline_metrics=baseline_metrics,
-                    random_split_metrics=random_split_metrics,
-                    random_split_metrics_undefined=random_split_metrics_undefined,
-                    metrics_undefined=_undefined_reasons(
-                        undefined | baseline_undefined, dataset, train_rows, test_rows
-                    ),
-                    duplicate_spread=dataset.validation_report.duplicate_spread.get(target.column),
-                    target_unit=target.unit,
-                    target_direction=(
-                        target.direction.value if target.direction is not None else None
-                    ),
-                )
-            ],
+            targets=per_target,
         )
 
         # Blobs first, Protocol row last, and deliberately in that order. A
@@ -670,17 +713,7 @@ class RunTraining:
         # this is a lookup, not a computation -- and it rides out on the same
         # `succeed()` + `update()` write that persists `result_uri`, so a run
         # can never be READY with no metric on it.
-        primary = primary_metric_for(task)
-        run.record_metrics(
-            [
-                TargetHeadline(
-                    column=target.column,
-                    primary_metric=primary,
-                    value=metrics.get(primary),
-                    baseline_value=baseline_metrics.get(primary),
-                )
-            ]
-        )
+        run.record_metrics(headlines)
 
         await self._map_chemical_space(run, protocol_id, frame, dataset)
         return result_uri
@@ -690,20 +723,22 @@ class RunTraining:
         run: Run,
         engine: Engine,
         dataset: Dataset,
-        task: TaskType,
+        targets: dict[str, TaskType],
         conditions: dict[str, object],
         frame: pl.DataFrame,
-    ) -> tuple[dict[str, float | None] | None, str | None, dict[str, str] | None]:
+    ) -> tuple[
+        dict[str, tuple[dict[str, float | None], dict[str, str] | None]] | None, str | None
+    ]:
         """The chosen engine re-fitted on a random split of the same rows.
 
         Only for a scaffold split: on a Dataset that is already randomly split
         there is no second number to compare against, and reporting the same
         figure twice would invent a gap of zero where none was measured.
 
-        Returns `(metrics, unavailable_reason, metrics_undefined)`. The third
-        element is this leg's own answer to the same question `metrics_undefined`
-        answers for the Dataset's own split -- computed from the *random*
-        partition, not the scaffold one, because the two can disagree about
+        Returns `(per target: (metrics, metrics_undefined), unavailable_reason)`. The
+        second element of each pair is this leg's own answer to the same question
+        `metrics_undefined` answers for the Dataset's own split -- computed from the
+        *random* partition, not the scaffold one, because the two can disagree about
         which metrics are undefined and why: a class that survives the
         scaffold split's test rows can still collapse to one class under a
         random reshuffle, or vice versa. Reusing the scaffold split's reasons
@@ -713,7 +748,7 @@ class RunTraining:
         prevents.
         """
         if dataset.split.strategy is not SplitStrategy.SCAFFOLD:
-            return None, None, None
+            return None, None
         # Outside the try on purpose: this writes to the Run row, and a failure
         # here is a persistence problem with the run itself, not a failure of the
         # comparison. Swallowing it would leave the aggregate's in-memory version
@@ -737,16 +772,18 @@ class RunTraining:
                 self._normalizer,
             )
             result = await self._train_off_thread(
-                run, engine, dataset, task, conditions, random_frame, _RANDOM_SPLIT_SPAN
+                run, engine, dataset, targets, conditions, random_frame, _RANDOM_SPLIT_SPAN
             )
-            metrics, undefined = _measured(result.metrics[dataset.single_target().column])
-            reasons = _undefined_reasons(
-                undefined,
-                dataset,
-                random_frame.filter(pl.col("split") == "train"),
-                random_frame.filter(pl.col("split") == "test"),
-            )
-            return metrics, None, reasons
+            train_rows = random_frame.filter(pl.col("split") == "train")
+            test_rows = random_frame.filter(pl.col("split") == "test")
+            gap: dict[str, tuple[dict[str, float | None], dict[str, str] | None]] = {}
+            for column in targets:
+                metrics, undefined = _measured(result.metrics[column])
+                gap[column] = (
+                    metrics,
+                    _undefined_reasons(undefined, column, train_rows, test_rows),
+                )
+            return gap, None
         except RunInterrupted:
             # Not degradable, unlike every other failure in this leg. A cancellation or
             # a deadline means stop, and recording it as an unavailable comparison would
@@ -763,14 +800,14 @@ class RunTraining:
             # therefore degrades to a recorded reason rather than a failure.
             # Not silent: `random_split_unavailable` is what stops the Scorecard
             # showing an absent gap and a not-applicable gap identically.
-            return None, user_facing_error(exc), None
+            return None, user_facing_error(exc)
 
     async def _fit(
         self,
         run: Run,
         engine: Engine,
         dataset: Dataset,
-        task: TaskType,
+        targets: dict[str, TaskType],
         conditions: dict[str, object],
         frame: pl.DataFrame,
         span: tuple[float, float],
@@ -787,14 +824,14 @@ class RunTraining:
         """
         resolved_phase = phase or f"Training {engine.manifest().name}"
         await self._progress(run, span[0], resolved_phase)
-        return await self._train_off_thread(run, engine, dataset, task, conditions, frame, span)
+        return await self._train_off_thread(run, engine, dataset, targets, conditions, frame, span)
 
     async def _train_off_thread(
         self,
         run: Run,
         engine: Engine,
         dataset: Dataset,
-        task: TaskType,
+        targets: dict[str, TaskType],
         conditions: dict[str, object],
         frame: pl.DataFrame,
         span: tuple[float, float],
@@ -804,12 +841,11 @@ class RunTraining:
         # have to think about threads.
         # `run` is threaded through only so the reporter can reach the row -- the
         # engine never sees it.
-        target = dataset.single_target()
         return await asyncio.to_thread(
             engine.train,
             TrainContext(
                 frame=frame,
-                targets={target.column: task},
+                targets=targets,
                 structure_column=dataset.structure_column,
                 conditions=conditions,
                 seed=dataset.split.seed,
@@ -934,7 +970,7 @@ def _measured(metrics: dict[str, float]) -> tuple[dict[str, float | None], set[s
 
 
 def _undefined_reasons(
-    undefined: set[str], dataset: Dataset, train_rows: pl.DataFrame, test_rows: pl.DataFrame
+    undefined: set[str], column: str, train_rows: pl.DataFrame, test_rows: pl.DataFrame
 ) -> dict[str, str] | None:
     """Why those metrics are undefined, in words a scientist can act on.
 
@@ -945,7 +981,6 @@ def _undefined_reasons(
     """
     if not undefined:
         return None
-    column = dataset.single_target().column
     if test_rows[column].n_unique() < 2:
         reason = (
             f"Undefined: all test-set compounds have the same '{column}' value. Add "
@@ -999,14 +1034,28 @@ def _task_label(task: TaskType) -> str:
     return task.value.replace("_", " ")
 
 
-def _task_for(dataset: Dataset) -> TaskType:
-    """The one place the task type is decided, and it reads the TargetSpec.
-
-    Never the values. `TrainContext.task` is authoritative precisely so an
-    engine cannot look at a column of 0.0s and 1.0s and decide for itself.
-    """
+def _task_for(target: TargetSpec) -> TaskType:
+    """The one place a task is decided, and it reads the target's spec -- never its
+    values. `TrainContext.targets` is authoritative precisely so an engine cannot
+    look at a column of 0.0s and 1.0s and decide for itself."""
     return (
-        TaskType.BINARY_CLASSIFICATION
-        if dataset.single_target().kind is TargetKind.BINARY
-        else TaskType.REGRESSION
+        TaskType.BINARY_CLASSIFICATION if target.kind is TargetKind.BINARY else TaskType.REGRESSION
     )
+
+
+def _check_capable(manifest: EngineManifest, dataset: Dataset, *, baseline: bool = False) -> None:
+    """Before any compute: can this engine train every target here? Milliseconds,
+    against a fit measured in minutes.
+
+    `baseline` only changes the wording: the baseline is not the engine the scientist
+    chose, so the message has to name it as the baseline."""
+    subject = f"The baseline engine ({manifest.name})" if baseline else manifest.name
+    for task in dict.fromkeys(_task_for(target) for target in dataset.targets):
+        if task not in manifest.tasks:
+            raise ValidationError(
+                f"{subject} does not support {_task_label(task)}. "
+                f"Supported tasks: {', '.join(map(_task_label, manifest.tasks))}."
+            )
+    refused = joint_kind_error(manifest, dataset)
+    if refused is not None:
+        raise refused

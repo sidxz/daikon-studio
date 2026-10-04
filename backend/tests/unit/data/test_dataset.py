@@ -27,12 +27,6 @@ def test_target_columns_keep_the_order_chosen():
     assert _dataset("b", "a").target_columns == ("b", "a")
 
 
-def test_single_target_refuses_a_dataset_with_several():
-    assert _dataset("y").single_target().column == "y"
-    with pytest.raises(ValidationError):
-        _dataset("a", "b").single_target()
-
-
 def test_an_identifier_may_not_be_any_of_the_targets():
     with pytest.raises(ValidationError):
         check_id_column(
