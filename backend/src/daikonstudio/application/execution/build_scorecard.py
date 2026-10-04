@@ -1,7 +1,7 @@
 """Turns Task 14's raw measurements into the Scorecard a scientist reads.
 
 `build_scorecard` does not compute metrics -- Task 14's engines already produced
-them via `_score`, on the model's own code path and the baseline's. Recomputing
+them via `_scored`, on the model's own code path and the baseline's. Recomputing
 either here, or computing the model's while passing the baseline's through
 unchanged, would put the two halves of the head-to-head on different code paths,
 and they would silently diverge the moment a third engine exists. `actual` and
@@ -111,7 +111,7 @@ def primary_metric_ci(
     paired test of the difference. Still the honest floor under the verdict.
 
     Recomputed from `actual`/`predicted` with the metric's own definition (MCC
-    at the 0.5 threshold, RMSE), not by re-running the engines' `_score`: the
+    at the 0.5 threshold, RMSE), not by re-running the engines' `_scored`: the
     point estimate stays theirs, the interval is ours, and a fixed seed makes it
     the same on every page load.
     """

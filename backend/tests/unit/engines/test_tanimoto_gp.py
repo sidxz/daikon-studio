@@ -1,6 +1,10 @@
+import itertools
+from dataclasses import replace
+
 import numpy as np
 import polars as pl
 import pytest
+from sklearn.metrics import matthews_corrcoef
 
 from daikonstudio.application.engines.context import PredictContext, TrainContext
 from daikonstudio.application.engines.manifest import TaskType
@@ -180,7 +184,7 @@ def test_classification_trains_and_predicts():
 
 def test_single_class_training_split_is_refused_with_a_legible_message():
     """GaussianProcessClassifier raises where the tree engines fit happily and let
-    `_score` report undefined metrics. Its own message names neither the engine nor the
+    `_scored` report undefined metrics. Its own message names neither the engine nor the
     fix, so the run would fail on a bare sklearn ValueError."""
     rows = frame().with_columns(pl.Series("y", [0] * 8 + [0, 1, 0, 1]))
     with pytest.raises(ValidationError, match="same label"):
@@ -203,3 +207,31 @@ def test_manifest_declares_the_cubic_ceiling_to_the_user():
     this engine, and it belongs on screen rather than in this file."""
     description = TanimotoGP.manifest().description
     assert "5,000" in description and "10,000" in description
+
+
+def test_a_tuned_cutoff_is_returned_and_mcc_is_reported_at_it():
+    """120 rows, because the GP is slow; validation holds 12 of each class, enough to tune.
+
+    Anilines are active, phenols inactive, over 60 distinct substituent pairs. Not alkyl
+    chains: their fingerprints are near-duplicates, which leaves the classifier's Laplace
+    approximation with a negative latent variance and NaN probabilities on unseen rows.
+    """
+    groups = ["C", "CC", "CCC", "Cl", "Br", "F", "OC", "C#N"]
+    pairs = list(itertools.product(groups, groups))[:60]
+    rows = pl.DataFrame(
+        {
+            "smiles": [f"{head}c1cc({a})cc({b})c1" for a, b in pairs for head in "NO"],
+            "y": [1, 0] * 60,
+            "split": ["train", "validation", "test", "train", "train"] * 24,
+        }
+    )
+    ctx = replace(context(TaskType.BINARY_CLASSIFICATION, frame=rows), tune_cutoffs=True)
+    result = TanimotoGP().train(ctx)
+
+    assert result.cutoffs is not None and set(result.cutoffs) == {"y"}
+    test = rows.filter(pl.col("split") == "test")
+    probabilities = predict(result.artifact, test["smiles"].to_list())["value"].to_numpy()
+    expected = matthews_corrcoef(
+        test["y"].to_numpy(), (probabilities >= result.cutoffs["y"]).astype(int)
+    )
+    assert result.metrics["y"]["mcc"] == pytest.approx(expected)

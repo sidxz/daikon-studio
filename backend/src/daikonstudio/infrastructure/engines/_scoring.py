@@ -3,8 +3,8 @@
 `regression_metrics` and `classification_metrics` are engine-agnostic and imported by
 every engine, chemprop included: a Scorecard comparing "your model" against "the
 baseline" is only meaningful while both numbers come from literally the same code.
-`_score` below is sklearn-shaped and stays private to the four sklearn-API engines --
-the two ECFP4 ones, the descriptor one and the Gaussian process. Those differ only in
+`_scored` below is sklearn-shaped and stays private to the sklearn-API engines -- the
+three ECFP4 trees, the descriptor one and the Gaussian process. Those differ only in
 how a structure becomes a feature matrix, which is why the featurizer is a parameter
 here rather than four near-copies of the same scoring code.
 
@@ -168,71 +168,85 @@ def mcc_cutoff(y_true: np.ndarray, probabilities: np.ndarray) -> float | None:
 
 
 def _metrics_on(
-    model: Any,
-    test_rows: pl.DataFrame,
-    ctx: TrainContext,
-    is_classification: bool,
-    featurizer: Featurizer = ecfp4,
+    model: Any, x: np.ndarray, y: np.ndarray, is_classification: bool, cutoff: float | None
 ) -> dict[str, float]:
     """RMSE/MAE/R2 for regression; MCC/balanced accuracy/AUROC/AUPRC for classification.
 
-    `featurizer` defaults to `ecfp4` so the two ECFP4 engines read unchanged; the
-    descriptor engine passes its own. It must be the same one `train` fitted on --
-    scoring a model against a different representation than it learned produces
-    numbers rather than an error.
+    With no cutoff the hard labels are `model.predict` exactly as before; with one they
+    are `p >= cutoff`, so MCC and balanced accuracy describe the tuned classifier while
+    AUROC and AUPRC, which no cutoff touches, are unchanged.
     """
-    x_test = featurizer(test_rows[ctx.structure_column].to_list())
-    y_test = test_rows[ctx.target_column].to_numpy()
-
     if not is_classification:
-        return regression_metrics(y_test, model.predict(x_test))
+        return regression_metrics(y, model.predict(x))
 
     # Both single-class checks stay HERE, before any sklearn call -- not delegated to
     # `classification_metrics` -- because short-circuiting is what keeps sklearn's
     # "y_pred contains classes not in y_true" warning from firing at all.
-    if len(np.unique(y_test)) < 2 or len(model.classes_) < 2:
+    if len(np.unique(y)) < 2 or len(model.classes_) < 2:
         return _undefined_classification_metrics()
 
-    return classification_metrics(
-        y_test,
-        model.predict(x_test),
-        _positive_class_probability(model, x_test),
-        train_has_both_classes=True,
-    )
+    probabilities = _positive_class_probability(model, x)
+    labels = model.predict(x) if cutoff is None else (probabilities >= cutoff).astype(int)
+    return classification_metrics(y, labels, probabilities, train_has_both_classes=True)
 
 
-def _score(
-    model: Any,
-    test_rows: pl.DataFrame,
-    ctx: TrainContext,
-    is_classification: bool,
-    featurizer: Featurizer = ecfp4,
-) -> dict[str, dict[str, float]]:
-    """`_metrics_on`, keyed by the one target this fit trained on -- the shape
-    `TrainResult.metrics` takes now that a Dataset can hold several. These engines
-    always fit one target; `FanOut` merges the keys."""
-    return {ctx.target_column: _metrics_on(model, test_rows, ctx, is_classification, featurizer)}
+def _scored(
+    model: Any, ctx: TrainContext, is_classification: bool, featurizer: Featurizer = ecfp4
+) -> tuple[
+    dict[str, dict[str, float]], dict[str, dict[str, float]] | None, dict[str, float] | None
+]:
+    """Test metrics, validation metrics and the tuned cutoff for the one target this fit
+    trained on, keyed by its column -- the shapes `TrainResult` takes now that a Dataset
+    can hold several. These engines always fit one target; `FanOut` merges the keys.
 
+    `featurizer` defaults to `ecfp4` so the ECFP4 engines read unchanged; the descriptor
+    engine passes its own. It must be the same one `train` fitted on -- scoring a model
+    against a different representation than it learned produces numbers rather than an
+    error.
 
-def _score_validation(
-    model: Any,
-    ctx: TrainContext,
-    is_classification: bool,
-    featurizer: Featurizer = ecfp4,
-) -> dict[str, dict[str, float]] | None:
-    """The same `_score`, pointed at the validation partition.
+    Validation is scored with the identical code as test, on purpose: a validation number
+    a scientist is asked to tune against has to be the same measurement as the one they
+    will eventually be judged by, or tuning against it optimizes the wrong thing. It is
+    `None` when the partition is empty, which a split with a zero validation fraction
+    produces legitimately.
 
-    Identical code to the test scoring on purpose: a validation number a scientist
-    is asked to tune against has to be the same measurement as the one they will
-    eventually be judged by, or tuning against it optimizes the wrong thing.
-
-    `None` when the partition is empty, which a split with a zero validation
-    fraction produces legitimately.
+    Validation is also where the cutoff comes from when `ctx.tune_cutoffs` is on, and test
+    is then scored at that cutoff. Validation metrics at a tuned cutoff are optimistic,
+    since the cutoff was chosen on them -- the test numbers stay the verdict. Each
+    partition is featurized once.
     """
+    column = ctx.target_column
+    test_rows = ctx.frame.filter(pl.col("split") == "test")
     validation_rows = ctx.frame.filter(pl.col("split") == "validation")
-    if validation_rows.height == 0:
-        return None
-    return _score(model, validation_rows, ctx, is_classification, featurizer)
+    x_validation = (
+        featurizer(validation_rows[ctx.structure_column].to_list())
+        if validation_rows.height
+        else None
+    )
+    cutoff = None
+    if (
+        ctx.tune_cutoffs
+        and is_classification
+        and x_validation is not None
+        and len(model.classes_) == 2
+    ):
+        cutoff = mcc_cutoff(
+            validation_rows[column].to_numpy(), _positive_class_probability(model, x_validation)
+        )
+    x_test = featurizer(test_rows[ctx.structure_column].to_list())
+    metrics = {
+        column: _metrics_on(model, x_test, test_rows[column].to_numpy(), is_classification, cutoff)
+    }
+    validation = (
+        None
+        if x_validation is None
+        else {
+            column: _metrics_on(
+                model, x_validation, validation_rows[column].to_numpy(), is_classification, cutoff
+            )
+        }
+    )
+    return metrics, validation, ({column: cutoff} if cutoff is not None else None)
 
 
 def _ecfp4_with_descriptors(smiles_list: list[str]) -> np.ndarray:
@@ -260,7 +274,13 @@ def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
 
 def bundle_features(featurizer_key: str) -> dict[str, Any]:
     """What a tree bundle records about its input, so predict featurizes identically and
-    `_require_matching_features` can refuse a descriptor list that has since changed."""
+    `_require_matching_features` can refuse a descriptor list that has since changed.
+
+    Nothing for plain ECFP4: a default fit's bundle stays exactly what it was before this
+    existed, and `_load_bundle` reads a bundle with no key as ECFP4, as it always has.
+    """
+    if featurizer_key == "ecfp4":
+        return {}
     names = _FEATURE_NAMES.get(featurizer_key)
     return {"featurizer": featurizer_key} | ({"feature_names": names} if names else {})
 

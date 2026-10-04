@@ -31,11 +31,8 @@ from daikonstudio.application.engines.manifest import (
     validate_conditions,
 )
 from daikonstudio.infrastructure.chem.featurize import DESCRIPTOR_NAMES, rdkit_descriptors
-from daikonstudio.infrastructure.engines._scoring import (
-    _predict_with_tree_ensemble,
-    _score,
-    _score_validation,
-)
+from daikonstudio.infrastructure.engines._options import POSITIVE_WEIGHTING, positive_weight
+from daikonstudio.infrastructure.engines._scoring import _predict_with_tree_ensemble, _scored
 
 _MANIFEST = EngineManifest(
     id="descriptors-xgboost",
@@ -79,6 +76,7 @@ _MANIFEST = EngineManifest(
             help="How much each boosting round is allowed to correct the last. Lower "
             "values need more rounds but usually generalize better.",
         ),
+        POSITIVE_WEIGHTING,
     ),
     is_baseline=False,
 )
@@ -92,11 +90,17 @@ class DescriptorsXGBoost:
     def train(self, ctx: TrainContext) -> TrainResult:
         conditions = validate_conditions(_MANIFEST, ctx.conditions)
         train_rows = ctx.frame.filter(pl.col("split") == "train")
-        test_rows = ctx.frame.filter(pl.col("split") == "test")
 
         x_train = rdkit_descriptors(train_rows[ctx.structure_column].to_list())
         y_train = train_rows[ctx.target_column].to_numpy()
         is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
+        # Regression fits ignore the setting: in a mixed dataset fanned out per target,
+        # only the active/inactive targets are weighted.
+        weight = (
+            positive_weight(y_train, str(conditions["positive_weighting"]))
+            if is_classification
+            else None
+        )
 
         model: XGBClassifier | XGBRegressor
         model_kwargs = {
@@ -109,6 +113,8 @@ class DescriptorsXGBoost:
             "n_jobs": -1,
         }
         if is_classification:
+            if weight is not None:
+                model_kwargs["scale_pos_weight"] = weight
             model = XGBClassifier(**model_kwargs)
         else:
             model = XGBRegressor(**model_kwargs)
@@ -125,10 +131,14 @@ class DescriptorsXGBoost:
                 "feature_names": DESCRIPTOR_NAMES,
             }
         )
+        metrics, validation_metrics, cutoffs = _scored(
+            model, ctx, is_classification, rdkit_descriptors
+        )
         return TrainResult(
             artifact=artifact,
-            metrics=_score(model, test_rows, ctx, is_classification, rdkit_descriptors),
-            validation_metrics=_score_validation(model, ctx, is_classification, rdkit_descriptors),
+            metrics=metrics,
+            validation_metrics=validation_metrics,
+            cutoffs=cutoffs,
         )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:

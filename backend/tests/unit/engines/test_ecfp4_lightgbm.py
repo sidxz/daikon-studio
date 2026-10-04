@@ -10,13 +10,18 @@ that drift between two runs of the same configuration.
 from __future__ import annotations
 
 import math
+import pickle
+from dataclasses import replace
 
 import polars as pl
 import pytest
+from sklearn.metrics import matthews_corrcoef
 
 from daikonstudio.application.engines.context import PredictContext, TrainContext
 from daikonstudio.application.engines.manifest import TaskType
+from daikonstudio.infrastructure.chem.featurize import DESCRIPTOR_NAMES
 from daikonstudio.infrastructure.engines.ecfp4_lightgbm import Ecfp4LightGBM
+from tests.helpers.frames import imbalanced_frame
 
 SMILES = [
     "CCO",
@@ -189,3 +194,66 @@ def test_manifest_stays_on_the_default_lane() -> None:
 @pytest.mark.parametrize("key", ["n_estimators", "num_leaves", "learning_rate"])
 def test_manifest_declares_the_conditions_the_form_renders(key: str) -> None:
     assert any(condition.key == key for condition in Ecfp4LightGBM.manifest().conditions)
+
+
+# --- positive weighting, descriptors and tuned cutoffs ------------------------------
+
+
+def _binary_ctx(frame: pl.DataFrame, **conditions: object) -> TrainContext:
+    return TrainContext(
+        frame=frame,
+        targets={"y": TaskType.BINARY_CLASSIFICATION},
+        structure_column="smiles",
+        conditions=conditions,
+        seed=1,
+    )
+
+
+def _predict(frame: pl.DataFrame, artifact: bytes) -> pl.DataFrame:
+    return Ecfp4LightGBM().predict(
+        PredictContext(
+            frame=frame,
+            structure_column="smiles",
+            artifact=artifact,
+            conditions={},
+            target_columns=("y",),
+        )
+    )
+
+
+def test_balanced_weighting_raises_the_predicted_probability_of_actives() -> None:
+    frame = imbalanced_frame()
+    test = frame.filter(pl.col("split") == "test")
+
+    def mean_probability(**conditions: object):
+        artifact = Ecfp4LightGBM().train(_binary_ctx(frame, **conditions)).artifact
+        return _predict(test, artifact)["value"].mean()
+
+    assert mean_probability(positive_weighting="balanced") > mean_probability()
+
+
+def test_descriptors_widen_the_input_and_round_trip() -> None:
+    frame = imbalanced_frame()
+    result = Ecfp4LightGBM().train(_binary_ctx(frame, rdkit_descriptors=True))
+    bundle = pickle.loads(result.artifact)
+
+    assert bundle["featurizer"] == "ecfp4+rdkit_descriptors"
+    assert bundle["model"].n_features_in_ == 2048 + len(DESCRIPTOR_NAMES)
+    assert _predict(frame.head(5), result.artifact).height == 5
+
+
+def test_a_tuned_cutoff_is_returned_and_mcc_is_reported_at_it() -> None:
+    frame = imbalanced_frame()
+    result = Ecfp4LightGBM().train(replace(_binary_ctx(frame), tune_cutoffs=True))
+
+    assert result.cutoffs is not None and set(result.cutoffs) == {"y"}
+    test = frame.filter(pl.col("split") == "test")
+    probabilities = _predict(test, result.artifact)["value"].to_numpy()
+    expected = matthews_corrcoef(
+        test["y"].to_numpy(), (probabilities >= result.cutoffs["y"]).astype(int)
+    )
+    assert result.metrics["y"]["mcc"] == pytest.approx(expected)
+
+
+def test_without_tuning_there_are_no_cutoffs() -> None:
+    assert Ecfp4LightGBM().train(_binary_ctx(imbalanced_frame())).cutoffs is None

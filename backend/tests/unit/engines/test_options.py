@@ -7,6 +7,7 @@ from daikonstudio.infrastructure.chem.featurize import DESCRIPTOR_NAMES
 from daikonstudio.infrastructure.engines._options import positive_weight
 from daikonstudio.infrastructure.engines._scoring import (
     _FEATURIZERS,
+    bundle_features,
     mcc_cutoff,
     tree_featurizer,
 )
@@ -62,3 +63,11 @@ def test_tree_featurizer_appends_the_descriptors_as_float32():
     assert _FEATURIZERS[key] is featurize
     assert tree_featurizer({"rdkit_descriptors": False})[0] == "ecfp4"
     assert tree_featurizer({})[0] == "ecfp4"
+
+
+def test_bundle_features_names_the_descriptor_columns_and_leaves_plain_ecfp4_unkeyed():
+    assert bundle_features("ecfp4") == {}
+    assert bundle_features("ecfp4+rdkit_descriptors") == {
+        "featurizer": "ecfp4+rdkit_descriptors",
+        "feature_names": DESCRIPTOR_NAMES,
+    }

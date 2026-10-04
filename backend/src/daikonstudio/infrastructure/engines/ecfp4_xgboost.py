@@ -15,11 +15,16 @@ from daikonstudio.application.engines.manifest import (
     TaskType,
     validate_conditions,
 )
-from daikonstudio.infrastructure.chem.featurize import ecfp4
+from daikonstudio.infrastructure.engines._options import (
+    POSITIVE_WEIGHTING,
+    RDKIT_DESCRIPTORS,
+    positive_weight,
+)
 from daikonstudio.infrastructure.engines._scoring import (
     _predict_with_tree_ensemble,
-    _score,
-    _score_validation,
+    _scored,
+    bundle_features,
+    tree_featurizer,
 )
 
 _MANIFEST = EngineManifest(
@@ -60,6 +65,8 @@ _MANIFEST = EngineManifest(
             help="How much each boosting round is allowed to correct the last. Lower "
             "values need more rounds but usually generalize better.",
         ),
+        POSITIVE_WEIGHTING,
+        RDKIT_DESCRIPTORS,
     ),
     is_baseline=False,
 )
@@ -73,11 +80,18 @@ class Ecfp4XGBoost:
     def train(self, ctx: TrainContext) -> TrainResult:
         conditions = validate_conditions(_MANIFEST, ctx.conditions)
         train_rows = ctx.frame.filter(pl.col("split") == "train")
-        test_rows = ctx.frame.filter(pl.col("split") == "test")
 
-        x_train = ecfp4(train_rows[ctx.structure_column].to_list())
+        featurizer_key, featurizer = tree_featurizer(conditions)
+        x_train = featurizer(train_rows[ctx.structure_column].to_list())
         y_train = train_rows[ctx.target_column].to_numpy()
         is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
+        # Regression fits ignore the setting: in a mixed dataset fanned out per target,
+        # only the active/inactive targets are weighted.
+        weight = (
+            positive_weight(y_train, str(conditions["positive_weighting"]))
+            if is_classification
+            else None
+        )
 
         model: XGBClassifier | XGBRegressor
         model_kwargs = {
@@ -92,6 +106,8 @@ class Ecfp4XGBoost:
             "n_jobs": -1,
         }
         if is_classification:
+            if weight is not None:
+                model_kwargs["scale_pos_weight"] = weight
             model = XGBClassifier(**model_kwargs)
         else:
             model = XGBRegressor(**model_kwargs)
@@ -100,11 +116,19 @@ class Ecfp4XGBoost:
         # pickle.dumps serializes the fitted model; safe to write, since only our
         # own predict() ever reads this artifact back (see _scoring.py for the load
         # side, and its comment on why deserializing it is safe there).
-        artifact = pickle.dumps({"model": model, "is_classification": is_classification})
+        artifact = pickle.dumps(
+            {
+                "model": model,
+                "is_classification": is_classification,
+                **bundle_features(featurizer_key),
+            }
+        )
+        metrics, validation_metrics, cutoffs = _scored(model, ctx, is_classification, featurizer)
         return TrainResult(
             artifact=artifact,
-            metrics=_score(model, test_rows, ctx, is_classification),
-            validation_metrics=_score_validation(model, ctx, is_classification),
+            metrics=metrics,
+            validation_metrics=validation_metrics,
+            cutoffs=cutoffs,
         )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:

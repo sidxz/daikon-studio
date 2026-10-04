@@ -13,6 +13,7 @@ from daikonstudio.infrastructure.chem.featurize import (
     rdkit_descriptors,
 )
 from daikonstudio.infrastructure.engines.descriptors_xgboost import DescriptorsXGBoost
+from tests.helpers.frames import imbalanced_frame
 
 SMILES = [
     "CCO",
@@ -120,7 +121,7 @@ def test_train_returns_artifact_and_metrics():
 
 
 def test_validation_is_scored_through_the_same_featurizer():
-    """`_score_validation` defaults to ecfp4; passing the wrong featurizer there would
+    """`_scored` defaults to ecfp4; passing the wrong featurizer there would
     not raise, it would silently score this model against 2048 fingerprint bits."""
     rows = frame().with_columns(
         pl.Series("split", ["train"] * 6 + ["validation"] * 3 + ["test"] * 3)
@@ -194,3 +195,38 @@ def test_an_ecfp4_artifact_without_the_new_keys_still_predicts():
         )
     )
     assert predictions.height == 2
+
+
+def test_balanced_weighting_raises_the_predicted_probability_of_actives():
+    frame = imbalanced_frame()
+    test = frame.filter(pl.col("split") == "test")
+
+    def mean_probability(**conditions):
+        artifact = (
+            DescriptorsXGBoost()
+            .train(
+                TrainContext(
+                    frame=frame,
+                    targets={"y": TaskType.BINARY_CLASSIFICATION},
+                    structure_column="smiles",
+                    conditions=conditions,
+                    seed=1,
+                )
+            )
+            .artifact
+        )
+        return (
+            DescriptorsXGBoost()
+            .predict(
+                PredictContext(
+                    frame=test,
+                    structure_column="smiles",
+                    artifact=artifact,
+                    conditions={},
+                    target_columns=("y",),
+                )
+            )["value"]
+            .mean()
+        )
+
+    assert mean_probability(positive_weighting="balanced") > mean_probability()

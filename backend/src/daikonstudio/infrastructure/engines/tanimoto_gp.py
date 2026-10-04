@@ -48,11 +48,7 @@ from daikonstudio.application.engines.manifest import (
 )
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.chem.featurize import ecfp4
-from daikonstudio.infrastructure.engines._scoring import (
-    _predict_with_gaussian_process,
-    _score,
-    _score_validation,
-)
+from daikonstudio.infrastructure.engines._scoring import _predict_with_gaussian_process, _scored
 
 #: Refuse rather than thrash. The kernel matrix is n x n float64 and the fit factorises
 #: it once per marginal-likelihood step, so 10,000 rows is 800 MB per copy and minutes
@@ -171,7 +167,6 @@ class TanimotoGP:
     def train(self, ctx: TrainContext) -> TrainResult:
         conditions = validate_conditions(_MANIFEST, ctx.conditions)
         train_rows = ctx.frame.filter(pl.col("split") == "train")
-        test_rows = ctx.frame.filter(pl.col("split") == "test")
         is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
 
         if train_rows.height > _MAX_TRAINING_ROWS:
@@ -185,7 +180,7 @@ class TanimotoGP:
         y_train = train_rows[ctx.target_column].to_numpy()
 
         if is_classification and len(np.unique(y_train)) < 2:
-            # The tree engines fit happily on one class and let `_score` report
+            # The tree engines fit happily on one class and let `_scored` report
             # undefined metrics. GaussianProcessClassifier raises instead, and its own
             # message says nothing about which split is at fault -- so the run would
             # fail on a bare sklearn ValueError naming neither the engine nor the fix.
@@ -207,10 +202,12 @@ class TanimotoGP:
                 "featurizer": "ecfp4",
             }
         )
+        metrics, validation_metrics, cutoffs = _scored(model, ctx, is_classification)
         return TrainResult(
             artifact=artifact,
-            metrics=_score(model, test_rows, ctx, is_classification),
-            validation_metrics=_score_validation(model, ctx, is_classification),
+            metrics=metrics,
+            validation_metrics=validation_metrics,
+            cutoffs=cutoffs,
         )
 
     @staticmethod

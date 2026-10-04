@@ -23,11 +23,16 @@ from daikonstudio.application.engines.manifest import (
     TaskType,
     validate_conditions,
 )
-from daikonstudio.infrastructure.chem.featurize import ecfp4
+from daikonstudio.infrastructure.engines._options import (
+    POSITIVE_WEIGHTING,
+    RDKIT_DESCRIPTORS,
+    positive_weight,
+)
 from daikonstudio.infrastructure.engines._scoring import (
     _predict_with_tree_ensemble,
-    _score,
-    _score_validation,
+    _scored,
+    bundle_features,
+    tree_featurizer,
 )
 
 _MANIFEST = EngineManifest(
@@ -50,6 +55,8 @@ _MANIFEST = EngineManifest(
             help="Number of decision trees in the ensemble. More trees give more stable "
             "predictions but take longer to train.",
         ),
+        POSITIVE_WEIGHTING,
+        RDKIT_DESCRIPTORS,
     ),
     is_baseline=True,
 )
@@ -63,11 +70,18 @@ class Ecfp4RandomForest:
     def train(self, ctx: TrainContext) -> TrainResult:
         conditions = validate_conditions(_MANIFEST, ctx.conditions)
         train_rows = ctx.frame.filter(pl.col("split") == "train")
-        test_rows = ctx.frame.filter(pl.col("split") == "test")
 
-        x_train = ecfp4(train_rows[ctx.structure_column].to_list())
+        featurizer_key, featurizer = tree_featurizer(conditions)
+        x_train = featurizer(train_rows[ctx.structure_column].to_list())
         y_train = train_rows[ctx.target_column].to_numpy()
         is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
+        # Regression fits ignore the setting: in a mixed dataset fanned out per target,
+        # only the active/inactive targets are weighted.
+        weight = (
+            positive_weight(y_train, str(conditions["positive_weighting"]))
+            if is_classification
+            else None
+        )
 
         # No annotation on `model`: sklearn ships no py.typed marker, so both
         # constructors already resolve to Any (see the import above) -- declaring a
@@ -80,7 +94,10 @@ class Ecfp4RandomForest:
         # 5.6-8x slower single-threaded on realistic assay sizes).
         if is_classification:
             model = RandomForestClassifier(
-                n_estimators=conditions["n_estimators"], random_state=ctx.seed, n_jobs=-1
+                n_estimators=conditions["n_estimators"],
+                random_state=ctx.seed,
+                n_jobs=-1,
+                class_weight=None if weight is None else {0: 1.0, 1: weight},
             )
         else:
             model = RandomForestRegressor(
@@ -104,11 +121,19 @@ class Ecfp4RandomForest:
         # pickle.dumps serializes the fitted model; safe to write, since only our
         # own predict() ever reads this artifact back (see _scoring.py for the load
         # side, and its comment on why deserializing it is safe there).
-        artifact = pickle.dumps({"model": model, "is_classification": is_classification})
+        artifact = pickle.dumps(
+            {
+                "model": model,
+                "is_classification": is_classification,
+                **bundle_features(featurizer_key),
+            }
+        )
+        metrics, validation_metrics, cutoffs = _scored(model, ctx, is_classification, featurizer)
         return TrainResult(
             artifact=artifact,
-            metrics=_score(model, test_rows, ctx, is_classification),
-            validation_metrics=_score_validation(model, ctx, is_classification),
+            metrics=metrics,
+            validation_metrics=validation_metrics,
+            cutoffs=cutoffs,
         )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:
