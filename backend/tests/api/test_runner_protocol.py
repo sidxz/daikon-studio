@@ -1004,3 +1004,39 @@ async def test_a_runner_may_not_write_another_runs_saved_progress(
 
     assert response.status_code == 403, response.text
     assert not app.state.container[BlobStore].exists(key)
+
+
+@pytest.mark.parametrize(
+    "respelled",
+    [
+        lambda root: root.replace("/checkpoints/", "//checkpoints/"),  # POSIX collapses `//`
+        lambda root: root.replace("/runs/", "//runs/"),
+        lambda root: root.replace("/checkpoints/", "/Checkpoints/"),  # APFS ignores case
+        lambda root: root.replace("/checkpoints/", "/CHECKPOINTS/"),
+        lambda root: root.replace("/checkpoints/", "/checkpoint\u017f/"),  # long s folds to s
+        lambda root: root.replace("/checkpoints/", "/chec\u212apoints/"),  # Kelvin sign is K
+    ],
+    ids=["double-slash", "double-slash-runs", "title-case", "upper-case", "long-s", "kelvin"],
+)
+async def test_a_runner_may_not_reach_another_runs_saved_progress_by_respelling_its_path(
+    anonymous_client, app, workspace_id, respelled
+):
+    """The guard must hold for the spellings a file system resolves to the same folder:
+    `//` collapses on POSIX and case or Unicode variants resolve on macOS."""
+    dataset_id = uuid.uuid4()
+    run = await _seed_run(
+        app, workspace_id, kind=RunKind.TRAINING, params={"dataset_id": str(dataset_id)}
+    )
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+    store = app.state.container[BlobStore]
+    other_root = checkpoint_root(workspace_id, dataset_id, uuid.uuid4())
+    store.put_bytes(f"{other_root}model/lightning/training-state.a", b"theirs")
+
+    key = f"{respelled(other_root)}model/lightning/training-state.a"
+    response = await anonymous_client.put(
+        f"/api/v1/runner/runs/{run.id}/blobs/{key}", headers=headers, content=b"payload"
+    )
+
+    assert response.status_code == 403, response.text
+    assert store.get_bytes(f"{other_root}model/lightning/training-state.a") == b"theirs"

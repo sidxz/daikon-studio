@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import posixpath
 import re
+import unicodedata
 import uuid
 from datetime import UTC, datetime
 from typing import Annotated
@@ -221,10 +222,12 @@ def _guard_workspace_prefix(workspace_id: uuid.UUID, key: str) -> None:
     percent-encoded `..` segments in the URL, which arrive here already
     decoded (ASGI's `scope["path"]` is decoded before routing).
 
-    Reject on three independent grounds: a rooted key, a literal `..`/`.`
-    path segment, and (belt-and-braces) a `posixpath.normpath` of the key
-    landing outside the prefix -- any one of these tripping is enough to
-    refuse, so no single encoding trick can satisfy all three at once.
+    Reject on independent grounds: a rooted key, a literal `..`/`.` or empty
+    path segment (POSIX collapses `a//b` to `a/b`, so `//` reaches a folder the
+    other checks only see under another name), and (belt-and-braces) a
+    `posixpath.normpath` of the key landing outside the prefix -- any one of
+    these tripping is enough to refuse, so no single encoding trick can satisfy
+    all of them at once.
 
     Callers pass this the output of `_normalize_blob_key`, never the raw
     path param -- a full store URI legitimately does not start with
@@ -236,6 +239,7 @@ def _guard_workspace_prefix(workspace_id: uuid.UUID, key: str) -> None:
         not key.startswith("/")
         and ".." not in segments
         and "." not in segments
+        and "" not in segments
         and key.startswith(prefix)
         and posixpath.normpath(key).startswith(prefix)
     )
@@ -250,7 +254,10 @@ def _guard_checkpoint_folder(run: Run, key: str) -> None:
     """Saved training state is unpickled when its run resumes, so a checkpoint folder
     takes writes only from the runner holding THAT run's claim. Workspace confinement
     alone would let the runner of one run plant state that another run then loads."""
-    if not _CHECKPOINT_FOLDER.search(key):
+    # Matched against a folded copy of the key: a case-insensitive file system (macOS)
+    # resolves `Checkpoints`, and a Unicode-insensitive one resolves the Kelvin sign as
+    # `K`, to the same folder. No legitimate key needs either spelling.
+    if not _CHECKPOINT_FOLDER.search(unicodedata.normalize("NFKC", key).casefold()):
         return
     dataset_id = run.params.get("dataset_id")
     own = (
