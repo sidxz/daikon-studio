@@ -31,6 +31,8 @@ from daikonstudio.application.execution.list_runs import ListRuns, ListRunsQuery
 from daikonstudio.application.execution.predict_with_protocol import (
     CancelRun,
     CancelRunCommand,
+    GetPredictionResultRanges,
+    GetPredictionResultRangesQuery,
     GetPredictionResults,
     GetPredictionResultsQuery,
     GetRun,
@@ -54,6 +56,9 @@ PredictWithProtocolDep = Annotated[PredictWithProtocol, Depends(use_case(Predict
 GetRunDep = Annotated[GetRun, Depends(use_case(GetRun))]
 CancelRunDep = Annotated[CancelRun, Depends(use_case(CancelRun))]
 GetPredictionResultsDep = Annotated[GetPredictionResults, Depends(use_case(GetPredictionResults))]
+GetPredictionResultRangesDep = Annotated[
+    GetPredictionResultRanges, Depends(use_case(GetPredictionResultRanges))
+]
 ListRunsDep = Annotated[ListRuns, Depends(use_case(ListRuns))]
 RetryRunDep = Annotated[RetryRun, Depends(use_case(RetryRun))]
 
@@ -404,3 +409,24 @@ async def retry_run(
     fresh = body.fresh if body is not None else False
     result_to_response(await service(RetryRunCommand(run_id=run_id, fresh=fresh), auth=auth))
     return Response(status_code=204)
+
+
+class ColumnRangeResponse(BaseModel):
+    min: float | None
+    max: float | None
+
+
+@router.get("/{run_id}/results/ranges", response_model=dict[str, ColumnRangeResponse])
+async def get_run_result_ranges(
+    run_id: uuid.UUID, auth: AuthDep, service: GetPredictionResultRangesDep
+) -> dict[str, ColumnRangeResponse]:
+    """Each numeric results column's range across the whole Run, keyed by the same
+    column names `results` sorts and filters by: the readouts, the uncertainty
+    columns and `applicability`. Unfiltered, so a scale does not move with a filter."""
+    ranges = result_to_response(
+        await service(GetPredictionResultRangesQuery(run_id=run_id), auth=auth)
+    )
+    return {
+        column: ColumnRangeResponse(min=bounds.minimum, max=bounds.maximum)
+        for column, bounds in ranges.items()
+    }

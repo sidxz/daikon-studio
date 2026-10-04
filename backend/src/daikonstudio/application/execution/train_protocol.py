@@ -175,6 +175,15 @@ _CHECKPOINT_TIMEOUT_SECONDS = 30.0
 _CHOSEN_SPAN = (0.0, 0.6)
 _BASELINE_SPAN = (0.6, 0.7)
 _RANDOM_SPLIT_SPAN = (0.7, 0.95)
+# Prefixed to an engine's own progress text in the stages that are not the chosen
+# model's fit: with the baseline the same engine as the model, "Training Chemprop
+# D-MPNN" alone cannot say which of the three fits is running.
+_STAGE_LABELS = {"baseline": "Baseline", "random-split": "Random-split comparison"}
+
+
+def _staged(scope: str, phase: str) -> str:
+    stage = _STAGE_LABELS.get(scope)
+    return phase if stage is None else f"{stage}: {phase}"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -1026,7 +1035,9 @@ class RunTraining:
                     )
                 else:
                     await self._progress(
-                        run, span[1], f"Restored the {manifest.name} fit from saved progress"
+                        run,
+                        span[1],
+                        _staged(scope, f"Restored the {manifest.name} fit from saved progress"),
                     )
                     return restored
         result = await asyncio.to_thread(
@@ -1039,7 +1050,7 @@ class RunTraining:
                 seed=dataset.split.seed,
                 tune_cutoffs=self._tune_cutoffs,
                 checkpoints=stage,
-                report=self._reporter(run, span),
+                report=self._reporter(run, span, scope),
             ),
         )
         if stage is not None:
@@ -1048,7 +1059,9 @@ class RunTraining:
             await asyncio.to_thread(_save_result, stage, result)
         return result
 
-    def _reporter(self, run: Run, span: tuple[float, float]) -> ProgressReporter:
+    def _reporter(
+        self, run: Run, span: tuple[float, float], scope: str = "model"
+    ) -> ProgressReporter:
         """A callback the engine invokes from the worker thread.
 
         Three things happen per call, in this order and for this reason:
@@ -1078,7 +1091,7 @@ class RunTraining:
             last_written = now
             clamped = min(max(fraction, 0.0), 1.0)
             future = asyncio.run_coroutine_threadsafe(
-                self._checkpoint(run, low + (high - low) * clamped, phase), loop
+                self._checkpoint(run, low + (high - low) * clamped, _staged(scope, phase)), loop
             )
             if not future.result(timeout=_CHECKPOINT_TIMEOUT_SECONDS):
                 raise RunInterrupted("the run was cancelled", cancelled=True)

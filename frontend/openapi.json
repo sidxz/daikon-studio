@@ -2188,6 +2188,54 @@
         }
       }
     },
+    "/api/v1/runs/{run_id}/results/ranges": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Get Run Result Ranges",
+        "description": "Each numeric results column's range across the whole Run, keyed by the same\ncolumn names `results` sorts and filters by: the readouts, the uncertainty\ncolumns and `applicability`. Unfiltered, so a scale does not move with a filter.",
+        "operationId": "get_run_result_ranges_api_v1_runs__run_id__results_ranges_get",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "$ref": "#/components/schemas/ColumnRangeResponse"
+                  },
+                  "title": "Response Get Run Result Ranges Api V1 Runs  Run Id  Results Ranges Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sweeps": {
       "post": {
         "tags": [
@@ -2698,6 +2746,38 @@
           "created_at"
         ],
         "title": "CollectionResponse"
+      },
+      "ColumnRangeResponse": {
+        "properties": {
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          }
+        },
+        "type": "object",
+        "required": [
+          "min",
+          "max"
+        ],
+        "title": "ColumnRangeResponse"
       },
       "CompoundPageResponse": {
         "properties": {

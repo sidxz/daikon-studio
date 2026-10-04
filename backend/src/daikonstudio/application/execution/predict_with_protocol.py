@@ -566,29 +566,6 @@ class GetPredictionResults:
     async def __call__(
         self, query: GetPredictionResultsQuery, auth: AuthContext | None = None
     ) -> Result[PageResult[PredictionRow], DomainError]:
-        require_authenticated(auth)
-        assert auth is not None  # require_authenticated has already rejected None
-
-        run = await self._runs.get(auth.workspace_id, query.run_id)
-        if run is None:
-            return Failure(NotFoundError("Run", str(query.run_id)))
-        if run.kind is not RunKind.PREDICTION:
-            return Failure(NotFoundError("Prediction results", str(query.run_id)))
-        if run.status is not RunStatus.READY:
-            detail = run.error_message if run.status is RunStatus.FAILED else None
-            return Failure(
-                ConflictError(
-                    "Results are available only for completed runs; "
-                    f"this run is {run.status.label}.",
-                    detail=detail,
-                )
-            )
-
-        protocol_id = uuid.UUID(run.params["protocol_id"])
-        protocol = await self._protocols.get(auth.workspace_id, protocol_id)
-        if protocol is None:
-            return Failure(NotFoundError("Protocol", str(protocol_id)))
-
         try:
             offset = int(query.cursor) if query.cursor else 0
             if offset < 0:
@@ -602,16 +579,10 @@ class GetPredictionResults:
             )
         limit = clamp_limit(query.limit)
 
-        try:
-            raw = self._store.get_bytes(predictions_key(run.workspace_id, run.id))
-        except FileNotFoundError:
-            return Failure(NotFoundError("Prediction results", str(run.id)))
-        # ponytail: reads and holds the entire results Parquet in memory for
-        # every page request, not just the page asked for -- fine at today's
-        # per-run compound-set sizes. Upgrade path if a run's results grow
-        # large: polars' `scan_parquet` (lazy, pushdown-capable) instead of
-        # `read_parquet`, or a precomputed row-group index for true partial reads.
-        frame = pl.read_parquet(io.BytesIO(raw))
+        loaded = await _load_results(self._runs, self._protocols, self._store, query.run_id, auth)
+        if not is_successful(loaded):
+            return Failure(loaded.failure())
+        protocol, frame = loaded.unwrap()
 
         target_columns = target_columns_of(protocol.readouts)
         uncertainty_columns = {
@@ -659,3 +630,97 @@ class GetPredictionResults:
             for row in page
         ]
         return Success(PageResult(items=items, next_cursor=next_cursor))
+
+
+async def _load_results(
+    runs: RunRepository,
+    protocols: ProtocolRepository,
+    store: BlobStore,
+    run_id: uuid.UUID,
+    auth: AuthContext | None,
+) -> Result[tuple[InSilicoProtocol, pl.DataFrame], DomainError]:
+    """A finished prediction Run's Protocol and its whole results file."""
+    require_authenticated(auth)
+    assert auth is not None  # require_authenticated has already rejected None
+
+    run = await runs.get(auth.workspace_id, run_id)
+    if run is None:
+        return Failure(NotFoundError("Run", str(run_id)))
+    if run.kind is not RunKind.PREDICTION:
+        return Failure(NotFoundError("Prediction results", str(run_id)))
+    if run.status is not RunStatus.READY:
+        detail = run.error_message if run.status is RunStatus.FAILED else None
+        return Failure(
+            ConflictError(
+                f"Results are available only for completed runs; this run is {run.status.label}.",
+                detail=detail,
+            )
+        )
+
+    protocol_id = uuid.UUID(run.params["protocol_id"])
+    protocol = await protocols.get(auth.workspace_id, protocol_id)
+    if protocol is None:
+        return Failure(NotFoundError("Protocol", str(protocol_id)))
+
+    try:
+        raw = store.get_bytes(predictions_key(run.workspace_id, run.id))
+    except FileNotFoundError:
+        return Failure(NotFoundError("Prediction results", str(run.id)))
+    # ponytail: reads and holds the entire results Parquet in memory for
+    # every page request, not just the page asked for -- fine at today's
+    # per-run compound-set sizes. Upgrade path if a run's results grow
+    # large: polars' `scan_parquet` (lazy, pushdown-capable) instead of
+    # `read_parquet`, or a precomputed row-group index for true partial reads.
+    return Success((protocol, pl.read_parquet(io.BytesIO(raw))))
+
+
+@dataclass(frozen=True, kw_only=True)
+class ColumnRange:
+    """The smallest and largest value in one results column, or None for a column
+    with no values at all (a null uncertainty, say)."""
+
+    minimum: float | None
+    maximum: float | None
+
+
+@dataclass(frozen=True, kw_only=True)
+class GetPredictionResultRangesQuery:
+    run_id: uuid.UUID
+
+
+class GetPredictionResultRanges:
+    """Each numeric results column's range across the whole Run, unfiltered: the
+    scale a triage grid draws its in-cell bars against. A page cannot supply it,
+    since a page holds a hundred rows of however many the Run scored."""
+
+    def __init__(
+        self, runs: RunRepository, protocols: ProtocolRepository, store: BlobStore
+    ) -> None:
+        self._runs = runs
+        self._protocols = protocols
+        self._store = store
+
+    async def __call__(
+        self, query: GetPredictionResultRangesQuery, auth: AuthContext | None = None
+    ) -> Result[dict[str, ColumnRange], DomainError]:
+        loaded = await _load_results(self._runs, self._protocols, self._store, query.run_id, auth)
+        if not is_successful(loaded):
+            return Failure(loaded.failure())
+        protocol, frame = loaded.unwrap()
+
+        target_columns = target_columns_of(protocol.readouts)
+        columns = [
+            *(readout.name for readout in protocol.readouts),
+            *(uncertainty_column(c, target_count=len(target_columns)) for c in target_columns),
+            "applicability",
+        ]
+        ranges: dict[str, ColumnRange] = {}
+        for column in columns:
+            if column not in frame.columns:
+                continue
+            values = frame[column].cast(pl.Float64).drop_nulls().drop_nans()
+            ranges[column] = ColumnRange(
+                minimum=None if values.is_empty() else float(values.min()),  # type: ignore[arg-type]
+                maximum=None if values.is_empty() else float(values.max()),  # type: ignore[arg-type]
+            )
+        return Success(ranges)

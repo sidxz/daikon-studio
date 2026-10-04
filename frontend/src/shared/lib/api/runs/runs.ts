@@ -25,6 +25,7 @@ import type {
 
 import type {
   GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams,
+  GetRunResultRangesApiV1RunsRunIdResultsRangesGet200,
   GetRunResultsApiV1RunsRunIdResultsGetParams,
   HTTPValidationError,
   ListRunsApiV1RunsGetParams,
@@ -717,4 +718,98 @@ export const useRetryRunApiV1RunsRunIdRetryPost = <TError = HTTPValidationError,
 
       return useMutation(mutationOptions, queryClient);
     }
+    /**
+ * Each numeric results column's range across the whole Run, keyed by the same
+column names `results` sorts and filters by: the readouts, the uncertainty
+columns and `applicability`. Unfiltered, so a scale does not move with a filter.
+ * @summary Get Run Result Ranges
+ */
+export const getRunResultRangesApiV1RunsRunIdResultsRangesGet = (
+    runId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<GetRunResultRangesApiV1RunsRunIdResultsRangesGet200>(
+      {url: `/api/v1/runs/${runId}/results/ranges`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getGetRunResultRangesApiV1RunsRunIdResultsRangesGetQueryKey = (runId?: string,) => {
+    return [
+    `/api/v1/runs/${runId}/results/ranges`
+    ] as const;
+    }
+
     
+export const getGetRunResultRangesApiV1RunsRunIdResultsRangesGetQueryOptions = <TData = Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError = HTTPValidationError>(runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetRunResultRangesApiV1RunsRunIdResultsRangesGetQueryKey(runId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>> = ({ signal }) => getRunResultRangesApiV1RunsRunIdResultsRangesGet(runId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(runId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetRunResultRangesApiV1RunsRunIdResultsRangesGetQueryResult = NonNullable<Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>>
+export type GetRunResultRangesApiV1RunsRunIdResultsRangesGetQueryError = HTTPValidationError
+
+
+export function useGetRunResultRangesApiV1RunsRunIdResultsRangesGet<TData = Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError = HTTPValidationError>(
+ runId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>,
+          TError,
+          Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRunResultRangesApiV1RunsRunIdResultsRangesGet<TData = Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError = HTTPValidationError>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>,
+          TError,
+          Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetRunResultRangesApiV1RunsRunIdResultsRangesGet<TData = Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError = HTTPValidationError>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Run Result Ranges
+ */
+
+export function useGetRunResultRangesApiV1RunsRunIdResultsRangesGet<TData = Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError = HTTPValidationError>(
+ runId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getRunResultRangesApiV1RunsRunIdResultsRangesGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetRunResultRangesApiV1RunsRunIdResultsRangesGetQueryOptions(runId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+

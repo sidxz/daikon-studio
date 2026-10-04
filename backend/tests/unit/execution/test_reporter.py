@@ -111,6 +111,28 @@ async def test_progress_is_mapped_onto_the_legs_own_span() -> None:
     assert rows.updates == [(pytest.approx(0.65), "epoch 1")]
 
 
+@pytest.mark.parametrize(
+    ("scope", "phase"),
+    [
+        ("model", "Training Chemprop D-MPNN on mps:0"),
+        ("baseline", "Baseline: Training Chemprop D-MPNN on mps:0"),
+        ("random-split", "Random-split comparison: Training Chemprop D-MPNN on mps:0"),
+    ],
+)
+async def test_the_progress_text_names_the_stage_that_is_not_the_model(
+    scope: str, phase: str
+) -> None:
+    """With the baseline the same engine as the model, the engine's own text cannot
+    say which of the three fits is running."""
+    run = _running_run()
+    rows = _Rows(run)
+    report = _training(rows)._reporter(run, (0.6, 0.7), scope)
+
+    await asyncio.to_thread(report, 0.5, "Training Chemprop D-MPNN on mps:0")
+
+    assert rows.updates == [(pytest.approx(0.65), phase)]
+
+
 async def test_an_out_of_range_fraction_is_clamped_to_the_span() -> None:
     run = _running_run()
     rows = _Rows(run)

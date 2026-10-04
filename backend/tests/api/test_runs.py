@@ -13,6 +13,7 @@ import uuid
 from typing import Any
 from urllib.parse import quote
 
+import pytest
 import pytest_asyncio
 from sqlalchemy import update
 from tests.fakes.tunable_data import tunable_csv
@@ -190,6 +191,42 @@ async def test_a_one_target_results_file_keeps_the_plain_uncertainty_column(
         f"/api/v1/runs/{run_id}/results", params={"sort_by": "uncertainty"}
     )
     assert response.status_code == 200, response.text
+
+
+async def test_result_ranges_span_the_whole_run_for_every_numeric_column(
+    client, published_protocol_id, prediction_upload_ref
+):
+    """The scale a triage grid draws its bars against: every readout, the uncertainty
+    and applicability, over all rows, whatever page or filter the grid is showing."""
+    run_id = (await _predict(client, published_protocol_id, prediction_upload_ref)).json()["id"]
+    readout = (await client.get(f"/api/v1/protocols/{published_protocol_id}")).json()["readouts"][
+        0
+    ]["name"]
+    rows = (await client.get(f"/api/v1/runs/{run_id}/results")).json()["items"]
+
+    response = await client.get(f"/api/v1/runs/{run_id}/results/ranges")
+    assert response.status_code == 200, response.text
+    ranges = response.json()
+
+    values = [row["readouts"][readout]["value"] for row in rows]
+    assert ranges[readout] == {
+        "min": pytest.approx(min(values)),
+        "max": pytest.approx(max(values)),
+    }
+    similarity = [row["applicability"] for row in rows]
+    assert ranges["applicability"] == {
+        "min": pytest.approx(min(similarity)),
+        "max": pytest.approx(max(similarity)),
+    }
+    # ecfp4-xgboost reports no uncertainty: a column with no values has no range.
+    assert ranges["uncertainty"] == {"min": None, "max": None}
+
+
+async def test_result_ranges_for_a_training_run_is_a_404(client, csv_upload):
+    dataset_id = await _create_dataset(client, csv_upload)
+    response = await _train(client, dataset_id)
+    ranges = await client.get(f"/api/v1/runs/{response.json()['id']}/results/ranges")
+    assert ranges.status_code == 404, ranges.text
 
 
 def _two_target_training_csv() -> bytes:
