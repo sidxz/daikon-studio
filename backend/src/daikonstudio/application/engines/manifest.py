@@ -16,6 +16,10 @@ from enum import StrEnum
 # a registered runner for that lane, on whatever hardware it has.
 DEFAULT_LANE = "default"
 
+# The setting under which an engine trains several models instead of one. Each is a full
+# fit, so the training run reads it to scale the run's time limit (`deadline_scale`).
+ENSEMBLE_SIZE = "ensemble_size"
+
 
 class TaskType(StrEnum):
     REGRESSION = "regression"

@@ -20,6 +20,8 @@ directionally valid, and this paragraph is why nobody should read it as exact.
 
 from __future__ import annotations
 
+import io
+import logging
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
@@ -27,8 +29,10 @@ from typing import Any
 
 import polars as pl
 
+from daikonstudio.application.engines.checkpoints import TRAINING_STATE, Checkpoints
 from daikonstudio.application.engines.context import PredictContext, TrainContext, TrainResult
 from daikonstudio.application.engines.manifest import (
+    ENSEMBLE_SIZE,
     ConditionSpec,
     ConditionType,
     EngineManifest,
@@ -119,15 +123,37 @@ _MANIFEST = EngineManifest(
         ),
         POSITIVE_WEIGHTING,
         RDKIT_DESCRIPTORS,
+        ConditionSpec(
+            key=ENSEMBLE_SIZE,
+            label="Ensemble size",
+            type=ConditionType.INTEGER,
+            default=1,
+            minimum=1,
+            maximum=10,
+            help="Trains this many models, each from a different random initialization, "
+            "and predicts with their average. The spread of their predictions is reported "
+            "as the uncertainty, for active/inactive targets as well as continuous ones. "
+            "Each model is a full training run, so five models take about five times as "
+            "long. With pretrained weights every model starts from the same encoder, so "
+            "the models agree more closely.",
+        ),
     ),
     lane="gpu",
     supports_multitask=True,
 )
 
+logger = logging.getLogger(__name__)
+
 # Prediction is a forward pass with no gradients, so this only trades memory against
 # kernel-launch overhead. It is not the training `batch_size` condition and does not
 # change any result.
 _PREDICT_BATCH_SIZE = 64
+
+# The artifact key holding an ensemble's models, each in `_model_bytes`' layout. A
+# one-model artifact is a plain Lightning checkpoint, exactly as before ensembles.
+_ENSEMBLE = "daikon_ensemble"
+# Where a fitted ensemble member is saved, so a stopped run resumes at the next one.
+_FITTED_MODEL = "fitted-model"
 
 
 def _require_chemprop() -> None:
@@ -223,6 +249,75 @@ def _forward(trainer: Any, model: Any, dataset: Any) -> Any:
     return torch.cat(batches).cpu().numpy().reshape(len(dataset), -1)
 
 
+def _ensemble_forward(trainer: Any, models: Sequence[Any], dataset: Any) -> tuple[Any, Any]:
+    """The models' mean prediction and their spread, each (molecules, tasks).
+
+    The spread is the population standard deviation across the models, in the
+    prediction's own unit: a probability for a binary target, the target's unit for a
+    continuous one. For one model it is all zeros, which `predict` reports as no
+    uncertainty rather than as certainty.
+    """
+    import numpy as np
+
+    values = np.stack([_forward(trainer, model, dataset) for model in models])
+    return values.mean(axis=0), values.std(axis=0)
+
+
+def _predict_trainer() -> Any:
+    from lightning import pytorch as lightning
+
+    return lightning.Trainer(
+        accelerator="auto",
+        devices=1,
+        logger=False,
+        enable_progress_bar=False,
+        enable_checkpointing=False,
+    )
+
+
+def _model_bytes(model: Any) -> bytes:
+    """One fitted model in chemprop's own `save_model` layout: hyperparameters and
+    weights, without the optimizer state a Lightning checkpoint also carries. This is
+    what an ensemble stores per model, and `MPNN.load_from_file` reads it back."""
+    import torch
+
+    buffer = io.BytesIO()
+    torch.save({"hyper_parameters": model.hparams, "state_dict": model.state_dict()}, buffer)
+    return buffer.getvalue()
+
+
+def _model_from_bytes(data: bytes) -> Any:
+    from chemprop.models import MPNN
+
+    # chemprop's loader unpickles (weights_only=False) -- the same trust boundary as the
+    # one-model artifact in `predict`: these bytes are only ever our own `train`'s.
+    return MPNN.load_from_file(io.BytesIO(data), map_location="cpu")
+
+
+def _member_checkpoints(checkpoints: Checkpoints | None, index: int) -> Checkpoints | None:
+    """Where ensemble member `index` saves its progress. The first saves where a single
+    model always has, so a one-model fit -- including a run stopped before ensembles
+    existed -- resumes exactly as it did."""
+    if checkpoints is None or index == 0:
+        return checkpoints
+    return checkpoints.scoped(f"member-{index}")
+
+
+def _restored_model(state: Checkpoints) -> Any:
+    """An ensemble member an earlier attempt finished, or None to fit it. A save that no
+    longer loads is fitted again rather than failing the run."""
+    data = state.load(_FITTED_MODEL)
+    if data is None:
+        return None
+    try:
+        return _model_from_bytes(data)
+    except Exception:
+        logger.warning(
+            "Could not restore a fitted ensemble member; fitting it again", exc_info=True
+        )
+        return None
+
+
 def _build_model(
     *,
     pretrained: str,
@@ -302,8 +397,9 @@ class ChempropDMPNN:
     def train(self, ctx: TrainContext) -> TrainResult:
         _require_chemprop()
 
+        import torch
         from chemprop.data import MoleculeDataset, build_dataloader
-        from chemprop.nn.transforms import UnscaleTransform
+        from chemprop.nn.transforms import ScaleTransform, UnscaleTransform
         from lightning import pytorch as lightning
         from lightning.pytorch.callbacks import LambdaCallback
 
@@ -320,12 +416,11 @@ class ChempropDMPNN:
         pretrained = str(conditions["pretrained"])
         use_descriptors = bool(conditions["rdkit_descriptors"])
         weighting = str(conditions["positive_weighting"])
+        members = int(conditions[ENSEMBLE_SIZE])
         columns = ctx.target_columns
         # One task for the whole fit: a joint engine is only ever handed a dataset
         # whose targets share a kind (`joint_kind_error`, at enqueue).
         is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
-
-        lightning.seed_everything(ctx.seed, workers=True)
 
         train_rows = ctx.frame.filter(pl.col("split") == "train")
         validation_rows = ctx.frame.filter(pl.col("split") == "validation")
@@ -361,7 +456,7 @@ class ChempropDMPNN:
                 x_d_for("validation"),
             )
         )
-        output_transform = None
+        target_scaler = None
         if not is_classification:
             # Fit the scaler on the training split only, and hand the model its
             # inverse. UnscaleTransform is a no-op in train mode by design, so the loss
@@ -369,120 +464,188 @@ class ChempropDMPNN:
             # own unit -- which is what lets the Scorecard compare them against
             # `actual` without rescaling anything itself.
             # One scaler per target column, so each task is standardized on its own scale.
-            scaler = train_set.normalize_targets()
+            target_scaler = train_set.normalize_targets()
             if len(validation_set) > 0:
-                validation_set.normalize_targets(scaler)
-            output_transform = UnscaleTransform.from_standard_scaler(scaler)
+                validation_set.normalize_targets(target_scaler)
         # The test split is deliberately never normalised: `output_transform` is what
         # puts predictions back into real units, and scaling the truth as well would
         # cancel out silently.
 
-        x_d_transform = None
+        x_d_scaler = None
         if use_descriptors:
-            from chemprop.nn.transforms import ScaleTransform
-
             # Scale the TRAINING set only. ScaleTransform is a no-op in train mode and
             # standardizes in eval mode, and Lightning validates in eval mode -- so
             # normalizing the validation set too (as chemprop's own CLI does) would
             # standardize it twice. Validation, test and predict inputs stay raw (signed
             # log + fill) and the model scales them once.
-            x_d_transform = ScaleTransform.from_standard_scaler(train_set.normalize_inputs("X_d"))
+            x_d_scaler = train_set.normalize_inputs("X_d")
 
-        criterion = None
+        positive_weights = None
         if is_classification and weighting != "none":
-            from daikonstudio.infrastructure.engines._chemprop_loss import PositiveWeightedBCELoss
+            positive_weights = [
+                positive_weight(train_rows[column].to_numpy(), weighting) or 1.0
+                for column in columns
+            ]
 
-            criterion = PositiveWeightedBCELoss(
-                [
-                    positive_weight(train_rows[column].to_numpy(), weighting) or 1.0
-                    for column in columns
-                ]
+        def build_model() -> Any:
+            # Every model gets its own transforms and loss: they are modules the model
+            # owns and pickles with itself.
+            criterion = None
+            if positive_weights is not None:
+                from daikonstudio.infrastructure.engines._chemprop_loss import (
+                    PositiveWeightedBCELoss,
+                )
+
+                criterion = PositiveWeightedBCELoss(positive_weights)
+            return _build_model(
+                pretrained=pretrained,
+                weights_dir=Settings().pretrained_weights_dir,
+                hidden=hidden,
+                depth=depth,
+                is_classification=is_classification,
+                output_transform=None
+                if target_scaler is None
+                else UnscaleTransform.from_standard_scaler(target_scaler),
+                n_tasks=len(columns),
+                criterion=criterion,
+                n_descriptors=0 if x_d_all is None else x_d_all.shape[1],
+                x_d_transform=None
+                if x_d_scaler is None
+                else ScaleTransform.from_standard_scaler(x_d_scaler),
             )
 
-        model = _build_model(
-            pretrained=pretrained,
-            weights_dir=Settings().pretrained_weights_dir,
-            hidden=hidden,
-            depth=depth,
-            is_classification=is_classification,
-            output_transform=output_transform,
-            n_tasks=len(columns),
-            criterion=criterion,
-            n_descriptors=0 if x_d_all is None else x_d_all.shape[1],
-            x_d_transform=x_d_transform,
-        )
+        def fit(index: int) -> tuple[Any, Any]:
+            """Ensemble member `index` at its selected epoch, and the trainer that fitted
+            it: None when an earlier attempt finished it and it was restored instead.
 
-        def _report_epoch(trainer: Any, _module: Any) -> None:
-            # Naming the device is not decoration. `accelerator="auto"` resolves to
-            # cuda, mps or cpu depending on what the runner it landed on actually has,
-            # nothing validates that a runner registered for the "gpu" lane owns a GPU,
-            # and the three do not produce identical numbers. Without this the only
-            # honest thing anybody could say about a finished run is "some device".
-            ctx.report(
-                (trainer.current_epoch + 1) / epochs,
-                f"Training {_MANIFEST.name} on {trainer.strategy.root_device}",
+            Members differ only in their seed, which sets the weight initialization and
+            the order of the training batches. Data, split and settings are shared."""
+            name = (
+                _MANIFEST.name
+                if members == 1
+                else f"{_MANIFEST.name} model {index + 1} of {members}"
             )
+            state = training_state_scope(_member_checkpoints(ctx.checkpoints, index), "chemprop")
+            # Only an ensemble saves a finished member: a single model's finished fit is
+            # the whole result, which the training run saves itself.
+            if members > 1 and state is not None:
+                restored = _restored_model(state)
+                if restored is not None:
+                    ctx.report((index + 1) / members, f"Restored {name} from saved progress")
+                    return restored, None
 
-        # The validation partition selects the epoch. `val_loss` is what chemprop's
-        # `MPNN` logs (see its `validation_step`); the callback's reasoning, and the
-        # sanity-check trap it guards against, live in `_lightning.py`.
-        selects_best_epoch = len(validation_set) > 0
-        keep_best = keep_best_by_validation_loss()
-        callbacks: list[Any] = [LambdaCallback(on_train_epoch_end=_report_epoch)]
-        if selects_best_epoch:
-            callbacks.append(keep_best)
+            lightning.seed_everything(ctx.seed + index, workers=True)
+            model = build_model()
 
-        # The scratch directory holds the training state a save writes and a resume
-        # reads; it only has to outlive `fit`. The trainer does not need it afterwards.
-        with tempfile.TemporaryDirectory() as state_dir:
-            state = training_state_scope(ctx.checkpoints, "chemprop")
-            resume_from = saved_training_state(state, Path(state_dir), model)
-            # After the reporter: it raises in `on_train_epoch_end` when the time limit
-            # stops the fit, and the save then happens in `on_exception`.
-            if state is not None:
-                callbacks.append(save_training_state(state, Path(state_dir)))
-            if resume_from is not None:
+            def _report_epoch(trainer: Any, _module: Any) -> None:
+                # Naming the device is not decoration. `accelerator="auto"` resolves to
+                # cuda, mps or cpu depending on what the runner it landed on actually
+                # has, nothing validates that a runner registered for the "gpu" lane
+                # owns a GPU, and the three do not produce identical numbers. Without
+                # this the only honest thing anybody could say about a finished run is
+                # "some device".
+                ctx.report(
+                    (index + (trainer.current_epoch + 1) / epochs) / members,
+                    f"Training {name} on {trainer.strategy.root_device}",
+                )
 
-                def _report_resume(trainer: Any, _module: Any) -> None:
-                    ctx.report(
-                        trainer.current_epoch / epochs,
-                        f"Resuming {_MANIFEST.name} from epoch {trainer.current_epoch + 1} "
-                        f"of {epochs}",
-                    )
+            # The validation partition selects the epoch. `val_loss` is what chemprop's
+            # `MPNN` logs (see its `validation_step`); the callback's reasoning, and the
+            # sanity-check trap it guards against, live in `_lightning.py`.
+            selects_best_epoch = len(validation_set) > 0
+            keep_best = keep_best_by_validation_loss()
+            callbacks: list[Any] = [LambdaCallback(on_train_epoch_end=_report_epoch)]
+            if selects_best_epoch:
+                callbacks.append(keep_best)
 
-                callbacks.append(LambdaCallback(on_train_start=_report_resume))
+            # The scratch directory holds the training state a save writes and a resume
+            # reads; it only has to outlive `fit`. The trainer does not need it afterwards.
+            with tempfile.TemporaryDirectory() as state_dir:
+                resume_from = saved_training_state(state, Path(state_dir), model)
+                # After the reporter: it raises in `on_train_epoch_end` when the time
+                # limit stops the fit, and the save then happens in `on_exception`.
+                if state is not None:
+                    callbacks.append(save_training_state(state, Path(state_dir)))
+                if resume_from is not None:
 
-            trainer = lightning.Trainer(
-                accelerator="auto",
-                devices=1,
-                max_epochs=epochs,
-                enable_checkpointing=False,
-                logger=False,
-                enable_progress_bar=False,
-                # The interruption point. `report` may raise RunInterrupted, which
-                # propagates out of `fit` and out of `train` -- the only way to stop work
-                # already running on the worker thread.
-                callbacks=callbacks,
-            )
-            trainer.fit(
-                model,
-                build_dataloader(train_set, batch_size=batch_size, seed=ctx.seed),
-                # shuffle=False: `build_dataloader` defaults it to True. Shuffling the
-                # validation loader would not corrupt the loss, but it makes the number
-                # depend on the seed for no reason.
-                build_dataloader(validation_set, batch_size=batch_size, shuffle=False)
-                if len(validation_set) > 0
-                else None,
-                ckpt_path=resume_from,
-                weights_only=False,
-            )
+                    def _report_resume(trainer: Any, _module: Any) -> None:
+                        ctx.report(
+                            (index + trainer.current_epoch / epochs) / members,
+                            f"Resuming {name} from epoch {trainer.current_epoch + 1} of {epochs}",
+                        )
 
-        # Restore the selected epoch before anything is scored or saved, so the
-        # numbers on the Scorecard and the weights in the artifact are the same
-        # model. Restoring in place matters: `trainer.save_checkpoint` below
-        # serializes the module the trainer holds, which is this object.
-        if keep_best.best_state is not None:
-            model.load_state_dict(keep_best.best_state)
+                    callbacks.append(LambdaCallback(on_train_start=_report_resume))
+
+                trainer = lightning.Trainer(
+                    accelerator="auto",
+                    devices=1,
+                    max_epochs=epochs,
+                    enable_checkpointing=False,
+                    logger=False,
+                    enable_progress_bar=False,
+                    # The interruption point. `report` may raise RunInterrupted, which
+                    # propagates out of `fit` and out of `train` -- the only way to stop
+                    # work already running on the worker thread.
+                    callbacks=callbacks,
+                )
+                trainer.fit(
+                    model,
+                    build_dataloader(train_set, batch_size=batch_size, seed=ctx.seed + index),
+                    # shuffle=False: `build_dataloader` defaults it to True. Shuffling the
+                    # validation loader would not corrupt the loss, but it makes the
+                    # number depend on the seed for no reason.
+                    build_dataloader(validation_set, batch_size=batch_size, shuffle=False)
+                    if len(validation_set) > 0
+                    else None,
+                    ckpt_path=resume_from,
+                    weights_only=False,
+                )
+
+            # Restore the selected epoch before anything is scored or saved, so the
+            # numbers on the Scorecard and the weights in the artifact are the same
+            # model. Restoring in place matters: `trainer.save_checkpoint` below
+            # serializes the module the trainer holds, which is this object.
+            if keep_best.best_state is not None:
+                model.load_state_dict(keep_best.best_state)
+            if members > 1 and state is not None:
+                saved = state.save(_FITTED_MODEL, _model_bytes(model))
+                if saved:  # its in-progress state is now hundreds of MB nothing resumes
+                    state.discard(TRAINING_STATE)
+            return model, trainer
+
+        fitted = [fit(index) for index in range(members)]
+        models = [model for model, _ in fitted]
+
+        # Lightning writes checkpoints to a path, so this round-trips through the
+        # filesystem. `tempfile` honours TMPDIR, which is how a deployment points
+        # scratch at a fast local NVMe without a setting of our own. The weights
+        # serialized here are the restored best epoch's, not the last one's.
+        with tempfile.TemporaryDirectory() as scratch:
+            checkpoint = Path(scratch) / "model.ckpt"
+            stored: dict[str, Any]
+            if members == 1:
+                fitted[0][1].save_checkpoint(checkpoint)
+                # map_location="cpu", as Lightning's own loader does: the weights may
+                # sit on a GPU this process cannot read back without it.
+                stored = torch.load(checkpoint, map_location="cpu", weights_only=False)
+                # The callbacks' state is `keep_best`'s `best_state`, a second full copy
+                # of the weights that only a resume reads. Left in, it is stored in every
+                # Protocol for nothing: `predict` never looks at it.
+                stored.pop("callbacks", None)
+            else:
+                stored = {_ENSEMBLE: [_model_bytes(model) for model in models]}
+            if fill is not None:
+                from daikonstudio.infrastructure.chem.featurize import DESCRIPTOR_NAMES
+
+                # Read back by `predict`; Lightning ignores keys it does not know on load.
+                stored["daikon_descriptors"] = {
+                    "names": list(DESCRIPTOR_NAMES),
+                    "fill": [float(v) for v in fill],
+                }
+            torch.save(stored, checkpoint)
+            artifact = checkpoint.read_bytes()
+
+        predictor = _predict_trainer()
 
         def forward(partition: str, rows: pl.DataFrame) -> Any:
             # A prediction-only dataset, rebuilt from the structures rather than
@@ -493,7 +656,8 @@ class ChempropDMPNN:
             dataset = MoleculeDataset(
                 _datapoints(rows[ctx.structure_column].to_list(), x_d=x_d_for(partition))
             )
-            return _forward(trainer, model, dataset)
+            mean, _spread = _ensemble_forward(predictor, models, dataset)
+            return mean
 
         # The validation partition is run once: it picks the cutoffs, then is scored at
         # them. Test is scored at those cutoffs and never sees them chosen.
@@ -517,33 +681,6 @@ class ChempropDMPNN:
             None if validation_values is None else score(validation_rows, validation_values)
         )
 
-        # Lightning writes checkpoints to a path, so this round-trips through the
-        # filesystem. `tempfile` honours TMPDIR, which is how a deployment points
-        # scratch at a fast local NVMe without a setting of our own. The weights
-        # serialized here are the restored best epoch's, not the last one's.
-        with tempfile.TemporaryDirectory() as scratch:
-            import torch
-
-            checkpoint = Path(scratch) / "model.ckpt"
-            trainer.save_checkpoint(checkpoint)
-            # map_location="cpu", as Lightning's own loader does: the weights may
-            # sit on a GPU this process cannot read back without it.
-            stored = torch.load(checkpoint, map_location="cpu", weights_only=False)
-            # The callbacks' state is `keep_best`'s `best_state`, a second full copy of
-            # the weights that only a resume reads. Left in, it is stored in every
-            # Protocol for nothing: `predict` never looks at it.
-            stored.pop("callbacks", None)
-            if fill is not None:
-                from daikonstudio.infrastructure.chem.featurize import DESCRIPTOR_NAMES
-
-                # Read back by `predict`; Lightning ignores keys it does not know on load.
-                stored["daikon_descriptors"] = {
-                    "names": list(DESCRIPTOR_NAMES),
-                    "fill": [float(v) for v in fill],
-                }
-            torch.save(stored, checkpoint)
-            artifact = checkpoint.read_bytes()
-
         return TrainResult(
             artifact=artifact,
             metrics=metrics,
@@ -558,7 +695,6 @@ class ChempropDMPNN:
         import torch
         from chemprop.data import MoleculeDataset
         from chemprop.models import MPNN
-        from lightning import pytorch as lightning
 
         with tempfile.TemporaryDirectory() as scratch:
             checkpoint = Path(scratch) / "model.ckpt"
@@ -567,9 +703,8 @@ class ChempropDMPNN:
             # for the reason `_scoring._load_bundle` gives: the artifact is only ever
             # one our own `train` produced. A checkpoint without the key was trained
             # without descriptors and predicts exactly as it always did.
-            extras = torch.load(checkpoint, map_location="cpu", weights_only=False).get(
-                "daikon_descriptors"
-            )
+            stored = torch.load(checkpoint, map_location="cpu", weights_only=False)
+            extras = stored.get("daikon_descriptors")
             if extras is not None:
                 _require_matching_features(
                     {"featurizer": "rdkit_descriptors", "feature_names": extras["names"]}
@@ -577,7 +712,11 @@ class ChempropDMPNN:
             # Loaded inside the block, used outside it: the weights are in memory by
             # the time the directory is removed. MPNN.save_hyperparameters() is what
             # makes the architecture recoverable from the checkpoint alone.
-            model = MPNN.load_from_checkpoint(checkpoint)
+            models = (
+                [_model_from_bytes(data) for data in stored[_ENSEMBLE]]
+                if _ENSEMBLE in stored
+                else [MPNN.load_from_checkpoint(checkpoint)]
+            )
 
         structures = ctx.frame[ctx.structure_column].to_list()
         x_d: Any = None
@@ -589,14 +728,7 @@ class ChempropDMPNN:
             logged = _signed_log(rdkit_descriptors(structures))
             x_d = np.where(np.isnan(logged), np.array(extras["fill"]), logged)
         dataset = MoleculeDataset(_datapoints(structures, x_d=x_d))
-        trainer = lightning.Trainer(
-            accelerator="auto",
-            devices=1,
-            logger=False,
-            enable_progress_bar=False,
-            enable_checkpointing=False,
-        )
-        values = _forward(trainer, model, dataset)
+        values, spread = _ensemble_forward(_predict_trainer(), models, dataset)
         # A checkpoint with fewer tasks would raise an IndexError below, and one with
         # more would drop a task without a word: refuse either with the two counts.
         if values.shape[1] != len(ctx.target_columns):
@@ -611,10 +743,11 @@ class ChempropDMPNN:
         # engine's output schema-incompatible with the ECFP4 engines' for any caller
         # that concatenates or persists results across engines.
         #
-        # ponytail: uncertainty is always null. chemprop can produce it through an MVE
-        # head or an ensemble; a fabricated number would be plotted by a triage grid as
-        # "the model is confident here", which is worse than an admitted absent one.
-        # Upgrade path: an `uncertainty` condition selecting MveFFN for regression.
+        # An ensemble reports its models' spread as the uncertainty. A single model
+        # reports none: a fabricated number would be plotted by a triage grid as "the
+        # model is confident here", which is worse than an admitted absent one.
+        # ponytail: a single model's uncertainty stays null. Upgrade path: an MveFFN head
+        # for regression, which predicts a variance without training several models.
         #
         # Long format, one block per target: a joint engine is not wrapped in `FanOut`,
         # so it tags its own rows. A one-target checkpoint yields (n, 1) values and
@@ -627,7 +760,12 @@ class ChempropDMPNN:
                         "value": pl.Series(
                             [float(value) for value in values[:, index]], dtype=pl.Float64
                         ),
-                        "uncertainty": pl.Series([None] * values.shape[0], dtype=pl.Float64),
+                        "uncertainty": pl.Series(
+                            [float(value) for value in spread[:, index]]
+                            if len(models) > 1
+                            else [None] * values.shape[0],
+                            dtype=pl.Float64,
+                        ),
                         "target": pl.Series([column] * values.shape[0], dtype=pl.String),
                     }
                 )

@@ -84,6 +84,7 @@ from daikonstudio.application.engines.context import (
     TrainResult,
 )
 from daikonstudio.application.engines.manifest import (
+    ENSEMBLE_SIZE,
     EngineManifest,
     TaskType,
     lane_for,
@@ -404,18 +405,34 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
     )
 
 
-def deadline_scale(manifest: EngineManifest, dataset: Dataset) -> int:
+def deadline_scale(
+    manifest: EngineManifest, dataset: Dataset, conditions: dict[str, object]
+) -> int:
     """How many times over its lane's deadline a training Run may take.
 
     A fan-out engine fits once per target in each of its legs -- the model and the
     random-split comparison -- so four targets take about four times as long as one
-    against a budget sized for one. A joint engine fits once regardless.
+    against a budget sized for one. A joint engine fits once regardless. An ensemble
+    fits once per model, so its size multiplies either.
 
     ponytail: ignores the baseline, which fans out too -- a joint chemprop run on
     four targets still fits four random forests. Cheap next to chemprop's own fit
     today; scale by the baseline as well if one ever dominates.
     """
-    return 1 if manifest.supports_multitask else len(dataset.targets)
+    fits = 1 if manifest.supports_multitask else len(dataset.targets)
+    return fits * _ensemble_size(manifest, conditions)
+
+
+def _ensemble_size(manifest: EngineManifest, conditions: dict[str, object]) -> int:
+    """1 for an engine without the setting, and for conditions the worker will refuse:
+    they are validated there, where a refusal fails the Run visibly (see `TrainProtocol`)."""
+    if all(spec.key != ENSEMBLE_SIZE for spec in manifest.conditions):
+        return 1
+    try:
+        resolved: dict[str, Any] = validate_conditions(manifest, conditions)
+    except ValueError:
+        return 1
+    return int(resolved[ENSEMBLE_SIZE])
 
 
 def training_lane(engines: EngineRegistry, engine_id: str, baseline_engine_id: str | None) -> str:
@@ -547,7 +564,7 @@ class TrainProtocol:
             ),
             params={
                 **command.to_params(),
-                "deadline_scale": deadline_scale(engine.manifest(), dataset),
+                "deadline_scale": deadline_scale(engine.manifest(), dataset, command.conditions),
             },
             # Which sweep asked for this run, or None for a solo request. The
             # only difference between the two, deliberately: a sweep child is

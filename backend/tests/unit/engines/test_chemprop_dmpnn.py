@@ -577,6 +577,7 @@ def _resumable_context(
     report: Callable[[float, str], None],
     *,
     interval_seconds: float = 1e9,
+    conditions: dict[str, object] = _FOUR_EPOCHS,
 ) -> TrainContext:
     checkpoints = Checkpoints(
         store, "ws/datasets/d/runs/r/checkpoints/", interval_seconds=interval_seconds
@@ -585,7 +586,7 @@ def _resumable_context(
         frame=_frame([float(i) for i in range(20)]),
         targets={"y": TaskType.REGRESSION},
         structure_column="smiles",
-        conditions=_FOUR_EPOCHS,
+        conditions=conditions,
         seed=13,
         checkpoints=checkpoints,
         report=report,
@@ -764,3 +765,203 @@ def test_best_epoch_weights_survive_a_resume_not_only_the_best_loss():
     assert restored.best_loss == 0.25
     assert restored.best_state is not None
     assert torch.equal(restored.best_state["w"], torch.tensor([1.0, 2.0]))
+
+
+# --- ensembles ----------------------------------------------------------------------
+
+_TWO_MODELS = {**_FAST, "ensemble_size": 2}
+
+
+def _predict_y(artifact: bytes, smiles: list[str] = _SMILES) -> pl.DataFrame:
+    return ChempropDMPNN().predict(
+        PredictContext(
+            frame=pl.DataFrame({"smiles": smiles}),
+            structure_column="smiles",
+            artifact=artifact,
+            conditions={},
+            target_columns=("y",),
+        )
+    )
+
+
+def test_a_single_model_reports_no_uncertainty() -> None:
+    """An all-zero spread from one model would read as certainty."""
+    trained = ChempropDMPNN().train(
+        _train_context(_frame([float(i) for i in range(20)]), TaskType.REGRESSION)
+    )
+    assert _predict_y(trained.artifact)["uncertainty"].null_count() == len(_SMILES)
+
+
+def test_an_ensemble_predicts_its_models_mean_and_reports_their_spread() -> None:
+    import io
+    from dataclasses import replace
+
+    import numpy as np
+    import torch
+    from chemprop.data import MoleculeDataset
+
+    from daikonstudio.infrastructure.engines.chemprop_dmpnn import (
+        _datapoints,
+        _forward,
+        _model_from_bytes,
+        _predict_trainer,
+    )
+
+    ctx = replace(
+        _train_context(_frame([float(i) for i in range(20)]), TaskType.REGRESSION),
+        conditions=_TWO_MODELS,
+    )
+    trained = ChempropDMPNN().train(ctx)
+
+    stored = torch.load(io.BytesIO(trained.artifact), weights_only=False)
+    members = [_model_from_bytes(data) for data in stored["daikon_ensemble"]]
+    assert len(members) == 2
+    dataset = MoleculeDataset(_datapoints(_SMILES))
+    each = np.stack([_forward(_predict_trainer(), model, dataset)[:, 0] for model in members])
+
+    out = _predict_y(trained.artifact)
+    np.testing.assert_allclose(out["value"].to_numpy(), each.mean(axis=0), rtol=1e-5)
+    np.testing.assert_allclose(
+        out["uncertainty"].to_numpy(), each.std(axis=0), rtol=1e-4, atol=1e-6
+    )
+
+    # The Scorecard scores the ensemble, not its first model.
+    test = ctx.frame.filter(pl.col("split") == "test")
+    predicted = _predict_y(trained.artifact, test["smiles"].to_list())["value"].to_numpy()
+    rmse = float(np.sqrt(np.mean((predicted - test["y"].to_numpy()) ** 2)))
+    assert trained.metrics["y"]["rmse"] == pytest.approx(rmse, rel=1e-4)
+
+
+def test_each_ensemble_member_trains_from_its_own_seed(monkeypatch) -> None:
+    """Checked at the seed, not on the predictions: GPU kernels are not bit-reproducible,
+    so two models trained from one seed differ slightly too, and their predictions cannot
+    tell a missing seed offset from that noise."""
+    from dataclasses import replace
+
+    import chemprop.data
+    from lightning import pytorch as lightning
+
+    seeds: list[int] = []
+    shuffles: list[int | None] = []
+    seed_everything = lightning.seed_everything
+    build_dataloader = chemprop.data.build_dataloader
+
+    def spy_seed(seed: int, **kwargs: Any) -> int:
+        seeds.append(seed)
+        return seed_everything(seed, **kwargs)
+
+    def spy_loader(dataset: Any, **kwargs: Any) -> Any:
+        if kwargs.get("shuffle", True):
+            shuffles.append(kwargs.get("seed"))
+        return build_dataloader(dataset, **kwargs)
+
+    monkeypatch.setattr(lightning, "seed_everything", spy_seed)
+    monkeypatch.setattr(chemprop.data, "build_dataloader", spy_loader)
+    ChempropDMPNN().train(
+        replace(
+            _train_context(_frame([float(i) for i in range(20)]), TaskType.REGRESSION),
+            conditions={**_FAST, "ensemble_size": 3},
+        )
+    )
+
+    assert seeds == [13, 14, 15]
+    assert shuffles == [13, 14, 15]
+
+
+def test_an_ensemble_reports_uncertainty_for_active_inactive_targets() -> None:
+    from dataclasses import replace
+
+    ctx = replace(
+        _train_context(_frame([float(i % 2) for i in range(20)]), TaskType.BINARY_CLASSIFICATION),
+        conditions=_TWO_MODELS,
+    )
+    out = _predict_y(ChempropDMPNN().train(ctx).artifact)
+
+    spread = out["uncertainty"].to_numpy()
+    assert out["uncertainty"].null_count() == 0
+    # The spread of probabilities: never negative, never more than half the range.
+    assert (spread >= 0).all() and (spread <= 0.5).all() and spread.max() > 0
+
+
+def test_a_weighted_ensemble_with_descriptors_predicts_in_a_fresh_process(tmp_path):
+    """Each stored model pickles its loss and descriptor transform by qualified name,
+    as the one-model checkpoint does, so a new interpreter must be able to load them."""
+    import subprocess
+    import sys
+
+    result = ChempropDMPNN().train(
+        _two_labels(positive_weighting="balanced", rdkit_descriptors=True, ensemble_size=2)
+    )
+    artifact = tmp_path / "model.ckpt"
+    artifact.write_bytes(result.artifact)
+    script = (
+        "import polars as pl\n"
+        "from daikonstudio.application.engines.context import PredictContext\n"
+        "from daikonstudio.infrastructure.engines.chemprop_dmpnn import ChempropDMPNN\n"
+        "out = ChempropDMPNN().predict(PredictContext(\n"
+        "    frame=pl.DataFrame({'smiles': ['CCO', 'CCN']}), structure_column='smiles',\n"
+        f"    artifact=open({str(artifact)!r}, 'rb').read(), conditions={{}},\n"
+        "    target_columns=('a', 'b')))\n"
+        "assert out.height == 4, out\n"
+        "assert out['uncertainty'].null_count() == 0, out\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "OMP_NUM_THREADS": "1"},
+    )
+    assert done.returncode == 0, done.stderr
+
+
+_TWO_MODELS_FOUR_EPOCHS = {**_FOUR_EPOCHS, "ensemble_size": 2}
+
+
+def test_a_stopped_ensemble_resumes_in_the_model_it_stopped_in() -> None:
+    """The first model finished, so it is restored rather than refitted, and the second
+    picks up at the epoch after its saved state."""
+    store = InMemoryBlobStore()
+
+    def stop_in_the_second_model(fraction: float, phase: str) -> None:
+        if phase.startswith("Training") and "model 2 of 2" in phase and fraction >= 3 / 4:
+            raise RunInterrupted("stopped", cancelled=False)
+
+    first = _resumable_context(store, stop_in_the_second_model, conditions=_TWO_MODELS_FOUR_EPOCHS)
+    with pytest.raises(RunInterrupted):
+        ChempropDMPNN().train(first)
+    # The finished model's in-progress state was freed; the stopped one's was saved.
+    assert _saved_state(first) is None
+    assert first.checkpoints is not None
+    second_model = training_state_scope(first.checkpoints.scoped("member-1"), "chemprop")
+    assert second_model is not None and second_model.load("training-state") is not None
+
+    reported: list[tuple[float, str]] = []
+    resumed = _resumable_context(
+        store,
+        lambda fraction, phase: reported.append((fraction, phase)),
+        conditions=_TWO_MODELS_FOUR_EPOCHS,
+    )
+    result = ChempropDMPNN().train(resumed)
+
+    phases = [phase for _, phase in reported]
+    assert phases[0] == "Restored Chemprop D-MPNN model 1 of 2 from saved progress"
+    assert not any(p.startswith("Training Chemprop D-MPNN model 1") for p in phases)
+    assert any(p.startswith("Resuming Chemprop D-MPNN model 2 of 2 from epoch 3") for p in phases)
+    training = [f for f, p in reported if p.startswith("Training")]
+    assert training[0] == pytest.approx((1 + 3 / 4) / 2)  # epoch 3 of 4, second model
+    assert result.metrics["y"]
+
+
+def test_a_saved_ensemble_member_that_no_longer_loads_is_fitted_again() -> None:
+    store = InMemoryBlobStore()
+    ctx = _resumable_context(store, lambda f, p: None, conditions=_TWO_MODELS_FOUR_EPOCHS)
+    _training_state(ctx).save("fitted-model", b"not a model")
+
+    reported: list[str] = []
+    resumed = _resumable_context(
+        store, lambda f, phase: reported.append(phase), conditions=_TWO_MODELS_FOUR_EPOCHS
+    )
+    ChempropDMPNN().train(resumed)
+
+    assert not any(p.startswith("Restored") for p in reported)
+    assert any(p.startswith("Training Chemprop D-MPNN model 1 of 2") for p in reported)
