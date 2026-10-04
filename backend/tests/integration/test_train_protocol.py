@@ -623,6 +623,7 @@ async def test_a_retried_run_resumes_from_the_fits_an_earlier_attempt_saved(
         studio.protocols,
         InlineEnqueuer(studio.sessions, studio.store),
         default_registry(),
+        studio.store,
     )
     (await retry(RetryRunCommand(run_id=run.id), studio.auth)).unwrap()
 
