@@ -46,6 +46,7 @@ import asyncio
 import io
 import json
 import logging
+import lzma
 import math
 import time
 import uuid
@@ -112,6 +113,29 @@ def artifact_key(workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> str:
     """Where the chosen engine's fitted weights live. The single definition:
     training writes it, Task 17's prediction path reads it back."""
     return f"{workspace_id}/protocols/{protocol_id}/artifact/model.joblib"
+
+
+# The xz container's own magic bytes. Pickles start with b"\x80", torch checkpoints and
+# the FanOut container with b"PK", so the formats never collide.
+_XZ_MAGIC = b"\xfd7zXZ\x00"
+
+
+def pack_artifact(artifact: bytes) -> bytes:
+    """What is stored for a trained model: the engine's bytes, xz-compressed.
+
+    A runner uploads the artifact in one request under `runner_upload_max_bytes`, and a
+    random forest's pickle grows with its training rows -- about 80 bytes per tree node,
+    90 MB for 500 trees on 8,000 compounds, several GB for a four-target fan-out on a few
+    hundred thousand. Preset 1 measured 8.3x on that forest in about a second; higher
+    presets cost far more time for little more.
+    """
+    return lzma.compress(artifact, preset=1)
+
+
+def unpack_artifact(stored: bytes) -> bytes:
+    """The engine's own bytes back. Artifacts stored before compression existed are
+    read as they are."""
+    return lzma.decompress(stored) if stored.startswith(_XZ_MAGIC) else stored
 
 
 def scorecard_inputs_key(workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> str:
@@ -699,7 +723,7 @@ class RunTraining:
         # above -- the fits themselves are reproducible from (content_hash, seed,
         # engine defaults), since nothing in this pipeline is unseeded.
         artifact_uri = self._store.put_bytes(
-            artifact_key(run.workspace_id, protocol_id), chosen.artifact
+            artifact_key(run.workspace_id, protocol_id), pack_artifact(chosen.artifact)
         )
         result_uri = self._store.put_bytes(
             scorecard_inputs_key(run.workspace_id, protocol_id), inputs.to_json()

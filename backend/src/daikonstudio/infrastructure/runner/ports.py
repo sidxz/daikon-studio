@@ -23,7 +23,7 @@ import httpx
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.execution.run import Run, RunKind
-from daikonstudio.domain.shared.errors import ConcurrencyConflictError
+from daikonstudio.domain.shared.errors import ConcurrencyConflictError, ValidationError
 from daikonstudio.infrastructure.runner.wire import (
     BlobPutResponse,
     DatasetEnvelope,
@@ -251,6 +251,17 @@ class HttpBlobStore:
         response = self._client._blobs.put(
             f"/runs/{self._client.run_id}/blobs/{key}", content=data
         )
+        if response.status_code == 413:
+            # The scientist reads this on the Run; a bare HTTPStatusError says nothing
+            # about what to change.
+            raise ValidationError(
+                f"The trained model is {len(data) / 1e6:.0f} MB after compression, "
+                "more than this server accepts from a runner.",
+                detail=(
+                    "Choose an engine with a smaller model, such as XGBoost or LightGBM, "
+                    "or fewer trees. An administrator can raise STUDIO_RUNNER_UPLOAD_MAX_BYTES."
+                ),
+            )
         response.raise_for_status()
         return BlobPutResponse.model_validate(response.json()).uri
 

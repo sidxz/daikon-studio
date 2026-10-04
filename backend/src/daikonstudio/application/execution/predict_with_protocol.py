@@ -68,7 +68,11 @@ from daikonstudio.application.execution.result_view import (
     SortSpec,
     apply_result_view,
 )
-from daikonstudio.application.execution.train_protocol import ScorecardInputs, scorecard_inputs_key
+from daikonstudio.application.execution.train_protocol import (
+    ScorecardInputs,
+    scorecard_inputs_key,
+    unpack_artifact,
+)
 from daikonstudio.application.pagination import PageResult, clamp_limit
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
@@ -330,7 +334,7 @@ class RunPrediction:
         # 12's `new_version()`) can have an `artifact_uri` written under its
         # *parent's* id when no retraining has produced a new one yet. Task 17
         # review, Important 3 -- re-deriving the key silently 404s that case.
-        artifact = self._store.get_bytes(protocol.artifact_uri)
+        artifact = unpack_artifact(self._store.get_bytes(protocol.artifact_uri))
         predictions = await asyncio.to_thread(
             engine.predict,
             PredictContext(

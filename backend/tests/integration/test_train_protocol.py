@@ -43,6 +43,7 @@ from daikonstudio.application.execution.train_protocol import (
     TrainProtocolCommand,
     artifact_key,
     scorecard_inputs_key,
+    unpack_artifact,
 )
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
@@ -900,8 +901,9 @@ async def test_a_mixed_kind_dataset_trains_one_model_per_target(studio: Studio) 
     assert set(inputs.targets[1].actual) <= {0.0, 1.0}
     assert [h["column"] for h in run.metrics["targets"]] == ["y", "active"]
     assert run.params["deadline_scale"] == 2
-    artifact = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))
-    assert zipfile.is_zipfile(io.BytesIO(artifact))
+    stored = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))
+    assert stored.startswith(b"\xfd7zXZ\x00")
+    assert zipfile.is_zipfile(io.BytesIO(unpack_artifact(stored)))
 
 
 async def test_a_single_target_protocol_still_stores_a_bare_artifact(studio: Studio) -> None:
@@ -910,8 +912,9 @@ async def test_a_single_target_protocol_still_stores_a_bare_artifact(studio: Stu
         await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
     )
     protocol = await studio.protocol_for(run)
-    artifact = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))
-    assert not zipfile.is_zipfile(io.BytesIO(artifact))
+    stored = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))
+    assert stored.startswith(b"\xfd7zXZ\x00")
+    assert not zipfile.is_zipfile(io.BytesIO(unpack_artifact(stored)))
 
 
 async def test_a_joint_engine_is_refused_a_mixed_kind_dataset_before_a_run_exists(
