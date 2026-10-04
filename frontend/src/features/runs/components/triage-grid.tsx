@@ -7,6 +7,7 @@ import { Button } from "@/shared/components/ui/button";
 import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
 import type { ReadoutResponse } from "@/shared/lib/api/model";
+import { targetsOf, uncertaintyColumn } from "@/shared/lib/targets";
 import {
   AllCommunityModule,
   type ColDef,
@@ -133,33 +134,39 @@ export function TriageGrid({
       });
     }
 
-    base.push(
-      {
-        headerName: "Uncertainty",
-        field: "uncertainty",
-        width: 130,
+    // One per target: each target's own model reports its own spread. The colId is
+    // the results column the API sorts and filters by -- plain `uncertainty` for a
+    // one-target Protocol, as every results file before several targets used.
+    const targets = targetsOf(readouts);
+    for (const target of targets) {
+      base.push({
+        headerName: targets.length === 1 ? "Uncertainty" : `Uncertainty (${target})`,
+        colId: uncertaintyColumn(target, targets.length),
+        width: 150,
         ...NUMBER_FILTER,
+        valueGetter: (params) => params.data?.uncertainty?.[target] ?? null,
         // Null for XGBoost, which has no ensemble spread to report. Rendered as
         // absence rather than as a fabricated zero.
         cellRenderer: (params: { value: number | null }) => (
           <ReadoutValue value={params.value} precision={3} />
         ),
-      },
-      {
-        headerName: "Applicability",
-        field: "applicability",
-        width: 140,
-        ...NUMBER_FILTER,
-        cellRenderer: (params: { value: number | null }) =>
-          params.value == null ? (
-            <span className="text-muted-foreground">—</span>
-          ) : (
-            <span className={params.value < IN_DOMAIN_FLOOR ? "text-warning" : undefined}>
-              {(params.value * 100).toFixed(0)}%
-            </span>
-          ),
-      },
-    );
+      });
+    }
+
+    base.push({
+      headerName: "Applicability",
+      field: "applicability",
+      width: 140,
+      ...NUMBER_FILTER,
+      cellRenderer: (params: { value: number | null }) =>
+        params.value == null ? (
+          <span className="text-muted-foreground">—</span>
+        ) : (
+          <span className={params.value < IN_DOMAIN_FLOOR ? "text-warning" : undefined}>
+            {(params.value * 100).toFixed(0)}%
+          </span>
+        ),
+    });
 
     return base;
   }, [readouts, hasIds]);

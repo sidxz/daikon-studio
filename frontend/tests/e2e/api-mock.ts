@@ -162,7 +162,7 @@ export async function installApiMock(page: Page): Promise<CollectionPosts> {
             row_id: row.row_id,
             structure: row.structure,
             readouts: { [READOUT]: { value: row.value, unit: "log mol/L", direction: "high" } },
-            uncertainty: null,
+            uncertainty: {},
             applicability: row.applicability,
           })),
           next_cursor: offset + limit < rows.length ? String(offset + limit) : null,
