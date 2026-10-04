@@ -87,7 +87,7 @@ export function SweepForm() {
       <div>
         <h1 className="text-lg font-semibold">New sweep</h1>
         <p className="mt-1 text-sm text-muted-foreground">
-          Train several engine configurations on one dataset and rank them by primary metric.
+          Train several engine configurations on one dataset and compare them target by target.
         </p>
       </div>
 

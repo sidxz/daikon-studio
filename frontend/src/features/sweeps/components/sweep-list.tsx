@@ -49,7 +49,7 @@ export function SweepList() {
         <div>
           <h1 className="text-lg font-semibold">Sweeps</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            Compare engine configurations on one dataset, ranked by primary metric.
+            Compare engine configurations on one dataset, target by target.
           </p>
         </div>
         <Button asChild>
