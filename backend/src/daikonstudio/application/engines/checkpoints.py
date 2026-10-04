@@ -34,8 +34,10 @@ from daikonstudio.application.ports.blob_store import BlobStore
 logger = logging.getLogger(__name__)
 
 #: How often an in-progress neural fit saves its training state. A runner overrides it
-#: with STUDIO_CHECKPOINT_INTERVAL_SECONDS.
-DEFAULT_INTERVAL_SECONDS = 600.0
+#: with STUDIO_CHECKPOINT_INTERVAL_SECONDS. An hour: a time-limit stop saves at the stop
+#: anyway, so the interval only bounds what a crash or a cancel loses, and each save of a
+#: large model is a 150-750 MB upload.
+DEFAULT_INTERVAL_SECONDS = 3600.0
 
 #: The packed-`TrainResult` layout. Part of every fit's fingerprint: bump it when
 #: `pack_result` changes and older saves read as absent instead of misreading.

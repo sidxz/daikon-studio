@@ -109,7 +109,7 @@ Everything derived from the data is recomputed deterministically, exactly as in 
 
 > Not bit-identical: data-loader shuffling after a resume differs from an uninterrupted run. chemprop on MPS is not run-to-run reproducible anyway, so this changes nothing a user can rely on.
 
-**Interval.** A runner setting, `STUDIO_CHECKPOINT_INTERVAL_SECONDS`, defaults to 600. It is read where the runner builds `RunTraining` and carried on the store.
+**Interval.** A runner setting, `STUDIO_CHECKPOINT_INTERVAL_SECONDS`, defaults to 3600 (raised from 600 on 2026-10-04, at the user's request: a time-limit stop saves anyway, so the interval only bounds what a crash or a cancel loses). It is read where the runner builds `RunTraining` and carried on the store.
 
 **Expected save sizes:**
 

@@ -44,6 +44,7 @@ import httpx
 import structlog
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from daikonstudio.application.engines.checkpoints import DEFAULT_INTERVAL_SECONDS
 from daikonstudio.infrastructure import jobs
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.runner.ports import build_http_ctx
@@ -77,7 +78,7 @@ class AgentSettings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "console"
     # How often a long neural fit saves its training state (STUDIO_CHECKPOINT_INTERVAL_SECONDS).
-    checkpoint_interval_seconds: float = 600.0
+    checkpoint_interval_seconds: float = DEFAULT_INTERVAL_SECONDS
 
 
 async def _heartbeat(api: httpx.AsyncClient, run_id: uuid.UUID, interval: float) -> None:
