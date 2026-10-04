@@ -73,6 +73,9 @@ services:
       # The Runners page's copy-paste docker command names this image for a
       # CPU runner, so it is the one this stack actually runs.
       APP_RUNNER_IMAGE: "${STUDIO_API_IMAGE}"
+      # And this one for a GPU runner. Explicit, so the command is right whatever
+      # default the deployed frontend version was built with.
+      APP_RUNNER_GPU_IMAGE: "${STUDIO_RUNNER_GPU_IMAGE:-ghcr.io/sidxz/daikon-studio/runner-gpu:latest}"
 
   # The default-lane runner, on the same host. Talks to the API directly, so
   # the reverse-proxy slash-merging caveat in deploy/README.md does not apply.
