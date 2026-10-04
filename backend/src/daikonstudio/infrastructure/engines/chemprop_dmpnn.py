@@ -656,7 +656,9 @@ class ChempropDMPNN:
                     "names": list(DESCRIPTOR_NAMES),
                     "fill": [float(v) for v in fill],
                 }
-            torch.save(stored, checkpoint)
+            # Protocol 4, not torch's default 2: protocol 2 pickles a `bytes` object as a
+            # latin-1 string in UTF-8, which stores an ensemble's models 1.5 times over.
+            torch.save(stored, checkpoint, pickle_protocol=4)
             artifact = checkpoint.read_bytes()
 
         predictor = _predict_trainer()

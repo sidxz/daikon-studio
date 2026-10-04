@@ -1,7 +1,7 @@
 # Roadmap — capability first
 
-**Last updated:** 2026-10-02 (traps and deferred items revised after the beta-readiness
-pass, `docs/plans/2026-10-02-beta-readiness.md`). Companions: `engine-research.md`, which holds the external
+**Last updated:** 2026-10-04 (chemprop ensembles; earlier, traps and deferred items
+revised after the beta-readiness pass, `docs/plans/2026-10-02-beta-readiness.md`). Companions: `engine-research.md`, which holds the external
 evidence (licences, refuted models, what not to add) and is not re-derived here; and
 `study-replication.md`, which measures the platform against one real completed study
 (Mtb ERA → SAC3) and ranks what it would take to host one.
@@ -54,7 +54,7 @@ and the three devices do not produce identical numbers.
 | `ecfp4-lightgbm` | default | 2048 Morgan bits | leaf-wise boosting, sparse-feature bundling, the fastest fit here |
 | `descriptors-xgboost` | default | 217 RDKit descriptors | the recipe behind every reproducible TDC entry |
 | `tanimoto-gp` | default | 2048 Morgan bits | small n, posterior variance (regression only) |
-| `chemprop-dmpnn` | gpu | learned graph | learned representations, ±CheMeleon |
+| `chemprop-dmpnn` | gpu | learned graph | learned representations, ±CheMeleon, ensembles whose spread is the uncertainty |
 | `molformer-xl` | gpu | SMILES tokens | the sequence family, frozen or fine-tuned |
 
 Added 2026-08-06 on request, to replicate the Mtb ERA → SAC3 study — see
@@ -67,14 +67,53 @@ number that matters. There is no `descriptors-lightgbm`: on dense descriptors Li
 and XGBoost converge to near-identical models, and the sparse fingerprint is where the
 two libraries actually diverge.
 
+### Ensembles
+
+`chemprop-dmpnn`'s `ensemble_size` (1–10, default 1) trains that many models, each from
+its own seed, predicts their mean and reports their standard deviation as the
+uncertainty. Shipped 2026-10-04. It sat in "not doing" until per-lane deadlines and
+resumable runs removed the reason: the run's time limit now scales with the ensemble
+size, and a stopped ensemble resumes in the model it stopped in.
+
+Measured through the engine on real data, scaffold splits, seeds 0–2, one model against
+five (MPS, default settings):
+
+| | Seed 0 | Seed 1 | Seed 2 |
+|---|---|---|---|
+| ESOL test RMSE | 0.651 → 0.603 | 0.733 → 0.651 | 0.851 → 0.803 |
+| ESOL RMSE, confident half / uncertain half | 0.49 / 0.70 | 0.49 / 0.78 | 0.66 / 0.92 |
+| BBBP test AUROC | 0.925 → 0.923 | 0.869 → 0.882 | 0.855 → 0.882 |
+| BBBP error-ranking AUROC, spread / boundary | 0.805 / 0.837 | 0.709 / 0.748 | 0.730 / 0.776 |
+
+- **Regression: the spread is informative.** The confident half's RMSE is 28–38% below
+  the uncertain half's in every seed, and five models beat one in every seed.
+- **Classification: the spread is not better than the proxy.** It mostly mirrors the
+  distance from the boundary and ranks misclassifications slightly worse. The same held
+  on all four labels of the 10k nuisance sample with three models (error-ranking AUROC
+  0.76–0.85 for the spread against 0.80–0.88 for the boundary), and there the spread did
+  not track Tanimoto similarity to the nearest training compound either (|ρ| < 0.05).
+  Do not present it as having closed the classification gap.
+- **CheMeleon members agree about three times more closely** (mean spread 0.075 against
+  0.209 on ESOL seed 0), as the setting's help text says, and five gave no gain over one
+  (RMSE 0.559 against 0.550). The spread still ranked errors: confident half 0.41,
+  uncertain half 0.68.
+- **Cost is linear.** About 4.8–4.9× the wall time for five models, pretrained or not;
+  three models on the 10k four-label sample took 421 s. A model in an ensemble is stored
+  without optimizer state, so it is a third of a one-model checkpoint: 1.3 MB against
+  3.85 MB at default size, 37.3 MB against 112 MB with CheMeleon.
+- Single runs per seed, and three seeds. Inside the split-seed noise recorded below, so
+  this is a direction, not a claim.
+
 ### What the roster still cannot do
 
-1. **One model across several endpoints.** chemprop supports `n_tasks > 1` natively; the
-   platform hard-codes one target column (`y=np.array([float(target)])`, and `_forward`'s
-   `reshape(-1)`). Largest remaining gap, and a domain/schema change rather than a new file.
+1. ~~One model across several endpoints.~~ Shipped 2026-10-03 (multi-task labels):
+   chemprop and MoLFormer learn every target jointly, other engines fit one per target.
 2. **Principled uncertainty on the classification path.** The GP gives a real posterior
-   for regression. Every classification engine reports distance-from-the-boundary, which
-   is a proxy.
+   for regression. Since 2026-10-04 a chemprop ensemble reports its models' spread for
+   classification too, but measured on BBBP it is not better than the
+   distance-from-the-boundary proxy every other classifier reports: it mostly mirrors it
+   (rank correlation 0.87–0.96) and ranks errors slightly worse in all three seeds. See
+   "Ensembles" below. Still open.
 3. **Start from a prior run's artifact.** "Train from the model I fitted on my other
    assay." Artifacts are already stored and addressable, so this is a condition pointing at
    a previous run rather than new science — and it is worth more at n=200 than any
@@ -89,25 +128,15 @@ two libraries actually diverge.
 
 ## Ranked next
 
-### 1. Descriptors into the chemprop predictor
+### 1. Transfer from a prior run's artifact
 
-Molecule-level `x_d` descriptors concatenate *after* aggregation, so the encoder's
-`output_dim` stays 2048 and pretrained CheMeleon weights are untouched — verified. This is
-the ADMET-AI / MapLight+GNN configuration, and it shares its featurizer with
-`descriptors-xgboost`, so most of the work is wiring.
+The cheapest large capability left. No new science, no new dependency. The OpenADMET ×
+ExpansionRx organizers' first lesson was that more data won, and on this platform reusing
+a model fitted on another assay is how a run gets more data.
 
-### 2. Multi-task training
-
-See "what the roster still cannot do" #2. Bigger than any single engine: one model across
-many assays, borrowing strength between them, which is ADMET-AI's whole thesis. Largest
-blast radius on this list — it touches the Dataset schema, `TargetSpec`, the training
-context and the Scorecard.
-
-### 3. Transfer from a prior run's artifact
-
-The cheapest large capability left. No new science, no new dependency.
-
-*(Fine-tuned MoLFormer-XL was #4 here and shipped on 2026-08-06.)*
+*(Shipped from this list: fine-tuned MoLFormer-XL on 2026-08-06; descriptors into the
+chemprop predictor and multi-task training on 2026-10-03, as training options and
+multi-task labels.)*
 
 ---
 
@@ -206,8 +235,6 @@ stays visible:
 - **A second CheMeleon-format checkpoint** — none exists; closed question, research §4.
 - **MolE, MolGPS, MiniMol, Uni-Mol2, GROVER, MolCLR** — licence, missing weights, audited
   leakage, or refutation. Reasons in research §4.
-- **Chemprop ensembles** — best blind-challenge evidence, but N× the fits against a global
-  deadline with no per-lane timeout.
 - **TabPFN, in any pairing — including frozen CheMeleon + TabPFN.** Built and then removed
   on 2026-08-06. `engine-research.md` §3.2 still carries the evidence for it; this entry is
   the reason it is not being acted on. Three findings, in order of how much they cost:

@@ -816,6 +816,8 @@ def test_an_ensemble_predicts_its_models_mean_and_reports_their_spread() -> None
     stored = torch.load(io.BytesIO(trained.artifact), weights_only=False)
     members = [_model_from_bytes(data) for data in stored["daikon_ensemble"]]
     assert len(members) == 2
+    # The models are stored once: torch's default pickle protocol inflates bytes 1.5x.
+    assert len(trained.artifact) < 1.1 * sum(len(data) for data in stored["daikon_ensemble"])
     dataset = MoleculeDataset(_datapoints(_SMILES))
     each = np.stack([_forward(_predict_trainer(), model, dataset)[:, 0] for model in members])
 

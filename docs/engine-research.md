@@ -180,11 +180,14 @@ hard-codes to null, with an existing `ponytail:` comment naming exactly this upg
 **Blocked on** fixing `_forward`'s `reshape(-1)` first (§1) — otherwise predictions come
 back silently interleaved.
 
-### 3.4 Chemprop ensembles — *best evidence, worst current fit*
+### 3.4 Chemprop ensembles — **BUILT 2026-10-04**
 
 Every one of the OpenADMET top five was an ensemble. But N=5 multiplies the exact
-resource already identified as the most likely first-run killer. **Defer** until the
-timeout is raised and the GPU image has actually been built.
+resource already identified as the most likely first-run killer. Deferred until the
+timeout was raised. Per-lane deadlines and resumable runs removed that blocker, and it
+shipped as chemprop's `ensemble_size` setting. Measured results, including the finding
+that the spread does not beat the boundary proxy on classification, are in
+`roadmap.md` under "Ensembles".
 
 ### 3.5 Fine-tuned MoLFormer-XL — *architectural contrast, later*
 
