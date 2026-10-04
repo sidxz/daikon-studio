@@ -7,7 +7,10 @@ function describeBounds(condition: Condition): string | null {
   if (minimum != null && maximum != null) return `${minimum}–${maximum}`;
   if (minimum != null) return `≥ ${minimum}`;
   if (maximum != null) return `≤ ${maximum}`;
-  if (condition.options.length > 0) return condition.options.join(" · ");
+  if (condition.options.length > 0) {
+    const labels = condition.option_labels.length > 0 ? condition.option_labels : condition.options;
+    return labels.join(" · ");
+  }
   return null;
 }
 
