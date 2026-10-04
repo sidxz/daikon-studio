@@ -3,8 +3,19 @@
 import { useCreateCollection } from "@/features/collections";
 import { useProtocol } from "@/features/protocols";
 import { LANE_LABELS, useRunners } from "@/features/runners";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/shared/components/ui/alert-dialog";
 import { Badge } from "@/shared/components/ui/badge";
-import { Button } from "@/shared/components/ui/button";
+import { Button, buttonVariants } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import {
   Dialog,
@@ -173,14 +184,33 @@ export function RunDetail({ runId }: { runId: string }) {
               <Button onClick={() => retry.mutate({ id: runId })} disabled={retry.isPending}>
                 Resume
               </Button>
-              <Button
-                variant="ghost"
-                onClick={() => retry.mutate({ id: runId, fresh: true })}
-                disabled={retry.isPending}
-                title="Discards saved progress and trains from the beginning"
-              >
-                Start over
-              </Button>
+              {/* Confirmed: it discards saved progress, which for a long fit is hours
+                  of compute that cannot be recovered. A failure is toasted by the
+                  mutation cache, so the dialog does not wait on the request. */}
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="ghost" disabled={retry.isPending}>
+                    Start over
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Start this run over?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Its saved progress is discarded and training begins again from the start.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction
+                      className={buttonVariants({ variant: "destructive" })}
+                      onClick={() => retry.mutate({ id: runId, fresh: true })}
+                    >
+                      Start over
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </>
           ) : (
             <Button

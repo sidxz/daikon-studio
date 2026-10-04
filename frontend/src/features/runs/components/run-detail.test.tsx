@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RunDetail } from "./run-detail";
@@ -80,11 +80,22 @@ describe("RunDetail retry buttons", () => {
     expect(hoisted.calls[0]).toEqual({ url: "/api/v1/runs/run-1/retry", method: "POST" });
   });
 
-  it("Start over posts fresh: true", async () => {
+  it("Start over asks first, and posts fresh: true only once confirmed", async () => {
     hoisted.run.current = stoppedRun("training");
     render(<RunDetail runId="run-1" />, { wrapper: Wrapper });
 
     fireEvent.click(await screen.findByRole("button", { name: "Start over" }));
+
+    const dialog = await screen.findByRole("alertdialog");
+    expect(within(dialog).getByText("Start this run over?")).toBeInTheDocument();
+    expect(
+      within(dialog).getByText(
+        "Its saved progress is discarded and training begins again from the start.",
+      ),
+    ).toBeInTheDocument();
+    expect(hoisted.calls).toHaveLength(0);
+
+    fireEvent.click(within(dialog).getByRole("button", { name: "Start over" }));
 
     await waitFor(() => expect(hoisted.calls).toHaveLength(1));
     expect(hoisted.calls[0]).toEqual({
@@ -92,6 +103,18 @@ describe("RunDetail retry buttons", () => {
       method: "POST",
       data: { fresh: true },
     });
+  });
+
+  it("Cancel in the Start over dialog sends nothing", async () => {
+    hoisted.run.current = stoppedRun("training");
+    render(<RunDetail runId="run-1" />, { wrapper: Wrapper });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Start over" }));
+    const dialog = await screen.findByRole("alertdialog");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+    await waitFor(() => expect(screen.queryByRole("alertdialog")).toBeNull());
+    expect(hoisted.calls).toHaveLength(0);
   });
 
   it("keeps Retry, and only Retry, on a failed prediction run", async () => {

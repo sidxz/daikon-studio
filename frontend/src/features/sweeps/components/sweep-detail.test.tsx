@@ -13,6 +13,7 @@ function Wrapper({ children }: { children: React.ReactNode }) {
 
 const hoisted = vi.hoisted(() => ({
   calls: [] as { url: string; method: string; data?: unknown }[],
+  gets: [] as string[],
 }));
 
 // The real retry hook runs, so what is asserted is the request it sends.
@@ -23,7 +24,10 @@ vi.mock("@/shared/lib/api/custom-instance", async () => {
   return {
     ...actual,
     customInstance: async (config: { url: string; method: string; data?: unknown }) => {
-      if (config.method === "GET") return SWEEP;
+      if (config.method === "GET") {
+        hoisted.gets.push(config.url);
+        return SWEEP;
+      }
       hoisted.calls.push(config);
     },
   };
@@ -55,6 +59,7 @@ const SWEEP = {
 describe("SweepDetail Resume", () => {
   beforeEach(() => {
     hoisted.calls.length = 0;
+    hoisted.gets.length = 0;
   });
 
   it("shows Resume on a failed row only, and posts to that run's retry route", async () => {
@@ -67,5 +72,18 @@ describe("SweepDetail Resume", () => {
 
     await waitFor(() => expect(hoisted.calls).toHaveLength(1));
     expect(hoisted.calls[0]).toEqual({ url: "/api/v1/runs/run-failed/retry", method: "POST" });
+  });
+
+  it("refetches the sweep after a row's Resume, because polling has stopped", async () => {
+    render(<SweepDetail id="sweep-1" />, { wrapper: Wrapper });
+    const resume = await screen.findByRole("button", { name: "Resume" });
+    // Every member is terminal, so nothing polls: the next GET can only be the
+    // invalidation, and without it the row would stay "Failed".
+    expect(hoisted.gets).toEqual(["/api/v1/sweeps/sweep-1"]);
+
+    fireEvent.click(resume);
+
+    await waitFor(() => expect(hoisted.gets).toHaveLength(2));
+    expect(hoisted.gets[1]).toBe("/api/v1/sweeps/sweep-1");
   });
 });
