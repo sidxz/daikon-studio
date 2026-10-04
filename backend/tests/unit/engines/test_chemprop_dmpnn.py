@@ -104,10 +104,11 @@ def test_predict_returns_the_contracted_schema_and_dtypes() -> None:
         )
     )
 
-    assert predictions.columns == ["row_id", "value", "uncertainty"]
+    assert predictions.columns == ["row_id", "value", "uncertainty", "target"]
     assert predictions.schema["row_id"] == pl.Int64
     assert predictions.schema["value"] == pl.Float64
     assert predictions.schema["uncertainty"] == pl.Float64
+    assert predictions.schema["target"] == pl.String
     assert predictions.height == 2
 
 
@@ -189,6 +190,7 @@ def test_chemeleon_builds_a_network_sized_by_the_checkpoint_not_the_conditions()
         depth=3,
         is_classification=False,
         output_transform=None,
+        n_tasks=1,
     )
     assert model.message_passing.output_dim == 2048
     # The frontend's PINNED_BY_PRETRAINED claims depth=6 for CheMeleon and disables
@@ -198,3 +200,55 @@ def test_chemeleon_builds_a_network_sized_by_the_checkpoint_not_the_conditions()
     # fit would still succeed at the checkpoint's real depth while the stored
     # Protocol went on recording the pinned 6 -- settings the fit never used.
     assert model.message_passing.depth == 6
+
+
+def test_two_targets_train_jointly_and_predict_in_long_format() -> None:
+    frame = _frame([float(i) for i in range(20)]).with_columns(
+        (pl.col("y") * 2.0 + 1.0).alias("z")
+    )
+    engine = ChempropDMPNN()
+    result = engine.train(
+        TrainContext(
+            frame=frame,
+            targets={"y": TaskType.REGRESSION, "z": TaskType.REGRESSION},
+            structure_column="smiles",
+            conditions=_FAST,
+            seed=13,
+        )
+    )
+    assert list(result.metrics) == ["y", "z"]
+    assert "rmse" in result.metrics["z"]
+    assert result.validation_metrics is not None
+    assert list(result.validation_metrics) == ["y", "z"]
+
+    predictions = engine.predict(
+        PredictContext(
+            frame=frame,
+            structure_column="smiles",
+            artifact=result.artifact,
+            conditions={},
+            target_columns=("y", "z"),
+        )
+    )
+    assert predictions.height == 2 * frame.height
+    assert predictions["target"].unique().sort().to_list() == ["y", "z"]
+
+
+def test_two_classification_targets_are_scored_per_column() -> None:
+    frame = _frame([float(i % 2) for i in range(20)]).with_columns((1.0 - pl.col("y")).alias("z"))
+
+    result = ChempropDMPNN().train(
+        TrainContext(
+            frame=frame,
+            targets={"y": TaskType.BINARY_CLASSIFICATION, "z": TaskType.BINARY_CLASSIFICATION},
+            structure_column="smiles",
+            conditions=_FAST,
+            seed=13,
+        )
+    )
+
+    assert sorted(result.metrics["z"]) == ["auprc", "auroc", "balanced_accuracy", "mcc"]
+
+
+def test_chemprop_declares_that_it_learns_targets_jointly() -> None:
+    assert ChempropDMPNN.manifest().supports_multitask is True

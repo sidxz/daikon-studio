@@ -8,7 +8,6 @@ not prove either.
 from __future__ import annotations
 
 import uuid
-from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -487,21 +486,9 @@ async def test_get_sweep_returns_members_in_submission_order(sessions, get_sweep
     assert [run.params["name"] for run in runs] == ["s #1", "s #2", "s #3"]
 
 
-@pytest.fixture
-def chemprop_is_joint(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Chemprop declares `supports_multitask` only once Task 12 teaches it several
-    targets; until then this stands in for that declaration so the refusal is
-    exercised against the real registry entry. Redundant after Task 12."""
-    from daikonstudio.infrastructure.engines import chemprop_dmpnn
-
-    monkeypatch.setattr(
-        chemprop_dmpnn, "_MANIFEST", replace(chemprop_dmpnn._MANIFEST, supports_multitask=True)
-    )
-
-
 @pytest.mark.asyncio
 async def test_a_joint_engine_in_the_last_config_on_a_mixed_dataset_creates_no_runs(
-    submit_sweep, mixed_dataset, auth, runs_repository, chemprop_is_joint
+    submit_sweep, mixed_dataset, auth, runs_repository
 ) -> None:
     result = await submit_sweep(
         SubmitSweepCommand(

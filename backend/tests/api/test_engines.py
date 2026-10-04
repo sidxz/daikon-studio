@@ -41,8 +41,8 @@ async def test_exactly_one_engine_is_marked_as_the_baseline(client):
 async def test_every_manifest_says_whether_it_learns_targets_jointly(client):
     response = await client.get("/api/v1/engines")
     assert response.status_code == 200, response.text
-    # No engine in the roster fits several targets in one model yet.
-    assert {e["supports_multitask"] for e in response.json()} == {False}
+    joint = {e["id"] for e in response.json() if e["supports_multitask"]}
+    assert joint == {"chemprop-dmpnn"}
 
 
 async def test_conditions_carry_all_form_metadata(client):

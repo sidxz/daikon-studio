@@ -23,7 +23,6 @@ import json
 import uuid
 import zipfile
 from collections.abc import AsyncIterator
-from dataclasses import replace
 from pathlib import Path
 
 import polars as pl
@@ -910,20 +909,8 @@ async def test_a_single_target_protocol_still_stores_a_bare_artifact(studio: Stu
     assert not zipfile.is_zipfile(io.BytesIO(artifact))
 
 
-@pytest.fixture
-def chemprop_is_joint(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Chemprop declares `supports_multitask` only once Task 12 teaches it several
-    targets; until then this stands in for that declaration so the refusal is
-    exercised against the real registry entry. Redundant after Task 12."""
-    from daikonstudio.infrastructure.engines import chemprop_dmpnn
-
-    monkeypatch.setattr(
-        chemprop_dmpnn, "_MANIFEST", replace(chemprop_dmpnn._MANIFEST, supports_multitask=True)
-    )
-
-
 async def test_a_joint_engine_is_refused_a_mixed_kind_dataset_before_a_run_exists(
-    studio: Studio, chemprop_is_joint: None
+    studio: Studio,
 ) -> None:
     dataset = await studio.dataset(targets=MIXED, csv=_two_target_csv())
     result = await studio._train(
@@ -937,9 +924,7 @@ async def test_a_joint_engine_is_refused_a_mixed_kind_dataset_before_a_run_exist
     assert "same kind" in str(error)
 
 
-async def test_a_joint_baseline_is_refused_a_mixed_kind_dataset_too(
-    studio: Studio, chemprop_is_joint: None
-) -> None:
+async def test_a_joint_baseline_is_refused_a_mixed_kind_dataset_too(studio: Studio) -> None:
     dataset = await studio.dataset(targets=MIXED, csv=_two_target_csv())
     result = await studio._train(
         TrainProtocolCommand(

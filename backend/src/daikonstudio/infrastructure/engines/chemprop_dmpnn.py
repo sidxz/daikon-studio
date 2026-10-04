@@ -21,6 +21,7 @@ directionally valid, and this paragraph is why nobody should read it as exact.
 from __future__ import annotations
 
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -47,8 +48,9 @@ _MANIFEST = EngineManifest(
     name="Chemprop D-MPNN",
     description=(
         "A directed message-passing neural network that learns its own representation "
-        "from the molecular graph instead of using a fixed fingerprint. Trains on a "
-        "GPU and takes minutes to hours depending on dataset size."
+        "from the molecular graph instead of using a fixed fingerprint. Learns every "
+        "target of a dataset in one model. Trains on a GPU and takes minutes to hours "
+        "depending on dataset size."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(
@@ -105,6 +107,7 @@ _MANIFEST = EngineManifest(
         ),
     ),
     lane="gpu",
+    supports_multitask=True,
 )
 
 # Prediction is a forward pass with no gradients, so this only trades memory against
@@ -131,29 +134,31 @@ def _require_chemprop() -> None:
         ) from exc
 
 
-def _datapoints(structures: list[str], targets: list[float] | None = None) -> list[Any]:
+def _datapoints(
+    structures: list[str], targets: Sequence[Sequence[float]] | None = None
+) -> list[Any]:
     """chemprop wants one datapoint per molecule, with `y` a 1-D array of length
     n_tasks. A scalar y silently breaks both `MoleculeDataset.t` and the target
-    scaler, so the `(1,)` shape here is load-bearing rather than stylistic."""
+    scaler, so the 1-D shape here is load-bearing rather than stylistic, even
+    when there is only one task."""
     import numpy as np
     from chemprop.data import MoleculeDatapoint
 
     if targets is None:
         return [MoleculeDatapoint.from_smi(smiles) for smiles in structures]
     return [
-        MoleculeDatapoint.from_smi(smiles, y=np.array([float(target)]))
-        for smiles, target in zip(structures, targets, strict=True)
+        MoleculeDatapoint.from_smi(smiles, y=np.array([float(value) for value in row]))
+        for smiles, row in zip(structures, targets, strict=True)
     ]
 
 
 def _forward(trainer: Any, model: Any, dataset: Any) -> Any:
-    """Run the model over a dataset and flatten to one value per molecule.
+    """Run the model over a dataset and return (molecules, tasks).
 
     `trainer.predict` is what puts the model in eval mode, which is what activates
     `UnscaleTransform` -- calling `model(...)` directly would silently return scaled
-    values. Each batch comes back shaped (batch, 1) because n_tasks and n_targets are
-    both 1; for binary classification these are already sigmoid probabilities, so
-    nothing further is applied to them here.
+    values. Each batch comes back shaped (batch, n_tasks); for binary classification
+    these are already sigmoid probabilities, so nothing further is applied to them here.
 
     `shuffle=False` is not a default: `build_dataloader`'s own is `True` (its docstring
     disagrees with its signature and is wrong), and a shuffled predict loader would
@@ -165,7 +170,7 @@ def _forward(trainer: Any, model: Any, dataset: Any) -> Any:
     batches = trainer.predict(
         model, build_dataloader(dataset, batch_size=_PREDICT_BATCH_SIZE, shuffle=False)
     )
-    return torch.cat(batches).cpu().numpy().reshape(-1)
+    return torch.cat(batches).cpu().numpy().reshape(len(dataset), -1)
 
 
 def _build_model(
@@ -176,6 +181,7 @@ def _build_model(
     depth: int,
     is_classification: bool,
     output_transform: Any,
+    n_tasks: int,
 ) -> Any:
     """The network, before any data touches it.
 
@@ -215,9 +221,9 @@ def _build_model(
     # encoder is the checkpoint's d_h (2048 for CheMeleon), not `hidden`.
     input_dim = message_passing.output_dim
     predictor = (
-        BinaryClassificationFFN(input_dim=input_dim)
+        BinaryClassificationFFN(input_dim=input_dim, n_tasks=n_tasks)
         if is_classification
-        else RegressionFFN(input_dim=input_dim, output_transform=output_transform)
+        else RegressionFFN(input_dim=input_dim, n_tasks=n_tasks, output_transform=output_transform)
     )
     return MPNN(
         message_passing=message_passing,
@@ -253,6 +259,9 @@ class ChempropDMPNN:
         depth = int(conditions["depth"])
         batch_size = int(conditions["batch_size"])
         pretrained = str(conditions["pretrained"])
+        columns = ctx.target_columns
+        # One task for the whole fit: a joint engine is only ever handed a dataset
+        # whose targets share a kind (`joint_kind_error`, at enqueue).
         is_classification = ctx.task is TaskType.BINARY_CLASSIFICATION
 
         lightning.seed_everything(ctx.seed, workers=True)
@@ -263,14 +272,13 @@ class ChempropDMPNN:
 
         train_set = MoleculeDataset(
             _datapoints(
-                train_rows[ctx.structure_column].to_list(),
-                train_rows[ctx.target_column].to_list(),
+                train_rows[ctx.structure_column].to_list(), train_rows.select(columns).rows()
             )
         )
         validation_set = MoleculeDataset(
             _datapoints(
                 validation_rows[ctx.structure_column].to_list(),
-                validation_rows[ctx.target_column].to_list(),
+                validation_rows.select(columns).rows(),
             )
         )
         output_transform = None
@@ -280,6 +288,7 @@ class ChempropDMPNN:
             # is computed in scaled space while predictions come back in the target's
             # own unit -- which is what lets the Scorecard compare them against
             # `actual` without rescaling anything itself.
+            # One scaler per target column, so each task is standardized on its own scale.
             scaler = train_set.normalize_targets()
             if len(validation_set) > 0:
                 validation_set.normalize_targets(scaler)
@@ -295,6 +304,7 @@ class ChempropDMPNN:
             depth=depth,
             is_classification=is_classification,
             output_transform=output_transform,
+            n_tasks=len(columns),
         )
 
         def _report_epoch(trainer: Any, _module: Any) -> None:
@@ -347,9 +357,7 @@ class ChempropDMPNN:
         if keep_best.best_state is not None:
             model.load_state_dict(keep_best.best_state)
 
-        train_has_both_classes = train_rows[ctx.target_column].n_unique() >= 2
-
-        def score(rows: pl.DataFrame) -> dict[str, float]:
+        def score(rows: pl.DataFrame) -> dict[str, dict[str, float]]:
             # A prediction-only dataset, rebuilt from the structures rather than
             # reusing `validation_set`: for a regression task that set's targets were
             # scaled in place by `normalize_targets`, while `_forward` returns
@@ -357,20 +365,22 @@ class ChempropDMPNN:
             # compare a real value to a standardized one.
             dataset = MoleculeDataset(_datapoints(rows[ctx.structure_column].to_list()))
             values = _forward(trainer, model, dataset)
-            truth = rows[ctx.target_column].to_numpy()
-            if is_classification:
-                return classification_metrics(
-                    truth,
-                    (values >= 0.5).astype(float),
-                    values,
-                    train_has_both_classes=train_has_both_classes,
-                )
-            return regression_metrics(truth, values)
+            scored: dict[str, dict[str, float]] = {}
+            for index, column in enumerate(columns):
+                truth = rows[column].to_numpy()
+                if is_classification:
+                    scored[column] = classification_metrics(
+                        truth,
+                        (values[:, index] >= 0.5).astype(float),
+                        values[:, index],
+                        train_has_both_classes=train_rows[column].n_unique() >= 2,
+                    )
+                else:
+                    scored[column] = regression_metrics(truth, values[:, index])
+            return scored
 
-        metrics = {ctx.target_column: score(test_rows)}
-        validation_metrics = (
-            {ctx.target_column: score(validation_rows)} if validation_rows.height > 0 else None
-        )
+        metrics = score(test_rows)
+        validation_metrics = score(validation_rows) if validation_rows.height > 0 else None
 
         # Lightning writes checkpoints to a path, so this round-trips through the
         # filesystem. `tempfile` honours TMPDIR, which is how a deployment points
@@ -409,7 +419,7 @@ class ChempropDMPNN:
             enable_checkpointing=False,
         )
         values = _forward(trainer, model, dataset)
-        row_ids = list(range(len(values)))
+        row_ids = pl.Series(range(values.shape[0]), dtype=pl.Int64)
 
         # Explicit dtypes, matching `_predict_with_tree_ensemble`. An all-None
         # uncertainty list would otherwise infer as polars' Null dtype and make this
@@ -420,10 +430,22 @@ class ChempropDMPNN:
         # head or an ensemble; a fabricated number would be plotted by a triage grid as
         # "the model is confident here", which is worse than an admitted absent one.
         # Upgrade path: an `uncertainty` condition selecting MveFFN for regression.
-        return pl.DataFrame(
-            {
-                "row_id": pl.Series(row_ids, dtype=pl.Int64),
-                "value": pl.Series([float(value) for value in values], dtype=pl.Float64),
-                "uncertainty": pl.Series([None] * len(row_ids), dtype=pl.Float64),
-            }
+        #
+        # Long format, one block per target: a joint engine is not wrapped in `FanOut`,
+        # so it tags its own rows. A one-target checkpoint yields (n, 1) values and
+        # `target_columns` of length one, so it predicts exactly as it always did.
+        return pl.concat(
+            [
+                pl.DataFrame(
+                    {
+                        "row_id": row_ids,
+                        "value": pl.Series(
+                            [float(value) for value in values[:, index]], dtype=pl.Float64
+                        ),
+                        "uncertainty": pl.Series([None] * values.shape[0], dtype=pl.Float64),
+                        "target": pl.Series([column] * values.shape[0], dtype=pl.String),
+                    }
+                )
+                for index, column in enumerate(ctx.target_columns)
+            ]
         )
