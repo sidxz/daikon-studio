@@ -1,6 +1,6 @@
 "use client";
 
-import { RUN_STATUS_COPY } from "@/features/runs";
+import { RUN_STATUS_COPY, useRetryRun } from "@/features/runs";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Progress } from "@/shared/components/ui/progress";
@@ -16,11 +16,13 @@ import {
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import { isTerminal } from "@/shared/lib/query-defaults";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
+import { useQueryClient } from "@tanstack/react-query";
 import { ArrowDown } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
 // Deep imports, not the feature barrel: `index.ts` re-exports this component,
 // so importing from it here would be a cycle.
+import { SWEEP_KEY } from "../hooks/query-keys";
 import { useCancelSweep, useSweep } from "../hooks/use-sweeps";
 import {
   baselineDelta,
@@ -60,6 +62,8 @@ export function SweepDetail({ id }: { id: string }) {
   // sweep on screen (see run-detail for the same reasoning).
   const { data: sweep, isLoadingError, error, refetch } = useSweep(id);
   const cancel = useCancelSweep();
+  const retry = useRetryRun();
+  const queryClient = useQueryClient();
 
   useBreadcrumbTrail(
     sweep ? [{ label: "Sweeps", href: "/sweeps" }, { label: sweep.name ?? "Sweep" }] : null,
@@ -178,6 +182,27 @@ export function SweepDetail({ id }: { id: string }) {
                     >
                       {RUN_STATUS_COPY[run.status] ?? run.status}
                     </Badge>
+                    {(run.status === "failed" || run.status === "cancelled") && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="mt-1.5 h-6 px-2 text-xs"
+                        // Polling stops once every member is terminal, so the
+                        // sweep is refetched here or the row would stay "Failed".
+                        onClick={() =>
+                          retry.mutate(
+                            { id: run.id },
+                            {
+                              onSuccess: () =>
+                                queryClient.invalidateQueries({ queryKey: [...SWEEP_KEY, id] }),
+                            },
+                          )
+                        }
+                        disabled={retry.isPending}
+                      >
+                        Resume
+                      </Button>
+                    )}
                     {/* Same idiom as `RunDetail`'s progress card -- phase text
                         over a `Progress` bar -- so a chemprop sweep shows
                         which of ten identical "Running" rows is nearly done. */}

@@ -116,15 +116,23 @@ export function useCancelRun() {
   });
 }
 
-/** Failed or cancelled back to pending, same Run, same id; the server refuses anything else. */
+/**
+ * Failed or cancelled back to pending, same Run, same id; the server refuses anything else.
+ * A training run resumes from its saved progress; `fresh` discards that and starts over.
+ */
 export function useRetryRun() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (id: string) =>
-      customInstance<void>({ url: `${API_V1}/runs/${id}/retry`, method: "POST" }),
-    onSuccess: (_data, id) => {
+    mutationFn: ({ id, fresh = false }: { id: string; fresh?: boolean }) =>
+      customInstance<void>({
+        url: `${API_V1}/runs/${id}/retry`,
+        method: "POST",
+        ...(fresh ? { data: { fresh: true } } : {}),
+      }),
+    onSuccess: (_data, { id, fresh }) => {
       queryClient.invalidateQueries({ queryKey: [...RUN_KEY, id] });
-      showSuccess("Run requeued");
+      queryClient.invalidateQueries({ queryKey: RUNS_KEY });
+      showSuccess(fresh ? "Starting over" : "Run requeued");
     },
   });
 }

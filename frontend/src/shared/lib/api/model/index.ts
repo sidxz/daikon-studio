@@ -133,6 +133,8 @@ export * from './readoutWireDirection';
 export * from './readoutWireThreshold';
 export * from './readoutWireUnit';
 export * from './residualHistogramResponse';
+export * from './retryRunApiV1RunsRunIdRetryPostBody';
+export * from './retryRunBody';
 export * from './runChemicalSpaceResponse';
 export * from './runChemicalSpaceResponsePoints';
 export * from './runChemicalSpaceResponseStatus';

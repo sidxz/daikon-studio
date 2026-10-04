@@ -167,11 +167,30 @@ export function RunDetail({ runId }: { runId: string }) {
             Cancel run
           </Button>
         )}
-        {(run.status === "failed" || run.status === "cancelled") && (
-          <Button variant="outline" onClick={() => retry.mutate(runId)} disabled={retry.isPending}>
-            Retry
-          </Button>
-        )}
+        {(run.status === "failed" || run.status === "cancelled") &&
+          (run.kind === "training" ? (
+            <>
+              <Button onClick={() => retry.mutate({ id: runId })} disabled={retry.isPending}>
+                Resume
+              </Button>
+              <Button
+                variant="ghost"
+                onClick={() => retry.mutate({ id: runId, fresh: true })}
+                disabled={retry.isPending}
+                title="Discards saved progress and trains from the beginning"
+              >
+                Start over
+              </Button>
+            </>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={() => retry.mutate({ id: runId })}
+              disabled={retry.isPending}
+            >
+              Retry
+            </Button>
+          ))}
       </div>
 
       {running && (

@@ -1555,6 +1555,43 @@
         }
       }
     },
+    "/api/v1/runner/runs/{run_id}/checkpoints": {
+      "delete": {
+        "tags": [
+          "runner-protocol"
+        ],
+        "summary": "Delete Checkpoints",
+        "description": "Delete this run's saved training progress, and nothing else: the folder is\nderived from the run itself, never from the request.",
+        "operationId": "delete_checkpoints_api_v1_runner_runs__run_id__checkpoints_delete",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runners": {
       "get": {
         "tags": [
@@ -2103,7 +2140,7 @@
           "runs"
         ],
         "summary": "Retry Run",
-        "description": "Re-execute a failed or cancelled run in place; 409 for any other status.",
+        "description": "Re-execute a failed or cancelled run in place, resuming a training run from its\nsaved progress unless `fresh` is set; 409 for any other status.",
         "operationId": "retry_run_api_v1_runs__run_id__retry_post",
         "parameters": [
           {
@@ -2117,6 +2154,23 @@
             }
           }
         ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RetryRunBody"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Body"
+              }
+            }
+          }
+        },
         "responses": {
           "204": {
             "description": "Successful Response"
@@ -4446,6 +4500,18 @@
         ],
         "title": "ResidualHistogramResponse",
         "description": "`edges` is one longer than `counts`.\n\nNamed for what it holds rather than for its shape, because `datasets.py`\nalso declares a `HistogramResponse` and two identically-named schemas in one\nOpenAPI document generate a client with both of them renamed to their fully\nqualified module paths."
+      },
+      "RetryRunBody": {
+        "properties": {
+          "fresh": {
+            "type": "boolean",
+            "title": "Fresh",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "RetryRunBody"
       },
       "RunChemicalSpaceResponse": {
         "properties": {
