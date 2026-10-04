@@ -78,17 +78,30 @@ class CreateRunner:
 @dataclass(frozen=True)
 class RunnerStatusView:
     runner: Runner
-    online: bool  # last_seen_at within online_threshold_seconds of now
+    # last_seen_at within online_threshold_seconds of now, or, for a runner holding a
+    # run, within busy_threshold_seconds (see ListRunners).
+    online: bool
     current_run_id: uuid.UUID | None
 
 
 class ListRunners:
     def __init__(
-        self, runners: RunnerRepository, queue: RunQueue, *, online_threshold_seconds: int
+        self,
+        runners: RunnerRepository,
+        queue: RunQueue,
+        *,
+        online_threshold_seconds: int,
+        busy_threshold_seconds: int,
     ) -> None:
         self._runners = runners
         self._queue = queue
         self._online_threshold = timedelta(seconds=online_threshold_seconds)
+        # An idle runner polls every few seconds; a busy one stops polling and only
+        # heartbeats every lease/3 (runner/agent.py), so judging it by the idle
+        # threshold showed it Offline for most of every job. Given the whole lease,
+        # a runner that dies mid-job still reads Offline once its lease lapses --
+        # which is also when the sweep requeues its run.
+        self._busy_threshold = timedelta(seconds=busy_threshold_seconds)
 
     async def __call__(
         self, *, auth: AuthContext | None
@@ -103,7 +116,12 @@ class ListRunners:
                     runner=runner,
                     online=(
                         runner.last_seen_at is not None
-                        and now - runner.last_seen_at <= self._online_threshold
+                        and now - runner.last_seen_at
+                        <= (
+                            self._busy_threshold
+                            if runner.id in active_by_runner
+                            else self._online_threshold
+                        )
                     ),
                     current_run_id=active_by_runner.get(runner.id),
                 )

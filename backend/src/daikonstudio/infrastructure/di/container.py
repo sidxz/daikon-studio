@@ -203,6 +203,7 @@ def create_container(settings: Settings | None = None) -> Container:
             c[RunnerRepository],
             c[RunQueue],
             online_threshold_seconds=resolved.runner_online_threshold_seconds,
+            busy_threshold_seconds=resolved.runner_lease_seconds,
         ),
     )
     container.define(RevokeRunner, lambda c: RevokeRunner(c[RunnerRepository]))

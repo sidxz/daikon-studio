@@ -49,7 +49,8 @@ function StatusDot({ runner }: { runner: Runner }) {
 
 function statusLabel(runner: Runner): string {
   if (runner.revoked) return "Revoked";
-  return runner.online ? "Online" : "Offline";
+  if (!runner.online) return "Offline";
+  return runner.current_run_id ? "Busy" : "Online";
 }
 
 export function RunnerList() {

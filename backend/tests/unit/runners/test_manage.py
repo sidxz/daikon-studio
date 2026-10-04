@@ -163,7 +163,7 @@ async def test_list_reports_online_from_last_seen_and_joins_current_run() -> Non
     run_id = uuid.uuid4()
     queue = FakeRunQueue({online_runner.id: run_id})
 
-    use_case = ListRunners(repo, queue, online_threshold_seconds=15)
+    use_case = ListRunners(repo, queue, online_threshold_seconds=15, busy_threshold_seconds=600)
     views = (await use_case(auth=FakeAuth(workspace_role="admin"))).unwrap()
     by_name = {view.runner.name: view for view in views}
 
@@ -173,6 +173,26 @@ async def test_list_reports_online_from_last_seen_and_joins_current_run() -> Non
     assert by_name["offline"].current_run_id is None
     assert by_name["never-seen"].online is False
     assert by_name["never-seen"].current_run_id is None
+
+
+async def test_a_busy_runner_stays_online_between_heartbeats_until_its_lease_lapses() -> None:
+    """A runner holding a run stops polling and heartbeats every lease/3 (200 s), so
+    the idle 15 s threshold showed it Offline for most of every job (prod, 2026-10-04).
+    Silent for longer than the lease, it is gone: the run is about to be requeued."""
+    now = datetime.now(UTC)
+    working = _runner(name="working", last_seen_at=now - timedelta(seconds=180))
+    dead = _runner(name="dead", last_seen_at=now - timedelta(seconds=700))
+    repo = FakeRunnerRepository()
+    for runner in (working, dead):
+        await repo.add(runner)
+    queue = FakeRunQueue({working.id: uuid.uuid4(), dead.id: uuid.uuid4()})
+
+    use_case = ListRunners(repo, queue, online_threshold_seconds=15, busy_threshold_seconds=600)
+    views = (await use_case(auth=FakeAuth(workspace_role="admin"))).unwrap()
+    by_name = {view.runner.name: view for view in views}
+
+    assert by_name["working"].online is True
+    assert by_name["dead"].online is False
 
 
 # --- RevokeRunner ----------------------------------------------------------------
