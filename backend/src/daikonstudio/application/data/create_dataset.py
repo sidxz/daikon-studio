@@ -29,7 +29,7 @@ from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.data.dataset import Dataset, DuplicateDatasetError, check_id_column
 from daikonstudio.domain.data.split import SplitSpec
-from daikonstudio.domain.data.target import RESERVED_TARGET_COLUMNS, TargetKind, TargetSpec
+from daikonstudio.domain.data.target import TargetKind, TargetSpec, check_targets
 from daikonstudio.domain.data.validation import InvalidDatasetError
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
 
@@ -62,7 +62,7 @@ class CreateDatasetCommand:
     name: str
     upload_ref: str
     structure_column: str
-    target: TargetSpec
+    targets: tuple[TargetSpec, ...]
     split: SplitSpec
     id_column: str | None = None
 
@@ -87,29 +87,26 @@ class CreateDataset:
         workspace_id = auth.workspace_id
 
         # C1 (whole-branch review, Critical): a target column named the same as
-        # one of these is not a naming quirk -- it is a silent data-corruption
-        # bug. `derive_readouts` names the predicted Readout after
-        # `target.column`, and every one of these names is a column the
-        # pipeline itself writes downstream (see `RESERVED_TARGET_COLUMNS`'s own
-        # comment for exactly where): whichever write happens last wins, so
-        # either the served prediction becomes the model's uncertainty/an
-        # unrelated provenance value, or -- for a target named "structure" --
-        # the compound identity column is overwritten by the predicted value
-        # instead. Checked here, before any file is even read, because this is
-        # the one and only place a rejection can still prevent the damage; the
-        # export-time collision guard (`export_collection.py`) is downstream of
-        # a Protocol that has already been trained and published on the bad
-        # column.
-        if command.target.column in RESERVED_TARGET_COLUMNS:
+        # one of the names `check_targets` reserves is not a naming quirk -- it is a
+        # silent data-corruption bug. `derive_readouts` names the predicted Readout
+        # after `target.column`, and every reserved name is a column the pipeline
+        # itself writes downstream (see `RESERVED_TARGET_COLUMNS`'s own comment for
+        # exactly where): whichever write happens last wins, so either the served
+        # prediction becomes the model's uncertainty/an unrelated provenance value,
+        # or -- for a target named "structure" -- the compound identity column is
+        # overwritten by the predicted value instead. Checked here, before any file
+        # is even read, because this is the one and only place a rejection can still
+        # prevent the damage; the export-time collision guard (`export_collection.py`)
+        # is downstream of a Protocol that has already been trained and published on
+        # the bad column.
+        try:
+            check_targets(command.targets)
+        except ValidationError as error:
+            return Failure(error)
+        target_columns = [target.column for target in command.targets]
+        if command.structure_column in target_columns:
             return Failure(
-                ValidationError(
-                    f"'{command.target.column}' cannot be used as a target column",
-                    detail=(
-                        "The application writes a column with this name to prediction "
-                        "results and exports. Rename the column in your file. "
-                        f"Reserved names: {', '.join(sorted(RESERVED_TARGET_COLUMNS))}."
-                    ),
-                )
+                ValidationError("The structure column cannot also be a column to predict.")
             )
 
         try:
@@ -130,7 +127,7 @@ class CreateDataset:
 
         missing = [
             column
-            for column in (command.structure_column, command.target.column)
+            for column in (command.structure_column, *target_columns)
             if column not in frame.columns
         ]
         if missing:
@@ -147,14 +144,14 @@ class CreateDataset:
                     frame.columns,
                     id_column=command.id_column,
                     structure_column=command.structure_column,
-                    target_columns=(command.target.column,),
+                    target_columns=target_columns,
                 )
             except ValidationError as error:
                 return Failure(error)
 
         try:
             prepared, report = prepare_frame(
-                frame, command.structure_column, command.target, self._normalizer
+                frame, command.structure_column, command.targets, self._normalizer
             )
         except pl.exceptions.PolarsError as error:
             # The target gate inside prepare_frame catches what we know about; this
@@ -187,9 +184,10 @@ class CreateDataset:
             # exactly as written.
             return Failure(error)
 
-        degenerate = _degenerate_partition(split_frame, command.target)
-        if degenerate is not None:
-            return Failure(degenerate)
+        for target in command.targets:
+            degenerate = _degenerate_partition(split_frame, target)
+            if degenerate is not None:
+                return Failure(degenerate)
 
         dataset_id = uuid.uuid4()
         snapshot_uri, content_hash = write_snapshot(
@@ -209,7 +207,7 @@ class CreateDataset:
             workspace_id=workspace_id,
             name=command.name,
             structure_column=command.structure_column,
-            targets=(command.target,),
+            targets=command.targets,
             split=command.split,
             content_hash=content_hash,
             snapshot_uri=snapshot_uri,
@@ -279,7 +277,7 @@ def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> Validation
 
     `assign_split` deliberately carries no knowledge of the target column (a
     decision already reviewed and accepted), so this runs here instead, once
-    `command.target` and the split it produced are both in hand.
+    `command.targets` and the split they produced are both in hand.
     """
     is_binary = target.kind is TargetKind.BINARY
     # BINARY's test partition is deliberately excluded: see the docstring
@@ -299,7 +297,8 @@ def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> Validation
         kind = "class" if is_binary else "value"
         return ValidationError(
             f"After splitting, every compound in the {partition} set has the same "
-            f"target {kind}. A model trained or evaluated on it would not be meaningful.",
+            f"'{target.column}' {kind}. A model trained or evaluated on it would not be "
+            "meaningful.",
             detail=(
                 f"All rows in the {partition} set share the same '{target.column}' value. "
                 "Use a different split seed or a random split, or add compounds with "

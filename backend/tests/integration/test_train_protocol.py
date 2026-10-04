@@ -163,7 +163,7 @@ class Studio:
             name=f"dataset-{strategy.value}-{kind.value}",
             upload_ref=str(upload_ref),
             structure_column="smiles",
-            target=TargetSpec(column="y", kind=kind, unit=unit, direction=Direction.HIGH),
+            targets=(TargetSpec(column="y", kind=kind, unit=unit, direction=Direction.HIGH),),
             split=SplitSpec(strategy=strategy, seed=7),
         )
         return (await self._create(command, self.auth)).unwrap()

@@ -107,7 +107,7 @@ class CreateDatasetBody(BaseModel):
     name: str = Field(max_length=256)
     upload_ref: str
     structure_column: str = Field(max_length=128)
-    target: TargetBody
+    targets: list[TargetBody] = Field(min_length=1)
     split: SplitBody
     id_column: str | None = Field(default=None, max_length=128)
 
@@ -163,7 +163,7 @@ class DatasetResponse(BaseModel):
     # `*Response` twins: the spec a scientist submits *is* the spec that gets
     # frozen and read back, so one model for both directions is what keeps the
     # two from ever drifting apart.
-    target: TargetBody
+    targets: list[TargetBody]
     split: SplitBody
     content_hash: str
     snapshot_uri: str
@@ -186,7 +186,7 @@ class DatasetResponse(BaseModel):
             workspace_id=dataset.workspace_id,
             name=dataset.name,
             structure_column=dataset.structure_column,
-            target=TargetBody.model_validate(target_to_dict(dataset.single_target())),
+            targets=[TargetBody.model_validate(target_to_dict(t)) for t in dataset.targets],
             split=SplitBody.model_validate(split_to_dict(dataset.split)),
             content_hash=dataset.content_hash,
             snapshot_uri=dataset.snapshot_uri,
@@ -373,11 +373,9 @@ async def create_dataset(
         name=body.name,
         upload_ref=body.upload_ref,
         structure_column=body.structure_column,
-        target=TargetSpec(
-            column=body.target.column,
-            kind=body.target.kind,
-            unit=body.target.unit,
-            direction=body.target.direction,
+        targets=tuple(
+            TargetSpec(column=t.column, kind=t.kind, unit=t.unit, direction=t.direction)
+            for t in body.targets
         ),
         split=split,
         id_column=body.id_column,

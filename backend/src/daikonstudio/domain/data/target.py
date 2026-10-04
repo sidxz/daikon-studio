@@ -1,9 +1,11 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
+
+from daikonstudio.domain.shared.errors import ValidationError
 
 
 class TargetKind(StrEnum):
@@ -85,3 +87,68 @@ def target_from_dict(data: Mapping[str, Any]) -> TargetSpec:
         unit=data.get("unit"),
         direction=Direction(direction) if direction else None,
     )
+
+
+def probability_column(column: str) -> str:
+    """The readout a binary target's P(class=1) is written under. The one definition,
+    shared by `derive_readouts` and the collision check below."""
+    return f"{column}_probability"
+
+
+def uncertainty_column(column: str, *, target_count: int) -> str:
+    """Where prediction results store one target's per-compound uncertainty.
+
+    Plain `uncertainty` for a one-target Protocol: it is the name every results file
+    written before several targets existed already uses, so those stay readable.
+    `{column}_uncertainty` beside each target otherwise, because one number per row
+    cannot describe four models.
+    """
+    return "uncertainty" if target_count == 1 else f"{column}_uncertainty"
+
+
+def prediction_columns(targets: Sequence[TargetSpec]) -> list[str]:
+    """Every column a prediction for these targets writes, besides the fixed ones."""
+    names: list[str] = []
+    for target in targets:
+        if target.kind is TargetKind.BINARY:
+            names.append(probability_column(target.column))
+        names.append(target.column)
+        if len(targets) > 1:
+            names.append(uncertainty_column(target.column, target_count=len(targets)))
+    return names
+
+
+def check_targets(targets: Sequence[TargetSpec]) -> None:
+    """The invariants a Dataset's targets hold, checked once at creation.
+
+    Every one of these is a silent overwrite downstream if it slips through: a
+    prediction results frame is a dict of columns, so two derived names that
+    collide keep whichever was written last.
+    """
+    if not targets:
+        raise ValidationError("Choose at least one column to predict.")
+    columns = [target.column for target in targets]
+    for column in columns:
+        if column in RESERVED_TARGET_COLUMNS:
+            raise ValidationError(
+                f"'{column}' cannot be used as a target column",
+                detail=(
+                    "The application writes a column with this name to prediction "
+                    "results and exports. Rename the column in your file. "
+                    f"Reserved names: {', '.join(sorted(RESERVED_TARGET_COLUMNS))}."
+                ),
+            )
+    repeated = sorted({column for column in columns if columns.count(column) > 1})
+    if repeated:
+        raise ValidationError(f"'{repeated[0]}' is chosen more than once as a target.")
+    names = prediction_columns(targets)
+    clashing = sorted({name for name in names if names.count(name) > 1})
+    if clashing:
+        raise ValidationError(
+            f"Two targets would write the same prediction column, '{clashing[0]}'.",
+            detail=(
+                "A binary target named x is predicted as x and x_probability, and with "
+                "several targets each one also gets x_uncertainty. Rename one of the "
+                "columns in your file."
+            ),
+        )

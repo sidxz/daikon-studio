@@ -19,7 +19,7 @@ async def _create(client, csv_upload, **overrides):
         "name": "solubility",
         "upload_ref": upload_ref,
         "structure_column": "smiles",
-        "target": {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+        "targets": [{"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"}],
         "split": {"strategy": "random", "seed": 1},
     }
     body.update(overrides)

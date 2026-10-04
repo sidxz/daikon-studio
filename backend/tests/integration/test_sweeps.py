@@ -115,8 +115,8 @@ async def dataset(sessions: async_sessionmaker, tmp_path: Path, auth: FakeAuth) 
         name="sweep dataset",
         upload_ref=str(upload_ref),
         structure_column="smiles",
-        target=TargetSpec(
-            column="y", kind=TargetKind.NUMERIC, unit="logS", direction=Direction.HIGH
+        targets=(
+            TargetSpec(column="y", kind=TargetKind.NUMERIC, unit="logS", direction=Direction.HIGH),
         ),
         split=SplitSpec(strategy=SplitStrategy.RANDOM, seed=7),
     )

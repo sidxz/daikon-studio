@@ -16,6 +16,7 @@ into the data; grouping before canonicalizing would treat equivalent SMILES as d
 from __future__ import annotations
 
 import io
+from collections.abc import Sequence
 
 import polars as pl
 
@@ -54,8 +55,12 @@ def _validate_target(
     BINARY), the surviving row numbers, and one InvalidRow per rejected row.
     Three reasons, in the words a scientist needs: an empty cell, text where a
     number belongs (`NA`, `<10`, `12,5`), or a binary label that is not 0 or 1.
+    Each names its column, since with several targets "missing value" alone does
+    not say which cell to fill. Built with f-strings, never `str.format`: a column
+    named `IC50 {nM}` would otherwise be read as a format field.
     """
-    raw = frame[target.column]
+    column = target.column
+    raw = frame[column]
     text = raw.cast(pl.String, strict=False).fill_null("").str.strip_chars()
     numeric = (
         raw.str.strip_chars().cast(pl.Float64, strict=False)
@@ -65,25 +70,31 @@ def _validate_target(
     empty = text == ""
     if target.kind is TargetKind.BINARY:
         ok = numeric.is_in([0.0, 1.0]).fill_null(False) & ~empty
-        reason = "Binary target must be 0 or 1 (found '{raw}')"
+
+        def reason(value: str) -> str:
+            return f"Target '{column}' must be 0 or 1 (found '{value}')"
+
         cast_to: pl.DataType = pl.Int64()
     else:
         # is_finite, not is_not_null: polars parses "nan" and "inf" to floats that
         # are not null, and either one is the `Input y contains NaN` failure this
         # gate exists to stop.
         ok = numeric.is_finite().fill_null(False) & ~empty
-        reason = "Target value is not numeric: '{raw}'"
+
+        def reason(value: str) -> str:
+            return f"Target '{column}' is not numeric: '{value}'"
+
         cast_to = pl.Float64()
     invalid = [
         InvalidRow(
             row_number=row_numbers[index],
             value=text[index],
-            reason="Missing target value" if empty[index] else reason.format(raw=text[index]),
+            reason=f"Missing value for target '{column}'" if empty[index] else reason(text[index]),
         )
         for index in range(frame.height)
         if not ok[index]
     ]
-    kept = frame.filter(ok).with_columns(numeric.filter(ok).cast(cast_to).alias(target.column))
+    kept = frame.filter(ok).with_columns(numeric.filter(ok).cast(cast_to).alias(column))
     kept_rows = [number for number, keep in zip(row_numbers, ok.to_list(), strict=True) if keep]
     return kept, kept_rows, invalid
 
@@ -91,7 +102,7 @@ def _validate_target(
 def prepare_frame(
     frame: pl.DataFrame,
     structure_column: str,
-    target: TargetSpec,
+    targets: Sequence[TargetSpec],
     normalizer: StructureNormalizer,
 ) -> tuple[pl.DataFrame, ValidationReport]:
     total_rows = frame.height
@@ -134,9 +145,12 @@ def prepare_frame(
         pl.Series(structure_column, [smiles for smiles in canonical if smiles is not None])
     )
     # The target gate runs after the structure gate so a row that fails both is
-    # reported once, for its structure -- the thing the scientist fixes first.
-    valid_frame, row_numbers, bad_targets = _validate_target(valid_frame, target, row_numbers)
-    invalid.extend(bad_targets)
+    # reported once, for its structure -- the thing the scientist fixes first. The
+    # targets are gated in the order chosen, and a row is reported for the first one
+    # it fails.
+    for target in targets:
+        valid_frame, row_numbers, bad_targets = _validate_target(valid_frame, target, row_numbers)
+        invalid.extend(bad_targets)
     invalid.sort(key=lambda row: row.row_number)
     valid_rows = valid_frame.height
 
@@ -155,38 +169,13 @@ def prepare_frame(
             salts_flagged=salts_flagged,
         )
 
-    other_columns = [c for c in frame.columns if c not in (structure_column, target.column)]
+    target_columns = {target.column for target in targets}
+    other_columns = [c for c in frame.columns if c != structure_column and c not in target_columns]
     # ponytail: a duplicate group narrows extra columns to the first row's value, so a
     # column that legitimately varies across replicates (e.g. batch ID) collapses to
     # one arbitrary pick. Upgrade path: carry such columns through as a per-group list,
     # or reject on conflict the way BINARY targets already do.
     keep_others = [pl.col(c).first() for c in other_columns]
-
-    if target.kind is TargetKind.NUMERIC:
-        grouped = valid_frame.group_by(structure_column, maintain_order=True).agg(
-            pl.col(target.column).len().alias("_n"),
-            (pl.col(target.column).max() - pl.col(target.column).min()).alias("_spread"),
-            pl.col(target.column).mean().alias(target.column),
-            *keep_others,
-        )
-        group_sizes = grouped["_n"].to_list()
-        group_spreads = grouped["_spread"].to_list()
-        duplicates_collapsed = sum(n - 1 for n in group_sizes if n > 1)
-        # Groups of size one carry no spread information and are excluded from the
-        # mean entirely -- they don't count as "zero spread", they count as nothing.
-        spreads = [
-            float(spread) for n, spread in zip(group_sizes, group_spreads, strict=True) if n > 1
-        ]
-        duplicate_spread = {target.column: sum(spreads) / len(spreads)} if spreads else {}
-        prepared = grouped.drop("_n", "_spread")
-        return prepared, ValidationReport(
-            total_rows=total_rows,
-            valid_rows=valid_rows,
-            invalid=invalid,
-            duplicates_collapsed=duplicates_collapsed,
-            salts_flagged=salts_flagged,
-            duplicate_spread=duplicate_spread,
-        )
 
     # Row numbers per canonical structure, computed independently of the
     # group_by below (never as an aggregated column of `valid_frame` -- see
@@ -200,33 +189,73 @@ def prepare_frame(
     ):
         row_numbers_by_structure.setdefault(structure, []).append(row_number)
 
-    # BINARY: agreeing duplicates collapse silently; disagreeing duplicates are a data
-    # problem for the scientist to resolve, not one a majority vote papers over.
+    # One pass over the duplicate groups covers every target. A measured value is
+    # averaged and its replicate spread kept; a binary label must agree across the
+    # replicates, and a structure whose labels disagree in any binary target is a
+    # data problem for the scientist to resolve, not one a majority vote papers over.
+    # Output column order -- structure, the targets in order, then the rest -- is
+    # what it was with one target, so a one-target upload freezes to the same bytes
+    # and the same `content_hash` as before targets could be several.
+    aggregations: list[pl.Expr] = [pl.len().alias("_n")]
+    helpers = ["_n"]
+    for index, target in enumerate(targets):
+        values = pl.col(target.column)
+        if target.kind is TargetKind.NUMERIC:
+            aggregations += [
+                (values.max() - values.min()).alias(f"_spread_{index}"),
+                values.mean().alias(target.column),
+            ]
+            helpers.append(f"_spread_{index}")
+        else:
+            aggregations += [
+                values.n_unique().alias(f"_n_unique_{index}"),
+                values.alias(f"_values_{index}"),
+                values.first().alias(target.column),
+            ]
+            helpers += [f"_n_unique_{index}", f"_values_{index}"]
     grouped = valid_frame.group_by(structure_column, maintain_order=True).agg(
-        pl.col(target.column).len().alias("_n"),
-        pl.col(target.column).n_unique().alias("_n_unique"),
-        pl.col(target.column).alias("_values"),
-        pl.col(target.column).first().alias(target.column),
-        *keep_others,
+        *aggregations, *keep_others
     )
-    is_conflict = grouped["_n_unique"] > 1
-    conflicting = [
-        ConflictRow(
-            structure=str(row[structure_column]),
-            column=target.column,
-            values=list(row["_values"]),
-            row_numbers=sorted(row_numbers_by_structure[str(row[structure_column])]),
-        )
-        for row in grouped.filter(is_conflict).iter_rows(named=True)
-    ]
+
+    conflicting: list[ConflictRow] = []
+    is_conflict = pl.Series([False] * grouped.height)
+    for index, target in enumerate(targets):
+        if target.kind is not TargetKind.BINARY:
+            continue
+        clash = grouped[f"_n_unique_{index}"] > 1
+        conflicting += [
+            ConflictRow(
+                structure=str(row[structure_column]),
+                column=target.column,
+                values=list(row[f"_values_{index}"]),
+                row_numbers=sorted(row_numbers_by_structure[str(row[structure_column])]),
+            )
+            for row in grouped.filter(clash).iter_rows(named=True)
+        ]
+        is_conflict = is_conflict | clash
     agreeing = grouped.filter(~is_conflict)
-    duplicates_collapsed = sum(n - 1 for n in agreeing["_n"].to_list())
-    prepared = agreeing.drop("_n", "_n_unique", "_values")
-    return prepared, ValidationReport(
+
+    group_sizes = agreeing["_n"].to_list()
+    # Groups of size one carry no spread information and are excluded from the
+    # mean entirely -- they don't count as "zero spread", they count as nothing.
+    duplicate_spread: dict[str, float] = {}
+    for index, target in enumerate(targets):
+        if target.kind is not TargetKind.NUMERIC:
+            continue
+        spreads = [
+            float(spread)
+            for n, spread in zip(group_sizes, agreeing[f"_spread_{index}"].to_list(), strict=True)
+            if n > 1
+        ]
+        if spreads:
+            duplicate_spread[target.column] = sum(spreads) / len(spreads)
+
+    return agreeing.drop(helpers), ValidationReport(
         total_rows=total_rows,
         valid_rows=valid_rows,
         invalid=invalid,
         conflicting=conflicting,
-        duplicates_collapsed=duplicates_collapsed,
+        duplicates_collapsed=sum(n - 1 for n in group_sizes),
         salts_flagged=salts_flagged,
+        duplicate_spread=duplicate_spread,
     )

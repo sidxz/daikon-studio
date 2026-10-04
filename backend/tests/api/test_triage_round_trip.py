@@ -73,7 +73,7 @@ async def _create_dataset(client, csv_upload) -> str:
             "name": "round trip",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "y", "kind": "numeric", "unit": "nM", "direction": "low"},
+            "targets": [{"column": "y", "kind": "numeric", "unit": "nM", "direction": "low"}],
             "split": {"strategy": "random", "seed": 7},
         },
     )

@@ -299,7 +299,7 @@ async def test_dataset_get_returns_the_dataset_a_training_run_carries(
             "name": "solubility",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "y", "kind": "numeric"},
+            "targets": [{"column": "y", "kind": "numeric"}],
             "split": {"strategy": "random", "seed": 1},
         },
     )

@@ -101,7 +101,7 @@ async def test_a_scientist_can_walk_the_whole_loop(client, csv_upload):
             "name": "PAINS",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "is_pains", "kind": "binary"},
+            "targets": [{"column": "is_pains", "kind": "binary"}],
             "split": {"strategy": "scaffold", "seed": 42},
         },
     )

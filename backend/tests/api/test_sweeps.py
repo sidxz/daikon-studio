@@ -74,7 +74,7 @@ async def dataset_id(client, csv_upload) -> str:
             "name": "solubility",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+            "targets": [{"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"}],
             "split": {"strategy": "random", "seed": 1},
         },
     )

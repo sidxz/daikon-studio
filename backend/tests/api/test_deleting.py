@@ -250,7 +250,7 @@ async def test_the_raw_upload_is_removed_once_its_dataset_exists(
         "name": "solubility",
         "upload_ref": upload_ref,
         "structure_column": "smiles",
-        "target": {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+        "targets": [{"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"}],
         "split": {"strategy": "random", "seed": 1},
     }
 

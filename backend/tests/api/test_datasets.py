@@ -26,7 +26,7 @@ def create_body(upload_ref: str, **overrides: object) -> dict[str, object]:
         "name": "solubility",
         "upload_ref": upload_ref,
         "structure_column": "smiles",
-        "target": NUMERIC_TARGET,
+        "targets": [NUMERIC_TARGET],
         "split": RANDOM_SPLIT,
     }
     body.update(overrides)
@@ -39,7 +39,7 @@ async def test_create_dataset_returns_201_with_validation_report(client, csv_upl
         "/api/v1/datasets",
         json=create_body(
             upload_ref,
-            target={"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+            targets=[{"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"}],
             split={"strategy": "scaffold", "seed": 42},
         ),
     )
@@ -267,7 +267,7 @@ async def test_missing_target_column_is_rejected(client, csv_upload):
     upload_ref = await csv_upload(SOLUBILITY_CSV)
     response = await client.post(
         "/api/v1/datasets",
-        json=create_body(upload_ref, target={"column": "potency", "kind": "numeric"}),
+        json=create_body(upload_ref, targets=[{"column": "potency", "kind": "numeric"}]),
     )
     assert response.status_code == 422, response.text
     assert "potency" in response.json()["message"]
@@ -287,7 +287,7 @@ async def test_a_reserved_target_column_name_is_rejected(client, csv_upload):
     )
     response = await client.post(
         "/api/v1/datasets",
-        json=create_body(upload_ref, target={"column": "uncertainty", "kind": "numeric"}),
+        json=create_body(upload_ref, targets=[{"column": "uncertainty", "kind": "numeric"}]),
     )
     assert response.status_code == 422, response.text
     assert "uncertainty" in response.json()["message"]
@@ -305,7 +305,7 @@ async def test_every_reserved_target_column_name_is_rejected(client, csv_upload)
         upload_ref = await csv_upload(f"smiles,{name}\nCCO,1.0\nc1ccccc1,5.0\n".encode())
         response = await client.post(
             "/api/v1/datasets",
-            json=create_body(upload_ref, target={"column": name, "kind": "numeric"}),
+            json=create_body(upload_ref, targets=[{"column": name, "kind": "numeric"}]),
         )
         assert response.status_code == 422, response.text
         assert name in response.json()["message"]
@@ -338,7 +338,7 @@ async def test_a_single_class_train_partition_is_rejected_before_training(client
     upload_ref = await csv_upload(f"smiles,active\n{rows}\n".encode())
     response = await client.post(
         "/api/v1/datasets",
-        json=create_body(upload_ref, target={"column": "active", "kind": "binary"}),
+        json=create_body(upload_ref, targets=[{"column": "active", "kind": "binary"}]),
     )
     assert response.status_code == 422, response.text
     assert "train" in response.json()["message"]
@@ -438,7 +438,7 @@ async def test_a_single_class_test_partition_is_accepted_for_binary_classificati
         "/api/v1/datasets",
         json=create_body(
             upload_ref,
-            target={"column": "active", "kind": "binary"},
+            targets=[{"column": "active", "kind": "binary"}],
             split=_CONTROLLED_SPLIT,
         ),
     )
@@ -503,7 +503,7 @@ async def test_a_dataset_survives_the_round_trip_to_the_database(client, csv_upl
             "/api/v1/datasets",
             json=create_body(
                 upload_ref,
-                target={"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+                targets=[{"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"}],
                 split={"strategy": "random", "seed": 99, "fractions": [0.6, 0.2, 0.2]},
             ),
         )
@@ -511,10 +511,57 @@ async def test_a_dataset_survives_the_round_trip_to_the_database(client, csv_upl
 
     fetched = (await client.get(f"/api/v1/datasets/{created['id']}")).json()
     assert fetched == created
-    assert fetched["target"] == {
-        "column": "y",
-        "kind": "numeric",
-        "unit": "logS",
-        "direction": "high",
-    }
+    assert fetched["targets"] == [
+        {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"}
+    ]
     assert fetched["split"] == {"strategy": "random", "seed": 99, "fractions": [0.6, 0.2, 0.2]}
+
+
+TWO_TARGET_CSV = (
+    b"smiles,solubility,reactive\n"
+    b"CCO,1.0,0\nc1ccccc1,5.0,1\nCCN,2.0,0\nc1ccncc1,6.0,1\nCCCO,1.5,1\n"
+    b"Cc1ccccc1,5.5,0\nCCCN,2.5,1\nc1ccsc1,6.5,0\nCCCCO,1.2,0\nC1CCCCC1,4.0,1\n"
+)
+
+
+async def test_a_dataset_keeps_several_targets_in_the_order_chosen(client, csv_upload):
+    upload_ref = await csv_upload(TWO_TARGET_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref,
+            targets=[
+                {"column": "reactive", "kind": "binary"},
+                {"column": "solubility", "kind": "numeric", "unit": "logS", "direction": "high"},
+            ],
+        ),
+    )
+    assert response.status_code == 201, response.text
+    assert [t["column"] for t in response.json()["targets"]] == ["reactive", "solubility"]
+
+
+async def test_a_dataset_is_refused_when_any_one_target_is_degenerate(client, csv_upload):
+    header, *rows = TWO_TARGET_CSV.decode().strip().split("\n")
+    csv = "\n".join([f"{header},flag", *(f"{row},0" for row in rows)]) + "\n"
+    upload_ref = await csv_upload(csv.encode())
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref,
+            targets=[
+                {"column": "solubility", "kind": "numeric"},
+                {"column": "flag", "kind": "binary"},
+            ],
+        ),
+    )
+    assert response.status_code == 422, response.text
+    assert "'flag'" in response.text
+
+
+async def test_the_structure_column_cannot_also_be_a_target(client, csv_upload):
+    upload_ref = await csv_upload(TWO_TARGET_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, targets=[{"column": "smiles", "kind": "numeric"}]),
+    )
+    assert response.status_code == 422, response.text

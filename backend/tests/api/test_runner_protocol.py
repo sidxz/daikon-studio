@@ -639,7 +639,7 @@ async def test_get_dataset_matches_the_dataset_created_via_the_normal_api(
             "name": "solubility",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "y", "kind": "numeric"},
+            "targets": [{"column": "y", "kind": "numeric"}],
             "split": {"strategy": "random", "seed": 1},
         },
     )

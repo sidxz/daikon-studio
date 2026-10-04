@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
-from daikonstudio.domain.data.target import Direction, TargetSpec
+from daikonstudio.domain.data.target import Direction, TargetSpec, probability_column
 
 
 def derive_readouts(target: TargetSpec, task: TaskType) -> tuple[Readout, ...]:
@@ -47,7 +47,7 @@ def derive_readouts(target: TargetSpec, task: TaskType) -> tuple[Readout, ...]:
 
     return (
         Readout(
-            name=f"{target.column}_probability",
+            name=probability_column(target.column),
             type=ReadoutType.PROBABILITY,
             unit=None,
             direction=Direction.HIGH.value,

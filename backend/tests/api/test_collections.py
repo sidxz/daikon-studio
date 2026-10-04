@@ -84,12 +84,14 @@ async def _create_dataset(
             "name": "solubility",
             "upload_ref": upload_ref,
             "structure_column": structure_column,
-            "target": {
-                "column": target_column,
-                "kind": "numeric",
-                "unit": unit,
-                "direction": direction,
-            },
+            "targets": [
+                {
+                    "column": target_column,
+                    "kind": "numeric",
+                    "unit": unit,
+                    "direction": direction,
+                },
+            ],
             "split": {"strategy": "random", "seed": 1},
         },
     )
@@ -381,7 +383,7 @@ async def test_a_generation_method_readout_collision_is_now_rejected_at_creation
             "name": "solubility",
             "upload_ref": await csv_upload(_training_csv(target_column="generation_method")),
             "structure_column": "smiles",
-            "target": {"column": "generation_method", "kind": "numeric"},
+            "targets": [{"column": "generation_method", "kind": "numeric"}],
             "split": {"strategy": "random", "seed": 1},
         },
     )

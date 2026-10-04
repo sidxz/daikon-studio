@@ -145,8 +145,10 @@ class Studio:
             name=f"dataset-{strategy.value}",
             upload_ref=upload_ref,
             structure_column="smiles",
-            target=TargetSpec(
-                column="y", kind=TargetKind.NUMERIC, unit="logS", direction=Direction.HIGH
+            targets=(
+                TargetSpec(
+                    column="y", kind=TargetKind.NUMERIC, unit="logS", direction=Direction.HIGH
+                ),
             ),
             split=SplitSpec(strategy=strategy, seed=seed),
         )
@@ -504,7 +506,7 @@ async def test_a_classification_protocol_predicts_both_probability_and_class(
                 name="binary",
                 upload_ref=upload_ref_dataset,
                 structure_column="smiles",
-                target=TargetSpec(column="y", kind=TargetKind.BINARY),
+                targets=(TargetSpec(column="y", kind=TargetKind.BINARY),),
                 split=SplitSpec(strategy=SplitStrategy.RANDOM, seed=7),
             ),
             studio.auth,

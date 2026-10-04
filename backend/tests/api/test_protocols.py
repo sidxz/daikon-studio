@@ -70,7 +70,7 @@ async def _create_dataset(client, csv_upload) -> str:
             "name": "solubility",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"},
+            "targets": [{"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"}],
             "split": {"strategy": "random", "seed": 1},
         },
     )
@@ -336,7 +336,7 @@ async def test_scorecard_response_explains_an_optimism_gap_metric_that_is_undefi
             "name": "binary-scaffold",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "y", "kind": "binary"},
+            "targets": [{"column": "y", "kind": "binary"}],
             "split": {"strategy": "scaffold", "seed": 7},
         },
     )

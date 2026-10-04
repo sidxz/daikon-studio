@@ -101,7 +101,7 @@ async def test_a_training_run_executes_through_the_runner_protocol_unmodified(
             "name": "PAINS",
             "upload_ref": upload_ref,
             "structure_column": "smiles",
-            "target": {"column": "is_pains", "kind": "binary"},
+            "targets": [{"column": "is_pains", "kind": "binary"}],
             "split": {"strategy": "scaffold", "seed": 42},
         },
     )
