@@ -56,6 +56,7 @@ from daikonstudio.application.catalog.chemical_space import (
     neighbours_key,
     neighbours_parquet,
 )
+from daikonstudio.application.catalog.derive_readouts import target_columns_of
 from daikonstudio.application.data.create_dataset import upload_key
 from daikonstudio.application.data.prepare_frame import read_csv_upload
 from daikonstudio.application.engines.context import PredictContext
@@ -335,6 +336,7 @@ class RunPrediction:
                 structure_column=command.structure_column,
                 artifact=artifact,
                 conditions=command.conditions,
+                target_columns=target_columns_of(protocol.readouts),
             ),
         )
 

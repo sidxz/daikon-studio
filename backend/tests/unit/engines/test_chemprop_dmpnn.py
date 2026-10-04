@@ -58,9 +58,8 @@ def _frame(targets: list[float]) -> pl.DataFrame:
 def _train_context(frame: pl.DataFrame, task: TaskType) -> TrainContext:
     return TrainContext(
         frame=frame,
-        task=task,
+        targets={"y": task},
         structure_column="smiles",
-        target_column="y",
         conditions=_FAST,
         seed=13,
     )
@@ -77,7 +76,7 @@ def test_regression_reports_the_shared_metric_vocabulary() -> None:
 
     result = ChempropDMPNN().train(_train_context(frame, TaskType.REGRESSION))
 
-    assert sorted(result.metrics) == ["mae", "r2", "rmse"]
+    assert sorted(result.metrics["y"]) == ["mae", "r2", "rmse"]
     assert result.artifact  # a loadable checkpoint, not an empty blob
 
 
@@ -86,7 +85,7 @@ def test_classification_reports_the_shared_metric_vocabulary() -> None:
 
     result = ChempropDMPNN().train(_train_context(frame, TaskType.BINARY_CLASSIFICATION))
 
-    assert sorted(result.metrics) == ["auprc", "auroc", "balanced_accuracy", "mcc"]
+    assert sorted(result.metrics["y"]) == ["auprc", "auroc", "balanced_accuracy", "mcc"]
 
 
 def test_predict_returns_the_contracted_schema_and_dtypes() -> None:
@@ -101,6 +100,7 @@ def test_predict_returns_the_contracted_schema_and_dtypes() -> None:
             structure_column="smiles",
             artifact=trained.artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
 
@@ -123,6 +123,7 @@ def test_classification_predictions_are_probabilities() -> None:
             structure_column="smiles",
             artifact=trained.artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
 
@@ -136,9 +137,8 @@ def test_report_is_called_once_per_epoch() -> None:
     frame = _frame([float(i) for i in range(20)])
     ctx = TrainContext(
         frame=frame,
-        task=TaskType.REGRESSION,
+        targets={"y": TaskType.REGRESSION},
         structure_column="smiles",
-        target_column="y",
         conditions=_FAST,
         seed=13,
         report=lambda fraction, phase: calls.append((fraction, phase)),

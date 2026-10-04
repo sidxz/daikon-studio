@@ -367,8 +367,10 @@ class ChempropDMPNN:
                 )
             return regression_metrics(truth, values)
 
-        metrics = score(test_rows)
-        validation_metrics = score(validation_rows) if validation_rows.height > 0 else None
+        metrics = {ctx.target_column: score(test_rows)}
+        validation_metrics = (
+            {ctx.target_column: score(validation_rows)} if validation_rows.height > 0 else None
+        )
 
         # Lightning writes checkpoints to a path, so this round-trips through the
         # filesystem. `tempfile` honours TMPDIR, which is how a deployment points

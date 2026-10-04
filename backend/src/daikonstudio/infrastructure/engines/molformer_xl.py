@@ -457,8 +457,10 @@ class MolformerXL:
                 )
             return regression_metrics(truth, values)
 
-        metrics = score(test_rows)
-        validation_metrics = score(validation_rows) if validation_rows.height > 0 else None
+        metrics = {ctx.target_column: score(test_rows)}
+        validation_metrics = (
+            {ctx.target_column: score(validation_rows)} if validation_rows.height > 0 else None
+        )
 
         # The whole fine-tuned model, not just the head. Under `freeze_encoder` most
         # of these ~190 MB duplicate the public checkpoint, which is wasteful -- and

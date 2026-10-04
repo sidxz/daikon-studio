@@ -211,11 +211,39 @@ def test_report_defaults_to_a_no_op() -> None:
     interruptible, and the contract must not force them to pretend otherwise."""
     ctx = TrainContext(
         frame=pl.DataFrame({"smiles": ["CCO"], "y": [1.0], "split": ["train"]}),
-        task=TaskType.REGRESSION,
+        targets={"y": TaskType.REGRESSION},
         structure_column="smiles",
-        target_column="y",
         conditions={},
         seed=7,
     )
 
     assert ctx.report(0.5, "anything") is None
+
+
+def _ctx(targets):
+    return TrainContext(
+        frame=pl.DataFrame(), targets=targets, structure_column="smiles", conditions={}, seed=1
+    )
+
+
+def test_a_single_target_context_names_its_target_and_task():
+    ctx = _ctx({"y": TaskType.REGRESSION})
+    assert ctx.target_columns == ("y",)
+    assert ctx.target_column == "y"
+    assert ctx.task is TaskType.REGRESSION
+
+
+def test_target_column_raises_on_a_context_with_several_targets():
+    ctx = _ctx({"a": TaskType.REGRESSION, "b": TaskType.REGRESSION})
+    assert ctx.task is TaskType.REGRESSION
+    with pytest.raises(ValueError, match="2 targets"):
+        _ = ctx.target_column
+
+
+def test_task_raises_when_the_targets_mix_kinds():
+    with pytest.raises(ValueError, match="different kinds"):
+        _ = _ctx({"a": TaskType.REGRESSION, "b": TaskType.BINARY_CLASSIFICATION}).task
+
+
+def test_a_manifest_does_not_learn_several_targets_jointly_unless_it_says_so():
+    assert MANIFEST.supports_multitask is False

@@ -37,9 +37,8 @@ def frame() -> pl.DataFrame:
 def context(task: TaskType = TaskType.REGRESSION, **overrides) -> TrainContext:
     return TrainContext(
         frame=overrides.pop("frame", frame()),
-        task=task,
+        targets={"y": task},
         structure_column="smiles",
-        target_column="y",
         conditions=overrides.pop("conditions", {"n_restarts_optimizer": 0}),
         seed=42,
         **overrides,
@@ -53,6 +52,7 @@ def predict(artifact: bytes, smiles: list[str]) -> pl.DataFrame:
             structure_column="smiles",
             artifact=artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
 
@@ -116,7 +116,7 @@ def test_diag_agrees_with_the_full_matrix_it_shortcuts():
 def test_train_returns_artifact_and_metrics():
     result = TanimotoGP().train(context())
     assert isinstance(result.artifact, bytes) and len(result.artifact) > 0
-    assert "rmse" in result.metrics
+    assert "rmse" in result.metrics["y"]
     assert result.validation_metrics is None  # no validation rows in this frame
 
 
@@ -126,7 +126,7 @@ def test_validation_partition_is_scored():
     )
     result = TanimotoGP().train(context(frame=rows))
     assert result.validation_metrics is not None
-    assert "rmse" in result.validation_metrics
+    assert "rmse" in result.validation_metrics["y"]
 
 
 def test_regression_uncertainty_is_a_real_posterior_spread():
@@ -163,14 +163,14 @@ def test_duplicate_structures_do_not_make_the_fit_singular():
         }
     )
     result = TanimotoGP().train(context(frame=rows))
-    assert np.isfinite(result.metrics["rmse"])
+    assert np.isfinite(result.metrics["y"]["rmse"])
 
 
 def test_classification_trains_and_predicts():
     rows = frame().with_columns(pl.Series("y", [0, 1] * 6))
     result = TanimotoGP().train(context(TaskType.BINARY_CLASSIFICATION, frame=rows))
-    assert set(result.metrics) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
-    assert "accuracy" not in result.metrics
+    assert set(result.metrics["y"]) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
+    assert "accuracy" not in result.metrics["y"]
 
     predictions = predict(result.artifact, ["CCO", "c1ccccc1"])
     values = predictions["value"].to_list()

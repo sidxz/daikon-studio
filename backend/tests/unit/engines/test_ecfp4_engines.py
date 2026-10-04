@@ -34,24 +34,22 @@ def frame() -> pl.DataFrame:
 def test_train_returns_artifact_and_metrics(engine):
     ctx = TrainContext(
         frame=frame(),
-        task=TaskType.REGRESSION,
+        targets={"y": TaskType.REGRESSION},
         structure_column="smiles",
-        target_column="y",
         conditions={},
         seed=42,
     )
     result = engine.train(ctx)
     assert isinstance(result.artifact, bytes) and len(result.artifact) > 0
-    assert "rmse" in result.metrics
+    assert "rmse" in result.metrics["y"]
 
 
 @pytest.mark.parametrize("engine", [Ecfp4XGBoost(), Ecfp4RandomForest()])
 def test_predict_returns_one_row_per_input(engine):
     ctx = TrainContext(
         frame=frame(),
-        task=TaskType.REGRESSION,
+        targets={"y": TaskType.REGRESSION},
         structure_column="smiles",
-        target_column="y",
         conditions={},
         seed=42,
     )
@@ -62,6 +60,7 @@ def test_predict_returns_one_row_per_input(engine):
             structure_column="smiles",
             artifact=artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
     assert predictions.height == 2
@@ -71,14 +70,13 @@ def test_predict_returns_one_row_per_input(engine):
 def test_training_is_reproducible_from_the_seed():
     ctx = TrainContext(
         frame=frame(),
-        task=TaskType.REGRESSION,
+        targets={"y": TaskType.REGRESSION},
         structure_column="smiles",
-        target_column="y",
         conditions={},
         seed=42,
     )
-    first = Ecfp4RandomForest().train(ctx).metrics["rmse"]
-    second = Ecfp4RandomForest().train(ctx).metrics["rmse"]
+    first = Ecfp4RandomForest().train(ctx).metrics["y"]["rmse"]
+    second = Ecfp4RandomForest().train(ctx).metrics["y"]["rmse"]
     assert first == second
 
 
@@ -93,13 +91,12 @@ def test_a_regression_target_of_only_zeros_and_ones_still_trains_a_regressor():
     )
     ctx = TrainContext(
         frame=binary_looking,
-        task=TaskType.REGRESSION,
+        targets={"y": TaskType.REGRESSION},
         structure_column="smiles",
-        target_column="y",
         conditions={},
         seed=42,
     )
-    assert "rmse" in Ecfp4RandomForest().train(ctx).metrics
+    assert "rmse" in Ecfp4RandomForest().train(ctx).metrics["y"]
 
 
 def test_random_forest_is_flagged_as_the_baseline():
@@ -122,16 +119,15 @@ def test_single_class_train_split_reports_undefined_metrics_not_a_crash(engine):
     )
     ctx = TrainContext(
         frame=single_class_train,
-        task=TaskType.BINARY_CLASSIFICATION,
+        targets={"y": TaskType.BINARY_CLASSIFICATION},
         structure_column="smiles",
-        target_column="y",
         conditions={},
         seed=42,
     )
     result = engine.train(ctx)
-    assert set(result.metrics) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
-    assert all(math.isnan(value) for value in result.metrics.values())
-    assert "accuracy" not in result.metrics
+    assert set(result.metrics["y"]) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
+    assert all(math.isnan(value) for value in result.metrics["y"].values())
+    assert "accuracy" not in result.metrics["y"]
 
     predictions = engine.predict(
         PredictContext(
@@ -139,6 +135,7 @@ def test_single_class_train_split_reports_undefined_metrics_not_a_crash(engine):
             structure_column="smiles",
             artifact=result.artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
     assert predictions.height == 3

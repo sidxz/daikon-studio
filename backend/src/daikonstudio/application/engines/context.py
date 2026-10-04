@@ -43,16 +43,23 @@ def _no_op(fraction: float, phase: str) -> None:
 class TrainContext:
     """`frame` carries the dataset columns plus a `split` column of train/validation/test.
 
-    `task` is passed explicitly and is authoritative. An engine must NEVER infer
-    regression-vs-classification from the target values: a regression target whose
-    values happen to all be 0.0 or 1.0 would silently train a classifier. The
-    Dataset's TargetSpec is the only source of truth for what is being predicted.
+    `targets` maps each target column to its task, in the Dataset's order, and is
+    authoritative. An engine must NEVER infer regression-vs-classification from the
+    target values: a regression target whose values happen to all be 0.0 or 1.0
+    would silently train a classifier. The Dataset's TargetSpecs are the only source
+    of truth for what is being predicted.
+
+    `target_column` and `task` are the single-target reading every engine without
+    `supports_multitask` uses, and they raise rather than guess when the context
+    holds more than they can describe. Such an engine is never handed one: the
+    registry wraps it in `FanOut`, which splits the context per target first. The
+    raise is the loud form of that guarantee -- a first-element answer here would
+    train on one target and silently drop the rest.
     """
 
     frame: pl.DataFrame
-    task: TaskType
+    targets: dict[str, TaskType]
     structure_column: str
-    target_column: str
     conditions: dict[str, object]
     seed: int
     report: ProgressReporter = _no_op
@@ -60,6 +67,30 @@ class TrainContext:
     the run is still wanted. `fraction` is progress within *this fit*, 0.0 to 1.0; the
     worker maps it onto the overall run. May raise `RunInterrupted` -- do not catch it.
     Calling it is optional; calling it often is what makes an engine stoppable."""
+
+    @property
+    def target_columns(self) -> tuple[str, ...]:
+        return tuple(self.targets)
+
+    @property
+    def target_column(self) -> str:
+        if len(self.targets) != 1:
+            raise ValueError(
+                f"This training context carries {len(self.targets)} targets "
+                f"({', '.join(self.targets)}); `target_column` describes exactly one. An "
+                "engine without `supports_multitask` must be wrapped in FanOut."
+            )
+        return next(iter(self.targets))
+
+    @property
+    def task(self) -> TaskType:
+        tasks = set(self.targets.values())
+        if len(tasks) != 1:
+            raise ValueError(
+                "The targets in this training context are of different kinds; `task` "
+                "describes one. Only a uniform-kind dataset reaches a joint engine."
+            )
+        return tasks.pop()
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -81,8 +112,10 @@ class TrainResult:
     """
 
     artifact: bytes
-    metrics: dict[str, float]
-    validation_metrics: dict[str, float] | None = None
+    # Keyed by target column: {"solubility": {"rmse": 0.61, ...}}. A one-target fit
+    # has exactly one key, so the shape is uniform.
+    metrics: dict[str, dict[str, float]]
+    validation_metrics: dict[str, dict[str, float]] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -91,3 +124,7 @@ class PredictContext:
     structure_column: str
     artifact: bytes
     conditions: dict[str, object]
+    # The Protocol's targets, in order (`target_columns_of(protocol.readouts)`). A
+    # joint engine labels its output rows with them; `FanOut` uses them to pick the
+    # artifact for each target and to tag every row.
+    target_columns: tuple[str, ...]

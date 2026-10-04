@@ -34,5 +34,7 @@ class Engine(Protocol):
     def train(self, ctx: TrainContext) -> TrainResult: ...
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:
-        """Returns columns: row_id (int), value (float), uncertainty (float | null)."""
+        """Returns columns: row_id (int), value (float), uncertainty (float | null) --
+        plus target (str), one row per (compound, target), when the manifest declares
+        supports_multitask. FanOut adds it for every other engine."""
         ...

@@ -61,6 +61,7 @@ class EngineManifestResponse(BaseModel):
     tasks: list[str]
     conditions: list[ConditionResponse]
     is_baseline: bool
+    supports_multitask: bool
     # Which runner lane serves this engine ("default" or "gpu"). A client that
     # knows this can say "waiting for a gpu runner" instead of just "Queued".
     lane: str
@@ -75,6 +76,7 @@ class EngineManifestResponse(BaseModel):
             tasks=[task.value for task in manifest.tasks],
             conditions=[ConditionResponse.from_spec(spec) for spec in manifest.conditions],
             is_baseline=manifest.is_baseline,
+            supports_multitask=manifest.supports_multitask,
             lane=manifest.lane,
         )
 

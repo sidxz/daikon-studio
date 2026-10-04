@@ -525,18 +525,19 @@ class RunTraining:
                 structure_column=dataset.structure_column,
                 artifact=chosen.artifact,
                 conditions=conditions,
+                target_columns=dataset.target_columns,
             ),
         )
 
         protocol_id = uuid.uuid4()
-        metrics, undefined = _measured(chosen.metrics)
-        baseline_metrics, baseline_undefined = _measured(baseline_result.metrics)
+        target = dataset.single_target()
+        metrics, undefined = _measured(chosen.metrics[target.column])
+        baseline_metrics, baseline_undefined = _measured(baseline_result.metrics[target.column])
         validation_metrics = (
-            _measured(chosen.validation_metrics)[0]
+            _measured(chosen.validation_metrics[target.column])[0]
             if chosen.validation_metrics is not None
             else None
         )
-        target = dataset.single_target()
         inputs = ScorecardInputs(
             protocol_id=str(protocol_id),
             run_id=str(run.id),
@@ -680,7 +681,7 @@ class RunTraining:
             result = await self._train_off_thread(
                 run, engine, dataset, task, conditions, random_frame, _RANDOM_SPLIT_SPAN
             )
-            metrics, undefined = _measured(result.metrics)
+            metrics, undefined = _measured(result.metrics[dataset.single_target().column])
             reasons = _undefined_reasons(
                 undefined,
                 dataset,
@@ -745,13 +746,13 @@ class RunTraining:
         # have to think about threads.
         # `run` is threaded through only so the reporter can reach the row -- the
         # engine never sees it.
+        target = dataset.single_target()
         return await asyncio.to_thread(
             engine.train,
             TrainContext(
                 frame=frame,
-                task=task,
+                targets={target.column: task},
                 structure_column=dataset.structure_column,
-                target_column=dataset.single_target().column,
                 conditions=conditions,
                 seed=dataset.split.seed,
                 report=self._reporter(run, span),

@@ -133,7 +133,7 @@ def classification_metrics(
     }
 
 
-def _score(
+def _metrics_on(
     model: Any,
     test_rows: pl.DataFrame,
     ctx: TrainContext,
@@ -167,12 +167,25 @@ def _score(
     )
 
 
+def _score(
+    model: Any,
+    test_rows: pl.DataFrame,
+    ctx: TrainContext,
+    is_classification: bool,
+    featurizer: Featurizer = ecfp4,
+) -> dict[str, dict[str, float]]:
+    """`_metrics_on`, keyed by the one target this fit trained on -- the shape
+    `TrainResult.metrics` takes now that a Dataset can hold several. These engines
+    always fit one target; `FanOut` merges the keys."""
+    return {ctx.target_column: _metrics_on(model, test_rows, ctx, is_classification, featurizer)}
+
+
 def _score_validation(
     model: Any,
     ctx: TrainContext,
     is_classification: bool,
     featurizer: Featurizer = ecfp4,
-) -> dict[str, float] | None:
+) -> dict[str, dict[str, float]] | None:
     """The same `_score`, pointed at the validation partition.
 
     Identical code to the test scoring on purpose: a validation number a scientist

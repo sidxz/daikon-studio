@@ -61,9 +61,8 @@ def _frame(targets: list[float]) -> pl.DataFrame:
 def _context(frame: pl.DataFrame, task: TaskType, **conditions: object) -> TrainContext:
     return TrainContext(
         frame=frame,
-        task=task,
+        targets={"y": task},
         structure_column="smiles",
-        target_column="y",
         conditions={**_FAST, **conditions},
         seed=13,
     )
@@ -97,7 +96,7 @@ def test_regression_reports_the_shared_metric_vocabulary() -> None:
         _context(_frame([float(i) for i in range(12)]), TaskType.REGRESSION)
     )
 
-    assert sorted(result.metrics) == ["mae", "r2", "rmse"]
+    assert sorted(result.metrics["y"]) == ["mae", "r2", "rmse"]
     assert result.artifact
 
 
@@ -107,8 +106,8 @@ def test_classification_reports_the_shared_metric_vocabulary() -> None:
         _context(_frame([float(i % 2) for i in range(12)]), TaskType.BINARY_CLASSIFICATION)
     )
 
-    assert sorted(result.metrics) == ["auprc", "auroc", "balanced_accuracy", "mcc"]
-    assert "accuracy" not in result.metrics
+    assert sorted(result.metrics["y"]) == ["auprc", "auroc", "balanced_accuracy", "mcc"]
+    assert "accuracy" not in result.metrics["y"]
 
 
 @needs_weights
@@ -125,6 +124,7 @@ def test_predict_returns_the_contracted_schema_and_dtypes() -> None:
             structure_column="smiles",
             artifact=trained.artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
 
@@ -153,6 +153,7 @@ def test_predictions_are_reproducible_across_calls() -> None:
         structure_column="smiles",
         artifact=trained.artifact,
         conditions={},
+        target_columns=("y",),
     )
 
     first = MolformerXL().predict(ctx)["value"].to_list()
@@ -178,6 +179,7 @@ def test_regression_predictions_come_back_in_the_targets_own_units() -> None:
             structure_column="smiles",
             artifact=trained.artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
 
@@ -198,6 +200,7 @@ def test_classification_predictions_are_probabilities() -> None:
             structure_column="smiles",
             artifact=trained.artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
 
@@ -220,9 +223,8 @@ def test_report_is_called_once_per_epoch() -> None:
     calls: list[tuple[float, str]] = []
     ctx = TrainContext(
         frame=_frame([float(i) for i in range(12)]),
-        task=TaskType.REGRESSION,
+        targets={"y": TaskType.REGRESSION},
         structure_column="smiles",
-        target_column="y",
         conditions=_FAST,
         seed=13,
         report=lambda fraction, phase: calls.append((fraction, phase)),

@@ -39,9 +39,8 @@ def frame() -> pl.DataFrame:
 def context(task: TaskType = TaskType.REGRESSION, **overrides) -> TrainContext:
     return TrainContext(
         frame=overrides.pop("frame", frame()),
-        task=task,
+        targets={"y": task},
         structure_column="smiles",
-        target_column="y",
         conditions={},
         seed=42,
         **overrides,
@@ -105,7 +104,7 @@ def test_the_engine_trains_on_a_molecule_that_overflows_float32():
             "split": ["train"] * 6 + ["test"] * 2,
         }
     )
-    assert "rmse" in DescriptorsXGBoost().train(context(frame=rows)).metrics
+    assert "rmse" in DescriptorsXGBoost().train(context(frame=rows)).metrics["y"]
 
 
 def test_descriptors_differ_from_the_fingerprint_representation():
@@ -116,7 +115,7 @@ def test_descriptors_differ_from_the_fingerprint_representation():
 def test_train_returns_artifact_and_metrics():
     result = DescriptorsXGBoost().train(context())
     assert isinstance(result.artifact, bytes) and len(result.artifact) > 0
-    assert "rmse" in result.metrics
+    assert "rmse" in result.metrics["y"]
     assert result.validation_metrics is None  # no validation rows in this frame
 
 
@@ -128,7 +127,7 @@ def test_validation_is_scored_through_the_same_featurizer():
     )
     result = DescriptorsXGBoost().train(context(frame=rows))
     assert result.validation_metrics is not None
-    assert "rmse" in result.validation_metrics
+    assert "rmse" in result.validation_metrics["y"]
 
 
 def test_predict_round_trips_and_tolerates_an_unparseable_structure():
@@ -139,6 +138,7 @@ def test_predict_round_trips_and_tolerates_an_unparseable_structure():
             structure_column="smiles",
             artifact=artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
     assert predictions.height == 3
@@ -150,8 +150,8 @@ def test_predict_round_trips_and_tolerates_an_unparseable_structure():
 def test_classification_trains_and_predicts():
     rows = frame().with_columns(pl.Series("y", [0, 1] * 6))
     result = DescriptorsXGBoost().train(context(TaskType.BINARY_CLASSIFICATION, frame=rows))
-    assert set(result.metrics) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
-    assert "accuracy" not in result.metrics
+    assert set(result.metrics["y"]) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
+    assert "accuracy" not in result.metrics["y"]
 
 
 def test_predicting_through_drifted_descriptors_refuses_instead_of_guessing():
@@ -170,6 +170,7 @@ def test_predicting_through_drifted_descriptors_refuses_instead_of_guessing():
                 structure_column="smiles",
                 artifact=pickle.dumps(bundle),
                 conditions={},
+                target_columns=("y",),
             )
         )
 
@@ -189,6 +190,7 @@ def test_an_ecfp4_artifact_without_the_new_keys_still_predicts():
             structure_column="smiles",
             artifact=artifact,
             conditions={},
+            target_columns=("y",),
         )
     )
     assert predictions.height == 2

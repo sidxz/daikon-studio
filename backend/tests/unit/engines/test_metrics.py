@@ -113,9 +113,8 @@ def _train(frame, engine=None):
     return (engine or Ecfp4RandomForest()).train(
         TrainContext(
             frame=frame,
-            task=TaskType.BINARY_CLASSIFICATION,
+            targets={"y": TaskType.BINARY_CLASSIFICATION},
             structure_column="smiles",
-            target_column="y",
             conditions={"n_estimators": 50},
             seed=42,
         )
@@ -129,7 +128,7 @@ def test_the_validation_partition_is_actually_scored():
     assert result.validation_metrics is not None
     # The same vocabulary as the test metrics, from the same scoring code -- a
     # validation number measured differently would optimise the wrong thing.
-    assert set(result.validation_metrics) == set(result.metrics)
+    assert set(result.validation_metrics["y"]) == set(result.metrics["y"])
 
 
 def test_validation_metrics_are_scored_on_validation_not_test():
@@ -148,7 +147,7 @@ def test_validation_metrics_are_scored_on_validation_not_test():
     )
     result = _train(flipped)
     assert result.validation_metrics is not None
-    assert result.validation_metrics != result.metrics
+    assert result.validation_metrics["y"] != result.metrics["y"]
 
 
 def test_an_empty_validation_partition_reports_none_not_zero():

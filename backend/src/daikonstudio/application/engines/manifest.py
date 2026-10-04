@@ -53,6 +53,11 @@ class EngineManifest:
     conditions: tuple[ConditionSpec, ...] = ()
     lane: str = DEFAULT_LANE
     is_baseline: bool = False
+    # Learns every target of a Dataset in one model. It selects the training path
+    # and labels the result ("one joint model" vs "one model per target"); it does
+    # not decide which engines a Dataset may use -- every engine accepts every
+    # Dataset, the rest through `FanOut`.
+    supports_multitask: bool = False
 
 
 def _coerce(label: str, condition_type: ConditionType, value: object) -> object:
