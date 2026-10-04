@@ -235,7 +235,9 @@ class ScaffoldErrorResponse(BaseModel):
 
 
 class ScorecardResponse(BaseModel):
-    """Every field here is load-bearing for honest rendering -- see
+    """One card per target; `joint_model` says whether one model learned them all.
+
+    Every field here is load-bearing for honest rendering -- see
     `domain/execution/scorecard.py`'s docstring for what each one means and
     why it exists. In particular: `baseline_is_self` true means the chosen
     engine *is* the baseline (render "this model is the baseline", not a
@@ -257,6 +259,8 @@ class ScorecardResponse(BaseModel):
     `random_split_unavailable` both being `None`.
     """
 
+    target: str
+    joint_model: bool
     primary_metric: str
     # `[low, high]`: the 95 % bootstrap interval for `metrics[primary_metric]`
     # over the test set, unpaired. Null when the test set cannot support one.
@@ -296,6 +300,8 @@ class ScorecardResponse(BaseModel):
     @classmethod
     def from_domain(cls, card: Scorecard) -> ScorecardResponse:
         return cls(
+            target=card.target,
+            joint_model=card.joint_model,
             primary_metric=card.primary_metric,
             primary_metric_ci=list(card.primary_metric_ci) if card.primary_metric_ci else None,
             prediction_kind=card.prediction_kind,
@@ -392,12 +398,14 @@ async def get_protocol(
     return ProtocolResponse.from_domain(protocol, auth=auth)
 
 
-@router.get("/{protocol_id}/scorecard", response_model=ScorecardResponse)
+@router.get("/{protocol_id}/scorecard", response_model=list[ScorecardResponse])
 async def get_scorecard(
     protocol_id: uuid.UUID, auth: AuthDep, service: GetScorecardDep
-) -> ScorecardResponse:
-    card = result_to_response(await service(GetScorecardQuery(protocol_id=protocol_id), auth=auth))
-    return ScorecardResponse.from_domain(card)
+) -> list[ScorecardResponse]:
+    cards = result_to_response(
+        await service(GetScorecardQuery(protocol_id=protocol_id), auth=auth)
+    )
+    return [ScorecardResponse.from_domain(card) for card in cards]
 
 
 class ChemicalSpacePointsResponse(BaseModel):

@@ -119,6 +119,11 @@ class ScaffoldError:
 class Scorecard:
     """The head-to-head: this model, the mandatory baseline, and where it fails.
 
+    A Protocol has one Scorecard per target. `target` names the column this card
+    scores; `joint_model` is whether one model learned every target (True) or one
+    model per target did (False) -- the per-target metrics read the same either
+    way, but a scientist deciding what to trust should know which happened.
+
     `primary_metric` is `"rmse"` for regression and `"mcc"` for classification --
     never `"accuracy"`, which is not computed anywhere upstream and so cannot
     appear here by mistake. `metrics_undefined` (keyed by metric name) is why a
@@ -172,6 +177,10 @@ class Scorecard:
     it is allowed to be.
     """
 
+    #: The target column this card scores. A Protocol has one card per target.
+    target: str
+    #: True when one model learned every target, False for one model per target.
+    joint_model: bool
     primary_metric: str
     prediction_kind: str
     metrics: dict[str, float | None]

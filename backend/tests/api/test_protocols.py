@@ -158,7 +158,11 @@ async def test_publishing_twice_returns_423_locked(client, trained_protocol_id):
 
 
 async def test_scorecard_exposes_the_baseline_comparison(client, trained_protocol_id):
-    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()
+    cards = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()
+    assert len(cards) == 1  # one card per target, and this Dataset has one
+    card = cards[0]
+    assert card["target"] == "y"
+    assert card["joint_model"] is False
     assert card["baseline_engine_id"] == "ecfp4-randomforest"
     assert card["primary_metric"] in {"rmse", "mcc"}
     assert len(card["worst_rows"]) <= 20
@@ -176,7 +180,7 @@ async def test_scorecard_carries_the_targets_unit_direction_and_split_strategy(
     Scorecard response, the fourth and last place a predicted number reaches
     a consumer without them (prediction results and both export formats
     already carry unit/direction)."""
-    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()
+    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()[0]
     assert card["unit"] == "logS"
     assert card["direction"] == "high"
     assert card["split_strategy"] == "random"
@@ -187,7 +191,7 @@ async def test_scorecard_says_the_model_is_the_baseline_rather_than_faking_a_com
 ):
     """ecfp4-randomforest with default conditions IS the baseline: the response
     must say so, not present the same numbers twice as an independent win."""
-    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()
+    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()[0]
     assert card["baseline_is_self"] is True
     assert card["baseline_metrics"] == card["metrics"]
 
@@ -197,7 +201,7 @@ async def test_scorecard_reports_no_optimism_gap_for_an_already_random_split(
 ):
     """The Dataset behind `trained_protocol_id` is randomly split, so there is
     nothing to compare against -- `None`, not a fabricated zero-gap."""
-    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()
+    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()[0]
     assert card["random_split_metrics"] is None
     assert card["random_split_unavailable"] is None
 
@@ -344,7 +348,7 @@ async def test_scorecard_response_explains_an_optimism_gap_metric_that_is_undefi
     assert train_response.status_code == 202, train_response.text
     protocol_id = (await client.get("/api/v1/protocols")).json()["items"][0]["id"]
 
-    card = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()
+    card = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()[0]
     # The scaffold split's own test partition has both classes for real --
     # nothing to explain on that side.
     assert card["metrics_undefined"] is None

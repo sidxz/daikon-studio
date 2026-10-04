@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import math
 import statistics
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
@@ -136,8 +137,40 @@ def primary_metric_ci(
     return float(np.percentile(values, 2.5)), float(np.percentile(values, 97.5))
 
 
+@dataclass(frozen=True, kw_only=True)
+class HeldOutChemistry:
+    """The test set's chemistry: nearest-neighbour similarity to the training set and
+    each compound's Murcko scaffold. Identical for every target of a Protocol, since
+    every target shares one split -- so it is computed once and handed to each
+    target's `build_scorecard`. At 324k compounds the similarity search is the
+    expensive half of the page; four targets must not pay it four times."""
+
+    similarities: list[float] | None
+    scaffolds: list[str]
+
+
+def held_out_chemistry(
+    structures: list[str], train_structures: list[str], normalizer: StructureNormalizer
+) -> HeldOutChemistry:
+    # `nearest_neighbour_tanimoto([], []) -> []` returns zeros for an empty
+    # reference set rather than raising, which would silently read as "every test
+    # structure is confirmed 0.0 similar to nothing" -- a fabricated answer, not a
+    # measured one. Skipping the call whenever either side is empty is what makes
+    # `None` (not `0.0`) the honest result of "there was nothing to compare."
+    similarities = (
+        normalizer.nearest_neighbour_tanimoto(structures, train_structures)
+        if structures and train_structures
+        else None
+    )
+    return HeldOutChemistry(
+        similarities=similarities,
+        scaffolds=[normalizer.murcko_scaffold(structure) for structure in structures],
+    )
+
+
 def build_scorecard(
     *,
+    target: str,
     task: TaskType,
     metrics: dict[str, float | None],
     validation_metrics: dict[str, float | None] | None = None,
@@ -146,11 +179,11 @@ def build_scorecard(
     baseline_engine_id: str,
     baseline_metrics: dict[str, float | None],
     baseline_is_self: bool,
+    joint_model: bool = False,
     actual: list[float],
     predicted: list[float],
     structures: list[str],
-    train_structures: list[str],
-    normalizer: StructureNormalizer,
+    chemistry: HeldOutChemistry,
     target_unit: str | None,
     target_direction: str | None,
     split_strategy: str,
@@ -163,16 +196,7 @@ def build_scorecard(
 ) -> Scorecard:
     is_classification = task is TaskType.BINARY_CLASSIFICATION
 
-    # `nearest_neighbour_tanimoto([], []) -> []` returns zeros for an empty
-    # reference set rather than raising, which would silently read as "every test
-    # structure is confirmed 0.0 similar to nothing" -- a fabricated answer, not a
-    # measured one. Skipping the call whenever either side is empty is what makes
-    # `None` (not `0.0`) the honest result of "there was nothing to compare."
-    similarities: list[float] | None = (
-        normalizer.nearest_neighbour_tanimoto(structures, train_structures)
-        if structures and train_structures
-        else None
-    )
+    similarities = chemistry.similarities
     applicability_coverage = (
         sum(1 for s in similarities if s >= _APPLICABILITY_THRESHOLD) / len(similarities)
         if similarities
@@ -182,11 +206,9 @@ def build_scorecard(
     residuals = [abs(a - p) for a, p in zip(actual, predicted, strict=True)]
     worst_order = sorted(range(len(residuals)), key=lambda i: residuals[i], reverse=True)
 
-    # Once for every test structure, then reused by both the worst-rows list and
-    # the per-family error breakdown. Computing them twice would double the
-    # RDKit cost of the most-viewed screen in the product to produce the same
-    # strings.
-    scaffolds = [normalizer.murcko_scaffold(structure) for structure in structures]
+    # Computed once for the whole Protocol (see `HeldOutChemistry`), then reused by
+    # both the worst-rows list and the per-family error breakdown.
+    scaffolds = chemistry.scaffolds
 
     worst_rows = [
         WorstRow(
@@ -201,6 +223,8 @@ def build_scorecard(
     ]
 
     return Scorecard(
+        target=target,
+        joint_model=joint_model,
         primary_metric=primary_metric_for(task),
         primary_metric_ci=primary_metric_ci(task, actual, predicted),
         prediction_kind="probability" if is_classification else "value",

@@ -4,7 +4,10 @@ only for the worst-20 residual list and the applicability distribution.
 """
 
 from daikonstudio.application.engines.manifest import TaskType
-from daikonstudio.application.execution.build_scorecard import build_scorecard
+from daikonstudio.application.execution.build_scorecard import (
+    build_scorecard,
+    held_out_chemistry,
+)
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 
 NORMALIZER = RdkitStructureNormalizer()
@@ -27,13 +30,20 @@ def regression_card(**overrides):
         "actual": [1.0, 2.0, 3.0],
         "predicted": [1.1, 2.1, 2.9],
         "structures": ["CCO", "CCN", "CCCO"],
-        "train_structures": ["CCO"],
-        "normalizer": NORMALIZER,
         "target_unit": "nM",
         "target_direction": "low",
         "split_strategy": "random",
     }
-    return build_scorecard(**{**kwargs, **overrides})
+    kwargs.update(overrides)
+    # `train_structures` is not a `build_scorecard` argument any more -- the
+    # chemistry is computed once per Protocol and handed in -- but tests still
+    # vary it, so it stays an override here and is folded into the chemistry.
+    train_structures = kwargs.pop("train_structures", ["CCO"])
+    return build_scorecard(
+        target="y",
+        chemistry=held_out_chemistry(kwargs["structures"], train_structures, NORMALIZER),
+        **kwargs,
+    )
 
 
 def test_unit_direction_and_split_strategy_are_carried_through_unchanged():
@@ -57,6 +67,7 @@ def test_regression_leads_with_rmse():
 def test_classification_leads_with_mcc_never_accuracy():
     """A 99.9%-negative dataset yields a 99.9%-accurate useless model."""
     card = build_scorecard(
+        target="y",
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": 0.0, "balanced_accuracy": 0.5, "auroc": 0.5, "auprc": 0.5},
         engine_id="ecfp4-randomforest",
@@ -67,8 +78,7 @@ def test_classification_leads_with_mcc_never_accuracy():
         actual=[0.0] * 99 + [1.0],
         predicted=[0.0] * 100,
         structures=["CCO"] * 100,
-        train_structures=["CCO"],
-        normalizer=NORMALIZER,
+        chemistry=held_out_chemistry(["CCO"] * 100, ["CCO"], NORMALIZER),
         target_unit=None,
         target_direction=None,
         split_strategy="random",
@@ -123,6 +133,7 @@ def test_noise_floor_is_forced_none_for_classification_regardless_of_input():
     passes one through (e.g. stale data from a migration), the Scorecard must
     not present it as a meaningful floor."""
     card = build_scorecard(
+        target="y",
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": 0.5, "balanced_accuracy": 0.7, "auroc": 0.8, "auprc": 0.6},
         engine_id="ecfp4-randomforest",
@@ -133,8 +144,7 @@ def test_noise_floor_is_forced_none_for_classification_regardless_of_input():
         actual=[0.0, 1.0],
         predicted=[0.1, 0.9],
         structures=["CCO", "CCN"],
-        train_structures=["CCO"],
-        normalizer=NORMALIZER,
+        chemistry=held_out_chemistry(["CCO", "CCN"], ["CCO"], NORMALIZER),
         target_unit=None,
         target_direction=None,
         split_strategy="random",
@@ -157,6 +167,7 @@ def test_classification_worst_rows_are_probability_residuals_and_say_so():
     Scorecard's own `prediction_kind` names which one `worst_rows` holds rather
     than leaving a consumer to infer it (or worse, assume regression units)."""
     card = build_scorecard(
+        target="y",
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": 0.0, "balanced_accuracy": 0.5, "auroc": 0.5, "auprc": 0.5},
         engine_id="ecfp4-randomforest",
@@ -167,8 +178,7 @@ def test_classification_worst_rows_are_probability_residuals_and_say_so():
         actual=[1.0, 0.0, 0.0],
         predicted=[0.02, 0.4, 0.1],
         structures=["CCO", "CCN", "CCCO"],
-        train_structures=["CCO"],
-        normalizer=NORMALIZER,
+        chemistry=held_out_chemistry(["CCO", "CCN", "CCCO"], ["CCO"], NORMALIZER),
         target_unit=None,
         target_direction=None,
         split_strategy="random",
@@ -187,6 +197,7 @@ def test_undefined_metrics_carry_their_reason_onto_the_scorecard():
     """Decision 2: `metrics_undefined` explains *why* a metric is None. A
     scientist should never see a bare blank where a number belongs."""
     card = build_scorecard(
+        target="y",
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": None, "balanced_accuracy": None, "auroc": None, "auprc": None},
         engine_id="ecfp4-randomforest",
@@ -197,8 +208,7 @@ def test_undefined_metrics_carry_their_reason_onto_the_scorecard():
         actual=[0.0, 0.0],
         predicted=[0.1, 0.2],
         structures=["CCO", "CCN"],
-        train_structures=["CCO"],
-        normalizer=NORMALIZER,
+        chemistry=held_out_chemistry(["CCO", "CCN"], ["CCO"], NORMALIZER),
         target_unit=None,
         target_direction=None,
         split_strategy="random",
@@ -304,6 +314,7 @@ def test_residual_histogram_is_regression_only():
     so their difference is bimodal by construction and says nothing."""
     assert regression_card().residual_histogram is not None
     card = build_scorecard(
+        target="y",
         task=TaskType.BINARY_CLASSIFICATION,
         metrics={"mcc": 0.5},
         engine_id="ecfp4-randomforest",
@@ -314,8 +325,7 @@ def test_residual_histogram_is_regression_only():
         actual=[1.0, 0.0, 1.0, 0.0],
         predicted=[0.9, 0.2, 0.7, 0.1],
         structures=["CCO", "CCN", "CCCO", "CCCN"],
-        train_structures=["CCO"],
-        normalizer=NORMALIZER,
+        chemistry=held_out_chemistry(["CCO", "CCN", "CCCO", "CCCN"], ["CCO"], NORMALIZER),
         target_unit=None,
         target_direction=None,
         split_strategy="random",

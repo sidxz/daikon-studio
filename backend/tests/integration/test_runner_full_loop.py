@@ -167,7 +167,7 @@ async def test_a_training_run_executes_through_the_runner_protocol_unmodified(
 
     scorecard_response = await client.get(f"/api/v1/protocols/{run['protocol_id']}/scorecard")
     assert scorecard_response.status_code == 200, f"[scorecard] {scorecard_response.text}"
-    card = scorecard_response.json()
+    [card] = scorecard_response.json()
     assert card["primary_metric"] == "mcc", card
     assert card["baseline_metrics"]["mcc"] is not None, f"[scorecard] baseline undefined: {card}"
 

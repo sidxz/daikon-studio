@@ -36,6 +36,7 @@ from daikonstudio.application.data.create_dataset import (
 )
 from daikonstudio.application.execution.train_protocol import (
     ScorecardInputs,
+    TargetInputs,
     TrainProtocol,
     TrainProtocolCommand,
     artifact_key,
@@ -279,11 +280,13 @@ async def test_training_always_also_trains_the_baseline(studio: Studio) -> None:
     await studio.wait(run)
 
     scorecard = await studio.scorecard_for(run)
-    assert scorecard.baseline_metrics is not None
+    assert scorecard.targets[0].baseline_metrics is not None
     assert scorecard.baseline_engine_id == "ecfp4-randomforest"
     assert scorecard.baseline_is_self is False
+    # A model that fits one target at a time (`ecfp4-xgboost`) is not a joint model.
+    assert scorecard.joint_model is False
     # Two genuinely different fits, not the same numbers copied twice.
-    assert scorecard.baseline_metrics != scorecard.metrics
+    assert scorecard.targets[0].baseline_metrics != scorecard.targets[0].metrics
 
 
 async def test_a_scaffold_split_also_reports_the_random_split_number(studio: Studio) -> None:
@@ -293,10 +296,10 @@ async def test_a_scaffold_split_also_reports_the_random_split_number(studio: Stu
     await studio.wait(run)
 
     scorecard = await studio.scorecard_for(run)
-    assert scorecard.random_split_metrics is not None
+    assert scorecard.targets[0].random_split_metrics is not None
     assert scorecard.random_split_unavailable is None
-    assert scorecard.random_split_metrics_undefined is None
-    assert set(scorecard.random_split_metrics) == set(scorecard.metrics)
+    assert scorecard.targets[0].random_split_metrics_undefined is None
+    assert set(scorecard.targets[0].random_split_metrics) == set(scorecard.targets[0].metrics)
 
 
 async def test_a_random_split_reports_no_optimism_gap(studio: Studio) -> None:
@@ -305,9 +308,9 @@ async def test_a_random_split_reports_no_optimism_gap(studio: Studio) -> None:
     await studio.wait(run)
 
     scorecard = await studio.scorecard_for(run)
-    assert scorecard.random_split_metrics is None
+    assert scorecard.targets[0].random_split_metrics is None
     assert scorecard.random_split_unavailable is None
-    assert scorecard.random_split_metrics_undefined is None
+    assert scorecard.targets[0].random_split_metrics_undefined is None
 
 
 async def test_a_metric_undefined_only_on_the_random_split_carries_its_own_reason(
@@ -353,19 +356,21 @@ async def test_a_metric_undefined_only_on_the_random_split_carries_its_own_reaso
     # The scaffold split's own test partition has both classes for real -- its
     # metrics are defined, and `metrics_undefined` correctly says there is
     # nothing to explain on that side.
-    assert scorecard.metrics_undefined is None
-    assert all(value is not None for value in scorecard.metrics.values())
+    assert scorecard.targets[0].metrics_undefined is None
+    assert all(value is not None for value in scorecard.targets[0].metrics.values())
     # The random-split comparison collapsed to one class -- its metrics are
     # undefined, and that must carry its *own* reason: not `None` (a bare,
     # unexplained null on the number the optimism gap exists to justify), and
     # not `metrics_undefined` (which would name the scaffold split's test set,
     # a different partition that was never single-class here).
-    assert scorecard.random_split_metrics is not None
-    assert all(value is None for value in scorecard.random_split_metrics.values())
+    assert scorecard.targets[0].random_split_metrics is not None
+    assert all(value is None for value in scorecard.targets[0].random_split_metrics.values())
     assert scorecard.random_split_unavailable is None  # it WAS computed, just undefined
-    assert scorecard.random_split_metrics_undefined is not None
-    assert set(scorecard.random_split_metrics_undefined) == set(scorecard.random_split_metrics)
-    assert "test-set" in scorecard.random_split_metrics_undefined["mcc"]
+    assert scorecard.targets[0].random_split_metrics_undefined is not None
+    assert set(scorecard.targets[0].random_split_metrics_undefined) == set(
+        scorecard.targets[0].random_split_metrics
+    )
+    assert "test-set" in scorecard.targets[0].random_split_metrics_undefined["mcc"]
 
 
 async def test_invalid_conditions_fail_the_run_with_a_useful_message(studio: Studio) -> None:
@@ -399,7 +404,7 @@ async def test_choosing_the_baseline_engine_says_so_instead_of_faking_a_comparis
     scorecard = await studio.scorecard_for(run)
     assert scorecard.baseline_is_self is True
     assert scorecard.baseline_engine_id == "ecfp4-randomforest"
-    assert scorecard.baseline_metrics == scorecard.metrics
+    assert scorecard.targets[0].baseline_metrics == scorecard.targets[0].metrics
 
 
 async def test_non_default_conditions_still_earn_a_real_baseline(studio: Studio) -> None:
@@ -467,39 +472,52 @@ def _scorecard_inputs_fixture() -> ScorecardInputs:
         run_id=str(uuid.uuid4()),
         dataset_id=str(uuid.uuid4()),
         engine_id="ecfp4-randomforest",
-        task="regression",
         conditions={"n_estimators": 200},
-        metrics={"rmse": 1.0, "mae": 0.5, "r2": 0.9},
-        actual=[1.0, 2.0],
-        predicted=[1.1, 1.9],
-        prediction_kind="value",
         structures=["CCO", "CCN"],
         train_structures=["CCCO"],
         baseline_engine_id="ecfp4-randomforest",
         baseline_conditions={"n_estimators": 200},
-        baseline_metrics={"rmse": 1.0, "mae": 0.5, "r2": 0.9},
         baseline_is_self=True,
-        random_split_metrics=None,
         random_split_unavailable=None,
-        random_split_metrics_undefined=None,
-        metrics_undefined=None,
-        duplicate_spread=None,
-        target_unit="logS",
-        target_direction="high",
         split_strategy="random",
+        targets=[
+            TargetInputs(
+                column="y",
+                task="regression",
+                metrics={"rmse": 1.0, "mae": 0.5, "r2": 0.9},
+                actual=[1.0, 2.0],
+                predicted=[1.1, 1.9],
+                prediction_kind="value",
+                baseline_metrics={"rmse": 1.0, "mae": 0.5, "r2": 0.9},
+                random_split_metrics=None,
+                random_split_metrics_undefined=None,
+                metrics_undefined=None,
+                duplicate_spread=None,
+                target_unit="logS",
+                target_direction="high",
+            )
+        ],
     )
 
 
 def test_scorecard_inputs_reads_a_blob_written_before_baseline_conditions_existed() -> None:
     """`from_json` is `cls(**json.loads(data))`. Without a default, every
-    Scorecard blob written before this change becomes unreadable."""
+    Scorecard blob written before this change becomes unreadable. Such a blob is
+    also older than per-target `targets`, so it stores its per-target fields at the
+    top level -- built here by flattening the one target."""
     dataset = _scorecard_inputs_fixture()  # build one valid instance at module scope
     legacy = json.loads(dataset.to_json())
+    [target] = legacy.pop("targets")
+    del target["column"]
     del legacy["baseline_conditions"]
+    del legacy["joint_model"]
 
-    restored = ScorecardInputs.from_json(json.dumps(legacy).encode())
+    restored = ScorecardInputs.from_json(json.dumps({**legacy, **target}).encode())
 
     assert restored.baseline_conditions == {}
+    assert restored.joint_model is False
+    assert restored.targets[0].column == ""
+    assert restored.targets[0].metrics == {"rmse": 1.0, "mae": 0.5, "r2": 0.9}
 
 
 async def test_a_failed_optimism_gap_does_not_destroy_the_honest_result(
@@ -524,10 +542,10 @@ async def test_a_failed_optimism_gap_does_not_destroy_the_honest_result(
 
     assert (await studio.reload(run)).status is RunStatus.READY
     scorecard = await studio.scorecard_for(run)
-    assert scorecard.random_split_metrics is None
+    assert scorecard.targets[0].random_split_metrics is None
     assert scorecard.random_split_unavailable is not None
     assert "no random split for you" in scorecard.random_split_unavailable
-    assert scorecard.metrics and scorecard.baseline_metrics
+    assert scorecard.targets[0].metrics and scorecard.targets[0].baseline_metrics
 
 
 async def test_the_task_comes_from_the_target_spec_not_from_the_values(
@@ -544,8 +562,8 @@ async def test_the_task_comes_from_the_target_spec_not_from_the_values(
     await studio.wait(run)
 
     scorecard = await studio.scorecard_for(run)
-    assert scorecard.task == "regression"
-    assert set(scorecard.metrics) == {"rmse", "mae", "r2"}
+    assert scorecard.targets[0].task == "regression"
+    assert set(scorecard.targets[0].metrics) == {"rmse", "mae", "r2"}
     protocol = await studio.protocol_for(run)
     assert [readout.type.value for readout in protocol.readouts] == ["numeric"]
 
@@ -564,9 +582,9 @@ async def test_a_binary_target_trains_a_classifier_and_derives_two_readouts(
     await studio.wait(run)
 
     scorecard = await studio.scorecard_for(run)
-    assert scorecard.task == "binary_classification"
-    assert set(scorecard.metrics) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
-    assert "accuracy" not in scorecard.metrics
+    assert scorecard.targets[0].task == "binary_classification"
+    assert set(scorecard.targets[0].metrics) == {"mcc", "balanced_accuracy", "auroc", "auprc"}
+    assert "accuracy" not in scorecard.targets[0].metrics
     protocol = await studio.protocol_for(run)
     assert [readout.type.value for readout in protocol.readouts] == ["probability", "class"]
 
@@ -596,10 +614,12 @@ async def test_scorecard_inputs_carry_the_test_set_predictions(studio: Studio) -
     await studio.wait(run)
 
     card = await studio.scorecard_for(run)
-    assert len(card.actual) == len(card.predicted) == len(card.structures) == 2
+    assert (
+        len(card.targets[0].actual) == len(card.targets[0].predicted) == len(card.structures) == 2
+    )
     assert len(card.train_structures) == 16
     assert not set(card.structures) & set(card.train_structures)
-    assert card.duplicate_spread is None
+    assert card.targets[0].duplicate_spread is None
 
 
 async def test_progress_is_reported_through_the_named_phases(studio: Studio) -> None:
@@ -736,17 +756,17 @@ async def test_the_stored_scorecard_is_valid_json_even_when_a_metric_is_undefine
 
     document = json.loads(raw, parse_constant=reject)
 
-    assert document["random_split_metrics"]["mcc"] is None
+    assert document["targets"][0]["random_split_metrics"]["mcc"] is None
     card = await studio.scorecard_for(run)
-    assert card.random_split_metrics["mcc"] is None
-    assert card.random_split_metrics_undefined is not None
-    assert set(card.random_split_metrics_undefined) == {
+    assert card.targets[0].random_split_metrics["mcc"] is None
+    assert card.targets[0].random_split_metrics_undefined is not None
+    assert set(card.targets[0].random_split_metrics_undefined) == {
         "auprc",
         "auroc",
         "balanced_accuracy",
         "mcc",
     }
-    assert "test-set" in card.random_split_metrics_undefined["mcc"]
+    assert "test-set" in card.targets[0].random_split_metrics_undefined["mcc"]
 
 
 async def test_a_defined_metric_carries_no_undefined_reason(studio: Studio) -> None:
@@ -755,8 +775,8 @@ async def test_a_defined_metric_carries_no_undefined_reason(studio: Studio) -> N
     await studio.wait(run)
 
     card = await studio.scorecard_for(run)
-    assert card.metrics_undefined is None
-    assert all(value is not None for value in card.metrics.values())
+    assert card.targets[0].metrics_undefined is None
+    assert all(value is not None for value in card.targets[0].metrics.values())
 
 
 async def test_predictions_say_what_they_are_rather_than_leaving_it_to_be_inferred(
@@ -767,7 +787,7 @@ async def test_predictions_say_what_they_are_rather_than_leaving_it_to_be_inferr
     regression = await studio.dataset()
     run = await studio.train(dataset_id=regression.id, engine_id="ecfp4-xgboost", conditions={})
     await studio.wait(run)
-    assert (await studio.scorecard_for(run)).prediction_kind == "value"
+    assert (await studio.scorecard_for(run)).targets[0].prediction_kind == "value"
 
     # Restored to the plain alternation (I1 re-review) -- see the comment on
     # `test_a_binary_target_trains_a_classifier_and_derives_two_readouts`.
@@ -778,8 +798,8 @@ async def test_predictions_say_what_they_are_rather_than_leaving_it_to_be_inferr
     )
     await studio.wait(run)
     card = await studio.scorecard_for(run)
-    assert card.prediction_kind == "probability"
-    assert all(0.0 <= value <= 1.0 for value in card.predicted)
+    assert card.targets[0].prediction_kind == "probability"
+    assert all(0.0 <= value <= 1.0 for value in card.targets[0].predicted)
 
 
 async def test_a_dataset_predating_the_structure_column_migration_fails_readably(

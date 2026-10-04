@@ -153,7 +153,7 @@ async def test_a_scientist_can_walk_the_whole_loop(client, csv_upload):
     # --- Scorecard: an honest baseline comparison and a visible optimism gap ---
     scorecard_response = await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")
     assert scorecard_response.status_code == 200, f"[scorecard] {scorecard_response.text}"
-    card = scorecard_response.json()
+    [card] = scorecard_response.json()
     assert card["primary_metric"] == "mcc", card
     assert card["baseline_engine_id"] == "ecfp4-randomforest"
     assert card["baseline_metrics"]["mcc"] is not None, f"[scorecard] baseline undefined: {card}"

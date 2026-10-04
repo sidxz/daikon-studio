@@ -127,7 +127,7 @@ async def test_a_protocols_errors_and_map_show_ids_and_follow_a_change(client, c
     run = (await client.get(f"/api/v1/runs/{train.json()['id']}")).json()
     protocol_id = run["protocol_id"]
 
-    scorecard = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()
+    scorecard = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()[0]
     assert scorecard["worst_rows"]
     for row in scorecard["worst_rows"]:
         assert row["compound_id"] == by_structure[row["structure"]]
@@ -144,5 +144,5 @@ async def test_a_protocols_errors_and_map_show_ids_and_follow_a_change(client, c
 
     # Switching the column changes the IDs on the trained protocol at once.
     await client.put(f"/api/v1/datasets/{dataset_id}/id-column", json={"id_column": "num"})
-    switched = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()
+    switched = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()[0]
     assert all(row["compound_id"].isdigit() for row in switched["worst_rows"])

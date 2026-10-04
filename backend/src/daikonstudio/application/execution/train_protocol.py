@@ -49,7 +49,7 @@ import logging
 import math
 import time
 import uuid
-from dataclasses import asdict, dataclass, field, replace
+from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
 import polars as pl
@@ -136,12 +136,8 @@ _RANDOM_SPLIT_SPAN = (0.7, 0.95)
 
 
 @dataclass(frozen=True, kw_only=True)
-class ScorecardInputs:
-    """Everything measured during a training run, before anyone interprets it.
-
-    This is the contract between Task 14 and Task 15. `build_scorecard` reads the
-    metric dicts as measured -- it does not recompute them -- and uses
-    `actual`/`predicted` for residuals and applicability only.
+class TargetInputs:
+    """One target's share of `ScorecardInputs`: everything measured about it.
 
     **What `predicted` holds depends on the task, and `prediction_kind` says
     which so no consumer has to re-derive it:**
@@ -153,27 +149,19 @@ class ScorecardInputs:
       metric that expects hard labels raises; a consumer wanting labels must
       threshold it and own that choice explicitly.
 
-    Three fields exist purely so an absent number cannot be mistaken for a
-    different kind of absent number:
-
-    - `baseline_is_self` -- the chosen engine *is* the baseline, so
-      `baseline_metrics` is the same fit rather than an independent comparison.
-    - `random_split_unavailable` -- there was an optimism gap to measure and the
-      attempt failed, as distinct from `random_split_metrics is None` on a
-      dataset that is already randomly split, where there is nothing to measure.
-    - `metrics_undefined` -- why a metric came back undefined (`None`), keyed by
-      metric name. Without it a Scorecard reading "your model -- versus baseline
-      --" has no way to say why. It describes the Dataset's own test split, which
-      `metrics` and `baseline_metrics` share; `random_split_metrics` is scored on
-      a *different* partition, with its own possible reasons a metric there is
-      undefined -- `random_split_metrics_undefined` is that explanation, kept
-      separate rather than merged into `metrics_undefined` because the two
-      partitions can disagree about which metrics are undefined and why. A
-      consumer that explained a `random_split_metrics` null using
-      `metrics_undefined` would (when both happen to be undefined) attribute the
-      wrong partition's reason, and (when only the random split is undefined)
-      find no explanation there at all -- a bare, unexplained null on the exact
-      number an optimism-gap comparison exists to justify.
+    `metrics_undefined` -- why a metric came back undefined (`None`), keyed by
+    metric name. Without it a Scorecard reading "your model -- versus baseline
+    --" has no way to say why. It describes the Dataset's own test split, which
+    `metrics` and `baseline_metrics` share; `random_split_metrics` is scored on
+    a *different* partition, with its own possible reasons a metric there is
+    undefined -- `random_split_metrics_undefined` is that explanation, kept
+    separate rather than merged into `metrics_undefined` because the two
+    partitions can disagree about which metrics are undefined and why. A
+    consumer that explained a `random_split_metrics` null using
+    `metrics_undefined` would (when both happen to be undefined) attribute the
+    wrong partition's reason, and (when only the random split is undefined)
+    find no explanation there at all -- a bare, unexplained null on the exact
+    number an optimism-gap comparison exists to justify.
 
     `validation_metrics` is the chosen engine scored on the *validation*
     partition by the identical code that produced `metrics` from the test one. It
@@ -184,31 +172,70 @@ class ScorecardInputs:
     no longer held out. `None` when the split declared a zero validation
     fraction, which is a legitimate choice and not a measurement failure.
 
-    `target_unit`/`target_direction` and `split_strategy` are the Dataset's own
-    `TargetSpec.unit`/`.direction` and `SplitSpec.strategy.value` at the moment
-    this Run trained -- carried through unchanged so `build_scorecard` (Task
-    15 review, Important 2) can render a metric with the unit and direction
-    that make it meaningful, and say which split strategy produced it, rather
-    than a consumer inferring the strategy from `random_split_metrics`/
-    `random_split_unavailable` both being `None`.
+    `target_unit`/`target_direction` are the Dataset's own `TargetSpec.unit`/
+    `.direction` at the moment this Run trained -- carried through unchanged so
+    `build_scorecard` (Task 15 review, Important 2) can render a metric with the
+    unit and direction that make it meaningful.
+    """
+
+    column: str
+    task: str
+    metrics: dict[str, float | None]
+    # Defaulted for the same reason `baseline_conditions` below is: a required
+    # field here would make every Scorecard blob written before validation scoring
+    # existed unreadable. `None` therefore means either "this run predates the
+    # field" or "the split had no validation partition" -- both are honestly
+    # rendered as "not measured".
+    validation_metrics: dict[str, float | None] | None = None
+    actual: list[float]
+    predicted: list[float]
+    prediction_kind: str
+    baseline_metrics: dict[str, float | None]
+    random_split_metrics: dict[str, float | None] | None
+    random_split_metrics_undefined: dict[str, str] | None
+    metrics_undefined: dict[str, str] | None
+    duplicate_spread: float | None
+    target_unit: str | None
+    target_direction: str | None
+
+
+# What a blob written before targets could be several stored at its top level.
+_PER_TARGET = tuple(f.name for f in fields(TargetInputs) if f.name != "column")
+
+
+@dataclass(frozen=True, kw_only=True)
+class ScorecardInputs:
+    """Everything measured during a training run, before anyone interprets it.
+
+    This is the contract between Task 14 and Task 15. `build_scorecard` reads the
+    metric dicts as measured -- it does not recompute them -- and uses
+    `actual`/`predicted` for residuals and applicability only.
+
+    Run-level facts appear once; everything measured per target is in `targets`,
+    in the Dataset's order. `structures` and `train_structures` are run-level on
+    purpose: every target shares one split and one set of test rows, and at 324k
+    compounds those two lists are most of the blob.
+
+    Two fields exist purely so an absent number cannot be mistaken for a
+    different kind of absent number:
+
+    - `baseline_is_self` -- the chosen engine *is* the baseline, so each target's
+      `baseline_metrics` is the same fit rather than an independent comparison.
+    - `random_split_unavailable` -- there was an optimism gap to measure and the
+      attempt failed, as distinct from `random_split_metrics is None` on a
+      dataset that is already randomly split, where there is nothing to measure.
+
+    `split_strategy` is the Dataset's own `SplitSpec.strategy.value` at the moment
+    this Run trained -- carried through unchanged so `build_scorecard` can say
+    which split strategy produced a metric, rather than a consumer inferring it
+    from `random_split_metrics`/`random_split_unavailable` both being `None`.
     """
 
     protocol_id: str
     run_id: str
     dataset_id: str
     engine_id: str
-    task: str
     conditions: dict[str, Any]
-    metrics: dict[str, float | None]
-    # Defaulted for the same reason `baseline_conditions` below is: `from_json` is
-    # `cls(**json.loads(data))`, so a required field here would make every
-    # Scorecard blob written before validation scoring existed unreadable. `None`
-    # therefore means either "this run predates the field" or "the split had no
-    # validation partition" -- both are honestly rendered as "not measured".
-    validation_metrics: dict[str, float | None] | None = None
-    actual: list[float]
-    predicted: list[float]
-    prediction_kind: str
     structures: list[str]
     train_structures: list[str]
     baseline_engine_id: str
@@ -218,16 +245,16 @@ class ScorecardInputs:
     # is the *same* engine with different settings (pretrained vs not), the two
     # engine ids are identical and this is the only thing distinguishing them.
     baseline_conditions: dict[str, Any] = field(default_factory=dict)
-    baseline_metrics: dict[str, float | None]
     baseline_is_self: bool
-    random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None
-    random_split_metrics_undefined: dict[str, str] | None
-    metrics_undefined: dict[str, str] | None
-    duplicate_spread: float | None
-    target_unit: str | None
-    target_direction: str | None
     split_strategy: str
+    # True when one model learned every target; False for one model per target --
+    # and for every Protocol trained before targets could be several, which had one
+    # target and one model either way. Recorded here rather than read off the
+    # engine's manifest later, so the Scorecard says what happened, not what the
+    # engine would do today.
+    joint_model: bool = False
+    targets: list[TargetInputs]
 
     def to_json(self) -> bytes:
         # allow_nan=False on purpose. An undefined metric is real -- a single-class
@@ -240,8 +267,18 @@ class ScorecardInputs:
         return json.dumps(asdict(self), allow_nan=False).encode()
 
     @classmethod
-    def from_json(cls, data: bytes) -> ScorecardInputs:
-        return cls(**json.loads(data))
+    def from_json(cls, data: bytes, *, legacy_column: str = "") -> ScorecardInputs:
+        """`legacy_column` names the one target of a blob written before targets
+        could be several, which stored its per-target fields at the top level and
+        never recorded the column. Only `GetScorecard` renders that name, so only it
+        needs to pass one."""
+        raw = json.loads(data)
+        if "targets" not in raw:
+            raw["targets"] = [
+                {"column": legacy_column, **{k: raw.pop(k) for k in _PER_TARGET if k in raw}}
+            ]
+        raw["targets"] = [TargetInputs(**target) for target in raw["targets"]]
+        return cls(**raw)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -549,29 +586,39 @@ class RunTraining:
             run_id=str(run.id),
             dataset_id=str(dataset.id),
             engine_id=manifest.id,
-            task=task.value,
             conditions=conditions,
-            metrics=metrics,
-            validation_metrics=validation_metrics,
-            actual=[float(value) for value in test_rows[target.column].to_list()],
-            predicted=[float(value) for value in predictions["value"].to_list()],
-            prediction_kind=("probability" if task is TaskType.BINARY_CLASSIFICATION else "value"),
             structures=[str(s) for s in test_rows[dataset.structure_column].to_list()],
             train_structures=[str(s) for s in train_rows[dataset.structure_column].to_list()],
             baseline_engine_id=baseline_manifest.id,
             baseline_conditions=baseline_conditions,
-            baseline_metrics=baseline_metrics,
             baseline_is_self=baseline_is_self,
-            random_split_metrics=random_split_metrics,
             random_split_unavailable=random_split_unavailable,
-            random_split_metrics_undefined=random_split_metrics_undefined,
-            metrics_undefined=_undefined_reasons(
-                undefined | baseline_undefined, dataset, train_rows, test_rows
-            ),
-            duplicate_spread=dataset.validation_report.duplicate_spread.get(target.column),
-            target_unit=target.unit,
-            target_direction=target.direction.value if target.direction is not None else None,
             split_strategy=dataset.split.strategy.value,
+            joint_model=manifest.supports_multitask,
+            targets=[
+                TargetInputs(
+                    column=target.column,
+                    task=task.value,
+                    metrics=metrics,
+                    validation_metrics=validation_metrics,
+                    actual=[float(value) for value in test_rows[target.column].to_list()],
+                    predicted=[float(value) for value in predictions["value"].to_list()],
+                    prediction_kind=(
+                        "probability" if task is TaskType.BINARY_CLASSIFICATION else "value"
+                    ),
+                    baseline_metrics=baseline_metrics,
+                    random_split_metrics=random_split_metrics,
+                    random_split_metrics_undefined=random_split_metrics_undefined,
+                    metrics_undefined=_undefined_reasons(
+                        undefined | baseline_undefined, dataset, train_rows, test_rows
+                    ),
+                    duplicate_spread=dataset.validation_report.duplicate_spread.get(target.column),
+                    target_unit=target.unit,
+                    target_direction=(
+                        target.direction.value if target.direction is not None else None
+                    ),
+                )
+            ],
         )
 
         # Blobs first, Protocol row last, and deliberately in that order. A
