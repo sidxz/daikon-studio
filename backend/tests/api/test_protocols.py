@@ -21,7 +21,6 @@ import pytest
 import pytest_asyncio
 
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
-from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.split import SplitStrategy
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
@@ -224,8 +223,7 @@ async def test_a_protocol_row_without_a_scorecard_blob_is_a_404_not_a_500(
         engine_id="ecfp4-randomforest",
         artifact_uri="file:///nowhere/model.joblib",
         readouts=derive_readouts(
-            TargetSpec(column="y", kind=TargetKind.NUMERIC, unit=None, direction=Direction.HIGH),
-            TaskType.REGRESSION,
+            (TargetSpec(column="y", kind=TargetKind.NUMERIC, unit=None, direction=Direction.HIGH),)
         ),
         conditions={},
     )

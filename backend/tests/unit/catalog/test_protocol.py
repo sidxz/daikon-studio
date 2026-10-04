@@ -4,7 +4,6 @@ from typing import Any
 import pytest
 
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
-from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.catalog.readout import ReadoutType
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
@@ -19,8 +18,11 @@ def _draft(conditions: dict[str, Any] | None = None) -> InSilicoProtocol:
         engine_id="ecfp4-randomforest",
         artifact_uri="s3://x/1",
         readouts=derive_readouts(
-            TargetSpec(column="ic50", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW),
-            TaskType.REGRESSION,
+            (
+                TargetSpec(
+                    column="ic50", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW
+                ),
+            )
         ),
         conditions={} if conditions is None else conditions,
     )
@@ -28,7 +30,7 @@ def _draft(conditions: dict[str, Any] | None = None) -> InSilicoProtocol:
 
 def test_regression_readout_inherits_unit_and_direction_from_the_target():
     target = TargetSpec(column="ic50", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW)
-    readouts = derive_readouts(target, TaskType.REGRESSION)
+    readouts = derive_readouts((target,))
     assert len(readouts) == 1
     assert readouts[0].type == ReadoutType.NUMERIC
     assert readouts[0].unit == "nM"
@@ -37,7 +39,7 @@ def test_regression_readout_inherits_unit_and_direction_from_the_target():
 
 def test_classification_produces_a_probability_and_a_class_readout():
     target = TargetSpec(column="active", kind=TargetKind.BINARY)
-    readouts = derive_readouts(target, TaskType.BINARY_CLASSIFICATION)
+    readouts = derive_readouts((target,))
     assert [r.type for r in readouts] == [ReadoutType.PROBABILITY, ReadoutType.CLASS]
     assert readouts[0].unit is None
     assert readouts[0].direction == Direction.HIGH

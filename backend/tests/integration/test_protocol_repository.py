@@ -18,7 +18,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
-from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
 from daikonstudio.domain.shared.errors import ConcurrencyConflictError
@@ -50,8 +49,11 @@ def _draft(**overrides: object) -> InSilicoProtocol:
         engine_id="ecfp4-randomforest",
         artifact_uri="s3://bucket/artifact.joblib",
         readouts=derive_readouts(
-            TargetSpec(column="ic50", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW),
-            TaskType.REGRESSION,
+            (
+                TargetSpec(
+                    column="ic50", kind=TargetKind.NUMERIC, unit="nM", direction=Direction.LOW
+                ),
+            )
         ),
         conditions={"n_estimators": 200},
     )

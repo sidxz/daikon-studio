@@ -601,7 +601,7 @@ class RunTraining:
                 # Derived from the Dataset's TargetSpec, which is what makes a
                 # predicted IC50 arrive in the same unit and direction as a
                 # measured one. Created in DRAFT; Task 16 publishes it.
-                readouts=derive_readouts(dataset.single_target(), task),
+                readouts=derive_readouts(dataset.targets),
                 conditions=conditions,
                 # The person who asked for the training, not the runner that ran it.
                 created_by=run.requested_by,
