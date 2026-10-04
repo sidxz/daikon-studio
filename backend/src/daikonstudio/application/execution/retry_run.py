@@ -16,9 +16,11 @@ from dataclasses import dataclass
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
+from daikonstudio.application.engines.checkpoints import Checkpoints, checkpoint_root
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.train_protocol import training_lane
+from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import Run, RunKind
@@ -28,6 +30,9 @@ from daikonstudio.domain.shared.errors import DomainError, NotFoundError
 @dataclass(frozen=True, kw_only=True)
 class RetryRunCommand:
     run_id: uuid.UUID
+    # Start over: discard the run's saved training progress before requeueing it, so
+    # the next attempt fits everything again. A prediction run keeps none; ignored there.
+    fresh: bool = False
 
 
 class RetryRun:
@@ -37,11 +42,13 @@ class RetryRun:
         protocols: ProtocolRepository,
         enqueuer: JobEnqueuer,
         engines: EngineRegistry,
+        store: BlobStore,
     ) -> None:
         self._runs = runs
         self._protocols = protocols
         self._enqueuer = enqueuer
         self._engines = engines
+        self._store = store
 
     async def __call__(
         self, command: RetryRunCommand, auth: AuthContext | None = None
@@ -60,6 +67,15 @@ class RetryRun:
             run.retry()
         except DomainError as error:
             return Failure(error)
+        if command.fresh and run.kind is RunKind.TRAINING:
+            # Before the update and the enqueue, so the requeued attempt can never load
+            # what it was asked to forget.
+            Checkpoints(
+                self._store,
+                checkpoint_root(
+                    run.workspace_id, uuid.UUID(str(run.params["dataset_id"])), run.id
+                ),
+            ).clear()
         # Update, then enqueue. Enqueueing first would let a worker pick up a run
         # whose row still reads FAILED, and `run_job` drops redeliveries for
         # terminal runs -- the retry would vanish silently.

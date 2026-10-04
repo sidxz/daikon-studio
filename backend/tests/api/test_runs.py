@@ -17,6 +17,9 @@ import pytest_asyncio
 from sqlalchemy import update
 from tests.fakes.tunable_data import tunable_csv
 
+from daikonstudio.application.engines.checkpoints import checkpoint_root
+from daikonstudio.application.execution.train_protocol import TrainProtocolCommand
+from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.domain.execution.run import Run, RunKind
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import InSilicoProtocolModel
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
@@ -798,3 +801,89 @@ async def test_viewer_cannot_retry(
     run = _failed_prediction(workspace_id, published_protocol_id, prediction_upload_ref, "retry-2")
     await SqlAlchemyRunRepository(session_factory).add(run)
     assert (await viewer_client.post(f"/api/v1/runs/{run.id}/retry")).status_code == 403
+
+
+async def _failed_training_with_saved_progress(
+    app, session_factory, workspace_id
+) -> tuple[Run, list[str]]:
+    """A failed training run with two blobs saved under its checkpoint root.
+
+    The dataset it names does not exist, so a retried attempt fails at once, before it
+    could save or clear anything itself: whatever is left under the root afterwards is
+    what the retry did or did not discard.
+    """
+    dataset_id = uuid.uuid4()
+    run = Run(
+        kind=RunKind.TRAINING,
+        workspace_id=workspace_id,
+        requested_by=uuid.uuid4(),
+        cache_key="retry-training",
+        params=TrainProtocolCommand(
+            name="solubility model",
+            dataset_id=dataset_id,
+            engine_id="ecfp4-xgboost",
+            conditions={},
+        ).to_params(),
+    )
+    run.start()
+    run.fail("the runner died")
+    await SqlAlchemyRunRepository(session_factory).add(run)
+    store = app.state.container[BlobStore]
+    root = checkpoint_root(workspace_id, dataset_id, run.id)
+    keys = [f"{root}model/fit.a", f"{root}model/fit.b"]
+    for key in keys:
+        store.put_bytes(key, b"saved progress")
+    return run, keys
+
+
+async def test_start_over_discards_the_saved_progress_before_requeueing(
+    app, client, session_factory, workspace_id
+):
+    run, keys = await _failed_training_with_saved_progress(app, session_factory, workspace_id)
+
+    response = await client.post(f"/api/v1/runs/{run.id}/retry", json={"fresh": True})
+    assert response.status_code == 204, response.text
+
+    store = app.state.container[BlobStore]
+    assert [store.exists(key) for key in keys] == [False, False]
+    # The requeued attempt ran (inline) and failed on the missing dataset, as designed.
+    assert (await client.get(f"/api/v1/runs/{run.id}")).json()["status"] == "failed"
+
+
+async def test_a_plain_retry_keeps_the_saved_progress(app, client, session_factory, workspace_id):
+    run, keys = await _failed_training_with_saved_progress(app, session_factory, workspace_id)
+
+    response = await client.post(f"/api/v1/runs/{run.id}/retry")
+    assert response.status_code == 204, response.text
+
+    store = app.state.container[BlobStore]
+    assert [store.exists(key) for key in keys] == [True, True]
+    # Proof the retry did run the job: it failed again, on the missing dataset.
+    assert (await client.get(f"/api/v1/runs/{run.id}")).json()["status"] == "failed"
+
+
+async def test_start_over_on_a_prediction_run_changes_nothing_else(
+    client, session_factory, workspace_id, published_protocol_id, prediction_upload_ref
+):
+    run = _failed_prediction(workspace_id, published_protocol_id, prediction_upload_ref, "retry-3")
+    await SqlAlchemyRunRepository(session_factory).add(run)
+
+    response = await client.post(f"/api/v1/runs/{run.id}/retry", json={"fresh": True})
+    assert response.status_code == 204, response.text
+
+    polled = (await client.get(f"/api/v1/runs/{run.id}")).json()
+    assert polled["status"] == "ready", polled
+    assert polled["error_message"] is None
+
+
+async def test_a_retry_body_with_a_non_boolean_or_unknown_field_is_a_422(
+    client, session_factory, workspace_id, published_protocol_id, prediction_upload_ref
+):
+    run = _failed_prediction(workspace_id, published_protocol_id, prediction_upload_ref, "retry-4")
+    await SqlAlchemyRunRepository(session_factory).add(run)
+
+    for body in ({"fresh": "yes"}, {"other": 1}):
+        response = await client.post(f"/api/v1/runs/{run.id}/retry", json=body)
+        assert response.status_code == 422, (body, response.text)
+    # Refused before anything ran: the run is still failed.
+    assert (await client.get(f"/api/v1/runs/{run.id}")).json()["status"] == "failed"

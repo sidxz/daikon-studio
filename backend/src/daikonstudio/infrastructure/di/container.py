@@ -254,7 +254,9 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(CancelRun, lambda c: CancelRun(_runs(c)))
     container.define(
         RetryRun,
-        lambda c: RetryRun(_runs(c), _protocols(c), c[JobEnqueuer], c[EngineRegistry]),
+        lambda c: RetryRun(
+            _runs(c), _protocols(c), c[JobEnqueuer], c[EngineRegistry], c[BlobStore]
+        ),
     )
     container.define(
         GetPredictionResults,

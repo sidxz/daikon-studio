@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StrictBool
 
 from daikonstudio.application.catalog.get_chemical_space import (
     MAX_LOOKUPS,
@@ -388,8 +388,19 @@ async def cancel_run(run_id: uuid.UUID, auth: AuthDep, service: CancelRunDep) ->
     return Response(status_code=204)
 
 
+class RetryRunBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Start over instead of resuming: discards the run's saved training progress.
+    fresh: StrictBool = False
+
+
 @router.post("/{run_id}/retry", status_code=204)
-async def retry_run(run_id: uuid.UUID, auth: AuthDep, service: RetryRunDep) -> Response:
-    """Re-execute a failed or cancelled run in place; 409 for any other status."""
-    result_to_response(await service(RetryRunCommand(run_id=run_id), auth=auth))
+async def retry_run(
+    run_id: uuid.UUID, auth: AuthDep, service: RetryRunDep, body: RetryRunBody | None = None
+) -> Response:
+    """Re-execute a failed or cancelled run in place, resuming a training run from its
+    saved progress unless `fresh` is set; 409 for any other status."""
+    fresh = body.fresh if body is not None else False
+    result_to_response(await service(RetryRunCommand(run_id=run_id, fresh=fresh), auth=auth))
     return Response(status_code=204)
