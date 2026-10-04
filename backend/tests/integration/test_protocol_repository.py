@@ -11,14 +11,16 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncIterator
+from dataclasses import replace
 
 import pytest
 import pytest_asyncio
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
+from daikonstudio.domain.catalog.readout import ReadoutType
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
 from daikonstudio.domain.shared.errors import ConcurrencyConflictError
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import (
@@ -87,6 +89,41 @@ async def test_add_then_get_round_trips_readouts_conditions_and_status(session_f
         ).scalar_one()
     assert type(row.conditions) is dict
     assert row.conditions == {"n_estimators": 200}
+
+
+async def test_a_class_readouts_threshold_round_trips_and_a_row_without_one_reads_as_none(
+    session_factory,
+):
+    repository = SqlAlchemyProtocolRepository(session_factory)
+    readouts = tuple(
+        replace(readout, threshold=0.31) if readout.type is ReadoutType.CLASS else readout
+        for readout in derive_readouts((TargetSpec(column="active", kind=TargetKind.BINARY),))
+    )
+    protocol = _draft(readouts=readouts)
+    await repository.add(protocol)
+
+    fetched = await repository.get(protocol.workspace_id, protocol.id)
+    assert fetched is not None
+    assert [r.threshold for r in fetched.readouts] == [None, 0.31]
+
+    # A row written before cutoffs could be tuned has no `threshold` key at all.
+    async with session_factory() as session:
+        stored = (
+            await session.execute(
+                select(InSilicoProtocolModel.readouts).where(
+                    InSilicoProtocolModel.id == protocol.id
+                )
+            )
+        ).scalar_one()
+        await session.execute(
+            update(InSilicoProtocolModel)
+            .where(InSilicoProtocolModel.id == protocol.id)
+            .values(readouts=[{k: v for k, v in r.items() if k != "threshold"} for r in stored])
+        )
+        await session.commit()
+    legacy = await repository.get(protocol.workspace_id, protocol.id)
+    assert legacy is not None
+    assert [r.threshold for r in legacy.readouts] == [None, None]
 
 
 async def test_publish_persists_through_update(session_factory):

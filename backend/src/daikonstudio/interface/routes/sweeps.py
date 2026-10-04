@@ -56,6 +56,9 @@ class SubmitSweepBody(BaseModel):
     configs: list[SweepConfigBody] = Field(min_length=1, max_length=MAX_CONFIGS)
     baseline_engine_id: str | None = None
     baseline_conditions: dict[str, Any] = Field(default_factory=dict)
+    # Applies to every config in the sweep: configs measured at different cutoffs are
+    # not a comparison.
+    tune_cutoffs: bool = False
 
 
 class SweepRunResponse(BaseModel):
@@ -156,6 +159,7 @@ async def submit_sweep(
         ],
         baseline_engine_id=body.baseline_engine_id,
         baseline_conditions=body.baseline_conditions,
+        tune_cutoffs=body.tune_cutoffs,
     )
     sweep = result_to_response(await service(command, auth=auth))
     return SweepDetailResponse.from_runs(sweep.sweep_id, sweep.runs)

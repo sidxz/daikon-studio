@@ -32,3 +32,6 @@ class Readout:
     unit: str | None
     direction: str | None
     description: str
+    # The probability at or above which a CLASS readout reads 1. None means 0.5 -- every
+    # protocol trained before cutoffs could be tuned, and every untuned one since.
+    threshold: float | None = None

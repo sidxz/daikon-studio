@@ -95,6 +95,9 @@ class TrainProtocolBody(BaseModel):
     # comparison always happens -- this chooses which one, it does not skip it.
     baseline_engine_id: str | None = None
     baseline_conditions: dict[str, Any] = Field(default_factory=dict)
+    # Choose each binary target's decision cutoff on the validation partition instead
+    # of fixing it at 0.5. Reaches the model, its baseline and the random-split fit.
+    tune_cutoffs: bool = False
 
 
 class ReadoutResponse(BaseModel):
@@ -117,6 +120,8 @@ class ReadoutResponse(BaseModel):
     unit: str | None
     direction: Direction | None
     description: str
+    # The probability at or above which a `class` readout reads 1. Null means 0.5.
+    threshold: float | None
 
     @classmethod
     def from_domain(cls, readout: Readout) -> ReadoutResponse:
@@ -126,6 +131,7 @@ class ReadoutResponse(BaseModel):
             unit=readout.unit,
             direction=Direction(readout.direction) if readout.direction else None,
             description=readout.description,
+            threshold=readout.threshold,
         )
 
 
@@ -287,6 +293,12 @@ class ScorecardResponse(BaseModel):
     unit: str | None
     direction: str | None
     split_strategy: str
+    # The decision cutoffs MCC and balanced accuracy were measured at, for the model and
+    # its baseline. Null means 0.5. `cutoff_note` says why a requested tuning did not
+    # happen; null when it did or was not requested.
+    cutoff: float | None
+    baseline_cutoff: float | None
+    cutoff_note: str | None
     # Diagnostics -- see `domain/execution/scorecard.py` for what each answers.
     # `residual_histogram` is regression-only and `calibration` is
     # classification-only; branch on `prediction_kind`, not on emptiness.
@@ -323,6 +335,9 @@ class ScorecardResponse(BaseModel):
             unit=card.target_unit,
             direction=card.target_direction,
             split_strategy=card.split_strategy,
+            cutoff=card.cutoff,
+            baseline_cutoff=card.baseline_cutoff,
+            cutoff_note=card.cutoff_note,
             parity=[
                 ParityPointResponse(
                     actual=point.actual, predicted=point.predicted, similarity=point.similarity
@@ -365,6 +380,7 @@ async def train_protocol(
         conditions=body.conditions,
         baseline_engine_id=body.baseline_engine_id,
         baseline_conditions=body.baseline_conditions,
+        tune_cutoffs=body.tune_cutoffs,
     )
     return RunResponse.from_domain(result_to_response(await service(command, auth=auth)))
 

@@ -41,17 +41,21 @@ from daikonstudio.application.execution.train_protocol import (
     TargetInputs,
     TrainProtocol,
     TrainProtocolCommand,
+    _cutoff_note,
     artifact_key,
     scorecard_inputs_key,
     unpack_artifact,
 )
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
+from daikonstudio.domain.catalog.readout import ReadoutType
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
-from daikonstudio.domain.execution.run import Run, RunStatus
+from daikonstudio.domain.execution.run import Run, RunStatus, compute_cache_key
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
+from daikonstudio.infrastructure.engines.ecfp4_randomforest import Ecfp4RandomForest
+from daikonstudio.infrastructure.engines.ecfp4_xgboost import Ecfp4XGBoost
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import InlineEnqueuer
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
@@ -66,6 +70,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository imp
 )
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
 from tests.fakes.auth import FakeAuth
+from tests.fakes.tunable_data import tunable_csv
 
 # Twenty compounds: one scaffold family of two (benzene/toluene), five acyclic
 # rows with no scaffold at all, and thirteen distinct ring systems. Sized and
@@ -200,6 +205,7 @@ class Studio:
         conditions: dict[str, object],
         baseline_engine_id: str | None = None,
         baseline_conditions: dict[str, object] | None = None,
+        tune_cutoffs: bool = False,
     ) -> Run:
         command = TrainProtocolCommand(
             name="a trained model",
@@ -208,6 +214,7 @@ class Studio:
             conditions=conditions,
             baseline_engine_id=baseline_engine_id,
             baseline_conditions=baseline_conditions or {},
+            tune_cutoffs=tune_cutoffs,
         )
         return (await self._train(command, self.auth)).unwrap()
 
@@ -945,3 +952,146 @@ async def test_a_joint_baseline_is_refused_a_mixed_kind_dataset_too(studio: Stud
         studio.auth,
     )
     assert isinstance(result.failure(), ValidationError)
+
+
+_BINARY = (TargetSpec(column="y", kind=TargetKind.BINARY),)
+
+
+async def test_tuned_cutoffs_are_recorded_and_the_baseline_is_tuned_too(studio: Studio) -> None:
+    dataset = await studio.dataset(targets=_BINARY, csv=tunable_csv())
+    run = await studio.wait(
+        await studio.train(
+            dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, tune_cutoffs=True
+        )
+    )
+    assert run.status is RunStatus.READY, run.error_message
+    protocol = await studio.protocol_for(run)
+    (class_readout,) = [r for r in protocol.readouts if r.type is ReadoutType.CLASS]
+    target = (await studio.scorecard_for(run)).targets[0]
+    assert class_readout.threshold is not None
+    assert target.cutoff == class_readout.threshold
+    # A tuned model against an untuned baseline would flatter the model by construction.
+    assert target.baseline_cutoff is not None
+    assert target.cutoff_note is None
+    assert run.params["tune_cutoffs"] is True
+
+
+async def test_a_validation_set_too_small_to_tune_keeps_half_and_says_why(
+    studio: Studio,
+) -> None:
+    dataset = await studio.dataset(
+        targets=_BINARY, csv=_csv(_alternating_values())
+    )  # the 20-compound fixture: a validation set of 2 rows
+    run = await studio.wait(
+        await studio.train(
+            dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, tune_cutoffs=True
+        )
+    )
+    assert run.status is RunStatus.READY, run.error_message
+    target = (await studio.scorecard_for(run)).targets[0]
+    assert target.cutoff is None
+    assert "at least 10" in (target.cutoff_note or "")
+    protocol = await studio.protocol_for(run)
+    (class_readout,) = [r for r in protocol.readouts if r.type is ReadoutType.CLASS]
+    assert class_readout.threshold is None
+
+
+async def test_an_untuned_run_records_no_cutoff_and_no_note(studio: Studio) -> None:
+    dataset = await studio.dataset(targets=_BINARY, csv=tunable_csv())
+    run = await studio.wait(
+        await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    )
+    target = (await studio.scorecard_for(run)).targets[0]
+    assert (target.cutoff, target.baseline_cutoff, target.cutoff_note) == (None, None, None)
+    assert run.params["tune_cutoffs"] is False
+
+
+async def test_the_option_reaches_the_model_the_baseline_and_the_random_split_fit(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Three fits, one request: `tune_cutoffs` must be on in every one of them."""
+    seen: list[tuple[str, bool]] = []
+    for engine in (Ecfp4XGBoost, Ecfp4RandomForest):
+        original = engine.train
+
+        def spy(self, ctx, _original=original):  # type: ignore[no-untyped-def]
+            seen.append((type(self).__name__, ctx.tune_cutoffs))
+            return _original(self, ctx)
+
+        monkeypatch.setattr(engine, "train", spy)
+
+    dataset = await studio.dataset(
+        strategy=SplitStrategy.SCAFFOLD, targets=_BINARY, csv=tunable_csv()
+    )
+    run = await studio.wait(
+        await studio.train(
+            dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, tune_cutoffs=True
+        )
+    )
+    assert run.status is RunStatus.READY, run.error_message
+    assert (await studio.scorecard_for(run)).random_split_unavailable is None
+    # The model, its random-forest baseline, and the model again on a random split.
+    assert sorted(seen) == [
+        ("Ecfp4RandomForest", True),
+        ("Ecfp4XGBoost", True),
+        ("Ecfp4XGBoost", True),
+    ]
+
+
+async def test_tuning_changes_the_cache_key_and_leaving_it_off_does_not(studio: Studio) -> None:
+    """A request that does not ask for tuning keys exactly as it did before the option
+    existed, so nothing already cached is invalidated."""
+    dataset = await studio.dataset()
+    plain = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    tuned = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, tune_cutoffs=True
+    )
+    # The key as it was computed before `tune_cutoffs` existed.
+    before = compute_cache_key(
+        kind="training",
+        content_hash=dataset.content_hash,
+        engine_id="ecfp4-xgboost",
+        conditions=[],
+        baseline_engine_id=default_registry().baseline().manifest().id,
+        baseline_conditions=[],
+    )
+    assert plain.cache_key == before
+    assert tuned.cache_key != before
+
+
+def _split_frame(validation: list[float | None], *, others: bool = True) -> pl.DataFrame:
+    splits = ["validation"] * len(validation) + (["train", "test"] if others else [])
+    labels = [*validation, *([1.0, 0.0] if others else [])]
+    return pl.DataFrame({"split": splits, "y": pl.Series(labels, dtype=pl.Float64)})
+
+
+def test_a_tuned_cutoff_needs_no_explanation() -> None:
+    assert _cutoff_note("y", 0.3, _split_frame([1.0] * 3 + [0.0] * 40)) is None
+
+
+def test_the_note_says_when_the_split_has_no_validation_set() -> None:
+    note = _cutoff_note("y", None, _split_frame([]))
+    assert note == "Not tuned: this split has no validation set, so the cutoff stays at 0.5."
+
+
+def test_the_note_counts_each_class_and_names_the_minimum() -> None:
+    note = _cutoff_note("y", None, _split_frame([1.0] * 3 + [0.0] * 40))
+    assert note == (
+        "Not tuned: the validation set has 3 active and 40 inactive compounds for 'y'; "
+        "at least 10 of each are needed, so the cutoff stays at 0.5."
+    )
+
+
+def test_the_note_does_not_count_an_unlabeled_compound_as_inactive() -> None:
+    """A compound with no label for this target (multi-task) is neither class."""
+    note = _cutoff_note("y", None, _split_frame([1.0] * 12 + [0.0] * 4 + [None] * 30))
+    assert note is not None
+    assert "12 active and 4 inactive" in note
+
+
+def test_the_note_blames_the_predictions_when_both_classes_were_plentiful() -> None:
+    note = _cutoff_note("y", None, _split_frame([1.0] * 12 + [0.0] * 12))
+    assert note == (
+        "Not tuned: the model's validation predictions could not support a cutoff, so it "
+        "stays at 0.5."
+    )

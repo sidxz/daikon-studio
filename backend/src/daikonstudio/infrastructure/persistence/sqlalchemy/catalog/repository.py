@@ -36,6 +36,7 @@ def _readout_to_dict(readout: Readout) -> dict[str, Any]:
         "unit": readout.unit,
         "direction": readout.direction,
         "description": readout.description,
+        "threshold": readout.threshold,
     }
 
 
@@ -46,6 +47,7 @@ def _readout_from_dict(data: dict[str, Any]) -> Readout:
         unit=data.get("unit"),
         direction=data.get("direction"),
         description=data["description"],
+        threshold=data.get("threshold"),
     )
 
 

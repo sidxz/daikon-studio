@@ -113,6 +113,15 @@ def _protocol() -> InSilicoProtocol:
                 direction=None,
                 description="Probability of activity",
             ),
+            # A tuned cutoff must survive the wire, or a runner would label at 0.5.
+            Readout(
+                name="active_class",
+                type=ReadoutType.CLASS,
+                unit=None,
+                direction=None,
+                description="Predicted active class",
+                threshold=0.3,
+            ),
         ),
         conditions={"assay": "IC50", "temperature_c": 25, "replicates": 3},
         status=ProtocolStatus.PUBLISHED,
@@ -164,6 +173,16 @@ def test_protocol_envelope_json_roundtrip() -> None:
     result = ProtocolEnvelope.model_validate_json(envelope.model_dump_json()).to_domain()
     assert result.__dict__ == protocol.__dict__
     assert result.conditions == protocol.conditions
+
+
+def test_a_readouts_threshold_survives_the_wire_and_its_absence_stays_absent() -> None:
+    tuned, untuned = _protocol().readouts[2], _protocol().readouts[1]
+    assert (tuned.threshold, untuned.threshold) == (0.3, None)
+
+    envelope = ProtocolEnvelope.from_domain(_protocol())
+    thresholds = [readout.threshold for readout in envelope.readouts]
+    assert thresholds == [None, None, 0.3]
+    assert [r.threshold for r in envelope.to_domain().readouts] == [None, None, 0.3]
 
 
 def test_bare_dtos_json_roundtrip() -> None:

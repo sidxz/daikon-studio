@@ -136,6 +136,9 @@ def _build_all(inputs: ScorecardInputs, normalizer: StructureNormalizer) -> list
             random_split_metrics_undefined=target.random_split_metrics_undefined,
             metrics_undefined=target.metrics_undefined,
             duplicate_spread=target.duplicate_spread,
+            cutoff=target.cutoff,
+            baseline_cutoff=target.baseline_cutoff,
+            cutoff_note=target.cutoff_note,
         )
         for target in inputs.targets
     ]

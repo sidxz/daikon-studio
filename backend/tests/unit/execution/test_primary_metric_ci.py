@@ -53,3 +53,23 @@ def test_a_single_class_test_set_yields_no_classification_interval():
     actual = [1.0] * 40
     predicted = [0.9] * 40
     assert primary_metric_ci(TaskType.BINARY_CLASSIFICATION, actual, predicted) is None
+
+
+def test_the_classification_interval_follows_the_models_decision_cutoff():
+    # Positives score 0.6 to 0.95 and negatives 0.05 to 0.7: the two overlap, so
+    # moving the cutoff from 0.5 to 0.9 changes which compounds count as predicted
+    # positive in every resample, and so the interval itself.
+    actual = [1.0] * 30 + [0.0] * 30
+    predicted = [float(value) for value in np.linspace(0.6, 0.95, 30)] + [
+        float(value) for value in np.linspace(0.05, 0.7, 30)
+    ]
+
+    at_half = primary_metric_ci(TaskType.BINARY_CLASSIFICATION, actual, predicted)
+    at_default = primary_metric_ci(TaskType.BINARY_CLASSIFICATION, actual, predicted, cutoff=0.5)
+    at_nine_tenths = primary_metric_ci(
+        TaskType.BINARY_CLASSIFICATION, actual, predicted, cutoff=0.9
+    )
+
+    assert at_half is not None and at_nine_tenths is not None
+    assert at_default == at_half
+    assert at_nine_tenths != at_half

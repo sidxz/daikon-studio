@@ -136,6 +136,7 @@ async def test_a_readout_carries_the_datasets_unit_and_direction_over_http(
             "unit": "logS",
             "direction": "high",
             "description": "Predicted y",
+            "threshold": None,
         }
     ]
 

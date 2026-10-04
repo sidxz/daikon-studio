@@ -214,6 +214,13 @@ class Scorecard:
     target_unit: str | None
     target_direction: str | None
     split_strategy: str
+    #: The decision cutoffs MCC and balanced accuracy were measured at, for this model
+    #: and for its baseline; None means 0.5. `cutoff_note` is why a requested tuning
+    #: did not happen (too few validation compounds of a class, say), and None when it
+    #: did, or was not requested.
+    cutoff: float | None = None
+    baseline_cutoff: float | None = None
+    cutoff_note: str | None = None
 
     # --- Diagnostics -------------------------------------------------------
     # Everything below is derived from the same `actual`/`predicted`/

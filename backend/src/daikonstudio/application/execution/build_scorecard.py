@@ -101,6 +101,7 @@ def primary_metric_ci(
     *,
     resamples: int = _CI_RESAMPLES,
     seed: int = 0,
+    cutoff: float = 0.5,
 ) -> tuple[float, float] | None:
     """A 95 % bootstrap interval over the test set for the headline metric.
 
@@ -111,7 +112,7 @@ def primary_metric_ci(
     paired test of the difference. Still the honest floor under the verdict.
 
     Recomputed from `actual`/`predicted` with the metric's own definition (MCC
-    at the 0.5 threshold, RMSE), not by re-running the engines' `_scored`: the
+    at the model's decision cutoff, RMSE), not by re-running the engines' `_scored`: the
     point estimate stays theirs, the interval is ours, and a fixed seed makes it
     the same on every page load.
     """
@@ -125,7 +126,7 @@ def primary_metric_ci(
     for _ in range(resamples):
         idx = rng.integers(0, n, n)
         if task is TaskType.BINARY_CLASSIFICATION:
-            value = _mcc(a[idx], p[idx] >= 0.5)
+            value = _mcc(a[idx], p[idx] >= cutoff)
             if value is not None:
                 values.append(value)
         else:
@@ -193,6 +194,9 @@ def build_scorecard(
     metrics_undefined: dict[str, str] | None = None,
     duplicate_spread: float | None = None,
     baseline_conditions: dict[str, Any] | None = None,
+    cutoff: float | None = None,
+    baseline_cutoff: float | None = None,
+    cutoff_note: str | None = None,
 ) -> Scorecard:
     is_classification = task is TaskType.BINARY_CLASSIFICATION
 
@@ -226,7 +230,9 @@ def build_scorecard(
         target=target,
         joint_model=joint_model,
         primary_metric=primary_metric_for(task),
-        primary_metric_ci=primary_metric_ci(task, actual, predicted),
+        primary_metric_ci=primary_metric_ci(
+            task, actual, predicted, cutoff=cutoff if cutoff is not None else 0.5
+        ),
         prediction_kind="probability" if is_classification else "value",
         metrics=metrics,
         validation_metrics=validation_metrics,
@@ -249,6 +255,9 @@ def build_scorecard(
         target_unit=target_unit,
         target_direction=target_direction,
         split_strategy=split_strategy,
+        cutoff=cutoff,
+        baseline_cutoff=baseline_cutoff,
+        cutoff_note=cutoff_note,
         parity=_parity(actual, predicted, similarities),
         parity_sampled_from=len(actual) if len(actual) > _PARITY_LIMIT else None,
         # Signed residuals are a regression reading. For classification `actual`

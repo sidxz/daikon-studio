@@ -67,6 +67,7 @@ from daikonstudio.application.catalog.derive_readouts import derive_readouts
 from daikonstudio.application.data.assign_split import assign_split
 from daikonstudio.application.data.snapshot import snapshot_key
 from daikonstudio.application.engines.context import (
+    MIN_CUTOFF_CLASS_COUNT,
     PredictContext,
     ProgressReporter,
     RunInterrupted,
@@ -94,6 +95,7 @@ from daikonstudio.application.ports.protocol_repository import ProtocolRepositor
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
+from daikonstudio.domain.catalog.readout import ReadoutType
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
@@ -226,6 +228,13 @@ class TargetInputs:
     duplicate_spread: float | None
     target_unit: str | None
     target_direction: str | None
+    # The decision cutoffs MCC and balanced accuracy were measured at, for the model and
+    # its baseline. Defaulted for the reason `validation_metrics` is: a blob written
+    # before cutoffs could be tuned has none, and `None` means 0.5.
+    cutoff: float | None = None
+    baseline_cutoff: float | None = None
+    # Why a requested tuning did not happen; `None` when it did or was not requested.
+    cutoff_note: str | None = None
 
 
 # What a blob written before targets could be several stored at its top level.
@@ -329,6 +338,9 @@ class TrainProtocolCommand:
     # rides along so the sweeps list can title a group without a second table
     # or a second query. `None` on a solo run.
     sweep_name: str | None = None
+    # Choose each binary target's decision cutoff on the validation partition. The same
+    # request reaches the model, its baseline and the random-split fit.
+    tune_cutoffs: bool = False
 
     def to_params(self) -> dict[str, Any]:
         return {
@@ -339,6 +351,7 @@ class TrainProtocolCommand:
             "baseline_engine_id": self.baseline_engine_id,
             "baseline_conditions": self.baseline_conditions,
             "sweep_name": self.sweep_name,
+            "tune_cutoffs": self.tune_cutoffs,
         }
 
     @classmethod
@@ -351,6 +364,7 @@ class TrainProtocolCommand:
             baseline_engine_id=params.get("baseline_engine_id"),
             baseline_conditions=params.get("baseline_conditions") or {},
             sweep_name=params.get("sweep_name"),
+            tune_cutoffs=params.get("tune_cutoffs", False),
         )
 
 
@@ -505,6 +519,9 @@ class TrainProtocol:
                 conditions=sorted(command.conditions.items()),
                 baseline_engine_id=command.baseline_engine_id,
                 baseline_conditions=sorted(command.baseline_conditions.items()),
+                # Only when on: a key hashes whatever parts it is given, so an absent
+                # part leaves every key computed before this option existed unchanged.
+                **({"tune_cutoffs": True} if command.tune_cutoffs else {}),
             ),
             params={
                 **command.to_params(),
@@ -554,6 +571,7 @@ class RunTraining:
         self._deadline_seconds = deadline_seconds
         self._layout = layout
         self._deadline_at: float | None = None
+        self._tune_cutoffs = False
 
     async def __call__(self, run: Run) -> str:
         self._deadline_at = (
@@ -562,6 +580,9 @@ class RunTraining:
             else None
         )
         command = TrainProtocolCommand.from_params(run.params)
+        # The same request reaches all three fits: a tuned model measured against an
+        # untuned baseline would flatter the model by construction.
+        self._tune_cutoffs = command.tune_cutoffs
         dataset = await self._datasets.get(run.workspace_id, command.dataset_id)
         if dataset is None:
             raise NotFoundError("Dataset", str(command.dataset_id))
@@ -651,6 +672,7 @@ class RunTraining:
             # `predict` returns one row per (compound, target); this target's rows, in
             # test-set order, line up with `actual` below.
             predicted = predictions.filter(pl.col("target") == target.column).sort("row_id")
+            cutoff = (chosen.cutoffs or {}).get(target.column)
             per_target.append(
                 TargetInputs(
                     column=target.column,
@@ -676,6 +698,13 @@ class RunTraining:
                     target_unit=target.unit,
                     target_direction=(
                         target.direction.value if target.direction is not None else None
+                    ),
+                    cutoff=cutoff,
+                    baseline_cutoff=(baseline_result.cutoffs or {}).get(target.column),
+                    cutoff_note=(
+                        _cutoff_note(target.column, cutoff, frame)
+                        if self._tune_cutoffs and task is TaskType.BINARY_CLASSIFICATION
+                        else None
                     ),
                 )
             )
@@ -703,6 +732,15 @@ class RunTraining:
             split_strategy=dataset.split.strategy.value,
             joint_model=manifest.supports_multitask,
             targets=per_target,
+        )
+
+        # A CLASS readout is named after its target column. The cutoff rides on it so
+        # prediction labels at the same operating point the Scorecard measured.
+        readouts = tuple(
+            replace(readout, threshold=(chosen.cutoffs or {}).get(readout.name))
+            if readout.type is ReadoutType.CLASS
+            else readout
+            for readout in derive_readouts(dataset.targets)
         )
 
         # Blobs first, Protocol row last, and deliberately in that order. A
@@ -739,7 +777,7 @@ class RunTraining:
                 # Derived from the Dataset's TargetSpec, which is what makes a
                 # predicted IC50 arrive in the same unit and direction as a
                 # measured one. Created in DRAFT; Task 16 publishes it.
-                readouts=derive_readouts(dataset.targets),
+                readouts=readouts,
                 conditions=conditions,
                 # The person who asked for the training, not the runner that ran it.
                 created_by=run.requested_by,
@@ -890,6 +928,7 @@ class RunTraining:
                 structure_column=dataset.structure_column,
                 conditions=conditions,
                 seed=dataset.split.seed,
+                tune_cutoffs=self._tune_cutoffs,
                 report=self._reporter(run, span),
             ),
         )
@@ -1037,6 +1076,34 @@ def _undefined_reasons(
         # rather than attribute it to a cause that was ruled out two lines up.
         reason = "Undefined: the engine returned no value for this metric."
     return dict.fromkeys(sorted(undefined), reason)
+
+
+def _cutoff_note(column: str, cutoff: float | None, frame: pl.DataFrame) -> str | None:
+    """Why a requested cutoff tuning did not happen, or None when it did.
+
+    Called only for a binary target on a run that asked for tuning. The engines leave a
+    cutoff untuned in exactly two ways, and the Scorecard has to say which: validation
+    held too few compounds of a class (the count is read off the same split the engine
+    saw), or the model's validation probabilities gave no cutoff a reason to be chosen.
+    """
+    if cutoff is not None:
+        return None
+    validation = frame.filter(pl.col("split") == "validation")
+    if validation.height == 0:
+        return "Not tuned: this split has no validation set, so the cutoff stays at 0.5."
+    labels = validation[column].drop_nulls()
+    positives = int((labels == 1).sum())
+    negatives = labels.len() - positives
+    if positives < MIN_CUTOFF_CLASS_COUNT or negatives < MIN_CUTOFF_CLASS_COUNT:
+        return (
+            f"Not tuned: the validation set has {positives} active and {negatives} inactive "
+            f"compounds for '{column}'; at least {MIN_CUTOFF_CLASS_COUNT} of each are "
+            "needed, so the cutoff stays at 0.5."
+        )
+    return (
+        "Not tuned: the model's validation predictions could not support a cutoff, so it "
+        "stays at 0.5."
+    )
 
 
 # The `server_default` migration 005 backfilled onto Datasets created before the

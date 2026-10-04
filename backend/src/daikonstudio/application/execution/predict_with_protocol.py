@@ -383,18 +383,20 @@ class RunPrediction:
             part = predictions.filter(pl.col("target") == column).sort("row_id")
             values = part["value"].to_list()
             if readouts[column].type is ReadoutType.CLASS:
-                # `value` is P(class=1); the hard label is the standard 0.5 decision
-                # threshold over it -- the engine's own `predict()` only ever returns
-                # the probability (see `_scoring.py`), so this is the one place a
-                # class label exists.
+                # `value` is P(class=1); the hard label is derived from it here -- the
+                # engine's own `predict()` only ever returns the probability (see
+                # `_scoring.py`), so this is the one place a class label exists.
                 #
-                # ponytail: 0.5 is fixed, not configurable -- there is nowhere for a
-                # scientist to ask for a different operating point (e.g. to trade
-                # recall for precision on an imbalanced assay). Upgrade path: accept
-                # it as a prediction condition once someone needs one.
+                # ponytail: the cutoff is 0.5 unless training tuned it on validation
+                # (`tune_cutoffs`), when it is the one stored on the readout. There is
+                # still nowhere for a scientist to ask for a different operating point
+                # at prediction time. Upgrade path: accept it as a prediction condition
+                # once someone needs one.
+                cutoff = readouts[column].threshold
+                cutoff = 0.5 if cutoff is None else cutoff
                 columns[probability_column(column)] = pl.Series(values, dtype=pl.Float64)
                 columns[column] = pl.Series(
-                    [1.0 if v >= 0.5 else 0.0 for v in values], dtype=pl.Float64
+                    [1.0 if v >= cutoff else 0.0 for v in values], dtype=pl.Float64
                 )
             else:
                 columns[column] = pl.Series(values, dtype=pl.Float64)

@@ -44,6 +44,7 @@ class ReadoutWire(BaseModel):
     unit: str | None
     direction: str | None
     description: str
+    threshold: float | None = None
 
     @classmethod
     def from_domain(cls, readout: Readout) -> ReadoutWire:
@@ -53,6 +54,7 @@ class ReadoutWire(BaseModel):
             unit=readout.unit,
             direction=readout.direction,
             description=readout.description,
+            threshold=readout.threshold,
         )
 
     def to_domain(self) -> Readout:
@@ -62,6 +64,7 @@ class ReadoutWire(BaseModel):
             unit=self.unit,
             direction=self.direction,
             description=self.description,
+            threshold=self.threshold,
         )
 
 

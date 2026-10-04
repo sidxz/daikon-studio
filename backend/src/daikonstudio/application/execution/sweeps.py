@@ -72,6 +72,7 @@ class SubmitSweepCommand:
     configs: list[SweepConfig]
     baseline_engine_id: str | None = None
     baseline_conditions: dict[str, object] = field(default_factory=dict)
+    tune_cutoffs: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -181,6 +182,7 @@ class SubmitSweep:
                     baseline_engine_id=command.baseline_engine_id,
                     baseline_conditions=command.baseline_conditions,
                     sweep_name=command.name,
+                    tune_cutoffs=command.tune_cutoffs,
                 ),
                 auth=auth,
                 sweep_id=sweep_id,

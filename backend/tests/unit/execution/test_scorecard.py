@@ -281,6 +281,17 @@ def test_baseline_conditions_default_to_empty_for_a_scorecard_written_earlier():
     assert regression_card().baseline_conditions == {}
 
 
+def test_the_cutoffs_and_their_note_reach_the_scorecard():
+    card = regression_card(cutoff=0.31, baseline_cutoff=0.42, cutoff_note="Not tuned: why.")
+    assert (card.cutoff, card.baseline_cutoff, card.cutoff_note) == (0.31, 0.42, "Not tuned: why.")
+
+
+def test_the_cutoffs_default_to_none_for_a_scorecard_written_earlier():
+    """None means 0.5: every blob written before cutoffs could be tuned has none."""
+    card = regression_card()
+    assert (card.cutoff, card.baseline_cutoff, card.cutoff_note) == (None, None, None)
+
+
 # --- Diagnostics ---------------------------------------------------------
 #
 # These are derived from the same `actual`/`predicted`/`structures` the fields

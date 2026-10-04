@@ -14,8 +14,11 @@ from typing import Any
 from urllib.parse import quote
 
 import pytest_asyncio
+from sqlalchemy import update
+from tests.fakes.tunable_data import tunable_csv
 
 from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import InSilicoProtocolModel
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
 )
@@ -229,6 +232,85 @@ async def test_a_two_target_protocol_writes_every_readout_and_its_own_uncertaint
     # the random forest reports a spread for each target separately
     assert isinstance(row["uncertainty"]["y"], float)
     assert isinstance(row["uncertainty"]["active"], float)
+
+
+async def test_a_tuned_cutoff_labels_the_predicted_classes(client, csv_upload):
+    """The class column is the probability read at the cutoff training tuned, which is
+    stored on the readout -- not a fixed 0.5."""
+    dataset = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "reactivity",
+            "upload_ref": await csv_upload(tunable_csv()),
+            "structure_column": "smiles",
+            "targets": [{"column": "y", "kind": "binary"}],
+            "split": {"strategy": "random", "seed": 1},
+        },
+    )
+    assert dataset.status_code == 201, dataset.text
+    trained = await _train(client, dataset.json()["id"], tune_cutoffs=True)
+    assert trained.status_code == 202, trained.text
+    protocol_id = (await client.get("/api/v1/protocols")).json()["items"][0]["id"]
+    assert (await client.post(f"/api/v1/protocols/{protocol_id}/publish")).status_code == 204
+
+    protocol = (await client.get(f"/api/v1/protocols/{protocol_id}")).json()
+    (readout,) = [r for r in protocol["readouts"] if r["type"] == "class"]
+    assert readout["threshold"] is not None
+    scorecard = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()
+    assert scorecard[0]["cutoff"] == readout["threshold"]
+
+    upload_ref = await csv_upload(
+        b"smiles\nCCCCCCCCCCCCO\nCCCCCCCCCCCCN\nCCCCCCCCCCCCCCCCCCCCCCCCCCCCO\nCCCCCCCCCCCCCCCCN\n"
+    )
+    run_id = (await _predict(client, protocol_id, upload_ref)).json()["id"]
+    items = (await client.get(f"/api/v1/runs/{run_id}/results")).json()["items"]
+    assert len(items) == 4
+    for item in items:
+        probability = item["readouts"]["y_probability"]["value"]
+        assert item["readouts"]["y"]["value"] == (
+            1.0 if probability >= readout["threshold"] else 0.0
+        )
+
+
+async def test_the_stored_cutoff_not_half_decides_the_predicted_class(
+    client, session_factory, csv_upload
+):
+    """A tuned cutoff happens to coincide with a probability the model emits, so the
+    test above cannot tell it from 0.5. Here the stored threshold is set above every
+    probability the model gives an amine: the class must follow it, not 0.5."""
+    dataset = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "reactivity",
+            "upload_ref": await csv_upload(tunable_csv()),
+            "structure_column": "smiles",
+            "targets": [{"column": "y", "kind": "binary"}],
+            "split": {"strategy": "random", "seed": 1},
+        },
+    )
+    assert (await _train(client, dataset.json()["id"])).status_code == 202
+    protocol_id = (await client.get("/api/v1/protocols")).json()["items"][0]["id"]
+    readouts = (await client.get(f"/api/v1/protocols/{protocol_id}")).json()["readouts"]
+    assert [r["threshold"] for r in readouts] == [None, None]  # untuned: 0.5
+    async with session_factory() as session:
+        await session.execute(
+            update(InSilicoProtocolModel)
+            .where(InSilicoProtocolModel.id == uuid.UUID(protocol_id))
+            .values(
+                readouts=[
+                    {**r, "threshold": 0.999999} if r["type"] == "class" else r for r in readouts
+                ]
+            )
+        )
+        await session.commit()
+    assert (await client.post(f"/api/v1/protocols/{protocol_id}/publish")).status_code == 204
+
+    upload_ref = await csv_upload(b"smiles\nCCCCCCCCCCCCN\nCCCCCCCCCCCCO\n")
+    run_id = (await _predict(client, protocol_id, upload_ref)).json()["id"]
+    items = (await client.get(f"/api/v1/runs/{run_id}/results")).json()["items"]
+    amine = next(i for i in items if i["structure"] == "CCCCCCCCCCCCN")
+    assert amine["readouts"]["y_probability"]["value"] > 0.9
+    assert amine["readouts"]["y"]["value"] == 0.0
 
 
 async def test_run_response_carries_the_protocol_id_for_a_prediction(

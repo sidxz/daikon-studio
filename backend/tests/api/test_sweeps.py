@@ -10,6 +10,9 @@ from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from daikonstudio.infrastructure.di.container import create_container
+from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
+    SqlAlchemyRunRepository,
+)
 from daikonstudio.interface.app import create_app
 from daikonstudio.settings import Settings
 
@@ -102,6 +105,29 @@ async def test_submit_returns_202_with_every_run(client, dataset_id) -> None:
     assert body["name"] == "BBBP comparison"
     assert all(run["sweep_id"] == body["sweep_id"] for run in body["runs"])
     assert body["runs"][0]["engine_id"] == "ecfp4-randomforest"
+
+
+@pytest.mark.asyncio
+async def test_tune_cutoffs_applies_to_every_run_in_the_sweep(
+    client, dataset_id, session_factory, workspace_id
+) -> None:
+    configs = [
+        {"engine_id": "ecfp4-randomforest", "conditions": {}},
+        {"engine_id": "ecfp4-xgboost", "conditions": {}},
+    ]
+    runs = SqlAlchemyRunRepository(session_factory)
+
+    async def submitted_flags(**extra: object) -> list[object]:
+        response = await client.post(
+            "/api/v1/sweeps",
+            json={"name": "cutoffs", "dataset_id": str(dataset_id), "configs": configs, **extra},
+        )
+        assert response.status_code == 202, response.text
+        found = [await runs.get(workspace_id, uuid.UUID(r["id"])) for r in response.json()["runs"]]
+        return [run.params["tune_cutoffs"] for run in found if run is not None]
+
+    assert await submitted_flags(tune_cutoffs=True) == [True, True]
+    assert await submitted_flags() == [False, False]
 
 
 @pytest.mark.asyncio
