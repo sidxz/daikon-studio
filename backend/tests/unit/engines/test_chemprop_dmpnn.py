@@ -745,3 +745,22 @@ def test_a_corrupt_but_checksum_valid_state_is_discarded() -> None:
     assert training[0] == pytest.approx(1 / 4)
     assert not any(p.startswith("Resuming") for _, p in reported)
     assert result.metrics["y"]
+
+
+def test_best_epoch_weights_survive_a_resume_not_only_the_best_loss():
+    """Restoring the best loss without the best weights would let a resumed fit ship
+    its last epoch while the Scorecard believed it had kept the best one."""
+    import torch
+
+    from daikonstudio.infrastructure.engines._lightning import keep_best_by_validation_loss
+
+    saved = keep_best_by_validation_loss()
+    saved.best_loss = 0.25
+    saved.best_state = {"w": torch.tensor([1.0, 2.0])}
+
+    restored = keep_best_by_validation_loss()
+    restored.load_state_dict(saved.state_dict())
+
+    assert restored.best_loss == 0.25
+    assert restored.best_state is not None
+    assert torch.equal(restored.best_state["w"], torch.tensor([1.0, 2.0]))

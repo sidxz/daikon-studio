@@ -182,6 +182,8 @@ class Checkpoints:
         try:
             value = json.loads(raw)
         except ValueError:
+            if raw:  # `discard`'s empty marker is expected; anything else is a torn write
+                logger.warning("Ignoring an unreadable checkpoint marker at %s", key)
             return None
         return value if isinstance(value, dict) else None
 
