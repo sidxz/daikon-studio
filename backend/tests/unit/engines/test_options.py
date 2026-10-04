@@ -46,6 +46,11 @@ def test_mcc_cutoff_refuses_too_few_of_either_class():
     assert mcc_cutoff(y, p) is None
 
 
+def test_mcc_cutoff_refuses_a_model_that_cannot_separate_anything():
+    y = np.array([1] * 20 + [0] * 20)
+    assert mcc_cutoff(y, np.full(len(y), 0.3)) is None
+
+
 def test_positive_weight_uses_the_training_ratio():
     y = np.array([1] * 4 + [0] * 36)
     assert positive_weight(y, "none") is None

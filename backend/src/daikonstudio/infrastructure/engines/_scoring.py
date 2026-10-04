@@ -163,8 +163,13 @@ def mcc_cutoff(y_true: np.ndarray, probabilities: np.ndarray) -> float | None:
     mcc = np.full_like(denominator, -np.inf)
     defined = denominator > 0
     mcc[defined] = (tp[defined] * tn[defined] - fp[defined] * fn[defined]) / denominator[defined]
+    best = int(np.argmax(mcc))
+    if not np.isfinite(mcc[best]):
+        # Every candidate predicts a single class -- a model giving every compound the
+        # same probability. No cutoff is better than another, so none is tuned.
+        return None
     # argmax returns the first maximum; candidates run from the highest cutoff down.
-    return float(cuts[int(np.argmax(mcc))])
+    return float(cuts[best])
 
 
 def _metrics_on(
