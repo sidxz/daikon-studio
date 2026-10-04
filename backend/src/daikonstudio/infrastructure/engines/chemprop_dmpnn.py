@@ -256,6 +256,11 @@ def _ensemble_forward(trainer: Any, models: Sequence[Any], dataset: Any) -> tupl
     prediction's own unit: a probability for a binary target, the target's unit for a
     continuous one. For one model it is all zeros, which `predict` reports as no
     uncertainty rather than as certainty.
+
+    ponytail: each model's pass featurizes every molecule again (chemprop builds graphs
+    on the fly), so featurization costs N times over. Caching the graphs would hold the
+    whole upload in memory, since predict is not chunked; run the models batch by batch
+    if prediction time on large libraries matters.
     """
     import numpy as np
 
@@ -525,9 +530,12 @@ class ChempropDMPNN:
                 if members == 1
                 else f"{_MANIFEST.name} model {index + 1} of {members}"
             )
-            state = training_state_scope(_member_checkpoints(ctx.checkpoints, index), "chemprop")
             # Only an ensemble saves a finished member: a single model's finished fit is
-            # the whole result, which the training run saves itself.
+            # the whole result, which the training run saves itself. A finished member is
+            # restored without being rebuilt, so with descriptors on it is fingerprinted
+            # by RDKit as well: another release can compute a different descriptor list.
+            libraries = ("chemprop", "rdkit") if members > 1 and use_descriptors else ("chemprop",)
+            state = training_state_scope(_member_checkpoints(ctx.checkpoints, index), *libraries)
             if members > 1 and state is not None:
                 restored = _restored_model(state)
                 if restored is not None:
@@ -607,11 +615,17 @@ class ChempropDMPNN:
             # serializes the module the trainer holds, which is this object.
             if keep_best.best_state is not None:
                 model.load_state_dict(keep_best.best_state)
-            if members > 1 and state is not None:
-                saved = state.save(_FITTED_MODEL, _model_bytes(model))
-                if saved:  # its in-progress state is now hundreds of MB nothing resumes
-                    state.discard(TRAINING_STATE)
-            return model, trainer
+            if members == 1:
+                return model, trainer
+            data = _model_bytes(model)
+            # Kept until the run succeeds and its whole checkpoint folder is removed.
+            if state is not None and state.save(_FITTED_MODEL, data):
+                # Its in-progress state is now hundreds of MB that nothing resumes from.
+                state.discard(TRAINING_STATE)
+            # A clean copy, as `predict` will load it. The fitted module references its
+            # trainer, which holds the optimizer state and the best epoch's copy of the
+            # weights; kept, those would stay in memory through every later member.
+            return _model_from_bytes(data), None
 
         fitted = [fit(index) for index in range(members)]
         models = [model for model, _ in fitted]
@@ -717,6 +731,9 @@ class ChempropDMPNN:
                 if _ENSEMBLE in stored
                 else [MPNN.load_from_checkpoint(checkpoint)]
             )
+            # The loaded checkpoint (a one-model one carries its optimizer state) is not
+            # needed past this point; held, it would stay in memory through the forward.
+            del stored
 
         structures = ctx.frame[ctx.structure_column].to_list()
         x_d: Any = None

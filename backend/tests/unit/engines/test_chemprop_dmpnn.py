@@ -926,11 +926,15 @@ def test_a_stopped_ensemble_resumes_in_the_model_it_stopped_in() -> None:
         if phase.startswith("Training") and "model 2 of 2" in phase and fraction >= 3 / 4:
             raise RunInterrupted("stopped", cancelled=False)
 
-    first = _resumable_context(store, stop_in_the_second_model, conditions=_TWO_MODELS_FOUR_EPOCHS)
+    # Saving every epoch, so the first model did write in-progress state to be freed.
+    first = _resumable_context(
+        store, stop_in_the_second_model, interval_seconds=0, conditions=_TWO_MODELS_FOUR_EPOCHS
+    )
     with pytest.raises(RunInterrupted):
         ChempropDMPNN().train(first)
     # The finished model's in-progress state was freed; the stopped one's was saved.
     assert _saved_state(first) is None
+    assert _training_state(first).load("fitted-model") is not None
     assert first.checkpoints is not None
     second_model = training_state_scope(first.checkpoints.scoped("member-1"), "chemprop")
     assert second_model is not None and second_model.load("training-state") is not None
@@ -950,6 +954,14 @@ def test_a_stopped_ensemble_resumes_in_the_model_it_stopped_in() -> None:
     training = [f for f, p in reported if p.startswith("Training")]
     assert training[0] == pytest.approx((1 + 3 / 4) / 2)  # epoch 3 of 4, second model
     assert result.metrics["y"]
+
+
+def test_a_single_model_saves_no_finished_model_of_its_own() -> None:
+    """Its finished fit is the whole result, which the training run saves; a second
+    copy would be tens of megabytes stored for nothing."""
+    ctx = _resumable_context(InMemoryBlobStore(), lambda f, p: None, interval_seconds=0)
+    ChempropDMPNN().train(ctx)
+    assert _training_state(ctx).load("fitted-model") is None
 
 
 def test_a_saved_ensemble_member_that_no_longer_loads_is_fitted_again() -> None:

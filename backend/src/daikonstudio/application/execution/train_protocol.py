@@ -406,21 +406,28 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
 
 
 def deadline_scale(
-    manifest: EngineManifest, dataset: Dataset, conditions: dict[str, object]
+    manifest: EngineManifest,
+    dataset: Dataset,
+    conditions: dict[str, object],
+    baseline: EngineManifest,
+    baseline_conditions: dict[str, object],
 ) -> int:
     """How many times over its lane's deadline a training Run may take.
 
     A fan-out engine fits once per target in each of its legs -- the model and the
     random-split comparison -- so four targets take about four times as long as one
     against a budget sized for one. A joint engine fits once regardless. An ensemble
-    fits once per model, so its size multiplies either.
+    fits once per model, so the larger ensemble -- the model's or the baseline's, since
+    either may be one -- multiplies that.
 
-    ponytail: ignores the baseline, which fans out too -- a joint chemprop run on
-    four targets still fits four random forests. Cheap next to chemprop's own fit
-    today; scale by the baseline as well if one ever dominates.
+    ponytail: the per-target factor ignores the baseline, which fans out too -- a joint
+    chemprop run on four targets still fits four random forests. Cheap next to chemprop's
+    own fit today; scale by the baseline as well if one ever dominates.
     """
     fits = 1 if manifest.supports_multitask else len(dataset.targets)
-    return fits * _ensemble_size(manifest, conditions)
+    return fits * max(
+        _ensemble_size(manifest, conditions), _ensemble_size(baseline, baseline_conditions)
+    )
 
 
 def _ensemble_size(manifest: EngineManifest, conditions: dict[str, object]) -> int:
@@ -564,7 +571,13 @@ class TrainProtocol:
             ),
             params={
                 **command.to_params(),
-                "deadline_scale": deadline_scale(engine.manifest(), dataset, command.conditions),
+                "deadline_scale": deadline_scale(
+                    engine.manifest(),
+                    dataset,
+                    command.conditions,
+                    baseline.manifest(),
+                    command.baseline_conditions,
+                ),
             },
             # Which sweep asked for this run, or None for a solo request. The
             # only difference between the two, deliberately: a sweep child is
