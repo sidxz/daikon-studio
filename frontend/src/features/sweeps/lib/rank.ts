@@ -1,66 +1,102 @@
 import type { SweepRun } from "../types";
 
 /**
- * Metrics where a smaller number is a better model. The server picks the
- * primary metric (`primary_metric_for` in build_scorecard.py) and sends its
- * name on the row, so this table only has to know the direction -- inferring
+ * Metrics where a smaller number is a better model. The server picks each
+ * target's primary metric (`primary_metric_for` in build_scorecard.py) and sends
+ * its name on the row, so this table only has to know the direction -- inferring
  * it from the value would have no way to tell 0.4 RMSE from 0.4 MCC.
  */
 const LOWER_IS_BETTER = new Set(["rmse", "mae"]);
 
-/**
- * A run's metric is rankable exactly when its value is a real number.
- * Exported so `sweep-detail.tsx`'s rank cell can use the exact same test
- * `rankRuns` buckets on for the same `unknown`-typed field, rather than a
- * second predicate (`== null`) that happens to agree today but has no reason
- * to keep agreeing tomorrow.
- */
-export function isRankable(metrics: SweepRun["metrics"]): boolean {
-  return typeof metrics?.value === "number";
+/** One target's headline on a training run (`Run.record_metrics`). */
+export interface Headline {
+  column: string;
+  primary_metric: string;
+  value: number | null;
+  baseline_value: number | null;
+}
+
+/** A run's per-target headlines; empty while it has none. `metrics` is untyped in the contract. */
+export function headlines(metrics: SweepRun["metrics"]): Headline[] {
+  const targets = (metrics as { targets?: unknown } | null)?.targets;
+  return Array.isArray(targets) ? (targets as Headline[]) : [];
 }
 
 /**
- * Best first; anything unrankable last, in submission order.
- *
- * Unrankable is not the same as bad: a run still training has no number yet,
- * and a run whose metric is genuinely undefined (a single-class test split
- * makes every classification metric meaningless) has none either. Sorting
- * those as zero would rank a pending run above a real one on an RMSE sweep
- * and below it on an MCC sweep, which is a ranking that says nothing true.
- *
- * Reads the metric direction off the LEFT operand only -- correct only
- * because one sweep has one dataset, hence one task type, hence one primary
- * metric for every member (`SubmitSweepCommand`); a mixed-direction list
- * would sort non-transitively and silently.
+ * Every target any member reports, in the order reported. A sweep has one
+ * dataset, so every finished member lists the same targets in the same order;
+ * a pending one lists none.
  */
-export function rankRuns(runs: SweepRun[]): SweepRun[] {
-  const scored = runs.filter((run) => isRankable(run.metrics));
-  const unscored = runs.filter((run) => !isRankable(run.metrics));
-  scored.sort((a, b) => {
-    const lower = LOWER_IS_BETTER.has(String(a.metrics?.primary_metric ?? ""));
-    const left = a.metrics?.value as number;
-    const right = b.metrics?.value as number;
-    return lower ? left - right : right - left;
+export function sweepTargets(runs: SweepRun[]): string[] {
+  const seen: string[] = [];
+  for (const run of runs) {
+    for (const headline of headlines(run.metrics)) {
+      if (!seen.includes(headline.column)) seen.push(headline.column);
+    }
+  }
+  return seen;
+}
+
+export function headlineFor(run: SweepRun, column: string): Headline | undefined {
+  return headlines(run.metrics).find((headline) => headline.column === column);
+}
+
+/**
+ * A headline is rankable exactly when its value is a real number. Exported so
+ * `sweep-detail.tsx`'s rank cell uses the same test `sortRuns` buckets on,
+ * rather than a second predicate that happens to agree today.
+ */
+export function isRankable(headline: Headline | undefined): boolean {
+  return typeof headline?.value === "number";
+}
+
+/**
+ * Runs ordered by one target's headline, best first; anything unrankable last,
+ * in submission order. `null` keeps submission order: with several targets no
+ * single number says which run won -- an average would invent one, the worst
+ * target would bury a model that is excellent at the others -- so the table
+ * picks no winner until someone picks a column.
+ *
+ * Unrankable is not the same as bad: a run still training has no number yet, and
+ * a run whose metric is genuinely undefined (a single-class test split makes
+ * every classification metric meaningless) has none either. Sorting those as
+ * zero would rank a pending run above a real one on an RMSE sweep and below it
+ * on an MCC sweep, which is a ranking that says nothing true.
+ *
+ * Reads the metric direction off the LEFT operand only -- correct only because
+ * one sweep has one dataset, hence one primary metric per target for every
+ * member (`SubmitSweepCommand`); a mixed-direction list would sort
+ * non-transitively and silently.
+ */
+export function sortRuns(runs: SweepRun[], column: string | null): SweepRun[] {
+  if (column === null) return runs;
+  const scored = runs.filter((run) => isRankable(headlineFor(run, column)));
+  const unscored = runs.filter((run) => !isRankable(headlineFor(run, column)));
+  scored.sort((left, right) => {
+    const a = headlineFor(left, column) as Headline;
+    const b = headlineFor(right, column) as Headline;
+    const difference = (a.value as number) - (b.value as number);
+    return LOWER_IS_BETTER.has(a.primary_metric) ? difference : -difference;
   });
   return [...scored, ...unscored];
 }
 
 /** The headline number, or why there isn't one. */
-export function formatMetric(metrics: SweepRun["metrics"]): string {
-  if (!isRankable(metrics)) return "—";
-  return `${String(metrics?.primary_metric).toUpperCase()} ${(metrics?.value as number).toFixed(3)}`;
+export function formatMetric(headline: Headline | undefined): string {
+  if (!headline || !isRankable(headline)) return "—";
+  return `${headline.primary_metric.toUpperCase()} ${(headline.value as number).toFixed(3)}`;
 }
 
 /**
- * How far this run beat its own baseline, signed so that positive always means
- * better regardless of the metric's direction. Null when either side is
- * missing -- an unmeasured comparison must not render as a dead heat.
+ * How far this run beat its own baseline on one target, signed so that positive
+ * always means better regardless of the metric's direction. Null when either
+ * side is missing -- an unmeasured comparison must not render as a dead heat.
  */
-export function baselineDelta(metrics: SweepRun["metrics"]): number | null {
-  const value = metrics?.value;
-  const baseline = metrics?.baseline_value;
-  if (typeof value !== "number" || typeof baseline !== "number") return null;
-  return LOWER_IS_BETTER.has(String(metrics?.primary_metric ?? ""))
-    ? baseline - value
-    : value - baseline;
+export function baselineDelta(headline: Headline | undefined): number | null {
+  if (typeof headline?.value !== "number" || typeof headline.baseline_value !== "number") {
+    return null;
+  }
+  return LOWER_IS_BETTER.has(headline.primary_metric)
+    ? headline.baseline_value - headline.value
+    : headline.value - headline.baseline_value;
 }

@@ -1,91 +1,68 @@
 import { describe, expect, it } from "vitest";
 import type { SweepRun } from "../types";
-import { baselineDelta, formatMetric, rankRuns } from "./rank";
+import { baselineDelta, formatMetric, headlineFor, sortRuns, sweepTargets } from "./rank";
 
-function run(id: string, metrics: SweepRun["metrics"], status = "ready"): SweepRun {
-  return { id, status, metrics } as SweepRun;
-}
+const run = (id: string, targets: [string, string, number | null, number | null][]): SweepRun =>
+  ({
+    id,
+    metrics: {
+      targets: targets.map(([column, primary_metric, value, baseline_value]) => ({
+        column,
+        primary_metric,
+        value,
+        baseline_value,
+      })),
+    },
+  }) as unknown as SweepRun;
 
-describe("rankRuns", () => {
-  it("ranks a higher MCC first", () => {
-    const ranked = rankRuns([
-      run("a", { primary_metric: "mcc", value: 0.4, baseline_value: 0.3 }),
-      run("b", { primary_metric: "mcc", value: 0.7, baseline_value: 0.3 }),
-    ]);
-    expect(ranked.map((r) => r.id)).toEqual(["b", "a"]);
+const a = run("a", [
+  ["reactive", "mcc", 0.2, 0.1],
+  ["solubility", "rmse", 0.5, 0.7],
+]);
+const b = run("b", [
+  ["reactive", "mcc", 0.4, 0.1],
+  ["solubility", "rmse", 0.9, 0.7],
+]);
+const pending = { id: "p", metrics: null } as unknown as SweepRun;
+
+describe("sweepTargets", () => {
+  it("lists every target once, in the order the runs report them", () => {
+    expect(sweepTargets([pending, a, b])).toEqual(["reactive", "solubility"]);
+  });
+});
+
+describe("sortRuns", () => {
+  it("keeps submission order until a target is chosen", () => {
+    expect(sortRuns([a, b, pending], null).map((r) => r.id)).toEqual(["a", "b", "p"]);
   });
 
-  it("ranks a lower RMSE first", () => {
-    const ranked = rankRuns([
-      run("a", { primary_metric: "rmse", value: 0.9, baseline_value: 1.1 }),
-      run("b", { primary_metric: "rmse", value: 0.4, baseline_value: 1.1 }),
-    ]);
-    expect(ranked.map((r) => r.id)).toEqual(["b", "a"]);
-  });
-
-  it("puts unfinished runs last rather than treating them as zero", () => {
-    const ranked = rankRuns([
-      run("pending", null, "running"),
-      run("scored", { primary_metric: "mcc", value: 0.1, baseline_value: 0.3 }),
-    ]);
-    expect(ranked.map((r) => r.id)).toEqual(["scored", "pending"]);
+  it("ranks by the chosen target in that metric's direction, unmeasured last", () => {
+    expect(sortRuns([pending, a, b], "reactive").map((r) => r.id)).toEqual(["b", "a", "p"]);
+    expect(sortRuns([pending, a, b], "solubility").map((r) => r.id)).toEqual(["a", "b", "p"]);
   });
 
   it("puts a run whose metric is undefined last, alongside the unfinished", () => {
-    const ranked = rankRuns([
-      run("undefined-metric", { primary_metric: "mcc", value: null, baseline_value: 0.3 }),
-      run("scored", { primary_metric: "mcc", value: 0.1, baseline_value: 0.3 }),
+    const undefinedMetric = run("u", [["reactive", "mcc", null, 0.1]]);
+    expect(sortRuns([undefinedMetric, a, pending], "reactive").map((r) => r.id)).toEqual([
+      "a",
+      "u",
+      "p",
     ]);
-    expect(ranked.map((r) => r.id)).toEqual(["scored", "undefined-metric"]);
-  });
-
-  it("keeps submission order among equally unrankable runs", () => {
-    const ranked = rankRuns([run("first", null, "pending"), run("second", null, "pending")]);
-    expect(ranked.map((r) => r.id)).toEqual(["first", "second"]);
   });
 });
 
-describe("formatMetric", () => {
-  it("renders the metric name and value", () => {
-    expect(formatMetric({ primary_metric: "mcc", value: 0.4123, baseline_value: 0.3 })).toBe(
-      "MCC 0.412",
-    );
+describe("formatMetric and baselineDelta", () => {
+  it("read one target's headline, signed so positive is always better", () => {
+    expect(formatMetric(headlineFor(a, "solubility"))).toBe("RMSE 0.500");
+    expect(baselineDelta(headlineFor(a, "solubility"))).toBeCloseTo(0.2);
+    expect(baselineDelta(headlineFor(b, "reactive"))).toBeCloseTo(0.3);
+    expect(formatMetric(headlineFor(pending, "reactive"))).toBe("—");
   });
 
-  it("falls back to a dash when the value is missing", () => {
-    expect(formatMetric(null)).toBe("—");
-    expect(formatMetric({ primary_metric: "mcc", value: null, baseline_value: 0.3 })).toBe("—");
-  });
-});
-
-describe("baselineDelta", () => {
-  it("is positive when a higher-is-better metric beats its baseline", () => {
-    expect(baselineDelta({ primary_metric: "mcc", value: 0.7, baseline_value: 0.3 })).toBeCloseTo(
-      0.4,
-    );
-  });
-
-  it("is negative when a higher-is-better metric loses to its baseline", () => {
-    expect(baselineDelta({ primary_metric: "mcc", value: 0.2, baseline_value: 0.3 })).toBeCloseTo(
-      -0.1,
-    );
-  });
-
-  it("is positive when a lower-is-better metric beats its baseline", () => {
-    expect(baselineDelta({ primary_metric: "rmse", value: 0.4, baseline_value: 1.1 })).toBeCloseTo(
-      0.7,
-    );
-  });
-
-  it("is negative when a lower-is-better metric loses to its baseline", () => {
-    expect(baselineDelta({ primary_metric: "rmse", value: 1.3, baseline_value: 1.1 })).toBeCloseTo(
-      -0.2,
-    );
-  });
-
-  it("is null when either side is missing", () => {
-    expect(baselineDelta(null)).toBeNull();
-    expect(baselineDelta({ primary_metric: "mcc", value: null, baseline_value: 0.3 })).toBeNull();
-    expect(baselineDelta({ primary_metric: "mcc", value: 0.4, baseline_value: null })).toBeNull();
+  it("gives no delta when either side is missing", () => {
+    expect(
+      baselineDelta(headlineFor(run("n", [["reactive", "mcc", 0.4, null]]), "reactive")),
+    ).toBeNull();
+    expect(baselineDelta(undefined)).toBeNull();
   });
 });

@@ -16,11 +16,20 @@ import {
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import { isTerminal } from "@/shared/lib/query-defaults";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
+import { ArrowDown } from "lucide-react";
 import Link from "next/link";
+import { useState } from "react";
 // Deep imports, not the feature barrel: `index.ts` re-exports this component,
 // so importing from it here would be a cycle.
 import { useCancelSweep, useSweep } from "../hooks/use-sweeps";
-import { baselineDelta, formatMetric, isRankable, rankRuns } from "../lib/rank";
+import {
+  baselineDelta,
+  formatMetric,
+  headlineFor,
+  isRankable,
+  sortRuns,
+  sweepTargets,
+} from "../lib/rank";
 import type { SweepRun } from "../types";
 
 function SweepDetailSkeleton() {
@@ -45,6 +54,7 @@ function formatConditions(conditions: SweepRun["conditions"]): string {
 }
 
 export function SweepDetail({ id }: { id: string }) {
+  const [sortBy, setSortBy] = useState<string | null>(null);
   // isLoadingError, not isError: a failed background refetch keeps the loaded
   // sweep on screen (see run-detail for the same reasoning).
   const { data: sweep, isLoadingError, error, refetch } = useSweep(id);
@@ -76,7 +86,11 @@ export function SweepDetail({ id }: { id: string }) {
 
   if (!sweep) return <SweepDetailSkeleton />;
 
-  const ranked = rankRuns(sweep.runs);
+  const targets = sweepTargets(sweep.runs);
+  // One target sorts by default, so a single-target sweep reads exactly as it
+  // always has; several wait for a click (see `sortRuns`).
+  const active = sortBy ?? (targets.length === 1 ? targets[0] : null);
+  const ordered = sortRuns(sweep.runs, active);
   const live = sweep.runs.filter((run) => !isTerminal(run.status));
 
   return (
@@ -111,20 +125,30 @@ export function SweepDetail({ id }: { id: string }) {
               <TableHead>Configuration</TableHead>
               <TableHead>Engine</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Score</TableHead>
-              <TableHead>Improvement over baseline</TableHead>
+              {targets.map((column) => (
+                <TableHead key={column}>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 font-mono hover:underline"
+                    onClick={() => setSortBy(column)}
+                    aria-sort={active === column ? "descending" : undefined}
+                  >
+                    {column}
+                    {active === column && <ArrowDown className="size-3.5" />}
+                  </button>
+                </TableHead>
+              ))}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {ranked.map((run, index) => {
-              const delta = baselineDelta(run.metrics);
+            {ordered.map((run, index) => {
               const conditions = formatConditions(run.conditions);
               return (
                 <TableRow key={run.id}>
                   {/* Rank, not submission index -- the table is sorted, and
                       numbering it by position is the whole point. */}
                   <TableCell className="text-muted-foreground">
-                    {isRankable(run.metrics) ? index + 1 : "—"}
+                    {active && isRankable(headlineFor(run, active)) ? index + 1 : "—"}
                   </TableCell>
                   <TableCell>
                     <div className="font-medium">
@@ -158,10 +182,20 @@ export function SweepDetail({ id }: { id: string }) {
                       </div>
                     )}
                   </TableCell>
-                  <TableCell>{formatMetric(run.metrics)}</TableCell>
-                  <TableCell>
-                    {delta === null ? "—" : `${delta >= 0 ? "+" : ""}${delta.toFixed(3)}`}
-                  </TableCell>
+                  {targets.map((column) => {
+                    const headline = headlineFor(run, column);
+                    const delta = baselineDelta(headline);
+                    return (
+                      <TableCell key={column}>
+                        <div>{formatMetric(headline)}</div>
+                        {delta !== null && (
+                          <div className="text-xs text-muted-foreground">
+                            {`${delta >= 0 ? "+" : ""}${delta.toFixed(3)} vs baseline`}
+                          </div>
+                        )}
+                      </TableCell>
+                    );
+                  })}
                 </TableRow>
               );
             })}
