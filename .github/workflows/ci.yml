@@ -131,7 +131,9 @@ jobs:
           NS="${GITHUB_REF_NAME%%-v*}" # backend | frontend
           # Previous same-namespace tag by creation date (assumes tags are created in version order).
           PREV="$(git tag --list "${NS}-v*" --sort=-creatordate | sed -n '2p')"
-          uvx git-cliff@2.14.2 --include-path "${NS}/**" "${PREV:+$PREV..}$GITHUB_REF_NAME" > CHANGES.md
+          # git-cliff takes a range, not a lone tag: with no previous tag, pass none,
+          # which is everything up to HEAD (the tagged commit).
+          uvx git-cliff@2.14.2 --include-path "${NS}/**" ${PREV:+"$PREV..$GITHUB_REF_NAME"} > CHANGES.md
           # "backend-v1.4.0" -> "Backend v1.4.0"
           TITLE="$(printf '%s' "$NS" | sed 's/^./\U&/') ${GITHUB_REF_NAME#"$NS"-}"
           gh release create "$GITHUB_REF_NAME" --title "$TITLE" --notes-file CHANGES.md
