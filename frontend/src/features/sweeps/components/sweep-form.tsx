@@ -1,8 +1,8 @@
 "use client";
 
 import { useDataset, useDatasets } from "@/features/datasets";
-import { TargetsHint, enginesForTargets, useEngines } from "@/features/engines";
-import { ConditionFields, resolveConditions } from "@/features/protocols";
+import { TargetsHint, enginesForTargets, tasksForTargets, useEngines } from "@/features/engines";
+import { ConditionFields, TuneCutoffsField, resolveConditions } from "@/features/protocols";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
@@ -37,6 +37,7 @@ export function SweepForm() {
   const [baselineEngineId, setBaselineEngineId] = useState("");
   const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
   const [configs, setConfigs] = useState<ConfigRow[]>(() => [emptyRow()]);
+  const [tuneCutoffs, setTuneCutoffs] = useState(false);
 
   const datasets = useDatasets(undefined, 200);
   const engines = useEngines();
@@ -46,6 +47,10 @@ export function SweepForm() {
   // Every row and the baseline pick from the same dataset, so the eligible
   // list is computed once and shared -- only the resolved *specs* are per-row.
   const available = dataset ? enginesForTargets(engines.data ?? [], dataset.targets) : [];
+  // Unknown until a dataset is chosen: every setting shows, and the cutoff
+  // option stays hidden because there is no active/inactive target to tune.
+  const tasks = dataset ? tasksForTargets(dataset.targets) : undefined;
+  const canTuneCutoffs = Boolean(tasks?.includes("binary_classification"));
   const specsFor = (engineId: string) =>
     available.find((engine) => engine.id === engineId)?.conditions ?? [];
 
@@ -69,6 +74,9 @@ export function SweepForm() {
           engine_id: row.engineId,
           conditions: resolveConditions(specsFor(row.engineId), row.conditions),
         })),
+        // Not just the checkbox: it may have been ticked before the dataset
+        // changed to one with no active/inactive target.
+        tune_cutoffs: canTuneCutoffs && tuneCutoffs,
       });
       router.push(`/sweeps/${response.sweep_id}`);
     } catch {
@@ -155,9 +163,16 @@ export function SweepForm() {
                 onChange={(key, value) =>
                   setBaselineConditions((prev) => ({ ...prev, [key]: value }))
                 }
+                tasks={tasks}
               />
             )}
           </div>
+
+          {canTuneCutoffs && (
+            <div className="border-t pt-4">
+              <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -214,6 +229,7 @@ export function SweepForm() {
                   onChange={(key, value) =>
                     updateConfig(index, { conditions: { ...row.conditions, [key]: value } })
                   }
+                  tasks={tasks}
                 />
               )}
             </CardContent>

@@ -49,6 +49,11 @@ export const PINNED_BY_PRETRAINED: Record<string, Record<string, number>> = {
 
 type HasKind = Pick<TargetBody, "kind">;
 
+/** The distinct tasks these targets ask of an engine. */
+export function tasksForTargets(targets: HasKind[]): string[] {
+  return [...new Set(targets.map((target) => TASK_FOR_TARGET_KIND[target.kind]))];
+}
+
 /**
  * Engines that can train on every one of these targets. An engine must support
  * each target's task; a joint engine (`supports_multitask`) learns them all in one
@@ -57,7 +62,7 @@ type HasKind = Pick<TargetBody, "kind">;
  */
 export function enginesForTargets(engines: Engine[], targets: HasKind[]): Engine[] {
   const kinds = new Set(targets.map((target) => target.kind));
-  const tasks = [...kinds].map((kind) => TASK_FOR_TARGET_KIND[kind]);
+  const tasks = tasksForTargets(targets);
   return engines.filter(
     (engine) =>
       tasks.every((task) => engine.tasks.includes(task)) &&

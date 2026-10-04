@@ -31,6 +31,7 @@ export function ConditionFields({
   values,
   onChange,
   pinned,
+  tasks,
 }: {
   conditions: Condition[];
   values: Record<string, unknown>;
@@ -41,8 +42,19 @@ export function ConditionFields({
    * form state, so what the scientist sees matches what the checkpoint ran.
    */
   pinned?: Record<string, unknown>;
+  /**
+   * The tasks the chosen dataset has. A setting that names tasks (a
+   * class-weighting option, say) is hidden when none of them is present;
+   * undefined, as before a dataset is chosen, hides nothing.
+   */
+  tasks?: string[];
 }) {
-  if (conditions.length === 0) {
+  const shown = conditions.filter(
+    (condition) =>
+      !condition.tasks?.length || !tasks || condition.tasks.some((task) => tasks.includes(task)),
+  );
+
+  if (shown.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">This engine has no configurable settings.</p>
     );
@@ -50,7 +62,7 @@ export function ConditionFields({
 
   return (
     <div className="space-y-4">
-      {conditions.map((condition) => {
+      {shown.map((condition) => {
         const type = condition.type as ConditionType;
         const isPinned = pinned != null && condition.key in pinned;
         const current = isPinned

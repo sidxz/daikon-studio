@@ -23,4 +23,5 @@ export interface ConditionResponse {
   maximum: ConditionResponseMaximum;
   options: string[];
   help: ConditionResponseHelp;
+  tasks: string[];
 }

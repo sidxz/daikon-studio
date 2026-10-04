@@ -43,6 +43,7 @@ export function useSubmitSweep() {
       configs: { engine_id: string; conditions: Record<string, unknown> }[];
       baseline_engine_id?: string | null;
       baseline_conditions?: Record<string, unknown>;
+      tune_cutoffs?: boolean;
     }) => customInstance<SweepDetailResponse>({ url: `${API_V1}/sweeps`, method: "POST", data }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: SWEEPS_KEY }),
   });

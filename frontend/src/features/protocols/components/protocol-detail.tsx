@@ -145,6 +145,11 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
                     ({readout.direction === "low" ? "lower" : "higher"} is better)
                   </span>
                 )}
+                {readout.type === "class" && readout.threshold != null && (
+                  <span className="ml-1 text-xs text-muted-foreground">
+                    class at cutoff {readout.threshold.toPrecision(2)}
+                  </span>
+                )}
               </span>
             ))}
           </div>

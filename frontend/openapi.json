@@ -2778,6 +2778,13 @@
               }
             ],
             "title": "Help"
+          },
+          "tasks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Tasks"
           }
         },
         "type": "object",
@@ -2790,7 +2797,8 @@
           "minimum",
           "maximum",
           "options",
-          "help"
+          "help",
+          "tasks"
         ],
         "title": "ConditionResponse",
         "description": "A single engine condition parameter specification, carrying everything\na form needs to render without any hardcoded knowledge of the engine."
@@ -4312,6 +4320,17 @@
           "description": {
             "type": "string",
             "title": "Description"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
           }
         },
         "type": "object",
@@ -4320,7 +4339,8 @@
           "type",
           "unit",
           "direction",
-          "description"
+          "description",
+          "threshold"
         ],
         "title": "ReadoutResponse",
         "description": "One declared output of a trained Protocol.\n\nTyped rather than a bare `dict` because `unit` and `direction` are the\nwhole point of a Readout: they are what let a predicted IC50 be lined up\nagainst a measured one instead of being a bare float. That pairing was\ndropped at four separate boundaries during the backend build; handing the\nclient `dict[str, Any]` here would have invited a fifth.\n\n`direction` is narrowed to the `Direction` enum even though `Readout` types\nit as `str`. Every value `derive_readouts` can produce is a `Direction`\nmember or `None`, so the narrower contract is honest and gives a client a\nclosed union instead of an open string."
@@ -4369,6 +4389,17 @@
           "description": {
             "type": "string",
             "title": "Description"
+          },
+          "threshold": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Threshold"
           }
         },
         "additionalProperties": false,
@@ -5387,6 +5418,39 @@
             "type": "string",
             "title": "Split Strategy"
           },
+          "cutoff": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cutoff"
+          },
+          "baseline_cutoff": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Cutoff"
+          },
+          "cutoff_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cutoff Note"
+          },
           "parity": {
             "items": {
               "$ref": "#/components/schemas/ParityPointResponse"
@@ -5462,6 +5526,9 @@
           "unit",
           "direction",
           "split_strategy",
+          "cutoff",
+          "baseline_cutoff",
+          "cutoff_note",
           "parity",
           "parity_sampled_from",
           "residual_histogram",
@@ -5691,6 +5758,11 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Baseline Conditions"
+          },
+          "tune_cutoffs": {
+            "type": "boolean",
+            "title": "Tune Cutoffs",
+            "default": false
           }
         },
         "type": "object",
@@ -6139,6 +6211,11 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Baseline Conditions"
+          },
+          "tune_cutoffs": {
+            "type": "boolean",
+            "title": "Tune Cutoffs",
+            "default": false
           }
         },
         "additionalProperties": false,

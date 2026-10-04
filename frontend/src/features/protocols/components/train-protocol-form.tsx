@@ -7,6 +7,7 @@ import {
   PINNED_BY_PRETRAINED,
   TargetsHint,
   enginesForTargets,
+  tasksForTargets,
   trainingKind,
   useEngines,
 } from "@/features/engines";
@@ -35,6 +36,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRunPoll, useTrainProtocol } from "../hooks/use-protocols";
 import { ConditionFields } from "./condition-fields";
+import { TuneCutoffsField } from "./tune-cutoffs-field";
 
 /**
  * The two fields `resolveConditions` needs, projected from the generated
@@ -81,6 +83,7 @@ export function TrainProtocolForm() {
   const [conditions, setConditions] = useState<Record<string, unknown>>({});
   const [baselineEngineId, setBaselineEngineId] = useState("");
   const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
+  const [tuneCutoffs, setTuneCutoffs] = useState(false);
   const [runId, setRunId] = useState<string | undefined>();
 
   const datasets = useDatasets(undefined, 200);
@@ -92,6 +95,11 @@ export function TrainProtocolForm() {
   // Only engines that can learn every one of this dataset's targets. The two
   // vocabularies differ, and that translation lives in the engines feature.
   const eligible = engines.data && dataset ? enginesForTargets(engines.data, dataset.targets) : [];
+
+  // Unknown until a dataset is chosen: every setting shows, and the cutoff
+  // option stays hidden because there is no active/inactive target to tune.
+  const tasks = dataset ? tasksForTargets(dataset.targets) : undefined;
+  const canTuneCutoffs = Boolean(tasks?.includes("binary_classification"));
 
   // Reset the engine -- and the baseline alongside it -- when the dataset
   // changes to one either cannot handle, rather than silently submitting an
@@ -187,6 +195,9 @@ export function TrainProtocolForm() {
         conditions,
         baseline_engine_id: baselineEngineId,
         baseline_conditions: baselineConditions,
+        // Not just the checkbox: it may have been ticked before the dataset
+        // changed to one with no active/inactive target.
+        tune_cutoffs: canTuneCutoffs && tuneCutoffs,
       });
       // A cache hit returns 202 with an already-ready Run, so branch on
       // status rather than assuming 202 means work started.
@@ -363,6 +374,8 @@ export function TrainProtocolForm() {
             />
           </div>
 
+          {canTuneCutoffs && <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />}
+
           {engine && (
             <div className="border-t pt-4">
               <p className="mb-3 text-xs font-medium uppercase tracking-widest text-muted-foreground">
@@ -373,6 +386,7 @@ export function TrainProtocolForm() {
                 values={conditions}
                 onChange={(key, value) => setConditions((prev) => ({ ...prev, [key]: value }))}
                 pinned={pinned}
+                tasks={tasks}
               />
             </div>
           )}
@@ -393,6 +407,7 @@ export function TrainProtocolForm() {
                     setBaselineConditions((prev) => ({ ...prev, [key]: value }))
                   }
                   pinned={baselinePinned}
+                  tasks={tasks}
                 />
               </CollapsibleContent>
             </Collapsible>

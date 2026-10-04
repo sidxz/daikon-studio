@@ -6,6 +6,7 @@
  */
 import type { ReadoutWireUnit } from './readoutWireUnit';
 import type { ReadoutWireDirection } from './readoutWireDirection';
+import type { ReadoutWireThreshold } from './readoutWireThreshold';
 
 /**
  * Mirrors `Readout` (`domain/catalog/readout.py`).
@@ -16,4 +17,5 @@ export interface ReadoutWire {
   unit: ReadoutWireUnit;
   direction: ReadoutWireDirection;
   description: string;
+  threshold?: ReadoutWireThreshold;
 }

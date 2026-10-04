@@ -272,3 +272,60 @@ describe("submit is blocked when the run would compare an engine against itself"
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
   });
 });
+
+// --- Tuning decision cutoffs is offered only where there is a cutoff to tune ---
+
+describe("the tune-cutoffs option", () => {
+  afterEach(() => {
+    mutateAsync.mockClear();
+    hoisted.targets = [{ kind: "numeric", column: "logS" }];
+  });
+
+  async function trainWithRf() {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TrainProtocolForm />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByText(/Solubility/));
+    return async () => {
+      fireEvent.click(screen.getByText("Choose an engine"));
+      fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
+      await waitFor(() => expect(screen.getByText("Train")).not.toBeDisabled());
+      fireEvent.click(screen.getByText("Train"));
+      await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+      return mutateAsync.mock.calls[0][0];
+    };
+  }
+
+  it("is absent before a dataset is chosen", () => {
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TrainProtocolForm />
+      </QueryClientProvider>,
+    );
+    expect(screen.queryByRole("checkbox", { name: "Tune decision cutoffs" })).toBeNull();
+  });
+
+  it("sends tune_cutoffs: true when checked on a dataset with a binary target", async () => {
+    hoisted.targets = [{ kind: "binary", column: "reactive" }];
+    const submit = await trainWithRf();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Tune decision cutoffs" }));
+    expect((await submit()).tune_cutoffs).toBe(true);
+  });
+
+  it("sends tune_cutoffs: false by default", async () => {
+    hoisted.targets = [{ kind: "binary", column: "reactive" }];
+    const submit = await trainWithRf();
+    await screen.findByRole("checkbox", { name: "Tune decision cutoffs" });
+    expect((await submit()).tune_cutoffs).toBe(false);
+  });
+
+  it("is absent for a numeric-only dataset", async () => {
+    const submit = await trainWithRf();
+    expect(screen.queryByRole("checkbox", { name: "Tune decision cutoffs" })).toBeNull();
+    expect((await submit()).tune_cutoffs).toBe(false);
+  });
+});

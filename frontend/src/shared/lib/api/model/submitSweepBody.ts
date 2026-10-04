@@ -22,4 +22,5 @@ export interface SubmitSweepBody {
   configs: SweepConfigBody[];
   baseline_engine_id?: SubmitSweepBodyBaselineEngineId;
   baseline_conditions?: SubmitSweepBodyBaselineConditions;
+  tune_cutoffs?: boolean;
 }

@@ -7,6 +7,7 @@
 import type { ReadoutType } from './readoutType';
 import type { ReadoutResponseUnit } from './readoutResponseUnit';
 import type { ReadoutResponseDirection } from './readoutResponseDirection';
+import type { ReadoutResponseThreshold } from './readoutResponseThreshold';
 
 /**
  * One declared output of a trained Protocol.
@@ -28,4 +29,5 @@ export interface ReadoutResponse {
   unit: ReadoutResponseUnit;
   direction: ReadoutResponseDirection;
   description: string;
+  threshold: ReadoutResponseThreshold;
 }

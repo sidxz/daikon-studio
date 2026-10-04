@@ -112,6 +112,25 @@ export function showsBootstrapExplainer(verdict: Verdict): boolean {
   return verdict.ci != null && verdict.kind !== "is-baseline" && verdict.kind !== "unknown";
 }
 
+/**
+ * The decision cutoff behind the MCC above, or why tuning did not happen.
+ * Absent when tuning was not requested: the cutoff is then 0.5 and unremarkable.
+ * The baseline's cutoff can be missing while the model's is set, when only the
+ * baseline had too few validation compounds of one class.
+ */
+function CutoffLine({ scorecard }: { scorecard: ScorecardResponse }) {
+  const { cutoff, baseline_cutoff: baselineCutoff, cutoff_note: note } = scorecard;
+  if (note) return <p className="mt-1 text-xs text-muted-foreground">{note}</p>;
+  if (cutoff == null) return null;
+  return (
+    <p className="mt-1 text-xs text-muted-foreground">
+      At cutoff {cutoff.toPrecision(2)}, tuned on validation.
+      {baselineCutoff != null &&
+        ` Baseline at its own tuned cutoff ${baselineCutoff.toPrecision(2)}.`}
+    </p>
+  );
+}
+
 function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
   const verdict = computeVerdict(scorecard);
   const metric = metricLabel(scorecard.primary_metric);
@@ -174,6 +193,7 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
               <ReadoutValue value={verdict.ci[1]} />] (bootstrap over the test set, unpaired)
             </p>
           )}
+          <CutoffLine scorecard={scorecard} />
           {/* Within noise by the interval: the only such verdict with no noise floor. */}
           {verdict.kind === "within-noise" && verdict.noiseFloor == null && (
             <p className="mt-2 text-sm">

@@ -8,6 +8,7 @@ const readout = (name: string, type: ReadoutResponse["type"]): ReadoutResponse =
   unit: null,
   direction: null,
   description: "",
+  threshold: null,
 });
 
 describe("targetsOf", () => {

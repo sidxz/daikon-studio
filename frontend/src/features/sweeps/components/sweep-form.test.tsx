@@ -18,7 +18,7 @@ const RF_ENGINE = {
   version: "1.0.0",
   name: "ECFP4 + RF",
   description: "",
-  tasks: ["regression"],
+  tasks: ["regression", "binary_classification"],
   supports_multitask: false,
   is_baseline: true,
   conditions: [
@@ -35,6 +35,14 @@ const RF_ENGINE = {
   ],
 };
 
+const hoisted = vi.hoisted(() => ({
+  targets: [{ kind: "numeric", column: "logS", unit: null }] as {
+    kind: string;
+    column: string;
+    unit: null;
+  }[],
+}));
+
 vi.mock("@/features/datasets", () => ({
   useDatasets: () => ({
     isLoading: false,
@@ -43,7 +51,7 @@ vi.mock("@/features/datasets", () => ({
   useDataset: () => ({
     data: {
       id: "ds-1",
-      targets: [{ kind: "numeric", column: "logS", unit: null }],
+      targets: hoisted.targets,
       split: { strategy: "scaffold" },
     },
   }),
@@ -147,5 +155,41 @@ describe("submit requires an engine on every config row", () => {
     fireEvent.click(screen.getByRole("button", { name: /add configuration/i }));
 
     expect(screen.getByText("Start sweep")).toBeDisabled();
+  });
+});
+
+// --- Tuning decision cutoffs is offered only where there is a cutoff to tune ---
+
+describe("the tune-cutoffs option", () => {
+  afterEach(() => {
+    mutateAsync.mockClear();
+    hoisted.targets = [{ kind: "numeric", column: "logS", unit: null }];
+  });
+
+  async function startSweep() {
+    render(<SweepForm />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByRole("option", { name: /Solubility/ }));
+    return async () => {
+      fireEvent.click(screen.getByText("Choose an engine"));
+      fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Sweep" } });
+      fireEvent.click(screen.getByText("Start sweep"));
+      await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+      return mutateAsync.mock.calls[0][0];
+    };
+  }
+
+  it("sends tune_cutoffs: true when checked on a dataset with a binary target", async () => {
+    hoisted.targets = [{ kind: "binary", column: "reactive", unit: null }];
+    const submit = await startSweep();
+    fireEvent.click(await screen.findByRole("checkbox", { name: "Tune decision cutoffs" }));
+    expect((await submit()).tune_cutoffs).toBe(true);
+  });
+
+  it("is absent, and sends false, for a numeric-only dataset", async () => {
+    const submit = await startSweep();
+    expect(screen.queryByRole("checkbox", { name: "Tune decision cutoffs" })).toBeNull();
+    expect((await submit()).tune_cutoffs).toBe(false);
   });
 });

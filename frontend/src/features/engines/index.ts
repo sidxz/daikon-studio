@@ -6,6 +6,7 @@ export {
   TASK_LABELS,
   enginesForTargets,
   jointEnginesRefused,
+  tasksForTargets,
   trainingKind,
 } from "./types";
 export { useEngines } from "./hooks/use-engines";

@@ -16,4 +16,5 @@ export { MapCompoundTooltip } from "./components/protocol-chemical-space";
 export { ProtocolDetail } from "./components/protocol-detail";
 export { ProtocolList } from "./components/protocol-list";
 export { ScorecardView } from "./components/scorecard-view";
+export { TuneCutoffsField } from "./components/tune-cutoffs-field";
 export { resolveConditions, TrainProtocolForm } from "./components/train-protocol-form";
