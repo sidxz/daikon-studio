@@ -218,7 +218,7 @@ image-runner-gpu: ## Build the CUDA runner image on atlantic as daikon-runner:gp
 # ponytail: the scan runs Trivy in a container on atlantic, which cannot see a local
 # .trivyignore (there is none yet); mount or copy it in once one exists.
 publish-runner-gpu: ## Backend release: build the CUDA runner on atlantic, test it on the GPU, Trivy-scan it, push to ghcr
-	@git describe --exact-match --match 'backend-v*' HEAD >/dev/null 2>&1 && git diff --quiet HEAD \
+	@git describe --exact-match --tags --match 'backend-v*' HEAD >/dev/null 2>&1 && git diff --quiet HEAD \
 	  || { echo "publish-runner-gpu: check out a backend-v* tag, with a clean tree, first (RELEASING.md)"; exit 1; }
 	$(MAKE) image-runner-gpu
 	$(GPU_DOCKER) run --rm --gpus all daikon-runner:gpu python -c "import torch, chemprop; \
