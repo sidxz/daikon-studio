@@ -95,7 +95,8 @@ built clean for two months while LightGBM could not import inside it. `image-smo
 is the check that would have caught it; CI runs the same check on every push.
 
 `deploy/README.md` is the runbook for a single-host production stack (Caddy, API,
-migrate step, frontend, Postgres, a default-lane runner) via `deploy/compose.yml`.
+frontend, Postgres, a default-lane runner) via `deploy/compose.yml`. The API migrates
+the database to its own head when it starts (`STUDIO_MIGRATE_ON_START`, on by default).
 
 The GPU runner image (`backend/Dockerfile.gpu`, CUDA, x86_64 only) is built on
 atlantic, which has the NVIDIA GPU, over the `atlantic` docker context: `make

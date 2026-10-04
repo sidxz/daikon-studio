@@ -227,3 +227,72 @@ async def test_013_nests_a_training_runs_headline_under_its_datasets_target(migr
         await _json(migrated_session, "SELECT metrics::text FROM runs WHERE id = :id", id=run_id)
         == flat
     )
+
+
+@pytest.mark.asyncio
+async def test_two_apis_starting_at_once_migrate_an_empty_database_once(_migrated_engine):
+    """The API migrates itself at start (infrastructure/persistence/migrate.py), so a
+    second replica or a rolling update's overlap runs the same upgrade at the same time.
+    The advisory lock in env.py makes the second wait and then find nothing to do.
+
+    Two processes, as two APIs are: alembic keeps its context in process-wide globals,
+    so two upgrades on threads of one process tangle each other and hang -- which no
+    deploy does."""
+    import asyncio
+    import sys
+
+    from alembic.script import ScriptDirectory
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    from daikonstudio.infrastructure.persistence.migrate import SCRIPT_LOCATION
+
+    fresh = f"fresh_{uuid.uuid4().hex}"
+    admin = create_async_engine(
+        _migrated_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{fresh}"'))
+    url = _migrated_engine.url.set(database=fresh).render_as_string(hide_password=False)
+    start_an_api = (
+        "import sys; from daikonstudio.infrastructure.persistence.migrate import "
+        "upgrade_to_head; upgrade_to_head(sys.argv[1])"
+    )
+    try:
+        apis = [
+            await asyncio.create_subprocess_exec(sys.executable, "-c", start_an_api, url)
+            for _ in range(2)
+        ]
+        codes = await asyncio.wait_for(asyncio.gather(*(api.wait() for api in apis)), timeout=120)
+        assert codes == [0, 0]
+
+        engine = create_async_engine(url, poolclass=NullPool)
+        async with engine.connect() as connection:
+            version = (
+                await connection.execute(text("SELECT version_num FROM alembic_version"))
+            ).scalar_one()
+        await engine.dispose()
+        assert version == ScriptDirectory(str(SCRIPT_LOCATION)).get_current_head()
+    finally:
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE IF EXISTS "{fresh}" WITH (FORCE)'))
+        await admin.dispose()
+
+
+@pytest.mark.asyncio
+async def test_migrating_in_process_leaves_the_apps_logging_alone(_migrated_engine):
+    """Duar lost every structured log line when it began migrating in-process: alembic's
+    env.py ran fileConfig and replaced the app's handlers. `upgrade_to_head` builds its
+    config with no ini file, so env.py never does."""
+    import asyncio
+    import logging
+
+    from daikonstudio.infrastructure.persistence.migrate import upgrade_to_head
+
+    root = logging.getLogger()
+    before = (list(root.handlers), root.level)
+
+    url = _migrated_engine.url.render_as_string(hide_password=False)
+    await asyncio.wait_for(asyncio.to_thread(upgrade_to_head, url), timeout=120)
+
+    assert (list(root.handlers), root.level) == before

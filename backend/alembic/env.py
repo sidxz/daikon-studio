@@ -2,7 +2,7 @@ import asyncio
 import os
 from logging.config import fileConfig
 
-from sqlalchemy import pool
+from sqlalchemy import pool, text
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
@@ -74,6 +74,14 @@ def do_run_migrations(connection: Connection) -> None:
     context.configure(connection=connection, target_metadata=target_metadata)
 
     with context.begin_transaction():
+        # One migrator at a time. The API migrates itself at start, so two starting
+        # together (a second replica, a rolling update's overlap) would both apply the
+        # same revisions. A transaction-scoped lock: the second waits for the first to
+        # commit, then reads the version table and finds nothing left to do. Taken
+        # before `run_migrations` reads that table, which is the point.
+        connection.execute(
+            text("SELECT pg_advisory_xact_lock(hashtext('daikonstudio.migrations'))")
+        )
         context.run_migrations()
 
 

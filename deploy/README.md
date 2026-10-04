@@ -1,8 +1,8 @@
 # Deploying daikon-studio
 
 One host, one Compose stack: Caddy (TLS) in front of the API and the frontend,
-Postgres, a one-shot `migrate`, and a default-lane runner. Every command below runs
-from this directory.
+Postgres, and a default-lane runner. The API migrates the database itself when it
+starts. Every command below runs from this directory.
 
 ## 1. Prerequisites
 
@@ -23,10 +23,11 @@ from this directory.
    Leave `STUDIO_RUNNER_TOKEN_DEFAULT` empty for now.
 2. `docker compose pull`
 3. `docker compose up -d caddy`. This starts everything except the runner: Caddy
-   pulls in the API and frontend, the API waits for `migrate`, `migrate` waits for
-   Postgres. The runner needs a token from section 3; started without one it exits
-   with code 2 and Compose restarts it until the token is set.
-4. `docker compose logs -f migrate api` until the API logs `Application startup complete`.
+   pulls in the API and frontend, and the API waits for Postgres, then migrates it
+   before it serves. The runner needs a token from section 3; started without one it
+   exits with code 2 and Compose restarts it until the token is set.
+4. `docker compose logs -f api` until the API logs `Application startup complete`,
+   after one `Running upgrade` line per migration.
    If it restarts instead, the traceback usually names Duar: an empty service key,
    or a `STUDIO_DUAR_URL` this host cannot reach (the API fetches Duar's signing key
    at boot and exits without it).
@@ -59,13 +60,13 @@ an nginx in front of this stack needs `merge_slashes off;`.
 ## 4. Upgrade
 
 1. `docker compose pull`
-2. `docker compose up -d`. `migrate` runs again and the API waits for it to finish.
-3. `docker compose ps`: api `(healthy)`, migrate `Exited (0)`.
+2. `docker compose up -d`. The new API applies any new migrations before it serves.
+3. `docker compose ps`: api `(healthy)`.
 
 Upgrading from a release before multi-target datasets (migration 013) needs an
 order, because the runner and API wire shapes changed with no version handshake.
-Before step 2, wait until no training run is running. Then migrate, deploy the API,
-and upgrade the runners, which `docker compose up -d` does in that order here
+Before step 2, wait until no training run is running. Then deploy the API (which
+migrates) and upgrade the runners, which `docker compose up -d` does in that order here
 (every GPU runner on another host needs its image upgraded too). A training run in
 flight across the API deploy ends FAILED beside a complete, unlinked protocol, and
 a runner left on the old image fails every run it claims.
@@ -99,7 +100,7 @@ Restore, onto a booted stack (on a new host, run First boot first):
 
 ## 6. Logs and health
 
-1. `docker compose ps`: api `(healthy)`, migrate `Exited (0)`, the rest `Up`.
+1. `docker compose ps`: api `(healthy)`, the rest `Up`.
 2. `docker compose logs -f api runner-default`. One JSON object per line.
 3. `curl -s https://<domain>/ready`: `{"status":"ready"}`, or a 503 naming the
    database failure. `/health` answers whenever the process is up.
@@ -121,3 +122,10 @@ Restore, onto a booted stack (on a new host, run First boot first):
 - It is a **single trust domain**. Runner tokens are instance-wide (any workspace's runs can be
   claimed by any runner on the lane), so this stack is for one lab, or for labs that trust each
   other's runner machines. Separate labs get separate stacks.
+
+## 7. Running migrations yourself
+
+The API migrates on start under a Postgres advisory lock, so two APIs starting
+together are safe. To make migrations a separate, deliberate step instead, set
+`STUDIO_MIGRATE_ON_START=false` on the API and run, before each deploy:
+`docker compose run --rm api alembic upgrade head`.

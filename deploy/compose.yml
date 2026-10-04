@@ -27,16 +27,6 @@ services:
       timeout: 3s
       retries: 20
 
-  # One-shot. The API image carries alembic; nothing else runs migrations.
-  migrate:
-    image: "${STUDIO_API_IMAGE}"
-    command: ["alembic", "upgrade", "head"]
-    environment:
-      STUDIO_DATABASE_URL: "postgresql+asyncpg://studio:${POSTGRES_PASSWORD}@postgres:5432/studio"
-    depends_on:
-      postgres: { condition: service_healthy }
-    restart: "no"
-
   api:
     image: "${STUDIO_API_IMAGE}"
     restart: unless-stopped
@@ -49,8 +39,12 @@ services:
       STUDIO_CORS_ORIGINS: '["https://${STUDIO_DOMAIN}"]'
       STUDIO_LOG_FORMAT: json
     volumes: ["blobs:/data/blobs"]
+    # The API migrates the database to its own head when it starts (backend
+    # infrastructure/persistence/migrate.py), under a lock, so there is no separate
+    # migrate step to order. Under Swarm, which ignores depends_on, a start before
+    # Postgres is up fails and the restart policy tries again.
     depends_on:
-      migrate: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy }
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/ready', timeout=3)"]
       interval: 15s

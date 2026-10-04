@@ -15,6 +15,7 @@ from daikonstudio.infrastructure.duar.auth import (
     log_effective_scope,
     register_service_actions,
 )
+from daikonstudio.infrastructure.persistence.migrate import upgrade_to_head
 from daikonstudio.interface.error_handlers import register_error_handlers
 from daikonstudio.interface.middleware import RequestIdMiddleware
 from daikonstudio.interface.routes.collections import router as collections_router
@@ -60,6 +61,12 @@ def create_app() -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if settings.migrate_on_start:
+            # First, before anything can serve a request against an old schema. A
+            # database that is down or a migration that fails ends the start, and the
+            # container's restart policy tries again; /ready reports nothing until then.
+            # Off the loop: alembic's env.py runs an event loop of its own.
+            await asyncio.to_thread(upgrade_to_head, settings.database_url)
         # duar.lifespan fetches the JWKS signing key — fatal if it fails,
         # since auth cannot work at all without it. Action registration is
         # best-effort and must never block boot (see register_service_actions).
