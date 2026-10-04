@@ -76,7 +76,7 @@ export function useScorecard(id: string | undefined) {
   return useQuery({
     queryKey: [...SCORECARD_KEY, id],
     queryFn: () =>
-      customInstance<ScorecardResponse>({
+      customInstance<ScorecardResponse[]>({
         url: `${API_V1}/protocols/${id}/scorecard`,
         method: "GET",
       }),

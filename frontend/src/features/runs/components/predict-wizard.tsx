@@ -39,14 +39,15 @@ function ProtocolContext({ protocol }: { protocol: Protocol }) {
   return (
     <div className="rounded-lg border border-border bg-muted/20 p-3 text-sm">
       <p>
-        {/* A classification Protocol declares two readouts (probability and
-            class), so this joins rather than concatenating them into one
-            unreadable run-on. */}
+        {/* A Protocol declares one readout per numeric target and two per binary
+            one (probability and class), so the list can run to many. */}
         Predicts{" "}
         <span className="font-medium">
-          {protocol.readouts
-            .map((readout) => (readout.unit ? `${readout.name} (${readout.unit})` : readout.name))
-            .join(" and ")}
+          {new Intl.ListFormat("en-US", { type: "conjunction" }).format(
+            protocol.readouts.map((readout) =>
+              readout.unit ? `${readout.name} (${readout.unit})` : readout.name,
+            ),
+          )}
         </span>
         {dataset && (
           <span className="text-muted-foreground">

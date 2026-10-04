@@ -15,7 +15,9 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { ApiError } from "@/shared/lib/api/custom-instance";
+import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useState } from "react";
@@ -24,6 +26,39 @@ import { DeleteProtocolButton } from "./delete-protocol-button";
 import { ProtocolChemicalSpace } from "./protocol-chemical-space";
 import { ProtocolRuns } from "./protocol-runs";
 import { ScorecardView } from "./scorecard-view";
+
+/**
+ * One scorecard per target. One target renders exactly as before; several share a
+ * header that says whether one model learned them all or each has its own, so a
+ * row of per-target numbers is never mistaken for joint learning.
+ */
+function Scorecards({ scorecards }: { scorecards: ScorecardResponse[] }) {
+  const [first] = scorecards;
+  if (scorecards.length === 1) return <ScorecardView scorecard={first} />;
+  return (
+    <div className="space-y-3">
+      <p className="text-sm text-muted-foreground">
+        {first.joint_model
+          ? `One model learned all ${scorecards.length} targets jointly. Each tab scores it on one target.`
+          : `${scorecards.length} separate models, one per target, trained on the same compounds and split.`}
+      </p>
+      <Tabs defaultValue={first.target}>
+        <TabsList>
+          {scorecards.map((card) => (
+            <TabsTrigger key={card.target} value={card.target} className="font-mono">
+              {card.target}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+        {scorecards.map((card) => (
+          <TabsContent key={card.target} value={card.target}>
+            <ScorecardView scorecard={card} />
+          </TabsContent>
+        ))}
+      </Tabs>
+    </div>
+  );
+}
 
 export function ProtocolDetail({ protocolId }: { protocolId: string }) {
   const { data: protocol, isLoading, isError } = useProtocol(protocolId);
@@ -118,7 +153,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
 
       {scorecard.isLoading && <Skeleton className="h-64 w-full" />}
       {scorecard.isError && <p className="text-sm text-destructive">Could not load scorecard</p>}
-      {scorecard.data && <ScorecardView scorecard={scorecard.data} />}
+      {scorecard.data && <Scorecards scorecards={scorecard.data} />}
 
       <ProtocolChemicalSpace protocolId={protocol.id} />
 
