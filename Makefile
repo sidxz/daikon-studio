@@ -210,6 +210,9 @@ image-runner-cpu: ## Build the API + default-lane runner image locally as daikon
 GPU_CONTEXT ?= atlantic
 GPU_IMAGE   := ghcr.io/sidxz/daikon-studio/runner-gpu
 GPU_DOCKER  := docker --context $(GPU_CONTEXT)
+# Pushes run on atlantic's own docker CLI: over an SSH context the CLI, and so the registry
+# login it sends, is this machine's, and the ghcr login lives on atlantic (RELEASING.md).
+GPU_SSH      = ssh $(patsubst ssh://%,%,$(shell docker context inspect $(GPU_CONTEXT) --format '{{.Endpoints.docker.Host}}'))
 
 image-runner-gpu: ## Build the CUDA runner image on atlantic as daikon-runner:gpu (backend/Dockerfile.gpu)
 	$(call BUILD_INFO,backend) && $(GPU_DOCKER) build -f backend/Dockerfile.gpu -t daikon-runner:gpu \
@@ -228,7 +231,7 @@ publish-runner-gpu: ## Backend release: build the CUDA runner on atlantic, test 
 		aquasec/trivy:0.75.0 image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-runner:gpu
 	$(call BUILD_INFO,backend) && case "$$APP_VERSION" in *-*) tags=$$APP_VERSION ;; \
 		*) tags="$$APP_VERSION $${APP_VERSION%.*} $${APP_VERSION%%.*} latest" ;; esac \
-	  && for t in $$tags; do $(GPU_DOCKER) tag daikon-runner:gpu $(GPU_IMAGE):$$t && $(GPU_DOCKER) push $(GPU_IMAGE):$$t || exit 1; done
+	  && for t in $$tags; do $(GPU_DOCKER) tag daikon-runner:gpu $(GPU_IMAGE):$$t && $(GPU_SSH) docker push $(GPU_IMAGE):$$t || exit 1; done
 
 # A green build says nothing about whether the image works (docs/roadmap.md, Traps):
 # the CPU image built clean for two months while LightGBM could not import inside it.
