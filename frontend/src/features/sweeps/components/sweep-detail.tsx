@@ -153,7 +153,9 @@ export function SweepDetail({ id }: { id: string }) {
                   <TableCell className="text-muted-foreground">
                     {active && isRankable(headlineFor(run, active)) ? index + 1 : "—"}
                   </TableCell>
-                  <TableCell>
+                  {/* Wraps: a configuration's settings line grows with every setting an
+                      engine declares, and on one line it pushed the metrics off-screen. */}
+                  <TableCell className="min-w-72 whitespace-normal">
                     <div className="font-medium">
                       {run.protocol_id ? (
                         <Link href={`/protocols/${run.protocol_id}`} className="hover:underline">
