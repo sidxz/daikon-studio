@@ -6,6 +6,7 @@ from io import BytesIO
 import polars as pl
 import pytest
 
+from daikonstudio.application.engines.checkpoints import Checkpoints
 from daikonstudio.application.engines.context import (
     PredictContext,
     RunInterrupted,
@@ -15,6 +16,7 @@ from daikonstudio.application.engines.context import (
 from daikonstudio.application.engines.fan_out import FanOut
 from daikonstudio.application.engines.manifest import EngineManifest, TaskType
 from daikonstudio.application.engines.registry import EngineRegistry
+from tests.fakes.blob_store import InMemoryBlobStore
 
 _SINGLE = EngineManifest(
     id="single", version="1", name="Single", description="d", tasks=tuple(TaskType)
@@ -170,3 +172,18 @@ def test_cutoffs_merge_per_target_and_tune_cutoffs_reaches_every_sub_fit():
     )
     assert result.cutoffs == {"a": 0.3, "b": 0.3}
     assert all(ctx.tune_cutoffs for ctx in inner.contexts)
+
+
+def test_a_saved_target_is_restored_not_refitted():
+    store = InMemoryBlobStore()
+    checkpoints = Checkpoints(store, "ws/datasets/d/runs/r/checkpoints/").scoped("model")
+    targets = {"a": TaskType.REGRESSION, "a/b": TaskType.REGRESSION}  # unsafe as a path
+
+    first = _Recorder()
+    FanOut(first).train(replace(_ctx(targets), checkpoints=checkpoints))
+    assert len(first.contexts) == 2
+
+    again = _Recorder()
+    result = FanOut(again).train(replace(_ctx(targets), checkpoints=checkpoints))
+    assert again.contexts == []  # both targets restored
+    assert set(result.metrics) == {"a", "a/b"}

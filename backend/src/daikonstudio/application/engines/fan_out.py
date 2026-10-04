@@ -28,11 +28,17 @@ from __future__ import annotations
 
 import io
 import json
+import logging
 import zipfile
 from dataclasses import replace
 
 import polars as pl
 
+from daikonstudio.application.engines.checkpoints import (
+    Checkpoints,
+    pack_result,
+    unpack_result,
+)
 from daikonstudio.application.engines.context import (
     PredictContext,
     ProgressReporter,
@@ -41,6 +47,8 @@ from daikonstudio.application.engines.context import (
 )
 from daikonstudio.application.engines.manifest import EngineManifest
 from daikonstudio.application.engines.protocol import Engine
+
+logger = logging.getLogger(__name__)
 
 _TARGETS_ENTRY = "targets.json"
 
@@ -62,11 +70,32 @@ class FanOut:
                 # report on their own, and this checkpoint is what lets a cancel or a
                 # deadline stop the run between targets.
                 ctx.report(index / count, f"Training on {column} ({index + 1} of {count})")
-            results.append(
-                self._inner.train(
-                    replace(ctx, targets={column: task}, report=_slice(ctx.report, index, count))
+            # A multi-target fit saves each target's result as it completes, scoped by
+            # position (a column name could be anything) with the column in the
+            # fingerprint, so a resumed run refits only the targets it had not finished.
+            saved_scope = (
+                ctx.checkpoints.scoped(f"target-{index}", column=column)
+                if ctx.checkpoints is not None and count > 1
+                else None
+            )
+            restored = _restore(saved_scope)
+            if restored is not None:
+                ctx.report(
+                    (index + 1) / count, f"Restored the fit for {column} from saved progress"
+                )
+                results.append(restored)
+                continue
+            result = self._inner.train(
+                replace(
+                    ctx,
+                    targets={column: task},
+                    report=_slice(ctx.report, index, count),
+                    checkpoints=saved_scope if saved_scope is not None else ctx.checkpoints,
                 )
             )
+            if saved_scope is not None:
+                saved_scope.save("result", pack_result(result))
+            results.append(result)
         validation = {
             key: value
             for result in results
@@ -97,6 +126,21 @@ class FanOut:
                 for column, artifact in zip(columns, artifacts, strict=True)
             ]
         )
+
+
+def _restore(scope: Checkpoints | None) -> TrainResult | None:
+    if scope is None:
+        return None
+    data = scope.load("result")
+    if data is None:
+        return None
+    try:
+        return unpack_result(data)
+    except Exception:
+        logger.warning(
+            "A saved fit in %s did not unpack; refitting it.", scope.root, exc_info=True
+        )
+        return None
 
 
 def _slice(report: ProgressReporter, index: int, count: int) -> ProgressReporter:

@@ -66,6 +66,14 @@ from daikonstudio.application.catalog.chemical_space import write_chemical_space
 from daikonstudio.application.catalog.derive_readouts import derive_readouts
 from daikonstudio.application.data.assign_split import assign_split
 from daikonstudio.application.data.snapshot import snapshot_key
+from daikonstudio.application.engines.checkpoints import (
+    DEFAULT_INTERVAL_SECONDS,
+    RESULT_FORMAT,
+    Checkpoints,
+    checkpoint_root,
+    pack_result,
+    unpack_result,
+)
 from daikonstudio.application.engines.context import (
     MIN_CUTOFF_CLASS_COUNT,
     PredictContext,
@@ -574,6 +582,7 @@ class RunTraining:
         normalizer: StructureNormalizer,
         deadline_seconds: float | None = None,
         layout: ChemicalSpaceLayout | None = None,
+        checkpoint_interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
     ) -> None:
         self._datasets = datasets
         self._protocols = protocols
@@ -583,6 +592,8 @@ class RunTraining:
         self._normalizer = normalizer
         self._deadline_seconds = deadline_seconds
         self._layout = layout
+        self._checkpoint_interval_seconds = checkpoint_interval_seconds
+        self._checkpoints: Checkpoints | None = None
         self._deadline_at: float | None = None
         self._tune_cutoffs = False
 
@@ -624,7 +635,17 @@ class RunTraining:
         )
         _require_structure_column(dataset, frame)
 
-        chosen = await self._fit(run, engine, dataset, targets, conditions, frame, _CHOSEN_SPAN)
+        # The run's saved progress. A retry of this same run (same id) finds what an
+        # earlier attempt saved and skips it; success clears it below.
+        self._checkpoints = Checkpoints(
+            self._store,
+            checkpoint_root(run.workspace_id, dataset.id, run.id),
+            interval_seconds=self._checkpoint_interval_seconds,
+        )
+
+        chosen = await self._fit(
+            run, engine, dataset, targets, conditions, frame, _CHOSEN_SPAN, scope="model"
+        )
 
         # The baseline is unconditional -- with one exception that is *not* an
         # exception to the rule. When the chosen engine is the baseline engine on
@@ -649,6 +670,7 @@ class RunTraining:
                 frame,
                 _BASELINE_SPAN,
                 "Training baseline model",
+                scope="baseline",
             )
 
         random_split, random_split_unavailable = await self._optimism_gap(
@@ -807,6 +829,11 @@ class RunTraining:
         # can never be READY with no metric on it.
         run.record_metrics(headlines)
 
+        # The Protocol exists and the run is about to be READY: nothing here will be
+        # resumed again. Best effort -- `clear` logs and swallows a failure.
+        if self._checkpoints is not None:
+            await asyncio.to_thread(self._checkpoints.clear)
+
         await self._map_chemical_space(run, protocol_id, frame, dataset)
         return result_uri
 
@@ -864,7 +891,14 @@ class RunTraining:
                 self._normalizer,
             )
             result = await self._train_off_thread(
-                run, engine, dataset, targets, conditions, random_frame, _RANDOM_SPLIT_SPAN
+                run,
+                engine,
+                dataset,
+                targets,
+                conditions,
+                random_frame,
+                _RANDOM_SPLIT_SPAN,
+                scope="random-split",
             )
             train_rows = random_frame.filter(pl.col("split") == "train")
             test_rows = random_frame.filter(pl.col("split") == "test")
@@ -904,6 +938,8 @@ class RunTraining:
         frame: pl.DataFrame,
         span: tuple[float, float],
         phase: str | None = None,
+        *,
+        scope: str,
     ) -> TrainResult:
         """Report the phase, then fit off the event loop.
 
@@ -916,7 +952,9 @@ class RunTraining:
         """
         resolved_phase = phase or f"Training {engine.manifest().name}"
         await self._progress(run, span[0], resolved_phase)
-        return await self._train_off_thread(run, engine, dataset, targets, conditions, frame, span)
+        return await self._train_off_thread(
+            run, engine, dataset, targets, conditions, frame, span, scope=scope
+        )
 
     async def _train_off_thread(
         self,
@@ -927,13 +965,40 @@ class RunTraining:
         conditions: dict[str, object],
         frame: pl.DataFrame,
         span: tuple[float, float],
+        *,
+        scope: str,
     ) -> TrainResult:
         # train() is synchronous and blocking by contract, whichever device it resolves
         # to (see engines/protocol.py): the worker offloads it so engine authors never
         # have to think about threads.
         # `run` is threaded through only so the reporter can reach the row -- the
         # engine never sees it.
-        return await asyncio.to_thread(
+        manifest = engine.manifest()
+        stage = (
+            self._checkpoints.scoped(
+                scope,
+                engine=manifest.id,
+                engine_version=manifest.version,
+                result_format=RESULT_FORMAT,
+            )
+            if self._checkpoints is not None
+            else None
+        )
+        if stage is not None:
+            saved = await asyncio.to_thread(stage.load, "result")
+            if saved is not None:
+                try:
+                    restored = unpack_result(saved)
+                except Exception:
+                    logger.warning(
+                        "The saved %s fit did not unpack; refitting it.", scope, exc_info=True
+                    )
+                else:
+                    await self._progress(
+                        run, span[1], f"Restored the {manifest.name} fit from saved progress"
+                    )
+                    return restored
+        result = await asyncio.to_thread(
             engine.train,
             TrainContext(
                 frame=frame,
@@ -942,9 +1007,15 @@ class RunTraining:
                 conditions=conditions,
                 seed=dataset.split.seed,
                 tune_cutoffs=self._tune_cutoffs,
+                checkpoints=stage,
                 report=self._reporter(run, span),
             ),
         )
+        if stage is not None:
+            # Off the event loop: on a runner this is an HTTP upload, and the loop also
+            # carries the run's heartbeat.
+            await asyncio.to_thread(stage.save, "result", pack_result(result))
+        return result
 
     def _reporter(self, run: Run, span: tuple[float, float]) -> ProgressReporter:
         """A callback the engine invokes from the worker thread.
@@ -997,9 +1068,15 @@ class RunTraining:
         fits -- the latter is the only check the tree and GP engines ever reach,
         since none of them reports progress during a fit."""
         if self._deadline_at is not None and time.monotonic() > self._deadline_at:
+            saved = (
+                " Its progress is saved: Resume continues from where it stopped."
+                if self._checkpoints is not None
+                else ""
+            )
             raise RunInterrupted(
                 f"The run exceeded its {self._deadline_seconds:.0f} s time limit and was "
-                "stopped. An administrator can raise the limit (STUDIO_WORKER_JOB_TIMEOUT).",
+                f"stopped.{saved} An administrator can raise the limit "
+                "(STUDIO_WORKER_JOB_TIMEOUT, or STUDIO_WORKER_JOB_TIMEOUT_BY_LANE for one lane).",
                 cancelled=False,
             )
 

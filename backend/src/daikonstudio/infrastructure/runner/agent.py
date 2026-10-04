@@ -76,6 +76,8 @@ class AgentSettings(BaseSettings):
     # Same two knobs as the API's Settings, same meaning (see daikonstudio.logging).
     log_level: str = "INFO"
     log_format: str = "console"
+    # How often a long neural fit saves its training state (STUDIO_CHECKPOINT_INTERVAL_SECONDS).
+    checkpoint_interval_seconds: float = 600.0
 
 
 async def _heartbeat(api: httpx.AsyncClient, run_id: uuid.UUID, interval: float) -> None:
@@ -147,7 +149,11 @@ async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
     claimed = ClaimResponse.model_validate(response.json())
     run_id = claimed.run.id
     ctx = build_http_ctx(
-        settings.url, settings.runner_token, run_id, deadline_seconds=claimed.deadline_seconds
+        settings.url,
+        settings.runner_token,
+        run_id,
+        deadline_seconds=claimed.deadline_seconds,
+        checkpoint_interval_seconds=settings.checkpoint_interval_seconds,
     )
     heartbeat = asyncio.create_task(
         _heartbeat(api, run_id, claimed.lease_seconds / _HEARTBEATS_PER_LEASE)

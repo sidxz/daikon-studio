@@ -20,6 +20,7 @@ from typing import Any
 
 import httpx
 
+from daikonstudio.application.engines.checkpoints import DEFAULT_INTERVAL_SECONDS
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.execution.run import Run, RunKind
@@ -271,6 +272,15 @@ class HttpBlobStore:
     def delete(self, key: str) -> None:
         raise NotImplementedError(_NOT_IMPLEMENTED)
 
+    def delete_prefix(self, prefix: str) -> None:
+        # The only delete a runner may make: its own run's saved progress, when the run
+        # succeeds. The server derives the folder from the run; this check just keeps a
+        # mistaken caller from believing some other folder was deleted.
+        if not prefix.endswith(f"/runs/{self._client.run_id}/checkpoints/"):
+            raise NotImplementedError("A runner can delete only its own run's saved progress.")
+        response = self._client._blobs.delete(f"/runs/{self._client.run_id}/checkpoints")
+        response.raise_for_status()
+
 
 def build_http_ctx(
     base_url: str,
@@ -278,6 +288,7 @@ def build_http_ctx(
     run_id: uuid.UUID,
     *,
     deadline_seconds: int | None,
+    checkpoint_interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
     **transports: Any,
 ) -> dict[str, Any]:
     """The runner-side twin of `infrastructure.jobs.build_sqlalchemy_ctx`:
@@ -296,5 +307,6 @@ def build_http_ctx(
         "protocols": HttpProtocolRepository(client),
         "store": HttpBlobStore(client),
         "job_deadline_seconds": deadline_seconds,
+        "checkpoint_interval_seconds": checkpoint_interval_seconds,
         "_client": client,
     }

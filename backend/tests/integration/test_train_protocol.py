@@ -36,6 +36,9 @@ from daikonstudio.application.data.create_dataset import (
     CreateDatasetCommand,
     StoreUpload,
 )
+from daikonstudio.application.engines.checkpoints import checkpoint_root
+from daikonstudio.application.engines.context import RunInterrupted
+from daikonstudio.application.execution.retry_run import RetryRun, RetryRunCommand
 from daikonstudio.application.execution.train_protocol import (
     ScorecardInputs,
     TargetInputs,
@@ -576,6 +579,60 @@ async def test_a_failed_optimism_gap_does_not_destroy_the_honest_result(
     assert scorecard.random_split_unavailable is not None
     assert "no random split for you" in scorecard.random_split_unavailable
     assert scorecard.targets[0].metrics and scorecard.targets[0].baseline_metrics
+
+
+async def test_a_retried_run_resumes_from_the_fits_an_earlier_attempt_saved(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Three distinct fits (the model, a random-forest baseline, the model again on a
+    random split). The first attempt is stopped at the third; the retry of the same run
+    must restore the first two instead of fitting them again, and clean up on success."""
+    import daikonstudio.application.execution.train_protocol as module
+
+    fitted: list[str] = []
+    for engine in (Ecfp4XGBoost, Ecfp4RandomForest):
+        original = engine.train
+
+        def counting(self, ctx, _original=original):  # type: ignore[no-untyped-def]
+            fitted.append(type(self).__name__)
+            return _original(self, ctx)
+
+        monkeypatch.setattr(engine, "train", counting)
+
+    real = module.assign_split
+
+    def stop_at_the_random_split(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        if spec.strategy is SplitStrategy.RANDOM:
+            raise RunInterrupted("limit", cancelled=False)
+        return real(frame, structure_column, spec, normalizer)
+
+    monkeypatch.setattr(module, "assign_split", stop_at_the_random_split)
+
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD)
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    assert (await studio.reload(run)).status is RunStatus.FAILED
+    assert fitted == ["Ecfp4XGBoost", "Ecfp4RandomForest"]
+    saved = studio.blobs / checkpoint_root(studio.auth.workspace_id, dataset.id, run.id)
+    assert (saved / "model" / "result.json").exists()
+    assert (saved / "baseline" / "result.json").exists()
+
+    monkeypatch.setattr(module, "assign_split", real)
+    fitted.clear()
+    retry = RetryRun(
+        studio.runs,
+        studio.protocols,
+        InlineEnqueuer(studio.sessions, studio.store),
+        default_registry(),
+    )
+    (await retry(RetryRunCommand(run_id=run.id), studio.auth)).unwrap()
+
+    resumed = await studio.reload(run)
+    assert resumed.status is RunStatus.READY, resumed.error_message
+    assert fitted == ["Ecfp4XGBoost"]  # the random-split fit only
+    scorecard = await studio.scorecard_for(run)
+    assert scorecard.targets[0].metrics and scorecard.targets[0].baseline_metrics
+    assert scorecard.targets[0].random_split_metrics is not None
+    assert not saved.exists()  # success removes the run's saved progress
 
 
 async def test_the_task_comes_from_the_target_spec_not_from_the_values(

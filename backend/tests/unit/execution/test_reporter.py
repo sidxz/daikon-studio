@@ -135,6 +135,7 @@ async def test_progress_between_fits_honours_the_deadline():
         await training._progress(run, 0.6, "training baseline")
     assert raised.value.cancelled is False
     assert "time limit" in raised.value.reason
+    assert "STUDIO_WORKER_JOB_TIMEOUT_BY_LANE" in raised.value.reason
 
 
 class _Layout:

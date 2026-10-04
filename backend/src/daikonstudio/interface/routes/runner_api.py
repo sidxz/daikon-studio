@@ -27,13 +27,14 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import JSONResponse
 
+from daikonstudio.application.engines.checkpoints import checkpoint_root
 from daikonstudio.application.execution.claim_run import ClaimRun
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.catalog.protocol import ProtocolStatus
-from daikonstudio.domain.execution.run import RunStatus
+from daikonstudio.domain.execution.run import RunKind, RunStatus
 from daikonstudio.domain.shared.errors import (
     AuthorizationError,
     ConcurrencyConflictError,
@@ -294,3 +295,13 @@ async def put_blob(
     body = b"".join(chunks)
 
     return BlobPutResponse(uri=store.put_bytes(key, body))
+
+
+@router.delete("/runs/{run_id}/checkpoints", status_code=204)
+async def delete_checkpoints(run: ClaimedRunWrite, store: BlobStoreDep) -> Response:
+    """Delete this run's saved training progress, and nothing else: the folder is
+    derived from the run itself, never from the request."""
+    dataset_id = run.params.get("dataset_id")
+    if run.kind is RunKind.TRAINING and dataset_id:
+        store.delete_prefix(checkpoint_root(run.workspace_id, uuid.UUID(str(dataset_id)), run.id))
+    return Response(status_code=204)

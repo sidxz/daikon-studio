@@ -30,6 +30,7 @@ from typing import Any
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from daikonstudio.application.engines.checkpoints import DEFAULT_INTERVAL_SECONDS
 from daikonstudio.application.engines.context import RunInterrupted
 from daikonstudio.application.engines.manifest import DEFAULT_LANE
 from daikonstudio.application.execution.failure_message import user_facing_error
@@ -90,6 +91,9 @@ async def _train(ctx: dict[str, Any], run: Run) -> str:
         # `.get`, not `[...]`: a ctx built by hand in a test may carry neither key.
         deadline_seconds=ctx.get("job_deadline_seconds"),
         layout=UmapLayout(),
+        checkpoint_interval_seconds=ctx.get(
+            "checkpoint_interval_seconds", DEFAULT_INTERVAL_SECONDS
+        ),
     )(run)
 
 

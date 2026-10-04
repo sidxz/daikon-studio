@@ -25,6 +25,8 @@ from tests.helpers.runner_fixtures import claim as _claim
 from tests.helpers.runner_fixtures import register_runner as _register_runner
 from tests.helpers.runner_fixtures import seed_run as _seed_run
 
+from daikonstudio.application.engines.checkpoints import checkpoint_root
+from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.domain.catalog.protocol import ProtocolStatus
@@ -625,6 +627,50 @@ async def test_blob_put_with_a_negative_content_length_does_not_500(
     response = await anonymous_client.send(request)
     assert response.status_code != 500, response.text
     assert response.status_code == 200, response.text
+
+
+async def test_delete_checkpoints_removes_only_this_runs_saved_progress(
+    anonymous_client, app, workspace_id
+):
+    dataset_id = uuid.uuid4()
+    run = await _seed_run(
+        app, workspace_id, kind=RunKind.TRAINING, params={"dataset_id": str(dataset_id)}
+    )
+    _, headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, headers)
+    store = app.state.container[BlobStore]
+    saved = f"{checkpoint_root(workspace_id, dataset_id, run.id)}model/result.json"
+    snapshot = f"{workspace_id}/datasets/{dataset_id}/snapshot.parquet"
+    store.put_bytes(saved, b"progress")
+    store.put_bytes(snapshot, b"keep")
+
+    response = await anonymous_client.delete(
+        f"/api/v1/runner/runs/{run.id}/checkpoints", headers=headers
+    )
+
+    assert response.status_code == 204, response.text
+    assert not store.exists(saved)
+    assert store.exists(snapshot)
+
+
+async def test_delete_checkpoints_without_the_claim_is_403(anonymous_client, app, workspace_id):
+    dataset_id = uuid.uuid4()
+    run = await _seed_run(
+        app, workspace_id, kind=RunKind.TRAINING, params={"dataset_id": str(dataset_id)}
+    )
+    _, claimant_headers = await _register_runner(app, ["default"])
+    await _claim(anonymous_client, claimant_headers)
+    store = app.state.container[BlobStore]
+    saved = f"{checkpoint_root(workspace_id, dataset_id, run.id)}model/result.json"
+    store.put_bytes(saved, b"progress")
+
+    _, other_headers = await _register_runner(app, ["default"])
+    response = await anonymous_client.delete(
+        f"/api/v1/runner/runs/{run.id}/checkpoints", headers=other_headers
+    )
+
+    assert response.status_code == 403, response.text
+    assert store.exists(saved)
 
 
 # --------------------------------------------------------------------------

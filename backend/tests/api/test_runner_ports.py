@@ -26,6 +26,7 @@ from tests.helpers.runner_fixtures import (
 )
 from tests.helpers.sync_asgi import SyncAsgiTransport
 
+from daikonstudio.application.engines.checkpoints import Checkpoints, checkpoint_root
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
 from daikonstudio.domain.execution.run import RunKind, RunStatus
@@ -222,6 +223,36 @@ async def test_a_missing_blob_is_a_missing_file(blob_app, workspace_id):
 
         with pytest.raises(FileNotFoundError):
             store.get_bytes(f"{workspace_id}/protocols/{uuid.uuid4()}/scorecard-inputs.json")
+        await client.aclose()
+
+
+async def test_a_runner_clears_its_own_runs_saved_progress_and_nothing_else(
+    blob_app, workspace_id
+):
+    dataset_id = uuid.uuid4()
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=blob_app), base_url="http://testserver"
+    ) as anon:
+        run = await seed_run(
+            blob_app, workspace_id, kind=RunKind.TRAINING, params={"dataset_id": str(dataset_id)}
+        )
+        _, headers = await register_runner(blob_app, ["default"])
+        await claim(anon, headers)
+        client = _build_client(blob_app, headers, run.id)
+        store = HttpBlobStore(client)
+
+        snapshot = f"{workspace_id}/datasets/{dataset_id}/snapshot.parquet"
+        store.put_bytes(snapshot, b"keep")
+        saved = Checkpoints(store, checkpoint_root(workspace_id, dataset_id, run.id))
+        saved.scoped("model").save("result", b"progress")
+        assert saved.scoped("model").load("result") == b"progress"
+
+        saved.clear()
+
+        assert saved.scoped("model").load("result") is None
+        assert store.get_bytes(snapshot) == b"keep"
+        with pytest.raises(NotImplementedError):
+            store.delete_prefix(f"{workspace_id}/datasets/{dataset_id}/")
         await client.aclose()
 
 
