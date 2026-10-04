@@ -7,6 +7,7 @@ import {
   getAuthHeaders,
 } from "@/shared/lib/api/custom-instance";
 import type {
+  ColumnRangeResponse,
   PaginatedResponsePredictionResponse,
   PaginatedResponseRunResponse,
   PredictBody,
@@ -34,6 +35,22 @@ export function useRunChemicalSpace(id: string | undefined) {
       }),
     enabled: Boolean(id),
     staleTime: mapStaleTime,
+  });
+}
+
+/**
+ * Each numeric results column's range across the whole run: the scale the triage
+ * grid's in-cell bars are drawn against. A finished run's results never change.
+ */
+export function useResultRanges(id: string) {
+  return useQuery({
+    queryKey: [...RUN_KEY, id, "results", "ranges"],
+    queryFn: () =>
+      customInstance<Record<string, ColumnRangeResponse>>({
+        url: `${API_V1}/runs/${id}/results/ranges`,
+        method: "GET",
+      }),
+    staleTime: STALE_TIME.LONG,
   });
 }
 

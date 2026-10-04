@@ -1,3 +1,4 @@
+import type { Engine } from "@/features/engines";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 
 export type VerdictKind =
@@ -155,9 +156,11 @@ export function describeBaseline(
     ScorecardResponse,
     "baseline_engine_id" | "engine_id" | "conditions" | "baseline_conditions"
   >,
+  engines?: Pick<Engine, "id" | "name" | "conditions">[],
 ): string {
+  const baselineEngine = engines?.find((engine) => engine.id === scorecard.baseline_engine_id);
   if (scorecard.baseline_engine_id !== scorecard.engine_id) {
-    return scorecard.baseline_engine_id;
+    return baselineEngine?.name ?? scorecard.baseline_engine_id;
   }
 
   const conditions = scorecard.conditions as Record<string, unknown>;
@@ -168,7 +171,9 @@ export function describeBaseline(
   // readable, not renderable). There is nothing to diff against, so naming the
   // engine is the only true thing left to say -- the alternative is a
   // "key = undefined" for every key `conditions` happens to have.
-  if (Object.keys(baselineConditions).length === 0) return scorecard.baseline_engine_id;
+  if (Object.keys(baselineConditions).length === 0) {
+    return baselineEngine?.name ?? scorecard.baseline_engine_id;
+  }
 
   const keys = new Set([...Object.keys(conditions), ...Object.keys(baselineConditions)]);
   const differing = [...keys].filter((key) => conditions[key] !== baselineConditions[key]).sort();
@@ -177,10 +182,28 @@ export function describeBaseline(
     // Same engine, same conditions -- this is `baseline_is_self`, rendered
     // through a different verdict branch entirely, but a caller that reaches
     // here anyway must still say something true rather than an empty phrase.
-    return `the same engine (${scorecard.engine_id}) with the same conditions`;
+    return `the same engine (${baselineEngine?.name ?? scorecard.engine_id}) with the same conditions`;
   }
 
-  const detail = differing.map((key) => `${key} = ${String(baselineConditions[key])}`).join(", ");
+  // The setting's own label and option label where the manifest is at hand, as the
+  // form shows them; the raw key only when it is not (an engine since removed).
+  const detail = differing
+    .map((key) => {
+      const value = baselineConditions[key];
+      const spec = baselineEngine?.conditions.find((condition) => condition.key === key);
+      if (spec == null) return `${key} = ${String(value)}`;
+      const option = spec.options.indexOf(String(value));
+      const shown =
+        typeof value === "boolean"
+          ? value
+            ? "on"
+            : "off"
+          : option >= 0
+            ? (spec.option_labels?.[option] ?? String(value))
+            : String(value);
+      return `${spec.label} ${shown}`;
+    })
+    .join(", ");
   return `the same engine with ${detail}`;
 }
 

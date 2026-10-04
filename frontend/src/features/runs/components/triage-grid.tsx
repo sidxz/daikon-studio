@@ -2,7 +2,6 @@
 
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
 import { studioGridTheme } from "@/shared/components/data-grid/ag-grid-theme";
-import { ReadoutValue } from "@/shared/components/readout-value";
 import { Button } from "@/shared/components/ui/button";
 import { Label } from "@/shared/components/ui/label";
 import { Switch } from "@/shared/components/ui/switch";
@@ -18,9 +17,17 @@ import {
 } from "ag-grid-community";
 import { AgGridReact } from "ag-grid-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { fetchResultBlock } from "../hooks/use-runs";
+import { fetchResultBlock, useResultRanges } from "../hooks/use-runs";
+import { PROBABILITY_SPREAD_MAX, cutoffFor, positionIn } from "../lib/cell-scale";
 import { IN_DOMAIN_FLOOR, buildResultParams } from "../lib/result-query";
 import type { TriageRow } from "../types";
+import {
+  ApplicabilityCell,
+  ClassCell,
+  ProbabilityCell,
+  UncertaintyCell,
+  ValueCell,
+} from "./result-cells";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -41,6 +48,12 @@ const NUMBER_FILTER = {
     inRangeInclusive: true,
   },
 } satisfies Partial<ColDef<TriageRow>>;
+
+const CENTRED = { display: "flex", alignItems: "center" };
+
+function SmilesCell({ value }: { value: string }) {
+  return <span className="min-w-0 truncate">{value}</span>;
+}
 
 function StructureCell({ value }: { value: string }) {
   return <StructureThumbnail smiles={value} size={64} className="my-1" />;
@@ -69,6 +82,9 @@ export function TriageGrid({
   // Unknown until a block arrives: the Run does not say whether it was given an
   // identifier column. Set from any block, so leading blank IDs cannot hide it.
   const [hasIds, setHasIds] = useState(false);
+  // The scale for each column's bars: the whole run, not the page in view. Until it
+  // arrives a continuous column shows its numbers alone.
+  const { data: ranges } = useResultRanges(runId);
 
   const columns = useMemo<ColDef<TriageRow>[]>(() => {
     // No column for `__rowId`. AG Grid renders its own checkbox column from
@@ -92,6 +108,8 @@ export function TriageGrid({
         sortable: false,
         filter: false,
         cellClass: "font-mono text-xs",
+        // Its own span: a bare text node in a flex cell loses its ellipsis.
+        cellRenderer: SmilesCell,
       },
       // The join back to the scientist's own file. Neither is a sort key the
       // results endpoint accepts, so both are display only.
@@ -118,19 +136,36 @@ export function TriageGrid({
     ];
 
     // One column per Readout the Protocol declares, each rendered with its own
-    // unit so a predicted value reads the way a measured one does.
+    // unit so a predicted value reads the way a measured one does, and drawn by its
+    // type: a probability against its cutoff, a class as a word, a continuous value
+    // on the run's own range.
     for (const readout of readouts) {
+      const range = ranges?.[readout.name];
+      const cutoff = cutoffFor(readout.name, readouts);
       base.push({
         headerName: readout.unit ? `${readout.name} (${readout.unit})` : readout.name,
         // A valueGetter column has no `field` to derive a colId from, and the
         // colId is what the API receives as the column name to sort by.
         colId: readout.name,
-        width: 150,
+        width: 160,
         ...NUMBER_FILTER,
         valueGetter: (params) => params.data?.readouts?.[readout.name]?.value ?? null,
-        cellRenderer: (params: { value: number | null }) => (
-          <ReadoutValue value={params.value} unit={readout.unit} precision={3} />
-        ),
+        cellRenderer: (params: { value: number | null }) =>
+          readout.type === "probability" ? (
+            <ProbabilityCell value={params.value} cutoff={cutoff} />
+          ) : readout.type === "class" ? (
+            <ClassCell value={params.value} />
+          ) : (
+            <ValueCell
+              value={params.value}
+              unit={readout.unit}
+              fraction={
+                params.value == null ? null : positionIn(params.value, range?.min, range?.max)
+              }
+              min={range?.min}
+              max={range?.max}
+            />
+          ),
       });
     }
 
@@ -139,16 +174,26 @@ export function TriageGrid({
     // one-target Protocol, as every results file before several targets used.
     const targets = targetsOf(readouts);
     for (const target of targets) {
+      const column = uncertaintyColumn(target, targets.length);
+      const runMax = ranges?.[column]?.max ?? null;
+      // A binary target's uncertainty is drawn on at least 0 to 0.5, the most an
+      // ensemble's spread of probabilities can be, so a run of confident predictions
+      // does not fill its bars. Engines that report distance from the boundary
+      // instead reach 1, which the run's own maximum then covers. A continuous
+      // target has no such ceiling, so its scale is the run's own maximum.
+      const isBinary = readouts.some((r) => r.name === target && r.type === "class");
+      const scale =
+        runMax == null ? null : isBinary ? Math.max(PROBABILITY_SPREAD_MAX, runMax) : runMax;
       base.push({
         headerName: targets.length === 1 ? "Uncertainty" : `Uncertainty (${target})`,
-        colId: uncertaintyColumn(target, targets.length),
+        colId: column,
         width: 150,
         ...NUMBER_FILTER,
         valueGetter: (params) => params.data?.uncertainty?.[target] ?? null,
         // Null for XGBoost, which has no ensemble spread to report. Rendered as
         // absence rather than as a fabricated zero.
         cellRenderer: (params: { value: number | null }) => (
-          <ReadoutValue value={params.value} precision={3} />
+          <UncertaintyCell value={params.value} scale={scale} />
         ),
       });
     }
@@ -158,18 +203,13 @@ export function TriageGrid({
       field: "applicability",
       width: 140,
       ...NUMBER_FILTER,
-      cellRenderer: (params: { value: number | null }) =>
-        params.value == null ? (
-          <span className="text-muted-foreground">—</span>
-        ) : (
-          <span className={params.value < IN_DOMAIN_FLOOR ? "text-warning" : undefined}>
-            {(params.value * 100).toFixed(0)}%
-          </span>
-        ),
+      cellRenderer: (params: { value: number | null }) => (
+        <ApplicabilityCell value={params.value} />
+      ),
     });
 
     return base;
-  }, [readouts, hasIds]);
+  }, [readouts, hasIds, ranges]);
 
   const datasource = useMemo<IDatasource>(
     () => ({
@@ -265,6 +305,10 @@ export function TriageGrid({
         <AgGridReact<TriageRow>
           theme={studioGridTheme}
           columnDefs={columns}
+          // Every cell centred in the tall rows the structure thumbnails need, so a
+          // number, a bar and a label line up across the row. An inline style, not a
+          // class: AG Grid's stylesheet outranks Tailwind's layered utilities.
+          defaultColDef={{ cellStyle: CENTRED }}
           rowModelType="infinite"
           cacheBlockSize={BLOCK_SIZE}
           rowHeight={72}

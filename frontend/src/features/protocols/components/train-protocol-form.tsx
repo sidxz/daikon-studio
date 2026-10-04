@@ -35,7 +35,7 @@ import { ChevronDownIcon } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { useRunPoll, useTrainProtocol } from "../hooks/use-protocols";
-import { withoutInapplicable } from "../lib/conditions";
+import { conditionsValid, withoutInapplicable } from "../lib/conditions";
 import { ConditionFields } from "./condition-fields";
 import { TuneCutoffsField } from "./tune-cutoffs-field";
 
@@ -235,9 +235,16 @@ export function TrainProtocolForm() {
   // one fit runs and its metrics get reported as both sides of a comparison
   // that never happened. Exempt only the registry's own flagged baseline
   // engine, for which there truly is nothing else to compare against.
+  // A value outside a setting's bounds fails the run in the worker, so it blocks
+  // here instead. The baseline's settings sit in a collapsed section, which is why
+  // the reason is also shown beside the button.
+  const settingsValid =
+    conditionsValid(engine?.conditions ?? [], conditions, tasks, pinned) &&
+    conditionsValid(baselineEngine?.conditions ?? [], baselineConditions, tasks, baselinePinned);
   const canSubmit =
     Boolean(name.trim() && datasetId && engineId && baselineEngineId) &&
     (!selfCompare || Boolean(engine?.is_baseline)) &&
+    settingsValid &&
     !working;
 
   if (working) {
@@ -416,6 +423,7 @@ export function TrainProtocolForm() {
                   }
                   pinned={baselinePinned}
                   tasks={tasks}
+                  idPrefix="baseline-condition"
                 />
               </CollapsibleContent>
             </Collapsible>
@@ -427,9 +435,16 @@ export function TrainProtocolForm() {
         <Button variant="ghost" onClick={() => router.push("/protocols")}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={!canSubmit}>
-          Train
-        </Button>
+        <div className="flex items-center gap-3">
+          {!settingsValid && (
+            <span className="text-sm text-destructive">
+              A setting is outside its allowed range.
+            </span>
+          )}
+          <Button onClick={submit} disabled={!canSubmit}>
+            Train
+          </Button>
+        </div>
       </div>
     </div>
   );

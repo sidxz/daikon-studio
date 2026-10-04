@@ -227,7 +227,8 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
             </p>
           )}
           <p className="mt-2 text-sm text-muted-foreground">
-            The baseline is {describeBaseline(scorecard)} on the same dataset and the same split.
+            The baseline is {describeBaseline(scorecard, engines)} on the same dataset and the same
+            split.
             {/* This claim is specifically about fingerprint baselines -- it is
                 false about e.g. a chemprop baseline, and this page's whole
                 purpose is to tell a scientist the truth about their model. */}

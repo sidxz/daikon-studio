@@ -11,7 +11,7 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Switch } from "@/shared/components/ui/switch";
-import { appliesToTasks } from "../lib/conditions";
+import { appliesToTasks, conditionError } from "../lib/conditions";
 
 /**
  * The run form's inputs, rendered entirely from the engine manifest.
@@ -33,6 +33,7 @@ export function ConditionFields({
   onChange,
   pinned,
   tasks,
+  idPrefix = "condition",
 }: {
   conditions: Condition[];
   values: Record<string, unknown>;
@@ -49,6 +50,12 @@ export function ConditionFields({
    * undefined, as before a dataset is chosen, hides nothing.
    */
   tasks?: string[];
+  /**
+   * Distinguishes two sets of these fields on one page (a model's and its baseline's):
+   * the same engine renders the same keys, and ids must be unique for each label to
+   * point at its own input.
+   */
+  idPrefix?: string;
 }) {
   const shown = conditions.filter((condition) => appliesToTasks(condition, tasks));
 
@@ -66,7 +73,8 @@ export function ConditionFields({
         const current = isPinned
           ? pinned[condition.key]
           : (values[condition.key] ?? condition.default ?? "");
-        const id = `condition-${condition.key}`;
+        const id = `${idPrefix}-${condition.key}`;
+        const error = isPinned ? null : conditionError(condition, current);
 
         return (
           <div key={condition.key} className="space-y-1.5">
@@ -110,6 +118,8 @@ export function ConditionFields({
                 max={condition.maximum ?? undefined}
                 step={type === "integer" ? 1 : "any"}
                 disabled={isPinned}
+                aria-invalid={error != null}
+                aria-describedby={error != null ? `${id}-error` : undefined}
                 onChange={(event) => {
                   const raw = event.target.value;
                   if (type === "integer" || type === "number") {
@@ -121,6 +131,11 @@ export function ConditionFields({
               />
             )}
 
+            {error != null && (
+              <p id={`${id}-error`} className="text-xs text-destructive">
+                {error}
+              </p>
+            )}
             {isPinned ? (
               <p className="text-xs text-muted-foreground">
                 Fixed by the pretrained weights you selected.

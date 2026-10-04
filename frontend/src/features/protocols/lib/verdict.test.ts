@@ -1,3 +1,4 @@
+import type { Engine } from "@/features/engines";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { describe, expect, it } from "vitest";
 import { computeOptimismGap, computeVerdict, describeBaseline, higherIsBetter } from "./verdict";
@@ -56,6 +57,62 @@ describe("verdict", () => {
 
   it("refuses to guess when a metric is missing", () => {
     expect(computeVerdict(scorecard({ metrics: {} })).kind).toBe("unknown");
+  });
+});
+
+describe("describeBaseline with the engine manifest at hand", () => {
+  const chemprop = {
+    id: "chemprop-dmpnn",
+    name: "Chemprop D-MPNN",
+    conditions: [
+      { key: "ensemble_size", label: "Ensemble size", options: [], option_labels: null },
+      {
+        key: "positive_weighting",
+        label: "Positive-class weighting",
+        options: ["none", "balanced"],
+        option_labels: ["None", "Balanced"],
+      },
+      {
+        key: "rdkit_descriptors",
+        label: "Add RDKit descriptors",
+        options: [],
+        option_labels: null,
+      },
+    ],
+  } as unknown as Engine;
+
+  it("names what differs by the setting's own label, as the form shows it", () => {
+    expect(
+      describeBaseline(
+        {
+          baseline_engine_id: "chemprop-dmpnn",
+          engine_id: "chemprop-dmpnn",
+          conditions: { ensemble_size: 3, positive_weighting: "none", rdkit_descriptors: true },
+          baseline_conditions: {
+            ensemble_size: 1,
+            positive_weighting: "balanced",
+            rdkit_descriptors: false,
+          },
+        },
+        [chemprop],
+      ),
+    ).toBe(
+      "the same engine with Ensemble size 1, Positive-class weighting Balanced, Add RDKit descriptors off",
+    );
+  });
+
+  it("names a different baseline engine by its name, not its id", () => {
+    expect(
+      describeBaseline(
+        {
+          baseline_engine_id: "chemprop-dmpnn",
+          engine_id: "ecfp4-xgboost",
+          conditions: {},
+          baseline_conditions: {},
+        },
+        [chemprop],
+      ),
+    ).toBe("Chemprop D-MPNN");
   });
 });
 

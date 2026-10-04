@@ -5,6 +5,7 @@ import { TargetsHint, enginesForTargets, tasksForTargets, useEngines } from "@/f
 import {
   ConditionFields,
   TuneCutoffsField,
+  conditionsValid,
   resolveConditions,
   withoutInapplicable,
 } from "@/features/protocols";
@@ -176,6 +177,7 @@ export function SweepForm() {
                   setBaselineConditions((prev) => ({ ...prev, [key]: value }))
                 }
                 tasks={tasks}
+                idPrefix="baseline-condition"
               />
             )}
           </div>
@@ -242,6 +244,7 @@ export function SweepForm() {
                     updateConfig(index, { conditions: { ...row.conditions, [key]: value } })
                   }
                   tasks={tasks}
+                  idPrefix={`config-${index}-condition`}
                 />
               )}
             </CardContent>
@@ -264,7 +267,12 @@ export function SweepForm() {
         <Button
           type="submit"
           disabled={
-            submit.isPending || !datasetId || !name || !configs.every((row) => row.engineId)
+            submit.isPending ||
+            !datasetId ||
+            !name ||
+            !configs.every((row) => row.engineId) ||
+            !conditionsValid(specsFor(baselineEngineId), baselineConditions, tasks) ||
+            !configs.every((row) => conditionsValid(specsFor(row.engineId), row.conditions, tasks))
           }
         >
           Start sweep
