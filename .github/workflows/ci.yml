@@ -41,16 +41,18 @@ jobs:
       - run: pnpm test
       - run: pnpm build
 
+  # Release tags only: pushes to main and PRs run the tests above and build nothing.
   images:
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     needs: [backend, frontend]
     permissions: { contents: read, packages: write }
     env:
       API_IMAGE: ghcr.io/${{ github.repository }}/api
       FRONTEND_IMAGE: ghcr.io/${{ github.repository }}/frontend
-      # A component tag builds and publishes only that component; main and PRs build both.
-      API: ${{ github.ref_type != 'tag' || startsWith(github.ref_name, 'backend-v') }}
-      FE: ${{ github.ref_type != 'tag' || startsWith(github.ref_name, 'frontend-v') }}
+      # A component tag builds and publishes only that component.
+      API: ${{ startsWith(github.ref_name, 'backend-v') }}
+      FE: ${{ startsWith(github.ref_name, 'frontend-v') }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with: { fetch-depth: 0 } # tags, so build-info.sh can `git describe`
@@ -109,11 +111,11 @@ jobs:
           API_VERSION: ${{ steps.ver.outputs.api_version }}
           FE_VERSION: ${{ steps.ver.outputs.fe_version }}
         run: |
-          # main: latest. A release tag X.Y.Z: X.Y.Z, X.Y and X; a pre-release
-          # (X.Y.Z-beta.1) only its exact version. Every push also gets the commit sha.
+          # A release tag X.Y.Z: X.Y.Z, X.Y, X and latest; a pre-release (X.Y.Z-beta.1)
+          # only its exact version. Every push also gets the commit sha.
+          # A release moves latest too, now that main no longer publishes it.
           tags_for() {
-            if [ "$GITHUB_REF_TYPE" != tag ]; then echo latest; return; fi
-            case "$1" in *-*) echo "$1" ;; *) echo "$1 ${1%.*} ${1%%.*}" ;; esac
+            case "$1" in *-*) echo "$1" ;; *) echo "$1 ${1%.*} ${1%%.*} latest" ;; esac
           }
           publish() { # local image, remote image, version
             for t in $(tags_for "$3") "$GITHUB_SHA"; do docker tag "$1" "$2:$t"; done

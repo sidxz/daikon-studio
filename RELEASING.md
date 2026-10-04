@@ -14,8 +14,8 @@ version, and publishes a changelog + GitHub Release.
 
 The backend image is both the API and the default-lane (CPU) runner, so a
 backend release versions both. Pushing a tag in one namespace builds, tags, and
-releases **only** that component. Pushes to `main` still publish `:latest` and
-`:<commit sha>` for both.
+releases **only** that component, and moves its `:latest`. Pushes to `main` and pull
+requests run the tests only and build no images.
 
 ## Choosing the bump (Conventional Commits)
 
@@ -52,7 +52,7 @@ frontend and any deployed runners are compatible.
    ```
 5. CI (`.github/workflows/ci.yml`) then:
    - runs the full test suites, builds **only** that component, boot-checks the
-     image, and tags it `1.4.0`, `1.4`, `1` (a pre-release such as
+     image, and tags it `1.4.0`, `1.4`, `1` and `latest` (a pre-release such as
      `1.4.0-beta.1` gets only its exact tag);
    - injects `APP_VERSION` / `APP_GIT_SHA` / `APP_BUILD_DATE` into the image — all three
      come from `scripts/build-info.sh <component>`, the single derivation shared with `make dev`;
