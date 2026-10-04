@@ -76,13 +76,16 @@ def test_a_failing_store_never_raises_from_save_or_load():
     assert checkpoints.load("state") is None
 
 
-def test_saving_again_replaces_the_previous_blob():
+def test_repeated_saves_alternate_two_slots_so_storage_stays_bounded():
     store = InMemoryBlobStore()
     checkpoints = Checkpoints(store, ROOT)
-    checkpoints.save("state", b"first")
-    checkpoints.save("state", b"second")
-    assert checkpoints.load("state") == b"second"
-    assert len([key for key in store.blobs if not key.endswith(".json")]) == 1
+    for epoch in range(5):
+        checkpoints.save("state", f"epoch {epoch}".encode())
+        assert checkpoints.load("state") == f"epoch {epoch}".encode()
+    assert sorted(key for key in store.blobs if not key.endswith(".json")) == [
+        ROOT + "state.a",
+        ROOT + "state.b",
+    ]
 
 
 @pytest.mark.parametrize("name", ["a/b", "..", ".", "", "x y"])

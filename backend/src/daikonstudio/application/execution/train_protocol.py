@@ -1069,7 +1069,7 @@ class RunTraining:
         since none of them reports progress during a fit."""
         if self._deadline_at is not None and time.monotonic() > self._deadline_at:
             saved = (
-                " Its progress is saved: Resume continues from where it stopped."
+                " Resume continues from its last saved progress."
                 if self._checkpoints is not None
                 else ""
             )

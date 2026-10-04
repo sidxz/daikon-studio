@@ -8,10 +8,13 @@ run, a Start over and a deleted dataset can each remove it in one call.
 Saving is best effort: every failure here is logged and swallowed. A save that fails
 costs a resume some progress; a save that raised would cost the run itself.
 
-Integrity: each save writes its data to a content-addressed blob, then a small JSON
-marker naming that blob, its length, its sha256 and the fingerprint it was saved under.
-The marker is written last, so a save interrupted before it leaves the previous save
-loadable; a marker whose fingerprint or checksum disagrees reads as nothing saved.
+Integrity: each name has two slots, `{name}.a` and `{name}.b`. A save writes the slot
+the marker does NOT point at, then rewrites the small JSON marker -- slot, length,
+sha256 and the fingerprint it was saved under -- to point at it. The marker is written
+last, so a save interrupted before it leaves the previous save loadable; a marker whose
+fingerprint or checksum disagrees reads as nothing saved. Two fixed slots rather than
+content-addressed blobs because a runner cannot delete a single blob: storage stays at
+twice one save however many times a long fit saves.
 """
 
 from __future__ import annotations
@@ -19,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import lzma
 import re
 import struct
 import uuid
@@ -35,7 +39,7 @@ DEFAULT_INTERVAL_SECONDS = 600.0
 
 #: The packed-`TrainResult` layout. Part of every fit's fingerprint: bump it when
 #: `pack_result` changes and older saves read as absent instead of misreading.
-RESULT_FORMAT = "1"
+RESULT_FORMAT = "2"
 
 _SAFE_NAME = re.compile(r"[A-Za-z0-9_-][A-Za-z0-9._-]*")
 
@@ -82,10 +86,11 @@ class Checkpoints:
     def save(self, name: str, data: bytes) -> None:
         _require_safe(name)
         digest = hashlib.sha256(data).hexdigest()
-        blob = f"{name}.{digest[:16]}"
         marker_key = f"{self.root}{name}.json"
         try:
             previous = self._marker(marker_key)
+            current = previous.get("blob") if previous is not None else None
+            blob = f"{name}.b" if current == f"{name}.a" else f"{name}.a"
             self._store.put_bytes(self.root + blob, data)
             self._store.put_bytes(
                 marker_key,
@@ -107,11 +112,6 @@ class Checkpoints:
                 exc_info=True,
             )
             return
-        if previous is not None and previous.get("blob") not in {None, blob}:
-            try:
-                self._store.delete(self.root + str(previous["blob"]))
-            except Exception:
-                logger.info("Left a superseded checkpoint blob in %s", self.root, exc_info=True)
 
     def load(self, name: str) -> bytes | None:
         _require_safe(name)
@@ -150,7 +150,9 @@ class Checkpoints:
 
 
 def pack_result(result: TrainResult) -> bytes:
-    """A completed fit as one blob: a length-prefixed JSON header, then the artifact."""
+    """A completed fit as one blob: a length-prefixed JSON header, then the artifact,
+    xz-compressed at the preset `pack_artifact` uses -- a forest shrinks about eightfold,
+    which is what keeps a large fit's save under the runner upload cap."""
     header = json.dumps(
         {
             "metrics": result.metrics,
@@ -158,10 +160,11 @@ def pack_result(result: TrainResult) -> bytes:
             "cutoffs": result.cutoffs,
         }
     ).encode()
-    return struct.pack(">I", len(header)) + header + result.artifact
+    return lzma.compress(struct.pack(">I", len(header)) + header + result.artifact, preset=1)
 
 
 def unpack_result(data: bytes) -> TrainResult:
+    data = lzma.decompress(data)
     (length,) = struct.unpack(">I", data[:4])
     header = json.loads(data[4 : 4 + length])
     return TrainResult(
