@@ -122,7 +122,7 @@ export function SweepDetail({ id }: { id: string }) {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>#</TableHead>
+              <TableHead>{active ? "Rank" : "#"}</TableHead>
               <TableHead>Configuration</TableHead>
               <TableHead>Engine</TableHead>
               <TableHead>Status</TableHead>
@@ -148,10 +148,11 @@ export function SweepDetail({ id }: { id: string }) {
               const conditions = formatConditions(run.conditions);
               return (
                 <TableRow key={run.id}>
-                  {/* Rank, not submission index -- the table is sorted, and
-                      numbering it by position is the whole point. */}
+                  {/* Ranked by the chosen target once there is one; until then (a
+                      multi-target sweep nobody has sorted) the configuration's own
+                      number, matching the "#n" in its name. */}
                   <TableCell className="text-muted-foreground">
-                    {active && isRankable(headlineFor(run, active)) ? index + 1 : "—"}
+                    {!active || isRankable(headlineFor(run, active)) ? index + 1 : "—"}
                   </TableCell>
                   {/* Wraps: a configuration's settings line grows with every setting an
                       engine declares, and on one line it pushed the metrics off-screen. */}
