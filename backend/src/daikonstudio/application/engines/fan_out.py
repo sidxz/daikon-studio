@@ -73,10 +73,17 @@ class FanOut:
             if result.validation_metrics is not None
             for key, value in result.validation_metrics.items()
         }
+        cutoffs = {
+            key: value
+            for result in results
+            if result.cutoffs is not None
+            for key, value in result.cutoffs.items()
+        }
         return TrainResult(
             artifact=results[0].artifact if count == 1 else _pack(columns, results),
             metrics={key: value for result in results for key, value in result.metrics.items()},
             validation_metrics=validation or None,
+            cutoffs=cutoffs or None,
         )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:

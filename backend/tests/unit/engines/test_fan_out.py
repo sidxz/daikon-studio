@@ -1,5 +1,6 @@
 import pickle
 import zipfile
+from dataclasses import replace
 from io import BytesIO
 
 import polars as pl
@@ -50,6 +51,7 @@ class _Recorder:
             artifact=pickle.dumps({"column": column, "task": ctx.task.value}),
             metrics={column: {"rmse": float(len(self.contexts))}},
             validation_metrics={column: {"rmse": 0.0}},
+            cutoffs={column: 0.3} if ctx.tune_cutoffs else None,
         )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:
@@ -156,3 +158,15 @@ def test_the_registry_wraps_only_engines_that_cannot_learn_targets_jointly():
     assert isinstance(registry.get("single"), FanOut)
     assert registry.get("joint") is joint
     assert registry.get("single").manifest() is _SINGLE
+
+
+def test_cutoffs_merge_per_target_and_tune_cutoffs_reaches_every_sub_fit():
+    inner = _Recorder()
+    result = FanOut(inner).train(
+        replace(
+            _ctx({"a": TaskType.BINARY_CLASSIFICATION, "b": TaskType.BINARY_CLASSIFICATION}),
+            tune_cutoffs=True,
+        )
+    )
+    assert result.cutoffs == {"a": 0.3, "b": 0.3}
+    assert all(ctx.tune_cutoffs for ctx in inner.contexts)

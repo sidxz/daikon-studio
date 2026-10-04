@@ -62,6 +62,8 @@ async def test_conditions_carry_all_form_metadata(client):
     assert "maximum" in n_est
     assert "options" in n_est
     assert "help" in n_est
+    # The tasks the setting applies to; empty means all of them.
+    assert n_est["tasks"] == []
     # Verify user-facing copy, not developer notes
     assert "Number of trees" in n_est["label"]
 

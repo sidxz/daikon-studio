@@ -35,6 +35,8 @@ class ConditionResponse(BaseModel):
     maximum: float | None
     options: tuple[str, ...]
     help: str | None
+    # The tasks the setting applies to; empty means all of them.
+    tasks: list[str]
 
     @classmethod
     def from_spec(cls, spec: ConditionSpec) -> ConditionResponse:
@@ -48,6 +50,7 @@ class ConditionResponse(BaseModel):
             maximum=spec.maximum,
             options=spec.options,
             help=spec.help,
+            tasks=[task.value for task in spec.tasks],
         )
 
 

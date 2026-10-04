@@ -41,6 +41,10 @@ class ConditionSpec:
     maximum: float | None = None
     options: tuple[str, ...] = ()
     help: str | None = None
+    # The tasks this setting means anything for; empty means every task. A form hides a
+    # setting the dataset has no such task for, and an engine ignores it in a fit of any
+    # other task -- one target of a mixed dataset, fanned out.
+    tasks: tuple[TaskType, ...] = ()
 
 
 @dataclass(frozen=True, kw_only=True)

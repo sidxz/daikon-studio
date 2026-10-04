@@ -37,7 +37,11 @@ from sklearn.metrics import (  # type: ignore[import-untyped]
     root_mean_squared_error,
 )
 
-from daikonstudio.application.engines.context import PredictContext, TrainContext
+from daikonstudio.application.engines.context import (
+    MIN_CUTOFF_CLASS_COUNT,
+    PredictContext,
+    TrainContext,
+)
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.chem.featurize import (
     DESCRIPTOR_NAMES,
@@ -133,6 +137,36 @@ def classification_metrics(
     }
 
 
+def mcc_cutoff(y_true: np.ndarray, probabilities: np.ndarray) -> float | None:
+    """The cutoff maximizing MCC when "positive" means p >= cutoff, or None.
+
+    Exact, not a grid: every distinct probability is a candidate, so a label whose
+    probabilities all sit below 0.05 still gets a meaningful cutoff. Ties go to the
+    higher cutoff, which predicts fewer positives -- the conservative reading. `None`
+    when either class has fewer than `MIN_CUTOFF_CLASS_COUNT` members.
+    """
+    y = np.asarray(y_true) == 1
+    p = np.asarray(probabilities, dtype=np.float64)
+    positives = float(y.sum())
+    negatives = float(len(y)) - positives
+    if positives < MIN_CUTOFF_CLASS_COUNT or negatives < MIN_CUTOFF_CLASS_COUNT:
+        return None
+    order = np.argsort(-p, kind="stable")
+    p_sorted, y_sorted = p[order], y[order]
+    tp = np.cumsum(y_sorted, dtype=np.float64)
+    fp = np.cumsum(~y_sorted, dtype=np.float64)
+    # One candidate per distinct value: cut after its last occurrence in sorted order.
+    last = np.r_[p_sorted[1:] != p_sorted[:-1], True]
+    tp, fp, cuts = tp[last], fp[last], p_sorted[last]
+    fn, tn = positives - tp, negatives - fp
+    denominator = np.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
+    mcc = np.full_like(denominator, -np.inf)
+    defined = denominator > 0
+    mcc[defined] = (tp[defined] * tn[defined] - fp[defined] * fn[defined]) / denominator[defined]
+    # argmax returns the first maximum; candidates run from the highest cutoff down.
+    return float(cuts[int(np.argmax(mcc))])
+
+
 def _metrics_on(
     model: Any,
     test_rows: pl.DataFrame,
@@ -199,6 +233,36 @@ def _score_validation(
     if validation_rows.height == 0:
         return None
     return _score(model, validation_rows, ctx, is_classification, featurizer)
+
+
+def _ecfp4_with_descriptors(smiles_list: list[str]) -> np.ndarray:
+    """ECFP4 bits followed by the raw RDKit descriptors, as float32.
+
+    Raw because trees split on thresholds and are indifferent to scale; NaN kept because
+    all three tree learners route missing values natively. float32 because that is what
+    the learners train on internally, and the descriptor featurizer already keeps every
+    value inside float32 range.
+    """
+    return np.hstack(
+        [ecfp4(smiles_list).astype(np.float32), rdkit_descriptors(smiles_list).astype(np.float32)]
+    )
+
+
+_FEATURIZERS["ecfp4+rdkit_descriptors"] = _ecfp4_with_descriptors
+_FEATURE_NAMES["ecfp4+rdkit_descriptors"] = DESCRIPTOR_NAMES
+
+
+def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
+    """The bundle key and featurizer an ECFP4 tree engine fits with, from its settings."""
+    key = "ecfp4+rdkit_descriptors" if conditions.get("rdkit_descriptors") else "ecfp4"
+    return key, _FEATURIZERS[key]
+
+
+def bundle_features(featurizer_key: str) -> dict[str, Any]:
+    """What a tree bundle records about its input, so predict featurizes identically and
+    `_require_matching_features` can refuse a descriptor list that has since changed."""
+    names = _FEATURE_NAMES.get(featurizer_key)
+    return {"featurizer": featurizer_key} | ({"feature_names": names} if names else {})
 
 
 def _require_matching_features(bundle: dict[str, Any]) -> None:

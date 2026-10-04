@@ -9,6 +9,13 @@ from daikonstudio.application.engines.manifest import TaskType
 
 ProgressReporter = Callable[[float, str], None]
 
+#: Fewer validation positives or negatives than this for a label and a cutoff tuned on
+#: them fits noise: five actives pick whichever cutoff happens to separate those five.
+#: Defined here, not beside the search in `_scoring.py`, because the training run quotes
+#: it when it explains an untuned cutoff, and application code may not import engines.
+#: ponytail: fixed at 10 per class; make it a training setting if a rarer label needs it.
+MIN_CUTOFF_CLASS_COUNT = 10
+
 
 class RunInterrupted(Exception):
     """Raised by `TrainContext.report` to stop a fit that must not continue.
@@ -62,6 +69,11 @@ class TrainContext:
     structure_column: str
     conditions: dict[str, object]
     seed: int
+    # Choose each binary target's decision cutoff to maximize MCC on the validation
+    # partition, and report the threshold-dependent metrics at it. The training run sets
+    # the same value for the model, its baseline and the random-split comparison, so a
+    # tuned model is never measured against an untuned baseline.
+    tune_cutoffs: bool = False
     report: ProgressReporter = _no_op
     """Called periodically during long work to publish progress and to check whether
     the run is still wanted. `fraction` is progress within *this fit*, 0.0 to 1.0; the
@@ -116,6 +128,9 @@ class TrainResult:
     # has exactly one key, so the shape is uniform.
     metrics: dict[str, dict[str, float]]
     validation_metrics: dict[str, dict[str, float]] | None = None
+    # Each binary target's tuned cutoff, keyed by column: only targets whose cutoff was
+    # tuned (`tune_cutoffs` on, and validation held enough of both classes).
+    cutoffs: dict[str, float] | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
