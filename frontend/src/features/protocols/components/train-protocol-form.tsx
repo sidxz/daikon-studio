@@ -5,7 +5,9 @@ import type { Condition } from "@/features/engines";
 import {
   EngineExplainer,
   PINNED_BY_PRETRAINED,
-  enginesForTargetKind,
+  TargetsHint,
+  enginesForTargets,
+  trainingKind,
   useEngines,
 } from "@/features/engines";
 import { Button } from "@/shared/components/ui/button";
@@ -87,10 +89,9 @@ export function TrainProtocolForm() {
   const train = useTrainProtocol();
   const run = useRunPoll(runId);
 
-  // Only engines that can learn this dataset's kind of target. The two
+  // Only engines that can learn every one of this dataset's targets. The two
   // vocabularies differ, and that translation lives in the engines feature.
-  const eligible =
-    engines.data && dataset ? enginesForTargetKind(engines.data, dataset.target.kind) : [];
+  const eligible = engines.data && dataset ? enginesForTargets(engines.data, dataset.targets) : [];
 
   // Reset the engine -- and the baseline alongside it -- when the dataset
   // changes to one either cannot handle, rather than silently submitting an
@@ -275,18 +276,7 @@ export function TrainProtocolForm() {
                 </SelectContent>
               </Select>
             )}
-            {dataset && (
-              <p className="text-xs text-muted-foreground">
-                Predicting <span className="font-mono">{dataset.target.column}</span>
-                {dataset.target.unit && (
-                  <>
-                    {" "}
-                    in <span className="font-mono">{dataset.target.unit}</span>
-                  </>
-                )}
-                , held out by {dataset.split.strategy} split.
-              </p>
-            )}
+            {dataset && <TargetsHint dataset={dataset} engines={engines.data ?? []} />}
           </div>
 
           <div className="space-y-1.5">
@@ -317,6 +307,11 @@ export function TrainProtocolForm() {
               </SelectContent>
             </Select>
             {engine && <EngineExplainer engineId={engine.id} />}
+            {engine && dataset && trainingKind(engine, dataset.targets.length) && (
+              <p className="text-xs text-muted-foreground">
+                {trainingKind(engine, dataset.targets.length)}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">

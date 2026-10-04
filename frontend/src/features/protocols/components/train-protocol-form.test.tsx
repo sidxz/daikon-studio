@@ -46,7 +46,8 @@ const CHEMPROP_ENGINE = {
   version: "1.0.0",
   name: "Chemprop D-MPNN",
   description: "",
-  tasks: ["regression"],
+  tasks: ["regression", "binary_classification"],
+  supports_multitask: true,
   is_baseline: false,
   conditions: [
     {
@@ -84,10 +85,17 @@ const RF_ENGINE = {
   version: "1.0.0",
   name: "ECFP4 + RF",
   description: "",
-  tasks: ["regression"],
+  tasks: ["regression", "binary_classification"],
+  supports_multitask: false,
   is_baseline: true,
   conditions: [],
 };
+
+// One numeric target unless a test says otherwise; the mixed-kind case is the
+// one that withholds a joint engine.
+const hoisted = vi.hoisted(() => ({
+  targets: [{ kind: "numeric", column: "logS" }] as { kind: string; column: string }[],
+}));
 
 vi.mock("@/features/datasets", () => ({
   useDatasets: () => ({
@@ -97,7 +105,7 @@ vi.mock("@/features/datasets", () => ({
   useDataset: () => ({
     data: {
       id: "ds-1",
-      target: { kind: "numeric", column: "logS" },
+      targets: hoisted.targets,
       split: { strategy: "scaffold" },
     },
   }),
@@ -121,6 +129,33 @@ vi.mock("@/features/engines", async () => {
     ...actual,
     useEngines: () => ({ data: [CHEMPROP_ENGINE, RF_ENGINE] }),
   };
+});
+
+describe("engines for several targets", () => {
+  afterEach(() => {
+    hoisted.targets = [{ kind: "numeric", column: "logS" }];
+  });
+
+  it("offers only engines that can train every target, and says why a joint one is missing", async () => {
+    hoisted.targets = [
+      { kind: "numeric", column: "logS" },
+      { kind: "binary", column: "reactive" },
+    ];
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <TrainProtocolForm />
+      </QueryClientProvider>,
+    );
+
+    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(await screen.findByText(/Solubility/));
+
+    expect(await screen.findByText(/Chemprop D-MPNN train one joint model/)).toBeInTheDocument();
+    // The joint engine is not offered for a mixed-kind dataset.
+    fireEvent.click(screen.getByText("Choose an engine"));
+    expect(await screen.findByRole("option", { name: /ECFP4 \+ RF/ })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Chemprop/ })).not.toBeInTheDocument();
+  });
 });
 
 describe("CheMeleon's pinned settings reach the submitted payload", () => {

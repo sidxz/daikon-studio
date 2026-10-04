@@ -19,6 +19,7 @@ const RF_ENGINE = {
   name: "ECFP4 + RF",
   description: "",
   tasks: ["regression"],
+  supports_multitask: false,
   is_baseline: true,
   conditions: [
     {
@@ -42,7 +43,7 @@ vi.mock("@/features/datasets", () => ({
   useDataset: () => ({
     data: {
       id: "ds-1",
-      target: { kind: "numeric", column: "logS" },
+      targets: [{ kind: "numeric", column: "logS", unit: null }],
       split: { strategy: "scaffold" },
     },
   }),

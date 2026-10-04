@@ -13,3 +13,4 @@ export { ENGINES_KEY } from "./hooks/query-keys";
 export { EngineCatalogue } from "./components/engine-catalogue";
 export { ConditionSummary } from "./components/condition-summary";
 export { EngineExplainer } from "./components/engine-explainer";
+export { TargetsHint } from "./components/targets-hint";

@@ -1,7 +1,7 @@
 "use client";
 
 import { useDataset, useDatasets } from "@/features/datasets";
-import { enginesForTargetKind, useEngines } from "@/features/engines";
+import { TargetsHint, enginesForTargets, useEngines } from "@/features/engines";
 import { ConditionFields, resolveConditions } from "@/features/protocols";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
@@ -45,7 +45,7 @@ export function SweepForm() {
 
   // Every row and the baseline pick from the same dataset, so the eligible
   // list is computed once and shared -- only the resolved *specs* are per-row.
-  const available = dataset ? enginesForTargetKind(engines.data ?? [], dataset.target.kind) : [];
+  const available = dataset ? enginesForTargets(engines.data ?? [], dataset.targets) : [];
   const specsFor = (engineId: string) =>
     available.find((engine) => engine.id === engineId)?.conditions ?? [];
 
@@ -111,18 +111,7 @@ export function SweepForm() {
                 </SelectContent>
               </Select>
             )}
-            {dataset && (
-              <p className="text-xs text-muted-foreground">
-                Predicting <span className="font-mono">{dataset.target.column}</span>
-                {dataset.target.unit && (
-                  <>
-                    {" "}
-                    in <span className="font-mono">{dataset.target.unit}</span>
-                  </>
-                )}
-                , held out by {dataset.split.strategy} split.
-              </p>
-            )}
+            {dataset && <TargetsHint dataset={dataset} engines={engines.data ?? []} />}
           </div>
 
           <div className="space-y-1.5">
