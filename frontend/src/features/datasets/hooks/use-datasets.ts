@@ -90,7 +90,7 @@ export interface CreateDatasetInput {
   name: string;
   upload_ref: string;
   structure_column: string;
-  target: { column: string; kind: string; unit?: string | null; direction?: string | null };
+  targets: { column: string; kind: string; unit?: string | null; direction?: string | null }[];
   split: { strategy: string; seed: number };
   id_column?: string | null;
 }

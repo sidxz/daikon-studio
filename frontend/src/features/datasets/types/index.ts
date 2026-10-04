@@ -51,15 +51,21 @@ export function descriptorLabel(name: string): string {
   return DESCRIPTOR_LABELS[name] ?? name;
 }
 
+/** One column the wizard will predict, with how it is measured. */
+export interface DraftTarget {
+  column: string;
+  kind: TargetKind;
+  unit: string;
+  direction: Direction | "";
+}
+
 /** What the wizard accumulates. The file is held client-side until step 4. */
 export interface DatasetDraft {
   file: File | null;
   name: string;
   structureColumn: string;
-  targetColumn: string;
-  kind: TargetKind;
-  unit: string;
-  direction: Direction | "";
+  /** In the order chosen; that order is kept on the dataset and everywhere after. */
+  targets: DraftTarget[];
   strategy: SplitStrategy;
   seed: number;
   /** The column holding compound IDs, or null for none. */
@@ -70,10 +76,7 @@ export const EMPTY_DRAFT: DatasetDraft = {
   file: null,
   name: "",
   structureColumn: "",
-  targetColumn: "",
-  kind: "numeric",
-  unit: "",
-  direction: "high",
+  targets: [],
   // Scaffold is the default on purpose. It is the pessimistic split, and the
   // whole product exists because a random split flatters a model that will
   // fail prospectively.

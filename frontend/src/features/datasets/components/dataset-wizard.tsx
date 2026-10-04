@@ -4,6 +4,7 @@ import { Explainer } from "@/shared/components/explainers/explainer";
 import { SPLIT_MS, SplitFigure, splitCaption } from "@/shared/components/explainers/figures/split";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import {
@@ -21,16 +22,16 @@ import { useRouter } from "next/navigation";
 import { useCallback, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useCreateDataset, useUploadDatasetFile } from "../hooks/use-datasets";
-import { draftFromUpload, withColumns } from "../lib/draft-from-upload";
+import { draftFromUpload, toggleTarget, withColumns } from "../lib/draft-from-upload";
 import {
   type CsvPreview,
   DATASET_TEMPLATE_CSV,
   guessStructureColumn,
-  looksBinary,
   parseCsvPreview,
 } from "../lib/parse-csv";
 import {
   type DatasetDraft,
+  type DraftTarget,
   EMPTY_DRAFT,
   SPLIT_COPY,
   TARGET_KIND_COPY,
@@ -78,6 +79,14 @@ export function DatasetWizard() {
   const upload = useUploadDatasetFile();
   const create = useCreateDataset();
   const patch = (changes: Partial<DatasetDraft>) => setDraft((prev) => ({ ...prev, ...changes }));
+  function patchTarget(column: string, changes: Partial<DraftTarget>) {
+    setDraft((prev) => ({
+      ...prev,
+      targets: prev.targets.map((target) =>
+        target.column === column ? { ...target, ...changes } : target,
+      ),
+    }));
+  }
 
   const onDrop = useCallback(async (files: File[]) => {
     const file = files[0];
@@ -109,12 +118,12 @@ export function DatasetWizard() {
         upload_ref: uploadRef,
         structure_column: draft.structureColumn,
         id_column: draft.idColumn,
-        target: {
-          column: draft.targetColumn,
-          kind: draft.kind,
-          unit: draft.kind === "numeric" && draft.unit.trim() ? draft.unit.trim() : null,
-          direction: draft.kind === "numeric" && draft.direction ? draft.direction : null,
-        },
+        targets: draft.targets.map((target) => ({
+          column: target.column,
+          kind: target.kind,
+          unit: target.kind === "numeric" && target.unit.trim() ? target.unit.trim() : null,
+          direction: target.kind === "numeric" && target.direction ? target.direction : null,
+        })),
         split: { strategy: draft.strategy, seed: draft.seed },
       });
       router.push(`/datasets/${dataset.id}`);
@@ -141,8 +150,8 @@ export function DatasetWizard() {
   const busy = upload.isPending || create.isPending;
   const canContinue = [
     Boolean(draft.file),
-    Boolean(draft.name.trim() && draft.structureColumn && draft.targetColumn),
-    Boolean(draft.targetColumn),
+    Boolean(draft.name.trim() && draft.structureColumn && draft.targets.length > 0),
+    draft.targets.length > 0,
     Boolean(draft.strategy),
   ][step];
 
@@ -242,29 +251,30 @@ export function DatasetWizard() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Value to predict</Label>
-                  <Select
-                    value={draft.targetColumn}
-                    onValueChange={(value) =>
-                      setDraft((prev) => ({
-                        ...withColumns(prev, { targetColumn: value }),
-                        kind: looksBinary(preview.rows, value) ? "binary" : "numeric",
-                      }))
-                    }
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {preview.columns
-                        .filter((column) => column !== draft.structureColumn)
-                        .map((column) => (
-                          <SelectItem key={column} value={column}>
+                  <Label>Values to predict</Label>
+                  <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border p-2">
+                    {preview.columns.map((column, index) =>
+                      column === draft.structureColumn ? null : (
+                        <div key={column} className="flex items-center gap-2">
+                          <Checkbox
+                            id={`target-${index}`}
+                            checked={draft.targets.some((target) => target.column === column)}
+                            onCheckedChange={(checked) =>
+                              setDraft((prev) =>
+                                toggleTarget(prev, column, checked === true, preview.rows),
+                              )
+                            }
+                          />
+                          <Label htmlFor={`target-${index}`} className="font-mono font-normal">
                             {column}
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
+                          </Label>
+                        </div>
+                      ),
+                    )}
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    Choose one or more. Every compound needs a value in each.
+                  </p>
                 </div>
                 <div className="space-y-1.5">
                   <Label>Identifier (optional)</Label>
@@ -280,7 +290,8 @@ export function DatasetWizard() {
                       {preview.columns
                         .filter(
                           (column) =>
-                            column !== draft.structureColumn && column !== draft.targetColumn,
+                            column !== draft.structureColumn &&
+                            !draft.targets.some((target) => target.column === column),
                         )
                         .map((column) => (
                           <SelectItem key={column} value={column}>
@@ -323,67 +334,76 @@ export function DatasetWizard() {
           )}
 
           {step === 2 && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>
-                  What kind of value is <span className="font-mono">{draft.targetColumn}</span>?
-                </Label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {(["numeric", "binary"] as const).map((kind) => (
-                    <button
-                      key={kind}
-                      type="button"
-                      onClick={() => patch({ kind })}
-                      className={`h-full rounded-lg border p-3 text-left transition-colors ${
-                        draft.kind === kind
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:bg-muted/40"
-                      }`}
-                    >
-                      <span className="text-sm font-medium">{TARGET_KIND_COPY[kind].title}</span>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {TARGET_KIND_COPY[kind].detail}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {draft.kind === "numeric" && (
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="unit">Unit</Label>
-                    <Input
-                      id="unit"
-                      value={draft.unit}
-                      onChange={(event) => patch({ unit: event.target.value })}
-                      placeholder="µM, log mol/L, kcal/mol…"
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      Shown with every predicted value.
-                    </p>
+            <div className="space-y-6">
+              {draft.targets.map((target) => (
+                <div key={target.column} className="space-y-4">
+                  <div className="space-y-2">
+                    <Label>
+                      What kind of value is <span className="font-mono">{target.column}</span>?
+                    </Label>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      {(["numeric", "binary"] as const).map((kind) => (
+                        <button
+                          key={kind}
+                          type="button"
+                          onClick={() => patchTarget(target.column, { kind })}
+                          className={`h-full rounded-lg border p-3 text-left transition-colors ${
+                            target.kind === kind
+                              ? "border-primary bg-primary/5"
+                              : "border-border hover:bg-muted/40"
+                          }`}
+                        >
+                          <span className="text-sm font-medium">
+                            {TARGET_KIND_COPY[kind].title}
+                          </span>
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            {TARGET_KIND_COPY[kind].detail}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label>Preferred direction</Label>
-                    <Select
-                      value={draft.direction || "high"}
-                      onValueChange={(value) => patch({ direction: value as "high" | "low" })}
-                    >
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="high">Higher is better</SelectItem>
-                        <SelectItem value="low">Lower is better</SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Used when ranking triage results and when judging a model against its
-                      baseline.
-                    </p>
-                  </div>
+                  {target.kind === "numeric" && (
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-1.5">
+                        <Label htmlFor={`unit-${target.column}`}>Unit</Label>
+                        <Input
+                          id={`unit-${target.column}`}
+                          value={target.unit}
+                          onChange={(event) =>
+                            patchTarget(target.column, { unit: event.target.value })
+                          }
+                          placeholder="µM, log mol/L, kcal/mol…"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Shown with every predicted value.
+                        </p>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Preferred direction</Label>
+                        <Select
+                          value={target.direction || "high"}
+                          onValueChange={(value) =>
+                            patchTarget(target.column, { direction: value as "high" | "low" })
+                          }
+                        >
+                          <SelectTrigger>
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="high">Higher is better</SelectItem>
+                            <SelectItem value="low">Lower is better</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Used when ranking triage results and when judging a model against its
+                          baseline.
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              )}
+              ))}
             </div>
           )}
 
