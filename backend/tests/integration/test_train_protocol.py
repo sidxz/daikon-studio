@@ -893,6 +893,11 @@ async def test_a_mixed_kind_dataset_trains_one_model_per_target(studio: Studio) 
     assert "rmse" in inputs.targets[0].metrics
     assert "mcc" in inputs.targets[1].baseline_metrics
     assert len(inputs.targets[1].predicted) == len(inputs.structures)
+    # Each target's predictions sit on its own scale: swapped targets would put
+    # probabilities under `y` and logS-sized numbers under `active`.
+    assert max(inputs.targets[0].predicted) > 1.0
+    assert all(0.0 <= value <= 1.0 for value in inputs.targets[1].predicted)
+    assert set(inputs.targets[1].actual) <= {0.0, 1.0}
     assert [h["column"] for h in run.metrics["targets"]] == ["y", "active"]
     assert run.params["deadline_scale"] == 2
     artifact = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))

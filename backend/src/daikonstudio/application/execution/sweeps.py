@@ -152,11 +152,14 @@ class SubmitSweep:
         # Same pre-flight reason as the existence checks above: a refusal from
         # `TrainProtocol` halfway through the loop below would leave a sweep that
         # looks complete and is not.
-        baseline = (
-            self._engines.get(command.baseline_engine_id)
-            if command.baseline_engine_id
-            else self._engines.baseline()
-        )
+        try:
+            baseline = (
+                self._engines.get(command.baseline_engine_id)
+                if command.baseline_engine_id
+                else self._engines.baseline()
+            )
+        except UnknownEngineError:
+            return Failure(NotFoundError("Baseline engine", command.baseline_engine_id))
         engine_ids = sorted({config.engine_id for config in command.configs})
         for engine in [*(self._engines.get(engine_id) for engine_id in engine_ids), baseline]:
             refused = joint_kind_error(engine.manifest(), dataset)

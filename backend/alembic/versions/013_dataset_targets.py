@@ -16,6 +16,29 @@ Downgrade restores the single-target shapes, and refuses while any dataset has
 more than one target: dropping the others would silently destroy data that
 protocols and runs still cite.
 
+Downgrade restores database shapes only, not blob shapes. A `ScorecardInputs`
+blob written after the upgrade (it carries `targets` and `joint_model`) raises
+`TypeError` in pre-013 code, and a MoLFormer bundle trained after it holds
+per-task lists where the old `predict` calls `float()` on a scalar. Rolling back
+past 013 therefore needs either code that still reads the new blobs or no
+protocol trained since the upgrade. A dataset behind a published protocol cannot
+be deleted, so with a multi-target dataset in that state the rollback is a
+restore from a pre-upgrade backup.
+
+Deploy order (the runner and API wire shapes changed with no version handshake:
+`RunMetricsWire` nests a headline per target, `DatasetEnvelope` carries
+`targets`, `ValidationReportWire` keys duplicate spread by target):
+
+1. Drain the runners: wait until no training run is running.
+2. Run this migration.
+3. Deploy the API.
+4. Upgrade the runners.
+
+An old runner rejects the new `DatasetEnvelope` and fails each run it claims. A
+run claimed before the API deploy trains on the old dataset, then has its final
+update (the flat `metrics`) rejected with a 422: the Run ends FAILED beside a
+complete, unlinked Protocol, and a retry trains a second one.
+
 Revision ID: 013
 Revises: 012
 Create Date: 2026-10-03 00:00:00.000000
@@ -124,8 +147,9 @@ def downgrade() -> None:
     if op.get_bind().execute(sa.text(COUNT_MULTI_TARGET)).scalar_one():
         raise RuntimeError(
             "Cannot downgrade below 013: some datasets have more than one target, and the "
-            "single-target schema would silently drop the others. Delete those datasets "
-            "and their protocols first."
+            "single-target schema would silently drop the others. Only draft protocols "
+            "and datasets with no protocol can be deleted, so if any of those datasets "
+            "is behind a published protocol, restore a backup taken before the upgrade."
         )
     op.execute(FLATTEN_RUN_METRICS)
     op.add_column("datasets", sa.Column("target", postgresql.JSONB(), nullable=True))

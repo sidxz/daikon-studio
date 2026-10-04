@@ -466,9 +466,15 @@ async def test_predictions_carry_structure_readouts_uncertainty_and_applicabilit
     assert run.metrics == {"uploaded_rows": 4, "scored_rows": 3}
     assert "compound_id" not in frame.columns  # none was asked for
     readout_name = published_protocol.readouts[0].name
-    assert readout_name in frame.columns
-    assert "uncertainty" in frame.columns
-    assert "applicability" in frame.columns
+    # Order, not just membership: the results file's column layout is what exports
+    # and the triage grid read, and a one-target protocol must not have changed it.
+    assert frame.columns == [
+        "structure",
+        "input_row",
+        readout_name,
+        "uncertainty",
+        "applicability",
+    ]
     # Whole-branch review follow-up (C1 staleness): every column this run
     # actually wrote, besides the dynamic readout name, must be one of the
     # names `create_dataset.py` reserves against a TargetSpec -- checked

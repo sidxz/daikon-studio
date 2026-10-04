@@ -107,6 +107,9 @@ class CreateDatasetBody(BaseModel):
     name: str = Field(max_length=256)
     upload_ref: str
     structure_column: str = Field(max_length=128)
+    # ponytail: no cap on the target count. A very wide dataset (ToxCast, ~600
+    # targets) fans out one fit per target per leg, and `deadline_scale` grows with
+    # it. Add a `max_length` here if that ever happens.
     targets: list[TargetBody] = Field(min_length=1)
     split: SplitBody
     id_column: str | None = Field(default=None, max_length=128)

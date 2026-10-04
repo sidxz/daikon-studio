@@ -21,6 +21,7 @@ from daikonstudio.application.data.create_dataset import (
     CreateDatasetCommand,
     StoreUpload,
 )
+from daikonstudio.application.engines.registry import UnknownEngineError
 from daikonstudio.application.execution.sweeps import (
     CancelSweep,
     CancelSweepCommand,
@@ -37,6 +38,7 @@ from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus, TargetHeadline
+from daikonstudio.domain.shared.errors import NotFoundError
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import DbEnqueuer
@@ -356,6 +358,29 @@ async def test_an_unknown_engine_in_the_last_config_creates_no_runs(
     )
 
     assert isinstance(result, Failure)
+    assert await runs_repository.sweep_summaries(auth.workspace_id) == []
+
+
+@pytest.mark.asyncio
+async def test_a_registry_with_no_baseline_refuses_the_sweep_instead_of_raising(
+    submit_sweep, dataset, auth, runs_repository, monkeypatch
+) -> None:
+    def no_baseline():
+        raise UnknownEngineError("No baseline engine is configured on this server.")
+
+    monkeypatch.setattr(submit_sweep._engines, "baseline", no_baseline)
+
+    result = await submit_sweep(
+        SubmitSweepCommand(
+            name="no baseline",
+            dataset_id=dataset.id,
+            configs=[SweepConfig(engine_id="ecfp4-randomforest", conditions={})],
+        ),
+        auth=auth,
+    )
+
+    assert isinstance(result, Failure)
+    assert isinstance(result.failure(), NotFoundError)
     assert await runs_repository.sweep_summaries(auth.workspace_id) == []
 
 

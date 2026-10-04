@@ -356,5 +356,23 @@ def test_an_artifact_from_before_multi_task_still_predicts() -> None:
     assert all(900.0 < value < 1100.0 for value in predictions["value"].to_list())
 
 
+@needs_weights
+def test_predict_refuses_a_target_count_the_bundle_was_not_trained_for() -> None:
+    trained = MolformerXL().train(
+        _context(_frame([float(i) for i in range(12)]), TaskType.REGRESSION)
+    )
+
+    with pytest.raises(ValueError, match="predicts 1 targets, but 2 were requested"):
+        MolformerXL().predict(
+            PredictContext(
+                frame=pl.DataFrame({"smiles": ["CCO"]}),
+                structure_column="smiles",
+                artifact=trained.artifact,
+                conditions={},
+                target_columns=("y", "z"),
+            )
+        )
+
+
 def test_molformer_declares_that_it_learns_targets_jointly() -> None:
     assert MolformerXL.manifest().supports_multitask is True

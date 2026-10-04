@@ -890,3 +890,33 @@ async def test_update_run_rejects_a_malformed_metrics_payload(anonymous_client, 
 
     fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
     assert fetched.json()["metrics"] is None
+
+
+async def test_update_run_rejects_an_unbounded_metrics_payload(
+    anonymous_client, app, workspace_id
+):
+    """The shape is closed, and so is its size: a runner cannot fill `runs.metrics`
+    with an arbitrarily long name or an arbitrarily long list."""
+    run = await _seed_run(app, workspace_id)
+    _, headers = await _register_runner(app, ["default"])
+    claimed = await _claim(anonymous_client, headers)
+    headline = {"column": "y", "primary_metric": "rmse", "value": 0.5, "baseline_value": 0.7}
+
+    for targets in (
+        [{**headline, "column": "c" * 1025}],
+        [{**headline, "primary_metric": "m" * 65}],
+        [headline] * 4097,
+    ):
+        response = await anonymous_client.post(
+            f"/api/v1/runner/runs/{run.id}",
+            headers=headers,
+            json={
+                "status": "running",
+                "expected_version": claimed["run"]["version"],
+                "metrics": {"targets": targets},
+            },
+        )
+        assert response.status_code == 422, response.text
+
+    fetched = await anonymous_client.get(f"/api/v1/runner/runs/{run.id}", headers=headers)
+    assert fetched.json()["metrics"] is None

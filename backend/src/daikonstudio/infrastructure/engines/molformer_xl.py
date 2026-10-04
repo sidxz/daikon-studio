@@ -546,6 +546,13 @@ class MolformerXL:
             target_mean=bundle["target_mean"],
             target_std=bundle["target_std"],
         )
+        # As for chemprop: a bundle with fewer tasks than requested would raise an
+        # IndexError below, and one with more would drop a task silently.
+        if values.shape[1] != len(ctx.target_columns):
+            raise ValueError(
+                f"The model predicts {values.shape[1]} targets, but {len(ctx.target_columns)} "
+                "were requested."
+            )
 
         # Explicit dtypes, matching every other engine: an all-None uncertainty list
         # would infer as polars' Null dtype and make this engine's output

@@ -21,7 +21,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
@@ -225,8 +225,10 @@ class RunEnvelope(BaseModel):
 class TargetHeadlineWire(BaseModel):
     model_config = _FORBID
 
-    column: str
-    primary_metric: str
+    # Bounded like the rest of the shape: a column name is at most as long as the
+    # dataset column it came from, and a metric name is one of a short fixed set.
+    column: str = Field(max_length=1024)
+    primary_metric: str = Field(max_length=64)
     value: float | None
     baseline_value: float | None
 
@@ -244,7 +246,7 @@ class RunMetricsWire(BaseModel):
 
     model_config = _FORBID
 
-    targets: list[TargetHeadlineWire]
+    targets: list[TargetHeadlineWire] = Field(max_length=4096)
 
 
 class PredictionCountsWire(BaseModel):

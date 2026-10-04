@@ -335,8 +335,8 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
 
     An engine that declares `supports_multitask` learns every target in one model
     with one loss, and adding a squared error to a cross-entropy needs a relative
-    weighting nobody can set honestly. So a Dataset that mixes measured values and
-    active/inactive labels trains only on engines that fit one model per target.
+    weighting nobody can set honestly. So a Dataset that mixes continuous value and
+    active or inactive targets trains only on engines that fit one model per target.
     Checked at enqueue (`TrainProtocol`, `SubmitSweep`), which refuse before a Run
     exists, and again by the worker for a Run enqueued before the rule existed.
     """
@@ -347,8 +347,8 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
     binary = [t.column for t in dataset.targets if t.kind is TargetKind.BINARY]
     return ValidationError(
         f"{manifest.name} trains one joint model, so every target must be the same kind. "
-        f"This dataset has measured values ({', '.join(numeric)}) and active/inactive "
-        f"labels ({', '.join(binary)}).",
+        f"This dataset has continuous value targets ({', '.join(numeric)}) and active or "
+        f"inactive targets ({', '.join(binary)}).",
         detail=(
             "Choose an engine that trains one model per target, or a dataset whose "
             "targets are all one kind."

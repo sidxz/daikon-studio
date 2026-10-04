@@ -60,6 +60,14 @@ an nginx in front of this stack needs `merge_slashes off;`.
 2. `docker compose up -d`. `migrate` runs again and the API waits for it to finish.
 3. `docker compose ps`: api `(healthy)`, migrate `Exited (0)`.
 
+Upgrading from a release before multi-target datasets (migration 013) needs an
+order, because the runner and API wire shapes changed with no version handshake.
+Before step 2, wait until no training run is running. Then migrate, deploy the API,
+and upgrade the runners, which `docker compose up -d` does in that order here
+(every GPU runner on another host needs its image upgraded too). A training run in
+flight across the API deploy ends FAILED beside a complete, unlinked protocol, and
+a runner left on the old image fails every run it claims.
+
 CI tags every image with the commit sha as well as `latest`. To pin a release, set
 `STUDIO_API_IMAGE=ghcr.io/sidxz/daikon-studio/api:<sha>` and the matching frontend
 tag. Migrations only go forward: rolling back past one means restoring a backup.

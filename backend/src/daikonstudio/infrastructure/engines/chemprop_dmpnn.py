@@ -419,6 +419,13 @@ class ChempropDMPNN:
             enable_checkpointing=False,
         )
         values = _forward(trainer, model, dataset)
+        # A checkpoint with fewer tasks would raise an IndexError below, and one with
+        # more would drop a task without a word: refuse either with the two counts.
+        if values.shape[1] != len(ctx.target_columns):
+            raise ValueError(
+                f"The model predicts {values.shape[1]} targets, but {len(ctx.target_columns)} "
+                "were requested."
+            )
         row_ids = pl.Series(range(values.shape[0]), dtype=pl.Int64)
 
         # Explicit dtypes, matching `_predict_with_tree_ensemble`. An all-None

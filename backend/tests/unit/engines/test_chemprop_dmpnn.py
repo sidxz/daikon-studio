@@ -250,5 +250,21 @@ def test_two_classification_targets_are_scored_per_column() -> None:
     assert sorted(result.metrics["z"]) == ["auprc", "auroc", "balanced_accuracy", "mcc"]
 
 
+def test_predict_refuses_a_target_count_the_checkpoint_was_not_trained_for() -> None:
+    frame = _frame([float(i) for i in range(20)])
+    trained = ChempropDMPNN().train(_train_context(frame, TaskType.REGRESSION))
+
+    with pytest.raises(ValueError, match="predicts 1 targets, but 2 were requested"):
+        ChempropDMPNN().predict(
+            PredictContext(
+                frame=pl.DataFrame({"smiles": ["CCO"]}),
+                structure_column="smiles",
+                artifact=trained.artifact,
+                conditions={},
+                target_columns=("y", "z"),
+            )
+        )
+
+
 def test_chemprop_declares_that_it_learns_targets_jointly() -> None:
     assert ChempropDMPNN.manifest().supports_multitask is True
