@@ -34,6 +34,8 @@ async def test_engines_are_listed_with_their_conditions(client):
     assert depth["type"] == "integer" and depth["default"] == 6
     weighting = next(c for c in xgb["conditions"] if c["key"] == "positive_weighting")
     assert weighting["tasks"] == ["binary_classification"] and weighting["default"] == "none"
+    assert weighting["options"] == ["none", "balanced", "sqrt_balanced"]
+    assert weighting["option_labels"] == ["None", "Balanced", "Square-root balanced"]
     descriptors = next(c for c in xgb["conditions"] if c["key"] == "rdkit_descriptors")
     assert descriptors["tasks"] == [] and descriptors["default"] is False
     chemprop = next(e for e in engines if e["id"] == "chemprop-dmpnn")
@@ -85,6 +87,8 @@ async def test_conditions_carry_all_form_metadata(client):
     assert "help" in n_est
     # The tasks the setting applies to; empty means all of them.
     assert n_est["tasks"] == []
+    # Empty means the raw option values are shown.
+    assert n_est["option_labels"] == []
     # Verify user-facing copy, not developer notes
     assert "Number of trees" in n_est["label"]
 

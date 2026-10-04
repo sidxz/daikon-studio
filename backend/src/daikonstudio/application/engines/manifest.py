@@ -40,6 +40,9 @@ class ConditionSpec:
     minimum: float | None = None
     maximum: float | None = None
     options: tuple[str, ...] = ()
+    # What a form shows for each of `options`, in the same order; empty shows the raw
+    # values. The submitted value is always the option itself.
+    option_labels: tuple[str, ...] = ()
     help: str | None = None
     # The tasks this setting means anything for; empty means every task. A form hides a
     # setting the dataset has no such task for, and an engine ignores it in a fit of any
@@ -137,6 +140,29 @@ def validate_conditions(
             raise ValueError(f"{spec.label} must be one of: {', '.join(spec.options)}.")
         resolved[key] = value
     return resolved
+
+
+def reset_inapplicable_conditions(
+    manifest: EngineManifest, supplied: dict[str, object], dataset_tasks: set[TaskType]
+) -> dict[str, object]:
+    """`supplied` with every setting that means nothing for this dataset put back to its
+    default: a task-scoped setting (`ConditionSpec.tasks`) sharing no task with the
+    dataset's targets. The engine ignores such a setting anyway, but a form can still
+    post a stale one, and left in it would be recorded on the Protocol as if it had
+    applied and would keep a run from being recognized as its own baseline.
+
+    Unknown keys pass through untouched; `validate_conditions` rejects them in the worker.
+    """
+    specs = {c.key: c for c in manifest.conditions}
+    reset: dict[str, object] = {}
+    for key, value in supplied.items():
+        spec = specs.get(key)
+        if spec is not None and spec.tasks and not dataset_tasks.intersection(spec.tasks):
+            if spec.default is not None:
+                reset[key] = spec.default
+            continue
+        reset[key] = value
+    return reset
 
 
 def lane_for(*manifests: EngineManifest) -> str:

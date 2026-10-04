@@ -9,6 +9,7 @@ from daikonstudio.application.engines.manifest import (
     ConditionType,
     EngineManifest,
     TaskType,
+    reset_inapplicable_conditions,
     validate_conditions,
 )
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
@@ -247,3 +248,27 @@ def test_task_raises_when_the_targets_mix_kinds():
 
 def test_a_manifest_does_not_learn_several_targets_jointly_unless_it_says_so():
     assert MANIFEST.supports_multitask is False
+
+
+def test_a_setting_for_a_task_the_dataset_lacks_is_reset_to_its_default():
+    manifest = replace(
+        MANIFEST,
+        conditions=(
+            *MANIFEST.conditions,
+            ConditionSpec(
+                key="weighting",
+                label="Weighting",
+                type=ConditionType.ENUM,
+                default="none",
+                options=("none", "balanced"),
+                tasks=(TaskType.BINARY_CLASSIFICATION,),
+            ),
+        ),
+    )
+    supplied = {"n_estimators": 7, "weighting": "balanced", "typo": 1}
+
+    regression = reset_inapplicable_conditions(manifest, supplied, {TaskType.REGRESSION})
+    # Unknown keys are left for `validate_conditions` to reject, and other settings stay.
+    assert regression == {"n_estimators": 7, "weighting": "none", "typo": 1}
+    for tasks in ({TaskType.BINARY_CLASSIFICATION}, set(TaskType)):
+        assert reset_inapplicable_conditions(manifest, supplied, tasks) == supplied

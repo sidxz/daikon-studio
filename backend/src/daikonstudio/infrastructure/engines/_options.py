@@ -18,6 +18,7 @@ POSITIVE_WEIGHTING = ConditionSpec(
     type=ConditionType.ENUM,
     default="none",
     options=("none", "balanced", "sqrt_balanced"),
+    option_labels=("None", "Balanced", "Square-root balanced"),
     tasks=(TaskType.BINARY_CLASSIFICATION,),
     help=(
         "Up-weights active compounds in the loss so a rare label is not drowned out. "
@@ -43,15 +44,16 @@ RDKIT_DESCRIPTORS = ConditionSpec(
 def positive_weight(y_train: np.ndarray, mode: str) -> float | None:
     """The loss weight on one binary label's positives, from its training labels only.
 
-    `None` when weighting is off, or when the training rows hold no positives -- possible
-    only in the random-split comparison's reshuffle, since dataset creation refuses a
-    single-class training partition.
+    `None` when weighting is off, or when the training rows hold no positives or no
+    negatives (the ratio is then undefined or zero) -- possible only in the random-split
+    comparison's reshuffle, since dataset creation refuses a single-class training
+    partition.
     """
     if mode == "none":
         return None
     positives = int(np.sum(y_train == 1))
     negatives = int(np.sum(y_train == 0))
-    if positives == 0:
+    if positives == 0 or negatives == 0:
         return None
     ratio = negatives / positives
     return ratio if mode == "balanced" else math.sqrt(ratio)

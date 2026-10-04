@@ -329,6 +329,20 @@ def test_the_weighted_loss_is_torchs_pos_weight_bce():
     assert loss(logits, targets).item() == pytest.approx(expected.item())
 
 
+def test_chemprop_can_rebuild_the_weighted_loss_when_it_loads_a_checkpoint():
+    """`MPNN._load` rebuilds a criterion that is not on CPU, from its `__dict__` by
+    constructor-argument name. A `pos_weight` argument that exists only as a buffer made
+    that raise `TypeError`."""
+    from chemprop.models import MPNN
+
+    from daikonstudio.infrastructure.engines._chemprop_loss import PositiveWeightedBCELoss
+
+    rebuilt = MPNN._rebuild_metric(PositiveWeightedBCELoss([3.0, 9.0]))
+
+    assert type(rebuilt) is PositiveWeightedBCELoss
+    assert rebuilt.pos_weight.tolist() == [3.0, 9.0]
+
+
 def test_the_default_build_keeps_the_stock_loss_and_no_descriptor_input():
     import torch
     from chemprop.nn.metrics import BCELoss
@@ -406,6 +420,25 @@ def test_weighting_descriptors_and_cutoffs_train_jointly_and_predict(pretrained)
         p = probabilities.filter(pl.col("target") == column)["value"].to_numpy()
         expected = matthews_corrcoef(test[column].to_numpy(), (p >= cutoff).astype(int))
         assert result.metrics[column]["mcc"] == pytest.approx(expected)
+
+
+def test_the_cutoff_is_tuned_on_the_validation_rows(monkeypatch):
+    """The MCC recompute above is self-consistent whichever partition picked the cutoff,
+    so pin the source: `tuned_cutoffs` must be handed the validation rows."""
+    from daikonstudio.infrastructure.engines import chemprop_dmpnn
+
+    seen: list[tuple[int, list[str]]] = []
+    original = chemprop_dmpnn.tuned_cutoffs
+
+    def spy(columns, rows, probabilities):
+        seen.append((rows.height, rows["split"].unique().to_list()))
+        return original(columns, rows, probabilities)
+
+    monkeypatch.setattr(chemprop_dmpnn, "tuned_cutoffs", spy)
+    ctx = _two_labels(tune_cutoffs=True)
+    ChempropDMPNN().train(ctx)
+
+    assert seen == [(int((ctx.frame["split"] == "validation").sum()), ["validation"])]
 
 
 def test_descriptors_are_scaled_on_the_training_set_once(monkeypatch):

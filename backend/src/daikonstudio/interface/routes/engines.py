@@ -34,6 +34,8 @@ class ConditionResponse(BaseModel):
     minimum: float | None
     maximum: float | None
     options: tuple[str, ...]
+    # Parallel to `options`: what to show for each. Empty means show the raw values.
+    option_labels: list[str]
     help: str | None
     # The tasks the setting applies to; empty means all of them.
     tasks: list[str]
@@ -49,6 +51,7 @@ class ConditionResponse(BaseModel):
             minimum=spec.minimum,
             maximum=spec.maximum,
             options=spec.options,
+            option_labels=list(spec.option_labels),
             help=spec.help,
             tasks=[task.value for task in spec.tasks],
         )

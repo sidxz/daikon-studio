@@ -78,6 +78,7 @@ from daikonstudio.application.engines.manifest import (
     EngineManifest,
     TaskType,
     lane_for,
+    reset_inapplicable_conditions,
     validate_conditions,
 )
 from daikonstudio.application.engines.protocol import Engine
@@ -428,7 +429,10 @@ class TrainProtocol:
     than the request, so there is exactly one place a user looks for why a
     training attempt did not produce a model -- re-validating them here could
     even disagree with the worker, since resolving a condition's default is
-    something only the engine's own manifest can do.
+    something only the engine's own manifest can do. The one thing done to them
+    here is not validation: a setting that cannot apply to this dataset's tasks is
+    put back to its default, so the cache key, the stored params and the worker's
+    self-baseline check all see the same, honest conditions.
 
     `engine_id` does not share that argument: it is a registry membership
     check against a fixed, in-process set with exactly one possible answer, so
@@ -499,8 +503,17 @@ class TrainProtocol:
         # Pin the resolved id into what gets persisted. `params` is write-once,
         # so a Run storing `None` would be measured against whatever the registry
         # flags at the moment a worker dequeues it -- which may not be what the
-        # user was shown when they submitted.
-        command = replace(command, baseline_engine_id=baseline.manifest().id)
+        # user was shown when they submitted. The same goes for a setting this dataset
+        # cannot use: reset here, before anything is keyed or persisted.
+        tasks = {_task_for(target) for target in dataset.targets}
+        command = replace(
+            command,
+            baseline_engine_id=baseline.manifest().id,
+            conditions=reset_inapplicable_conditions(engine.manifest(), command.conditions, tasks),
+            baseline_conditions=reset_inapplicable_conditions(
+                baseline.manifest(), command.baseline_conditions, tasks
+            ),
+        )
 
         run = Run(
             kind=RunKind.TRAINING,

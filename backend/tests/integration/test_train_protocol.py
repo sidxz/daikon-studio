@@ -1038,6 +1038,51 @@ async def test_the_option_reaches_the_model_the_baseline_and_the_random_split_fi
     ]
 
 
+async def test_a_setting_the_dataset_cannot_use_is_reset_before_it_is_recorded(
+    studio: Studio,
+) -> None:
+    """A stale `positive_weighting` from a form that was last pointed at a binary dataset.
+    The engine ignores it on a numeric one, so the record must not claim it applied --
+    and a random forest on defaults against the random-forest baseline is one fit."""
+    dataset = await studio.dataset()
+    run = await studio.train(
+        dataset_id=dataset.id,
+        engine_id="ecfp4-randomforest",
+        conditions={"positive_weighting": "balanced"},
+        baseline_conditions={"positive_weighting": "sqrt_balanced"},
+    )
+    run = await studio.wait(run)
+    assert run.status is RunStatus.READY, run.error_message
+    inputs = await studio.scorecard_for(run)
+    assert inputs.conditions["positive_weighting"] == "none"
+    assert inputs.baseline_conditions["positive_weighting"] == "none"
+    assert inputs.baseline_is_self is True
+    assert (await studio.protocol_for(run)).conditions["positive_weighting"] == "none"
+    # The same key as a submission that left the setting at its default.
+    default = await studio.train(
+        dataset_id=dataset.id,
+        engine_id="ecfp4-randomforest",
+        conditions={"positive_weighting": "none"},
+        baseline_conditions={"positive_weighting": "none"},
+    )
+    assert run.cache_key == default.cache_key
+
+
+async def test_a_setting_the_dataset_can_use_is_kept(studio: Studio) -> None:
+    dataset = await studio.dataset(targets=_BINARY, csv=tunable_csv())
+    run = await studio.wait(
+        await studio.train(
+            dataset_id=dataset.id,
+            engine_id="ecfp4-randomforest",
+            conditions={"positive_weighting": "balanced"},
+        )
+    )
+    assert run.status is RunStatus.READY, run.error_message
+    inputs = await studio.scorecard_for(run)
+    assert inputs.conditions["positive_weighting"] == "balanced"
+    assert inputs.baseline_is_self is False
+
+
 async def test_tuning_changes_the_cache_key_and_leaving_it_off_does_not(studio: Studio) -> None:
     """A request that does not ask for tuning keys exactly as it did before the option
     existed, so nothing already cached is invalidated."""

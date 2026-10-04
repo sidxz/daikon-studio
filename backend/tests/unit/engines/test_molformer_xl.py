@@ -451,6 +451,34 @@ def test_weighting_and_cutoffs_train_jointly_and_predict():
 
 
 @needs_weights
+def test_the_cutoff_is_tuned_on_the_validation_rows(monkeypatch):
+    from daikonstudio.infrastructure.engines import molformer_xl
+    from tests.helpers.frames import two_binary_targets_frame
+
+    seen: list[tuple[int, list[str]]] = []
+    original = molformer_xl.tuned_cutoffs
+
+    def spy(columns, rows, probabilities):
+        seen.append((rows.height, rows["split"].unique().to_list()))
+        return original(columns, rows, probabilities)
+
+    monkeypatch.setattr(molformer_xl, "tuned_cutoffs", spy)
+    frame = two_binary_targets_frame()
+    MolformerXL().train(
+        TrainContext(
+            frame=frame,
+            targets={"a": TaskType.BINARY_CLASSIFICATION, "b": TaskType.BINARY_CLASSIFICATION},
+            structure_column="smiles",
+            conditions={**_FAST, "epochs": 1},
+            seed=1,
+            tune_cutoffs=True,
+        )
+    )
+
+    assert seen == [(int((frame["split"] == "validation").sum()), ["validation"])]
+
+
+@needs_weights
 def test_a_default_classification_fit_has_no_cutoffs():
     result = MolformerXL().train(
         _context(_frame([float(i % 2) for i in range(12)]), TaskType.BINARY_CLASSIFICATION)

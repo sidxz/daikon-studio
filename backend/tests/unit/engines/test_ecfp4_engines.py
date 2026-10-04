@@ -251,11 +251,17 @@ def _probability_features(smiles_list):
 
 
 def _spy_context(validation_positives=15, **overrides):
-    """Validation and test each hold actives scoring 0.30-0.44 and inactives 0.05-0.19:
-    perfectly separable at a cutoff of 0.30, and all predicted negative at 0.5."""
+    """Validation actives score 0.30-0.44, test actives 0.35-0.49, inactives 0.05-0.19 in both.
+
+    Each partition is perfectly separable and all-negative at 0.5, but the MCC-optimal
+    cutoff is 0.30 on validation and 0.35 on test -- so a cutoff tuned on the wrong
+    partition shows. Test is still perfectly separated at the validation cutoff."""
     rows = {"smiles": [], "y": [], "split": []}
-    for split, positives in (("validation", validation_positives), ("test", 15)):
-        scores = [(0.30 + 0.01 * k, 1) for k in range(positives)]
+    for split, positives, lowest_active in (
+        ("validation", validation_positives, 0.30),
+        ("test", 15, 0.35),
+    ):
+        scores = [(lowest_active + 0.01 * k, 1) for k in range(positives)]
         scores += [(0.05 + 0.01 * k, 0) for k in range(15)]
         for score, label in scores:
             rows["smiles"].append(repr(score))
@@ -276,6 +282,7 @@ def test_a_tuned_cutoff_replaces_the_hard_labels_in_test_and_validation_metrics(
     metrics, validation, cutoffs = _scored(
         spy, _spy_context(tune_cutoffs=True), True, _probability_features
     )
+    # the validation-optimal value; tuning on the test rows would give 0.35
     assert cutoffs == {"y": pytest.approx(0.30)}
     assert metrics["y"]["mcc"] == pytest.approx(1.0)
     assert validation["y"]["mcc"] == pytest.approx(1.0)

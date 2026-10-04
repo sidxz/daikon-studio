@@ -62,6 +62,12 @@ def test_positive_weight_uses_the_training_ratio():
     assert positive_weight(np.zeros(10), "balanced") is None
 
 
+def test_positive_weight_is_none_without_negatives_too():
+    """No negatives would be a ratio of 0, a weight that silences every positive."""
+    assert positive_weight(np.ones(10), "balanced") is None
+    assert positive_weight(np.ones(10), "sqrt_balanced") is None
+
+
 def test_tree_featurizer_appends_the_descriptors_as_float32():
     key, featurize = tree_featurizer({"rdkit_descriptors": True})
     x = featurize(["CCO", "c1ccccc1"])

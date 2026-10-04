@@ -196,7 +196,7 @@ def classification_by_column(
     cutoffs: dict[str, float],
     train_rows: pl.DataFrame,
 ) -> dict[str, dict[str, float]]:
-    """`classification_metrics` per target column of a joint model, labelling each
+    """`classification_metrics` per target column of a joint model, labeling each
     compound active when its probability reaches that column's cutoff, or 0.5 where it
     has none -- exactly the rule these engines applied before cutoffs could be tuned."""
     return {
