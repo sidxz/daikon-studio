@@ -26,6 +26,10 @@ ARG APP_GIT_SHA=unknown
 ARG APP_BUILD_DATE=unknown
 ENV APP_VERSION=$APP_VERSION APP_GIT_SHA=$APP_GIT_SHA APP_BUILD_DATE=$APP_BUILD_DATE
 WORKDIR /app
+# The runtime needs node only. npm, corepack and pnpm come with the base image
+# and carry their own dependency trees, which is where most image CVEs land.
+RUN rm -rf /usr/local/lib/node_modules /usr/local/bin/npm /usr/local/bin/npx \
+  /usr/local/bin/corepack /usr/local/bin/pnpm /usr/local/bin/pnpx
 RUN addgroup -S app && adduser -S app -G app
 # Standalone output omits the two directories the server expects beside it.
 COPY --from=build --chown=app:app /app/.next/standalone ./
