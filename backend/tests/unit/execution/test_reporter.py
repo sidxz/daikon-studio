@@ -238,3 +238,52 @@ async def test_a_failed_epoch_save_never_stops_the_training_run() -> None:
     await _training(_Rows(run))._flush_epochs(run, buffer)
 
     assert buffer.take() == []  # taken, then dropped
+
+
+async def test_a_progress_write_that_never_answers_lets_the_fit_go_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The API stalled (prod, 2026-10-04: a blocking dataset build) and the write
+    waited past its limit. That cost a 26-minute fit; it must cost one progress write."""
+    import daikonstudio.application.execution.train_protocol as module
+
+    class _Stalled(_Rows):
+        async def get_by_id(self, run_id: uuid.UUID) -> Run | None:
+            await asyncio.sleep(60)
+            return self.row
+
+    monkeypatch.setattr(module, "_CHECKPOINT_TIMEOUT_SECONDS", 0.05)
+    run = _running_run()
+    report = _training(_Stalled(run))._reporter(run, (0.0, 0.6))
+
+    await asyncio.to_thread(report, 0.5, "epoch 1")  # must not raise
+
+
+async def test_a_studio_that_cannot_be_reached_lets_the_fit_go_on() -> None:
+    """Mid-deploy: the runner's repository reports the studio as unavailable."""
+    from daikonstudio.domain.shared.errors import ServiceUnavailableError
+
+    class _Down(_Rows):
+        async def get_by_id(self, run_id: uuid.UUID) -> Run | None:
+            raise ServiceUnavailableError("The studio could not be reached")
+
+    run = _running_run()
+    report = _training(_Down(run))._reporter(run, (0.0, 0.6))
+
+    await asyncio.to_thread(report, 0.5, "epoch 1")  # must not raise
+
+
+async def test_a_refusal_still_ends_the_fit() -> None:
+    """Not every failed write is passing: a version conflict means another writer
+    holds the run, and training on would be wasted work."""
+    from daikonstudio.domain.shared.errors import ConcurrencyConflictError
+
+    class _Conflicted(_Rows):
+        async def update(self, run: Run) -> None:
+            raise ConcurrencyConflictError("Run", str(run.id))
+
+    run = _running_run()
+    report = _training(_Conflicted(run))._reporter(run, (0.0, 0.6))
+
+    with pytest.raises(ConcurrencyConflictError):
+        await asyncio.to_thread(report, 0.5, "epoch 1")

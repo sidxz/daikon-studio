@@ -15,7 +15,7 @@ handler, not a missing feature here.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Awaitable, Sequence
 from datetime import datetime
 from typing import Any
 
@@ -26,7 +26,11 @@ from daikonstudio.application.engines.context import EpochPoint
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.execution.run import Run, RunKind
-from daikonstudio.domain.shared.errors import ConcurrencyConflictError, ValidationError
+from daikonstudio.domain.shared.errors import (
+    ConcurrencyConflictError,
+    ServiceUnavailableError,
+    ValidationError,
+)
 from daikonstudio.infrastructure.runner.wire import (
     BlobPutResponse,
     DatasetEnvelope,
@@ -77,6 +81,24 @@ class RunnerApiClient:
         self._blobs.close()
 
 
+_UNAVAILABLE = frozenset({502, 503, 504})
+
+
+async def _reach(request: Awaitable[httpx.Response]) -> httpx.Response:
+    """Await a request to the studio, naming "it could not be reached" for what it is.
+
+    A dropped connection, a timeout or a gateway's 502/503/504 is the studio being busy
+    or mid-deploy, and a training run treats it as passing (see `RunTraining._reporter`).
+    Any other answer, refusals included, is returned for the caller to judge."""
+    try:
+        response = await request
+    except httpx.TransportError as error:
+        raise ServiceUnavailableError(f"The studio could not be reached: {error!r}") from error
+    if response.status_code in _UNAVAILABLE:
+        raise ServiceUnavailableError(f"The studio answered {response.status_code}")
+    return response
+
+
 class HttpRunRepository:
     """Implements the two `RunRepository` methods `run_job` calls: `get_by_id`
     (`_load`) and `update` (`_save`). Everything else on the port is a
@@ -87,7 +109,7 @@ class HttpRunRepository:
         self._client = client
 
     async def get_by_id(self, run_id: uuid.UUID) -> Run | None:
-        response = await self._client._api.get(f"/runs/{run_id}")
+        response = await _reach(self._client._api.get(f"/runs/{run_id}"))
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -141,8 +163,10 @@ class HttpRunRepository:
             fields["metrics"] = run.metrics
         envelope = RunUpdateEnvelope(**fields)
 
-        response = await self._client._api.post(
-            f"/runs/{run.id}", json=envelope.model_dump(mode="json", exclude_unset=True)
+        response = await _reach(
+            self._client._api.post(
+                f"/runs/{run.id}", json=envelope.model_dump(mode="json", exclude_unset=True)
+            )
         )
         if response.status_code == 409:
             raise ConcurrencyConflictError("Run", str(run.id))

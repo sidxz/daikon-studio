@@ -233,3 +233,39 @@ async def test_a_job_past_its_deadline_and_grace_is_failed_and_the_agent_exits(
     assert executed is True
     assert exits == [3]
     assert failed and "stopped by the runner" in failed[0]
+
+
+async def test_a_timeout_inside_the_job_is_its_failure_not_a_hang(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Since Python 3.11 a TimeoutError raised by the job is the same class the hard
+    limit raises. The job has already recorded FAILED: the agent must neither fail the
+    run again nor exit, both of which it did in prod (2026-10-04)."""
+    run_id = uuid.uuid4()
+
+    async def times_out(ctx: dict[str, Any], claimed_run_id: uuid.UUID) -> None:
+        raise TimeoutError("a progress write waited too long")
+
+    failed: list[str] = []
+    exits: list[int] = []
+    monkeypatch.setattr(jobs, "run_job", times_out)
+    monkeypatch.setattr(jobs, "fail_run", lambda *args: failed.append("again"))
+    monkeypatch.setattr(agent, "_exit", lambda code: exits.append(code))
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/api/v1/runner/claim":
+            return httpx.Response(
+                200,
+                json={
+                    "run": _run_envelope_json(run_id),
+                    "deadline_seconds": 3600,
+                    "lease_seconds": 600,
+                },
+            )
+        return httpx.Response(200, json=_run_envelope_json(run_id))
+
+    executed = await _poll_against(handler)
+
+    assert executed is True
+    assert exits == []
+    assert failed == []

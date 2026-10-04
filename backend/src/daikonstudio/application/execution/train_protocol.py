@@ -118,7 +118,12 @@ from daikonstudio.domain.execution.run import (
     TargetHeadline,
     compute_cache_key,
 )
-from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
+from daikonstudio.domain.shared.errors import (
+    DomainError,
+    NotFoundError,
+    ServiceUnavailableError,
+    ValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -1124,7 +1129,23 @@ class RunTraining:
                 self._checkpoint(run, low + (high - low) * clamped, _staged(scope, phase), epochs),
                 loop,
             )
-            if not future.result(timeout=_CHECKPOINT_TIMEOUT_SECONDS):
+            try:
+                wanted = future.result(timeout=_CHECKPOINT_TIMEOUT_SECONDS)
+            except (TimeoutError, ServiceUnavailableError):
+                # The API answered too slowly or not at all -- busy, or mid-deploy. One
+                # progress write is not worth a fit that may have run for hours (prod,
+                # 2026-10-04: a 26-minute fit died here). Drop it and carry on; the next
+                # write, a throttle interval later, tries again and still sees a cancel.
+                # A refusal (another runner owns the run, a version conflict) still ends
+                # the fit: those are not this kind of error.
+                future.cancel()
+                logger.warning(
+                    "Progress write for run %s did not complete; training continues",
+                    run.id,
+                    exc_info=True,
+                )
+                return
+            if not wanted:
                 raise RunInterrupted("the run was cancelled", cancelled=True)
 
         return report
@@ -1137,6 +1158,10 @@ class RunTraining:
         current = await self._runs.get_by_id(run.id)
         if current is None or current.status is not RunStatus.RUNNING:
             return False
+        # The server's version, not this copy's: a write that timed out after the server
+        # applied it leaves this copy a version behind, and every later write would then
+        # fail its check and end the fit.
+        run.version = current.version
         run.report_progress(fraction, phase=phase)
         await self._runs.update(run)
         if epochs is not None:

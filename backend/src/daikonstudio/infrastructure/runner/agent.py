@@ -160,10 +160,19 @@ async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
         _heartbeat(api, run_id, claimed.lease_seconds / _HEARTBEATS_PER_LEASE)
     )
     hard_limit = claimed.deadline_seconds + _HARD_KILL_GRACE_SECONDS
+    limit = asyncio.timeout(hard_limit)
     try:
-        await asyncio.wait_for(jobs.run_job(ctx, run_id), timeout=hard_limit)
+        async with limit:
+            await jobs.run_job(ctx, run_id)
     except TimeoutError:
-        await _abandon_hung_job(ctx, run_id, hard_limit)
+        # Only this limit's own expiry is a hung job. Since Python 3.11 a TimeoutError
+        # raised inside the job -- one the job already recorded as FAILED -- is the
+        # same class, and treating it as a hang logged the wrong cause, then failed an
+        # already-failed run and restarted the agent (prod, 2026-10-04).
+        if limit.expired():
+            await _abandon_hung_job(ctx, run_id, hard_limit)
+        else:
+            _logger.exception("runner job failed", run_id=str(run_id))
     except Exception:
         # run_job already persisted FAILED on the row before re-raising --
         # this is purely so the operator sees it, not a retry path.

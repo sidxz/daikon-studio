@@ -196,6 +196,8 @@ async def run_job(ctx: dict[str, Any], run_id: uuid.UUID) -> None:
     current = await _load(ctx, run.id)
     if current.status is not RunStatus.RUNNING:
         return
+    # As every progress write does: a write whose answer was lost leaves this copy behind.
+    run.version = current.version
     run.succeed(result_uri)
     await _save(ctx, run)
 
