@@ -895,6 +895,7 @@ async def test_a_mixed_kind_dataset_trains_one_model_per_target(studio: Studio) 
     assert "mcc" in inputs.targets[1].baseline_metrics
     assert len(inputs.targets[1].predicted) == len(inputs.structures)
     assert [h["column"] for h in run.metrics["targets"]] == ["y", "active"]
+    assert run.params["deadline_scale"] == 2
     artifact = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))
     assert zipfile.is_zipfile(io.BytesIO(artifact))
 

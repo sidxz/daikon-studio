@@ -61,3 +61,10 @@ async def test_a_lane_without_an_override_gets_the_default():
     run = _run("default")
     runner = Runner(name="cpu-box", lanes=("default",), token_hash="h")
     assert (await _claim(run)(runner=runner)).unwrap() == (run, 1800, 600)
+
+
+async def test_a_fan_out_run_gets_the_lane_deadline_once_per_target():
+    run = _run("gpu")
+    run.params = {"deadline_scale": 4}
+    runner = Runner(name="gpu-box", lanes=("gpu",), token_hash="h")
+    assert (await _claim(run)(runner=runner)).unwrap() == (run, 4 * 7200, 600)

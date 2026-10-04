@@ -356,6 +356,20 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
     )
 
 
+def deadline_scale(manifest: EngineManifest, dataset: Dataset) -> int:
+    """How many times over its lane's deadline a training Run may take.
+
+    A fan-out engine fits once per target in each of its legs -- the model and the
+    random-split comparison -- so four targets take about four times as long as one
+    against a budget sized for one. A joint engine fits once regardless.
+
+    ponytail: ignores the baseline, which fans out too -- a joint chemprop run on
+    four targets still fits four random forests. Cheap next to chemprop's own fit
+    today; scale by the baseline as well if one ever dominates.
+    """
+    return 1 if manifest.supports_multitask else len(dataset.targets)
+
+
 def training_lane(engines: EngineRegistry, engine_id: str, baseline_engine_id: str | None) -> str:
     """The lane a training Run needs: the chosen engine and its baseline fit inside
     one job, so the queue has to serve both. Shared by enqueue (`TrainProtocol`)
@@ -468,7 +482,10 @@ class TrainProtocol:
                 baseline_engine_id=command.baseline_engine_id,
                 baseline_conditions=sorted(command.baseline_conditions.items()),
             ),
-            params=command.to_params(),
+            params={
+                **command.to_params(),
+                "deadline_scale": deadline_scale(engine.manifest(), dataset),
+            },
             # Which sweep asked for this run, or None for a solo request. The
             # only difference between the two, deliberately: a sweep child is
             # the same object, with the same cache key, baseline resolution and

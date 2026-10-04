@@ -73,4 +73,8 @@ class ClaimRun:
         # (Important 1+2, final review). The deadline is the claimed run's lane's,
         # falling back to the server-wide default.
         deadline = self._deadline_by_lane.get(run.lane or DEFAULT_LANE, self._deadline_seconds)
+        # A fan-out training run fits once per target; `TrainProtocol` stamped how
+        # many lane budgets that is worth. Absent on prediction runs and on runs
+        # enqueued before targets could be several, where it is 1.
+        deadline *= int(run.params.get("deadline_scale", 1))
         return Success((run, deadline, self._lease_seconds))
