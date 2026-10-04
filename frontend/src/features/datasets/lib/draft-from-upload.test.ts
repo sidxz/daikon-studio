@@ -27,6 +27,18 @@ describe("draftFromUpload", () => {
     expect(draft.targets.map((target) => target.column)).toEqual(["pIC50"]);
   });
 
+  it("leaves a leading identifier column out of the targets", () => {
+    const draft = draftFromUpload(["Compound_ID", "SMILES", "pIC50"], [], "screen.csv");
+    expect(draft.targets.map((target) => target.column)).toEqual(["pIC50"]);
+    expect(draft.idColumn).toBe("Compound_ID");
+  });
+
+  it("pre-checks nothing when only the structure and the identifier remain", () => {
+    const draft = draftFromUpload(["smiles", "name"], [], "a.csv");
+    expect(draft.targets).toEqual([]);
+    expect(draft.idColumn).toBe("name");
+  });
+
   it("never guesses the target column as the identifier", () => {
     const draft = draftFromUpload(["smiles", "y", "compound_id"], [], "a.csv");
     expect(draft.targets.map((target) => target.column)).toEqual(["y"]);

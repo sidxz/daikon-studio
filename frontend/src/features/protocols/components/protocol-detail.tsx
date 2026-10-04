@@ -32,7 +32,7 @@ import { ScorecardView } from "./scorecard-view";
  * header that says whether one model learned them all or each has its own, so a
  * row of per-target numbers is never mistaken for joint learning.
  */
-function Scorecards({ scorecards }: { scorecards: ScorecardResponse[] }) {
+export function Scorecards({ scorecards }: { scorecards: ScorecardResponse[] }) {
   const [first] = scorecards;
   if (scorecards.length === 1) return <ScorecardView scorecard={first} />;
   return (

@@ -48,7 +48,7 @@ export function DatasetList() {
         <div>
           <h1 className="text-lg font-semibold">Datasets</h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            An immutable snapshot of structures and one measured value, with a fixed split, so
+            An immutable snapshot of structures and one or more targets, with a fixed split, so
             protocols trained on it are reproducible.
           </p>
         </div>

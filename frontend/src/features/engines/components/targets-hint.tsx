@@ -35,8 +35,13 @@ export function TargetsHint({ dataset, engines }: { dataset: DatasetResponse; en
       </p>
       {refused.length > 0 && (
         <p>
-          {refused.map((engine) => engine.name).join(" and ")} train one joint model and need
-          targets of a single kind, so they are not offered for this dataset.
+          {new Intl.ListFormat("en-US", { type: "conjunction" }).format(
+            refused.map((engine) => engine.name),
+          )}{" "}
+          {refused.length === 1
+            ? "trains one joint model and needs targets of a single kind, so it is"
+            : "train one joint model and need targets of a single kind, so they are"}{" "}
+          not offered for this dataset.
         </p>
       )}
     </div>

@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 import type { SweepRun } from "../types";
-import { baselineDelta, formatMetric, headlineFor, sortRuns, sweepTargets } from "./rank";
+import {
+  baselineDelta,
+  formatMetric,
+  headlineFor,
+  sortDirection,
+  sortRuns,
+  sweepTargets,
+} from "./rank";
 
 const run = (id: string, targets: [string, string, number | null, number | null][]): SweepRun =>
   ({
@@ -48,6 +55,13 @@ describe("sortRuns", () => {
       "u",
       "p",
     ]);
+  });
+});
+
+describe("sortDirection", () => {
+  it("is ascending for an error metric and descending for a score", () => {
+    expect(sortDirection([pending, a, b], "solubility")).toBe("ascending");
+    expect(sortDirection([pending, a, b], "reactive")).toBe("descending");
   });
 });
 

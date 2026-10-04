@@ -39,6 +39,8 @@ export function ValidationReportView({
 }) {
   const hasInvalid = report.invalid.length > 0;
   const hasConflicts = report.conflicting.length > 0;
+  // One compound that conflicts in two columns is two entries but one compound.
+  const conflictingCompounds = new Set(report.conflicting.map((row) => row.structure)).size;
 
   return (
     <div className="space-y-4">
@@ -125,12 +127,13 @@ export function ValidationReportView({
         <Card className={rejected ? "border-destructive/50" : undefined}>
           <CardHeader>
             <CardTitle className="text-base">
-              {report.conflicting.length.toLocaleString()} compound
-              {report.conflicting.length === 1 ? "" : "s"} with conflicting labels
+              {conflictingCompounds.toLocaleString()} compound
+              {conflictingCompounds === 1 ? "" : "s"} with conflicting labels
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Each structure is labeled both active and inactive. Conflicts are not resolved
-              automatically; correct them and upload again.
+              Each structure is labeled both active and inactive. A compound with conflicting labels
+              is left out of every target, not only the one it conflicts in. Conflicts are not
+              resolved automatically; correct them and upload again.
             </p>
           </CardHeader>
           <CardContent className="max-h-96 overflow-y-auto">

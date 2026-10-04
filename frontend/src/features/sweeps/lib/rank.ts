@@ -81,6 +81,15 @@ export function sortRuns(runs: SweepRun[], column: string | null): SweepRun[] {
   return [...scored, ...unscored];
 }
 
+/**
+ * The `aria-sort` of the column `sortRuns` ordered: best first, which is
+ * ascending for an error metric and descending for a score.
+ */
+export function sortDirection(runs: SweepRun[], column: string): "ascending" | "descending" {
+  const metric = runs.map((run) => headlineFor(run, column)).find(Boolean)?.primary_metric;
+  return metric && LOWER_IS_BETTER.has(metric) ? "ascending" : "descending";
+}
+
 /** The headline number, or why there isn't one. */
 export function formatMetric(headline: Headline | undefined): string {
   if (!headline || !isRankable(headline)) return "—";

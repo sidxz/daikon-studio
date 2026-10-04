@@ -19,16 +19,16 @@ export function draftFromUpload(
   fileName: string,
 ): DatasetDraft {
   const structureColumn = guessStructureColumn(columns);
-  const first = columns.find((column) => column !== structureColumn);
+  // The identifier is guessed first: it is a pre-checked box, not a select the
+  // real target would replace, so an `id,smiles,value` file must not open with the id checked.
+  const idColumn = guessIdColumn(columns, structureColumn);
+  const first = columns.find((column) => column !== structureColumn && column !== idColumn);
   return {
     ...EMPTY_DRAFT,
     name: fileName.replace(/\.csv$/i, ""),
     structureColumn,
     targets: first ? [draftTarget(first, rows)] : [],
-    idColumn: guessIdColumn(
-      columns.filter((column) => column !== first),
-      structureColumn,
-    ),
+    idColumn,
   };
 }
 

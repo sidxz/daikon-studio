@@ -27,6 +27,7 @@ import {
   formatMetric,
   headlineFor,
   isRankable,
+  sortDirection,
   sortRuns,
   sweepTargets,
 } from "../lib/rank";
@@ -126,12 +127,14 @@ export function SweepDetail({ id }: { id: string }) {
               <TableHead>Engine</TableHead>
               <TableHead>Status</TableHead>
               {targets.map((column) => (
-                <TableHead key={column}>
+                <TableHead
+                  key={column}
+                  aria-sort={active === column ? sortDirection(sweep.runs, column) : undefined}
+                >
                   <button
                     type="button"
                     className="inline-flex items-center gap-1 font-mono hover:underline"
                     onClick={() => setSortBy(column)}
-                    aria-sort={active === column ? "descending" : undefined}
                   >
                     {column}
                     {active === column && <ArrowDown className="size-3.5" />}

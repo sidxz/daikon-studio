@@ -39,7 +39,7 @@ import {
 } from "../types";
 import { ValidationReportView } from "./validation-report-view";
 
-const STEPS = ["File", "Columns", "Target", "Split"] as const;
+const STEPS = ["File", "Columns", "Targets", "Split"] as const;
 
 function StepIndicator({ current }: { current: number }) {
   return (
@@ -198,8 +198,8 @@ export function DatasetWizard() {
                 <FileUp className="size-8 text-muted-foreground" />
                 <span className="text-sm font-medium">Drop a CSV here, or click to choose one</span>
                 <span className="max-w-sm text-xs text-muted-foreground">
-                  A SMILES column and a target column are required. Other columns are not used for
-                  training.
+                  A SMILES column and at least one target column are required. Other columns are not
+                  used for training.
                 </span>
               </button>
               <div className="mt-4 flex items-center justify-between">
@@ -251,7 +251,7 @@ export function DatasetWizard() {
                   </Select>
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Values to predict</Label>
+                  <Label>Target columns</Label>
                   <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border p-2">
                     {preview.columns.map((column, index) =>
                       column === draft.structureColumn ? null : (

@@ -150,7 +150,11 @@ describe("engines for several targets", () => {
     fireEvent.click(screen.getByText("Choose a dataset"));
     fireEvent.click(await screen.findByText(/Solubility/));
 
-    expect(await screen.findByText(/Chemprop D-MPNN train one joint model/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(
+        /Chemprop D-MPNN trains one joint model and needs targets of a single kind, so it is not offered/,
+      ),
+    ).toBeInTheDocument();
     // The joint engine is not offered for a mixed-kind dataset.
     fireEvent.click(screen.getByText("Choose an engine"));
     expect(await screen.findByRole("option", { name: /ECFP4 \+ RF/ })).toBeInTheDocument();
