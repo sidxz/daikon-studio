@@ -50,9 +50,11 @@ from daikonstudio.application.engines.manifest import (
 )
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.engines._lightning import keep_best_by_validation_loss
+from daikonstudio.infrastructure.engines._options import POSITIVE_WEIGHTING, positive_weight
 from daikonstudio.infrastructure.engines._scoring import (
-    classification_metrics,
+    classification_by_column,
     regression_metrics,
+    tuned_cutoffs,
 )
 
 #: The published checkpoint, pinned to an immutable commit. The `ibm/` namespace
@@ -127,6 +129,7 @@ _MANIFEST = EngineManifest(
             "better choice on small assays; fine-tuning the whole model usually performs "
             "better with thousands of measurements.",
         ),
+        POSITIVE_WEIGHTING,
     ),
     lane="gpu",
     supports_multitask=True,
@@ -275,8 +278,19 @@ def _to_values(logits: Any, *, is_classification: bool, target_mean: Any, target
     return np.asarray(logits) * np.asarray(target_std) + np.asarray(target_mean)
 
 
-def _build_module(*, model: Any, learning_rate: float, is_classification: bool) -> Any:
-    """The LightningModule. Defined inside a function so `lightning` imports lazily."""
+def _build_module(
+    *,
+    model: Any,
+    learning_rate: float,
+    is_classification: bool,
+    pos_weight: list[float] | None = None,
+) -> Any:
+    """The LightningModule. Defined inside a function so `lightning` imports lazily.
+
+    `pos_weight` is one positive-class weight per target for the classification loss,
+    which broadcasts it over the (batch, n_tasks) logits; None leaves the loss as it was.
+    The loss only runs in training and validation, so `predict` never passes one.
+    """
     import torch
     from lightning import pytorch as lightning
 
@@ -284,7 +298,13 @@ def _build_module(*, model: Any, learning_rate: float, is_classification: bool) 
         def __init__(self) -> None:
             super().__init__()
             self.backbone = model
-            self._loss = torch.nn.BCEWithLogitsLoss() if is_classification else torch.nn.MSELoss()
+            self._loss = (
+                torch.nn.BCEWithLogitsLoss(
+                    pos_weight=None if pos_weight is None else torch.tensor(pos_weight)
+                )
+                if is_classification
+                else torch.nn.MSELoss()
+            )
 
         def forward(self, input_ids: Any, attention_mask: Any) -> Any:
             output = self.backbone(input_ids=input_ids, attention_mask=attention_mask)
@@ -359,6 +379,7 @@ class MolformerXL:
         batch_size = int(conditions["batch_size"])
         learning_rate = float(conditions["learning_rate"])
         freeze_encoder = bool(conditions["freeze_encoder"])
+        weighting = str(conditions["positive_weighting"])
         columns = ctx.target_columns
         # One task for the whole fit: a joint engine is only ever handed a dataset
         # whose targets share a kind (`joint_kind_error`, at enqueue).
@@ -392,8 +413,19 @@ class MolformerXL:
             ]
 
         tokenizer, model = _load_backbone(freeze_encoder=freeze_encoder, num_labels=len(columns))
+        pos_weight = (
+            [
+                positive_weight(train_rows[column].to_numpy(), weighting) or 1.0
+                for column in columns
+            ]
+            if is_classification and weighting != "none"
+            else None
+        )
         module = _build_module(
-            model=model, learning_rate=learning_rate, is_classification=is_classification
+            model=model,
+            learning_rate=learning_rate,
+            is_classification=is_classification,
+            pos_weight=pos_weight,
         )
         collate = _collate(tokenizer)
 
@@ -456,24 +488,25 @@ class MolformerXL:
                 target_std=target_std,
             )
 
-        def score(rows: pl.DataFrame) -> dict[str, dict[str, float]]:
-            values = infer(rows)
-            scored: dict[str, dict[str, float]] = {}
-            for index, column in enumerate(columns):
-                truth = rows[column].to_numpy()
-                if is_classification:
-                    scored[column] = classification_metrics(
-                        truth,
-                        (values[:, index] >= 0.5).astype(float),
-                        values[:, index],
-                        train_has_both_classes=train_rows[column].n_unique() >= 2,
-                    )
-                else:
-                    scored[column] = regression_metrics(truth, values[:, index])
-            return scored
+        # The validation partition is inferred once: it picks the cutoffs, then is scored
+        # at them. Test is scored at those cutoffs and never sees them chosen.
+        validation_values = infer(validation_rows) if validation_rows.height > 0 else None
+        cutoffs: dict[str, float] = {}
+        if ctx.tune_cutoffs and is_classification and validation_values is not None:
+            cutoffs = tuned_cutoffs(columns, validation_rows, validation_values)
 
-        metrics = score(test_rows)
-        validation_metrics = score(validation_rows) if validation_rows.height > 0 else None
+        def score(rows: pl.DataFrame, values: Any) -> dict[str, dict[str, float]]:
+            if is_classification:
+                return classification_by_column(columns, rows, values, cutoffs, train_rows)
+            return {
+                column: regression_metrics(rows[column].to_numpy(), values[:, index])
+                for index, column in enumerate(columns)
+            }
+
+        metrics = score(test_rows, infer(test_rows))
+        validation_metrics = (
+            None if validation_values is None else score(validation_rows, validation_values)
+        )
 
         # The whole fine-tuned model, not just the head. Under `freeze_encoder` most
         # of these ~190 MB duplicate the public checkpoint, which is wasteful -- and
@@ -487,7 +520,13 @@ class MolformerXL:
         buffer = io.BytesIO()
         torch.save(
             {
-                "state_dict": module.state_dict(),
+                # Without the loss: a weighted fit's `pos_weight` is a buffer of it, and
+                # `predict` builds its module with no loss weights to load it into.
+                "state_dict": {
+                    key: value
+                    for key, value in module.state_dict().items()
+                    if not key.startswith("_loss.")
+                },
                 "is_classification": is_classification,
                 "target_mean": target_mean,
                 "target_std": target_std,
@@ -498,7 +537,10 @@ class MolformerXL:
         )
 
         return TrainResult(
-            artifact=buffer.getvalue(), metrics=metrics, validation_metrics=validation_metrics
+            artifact=buffer.getvalue(),
+            metrics=metrics,
+            validation_metrics=validation_metrics,
+            cutoffs=cutoffs or None,
         )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:

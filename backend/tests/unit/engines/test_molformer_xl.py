@@ -376,3 +376,83 @@ def test_predict_refuses_a_target_count_the_bundle_was_not_trained_for() -> None
 
 def test_molformer_declares_that_it_learns_targets_jointly() -> None:
     assert MolformerXL.manifest().supports_multitask is True
+
+
+# --- positive weighting and tuned cutoffs -------------------------------------------
+
+
+def test_the_module_loss_carries_the_positive_weights_and_the_default_has_none():
+    import torch
+
+    from daikonstudio.infrastructure.engines.molformer_xl import _build_module
+
+    weighted = _build_module(
+        model=torch.nn.Linear(1, 2),
+        learning_rate=1e-4,
+        is_classification=True,
+        pos_weight=[3.0, 9.0],
+    )
+    assert torch.equal(weighted._loss.pos_weight, torch.tensor([3.0, 9.0]))
+    default = _build_module(
+        model=torch.nn.Linear(1, 2), learning_rate=1e-4, is_classification=True
+    )
+    assert default._loss.pos_weight is None
+
+
+@needs_weights
+def test_weighting_and_cutoffs_train_jointly_and_predict():
+    import io
+    from dataclasses import replace
+
+    import torch
+    from sklearn.metrics import matthews_corrcoef
+
+    from tests.helpers.frames import two_binary_targets_frame
+
+    frame = two_binary_targets_frame()
+    engine = MolformerXL()
+    result = engine.train(
+        replace(
+            TrainContext(
+                frame=frame,
+                targets={"a": TaskType.BINARY_CLASSIFICATION, "b": TaskType.BINARY_CLASSIFICATION},
+                structure_column="smiles",
+                conditions={**_FAST, "epochs": 1, "positive_weighting": "balanced"},
+                seed=1,
+            ),
+            tune_cutoffs=True,
+        )
+    )
+    assert result.cutoffs is not None and set(result.cutoffs) <= {"a", "b"}
+    # The loss weights are a training detail: they are not in the artifact, so a weighted
+    # fit and an unweighted one share a format and `predict` needs no branch.
+    bundle = torch.load(io.BytesIO(result.artifact), weights_only=True)
+    assert not any(key.startswith("_loss.") for key in bundle["state_dict"])
+
+    def predict(rows: pl.DataFrame) -> pl.DataFrame:
+        return engine.predict(
+            PredictContext(
+                frame=rows,
+                structure_column="smiles",
+                artifact=result.artifact,
+                conditions={},
+                target_columns=("a", "b"),
+            )
+        )
+
+    assert predict(frame.head(8)).height == 16
+    # The reported MCC is the one at the tuned cutoff, recomputed from the predict path.
+    test = frame.filter(pl.col("split") == "test")
+    probabilities = predict(test)
+    for column, cutoff in result.cutoffs.items():
+        p = probabilities.filter(pl.col("target") == column)["value"].to_numpy()
+        expected = matthews_corrcoef(test[column].to_numpy(), (p >= cutoff).astype(int))
+        assert result.metrics[column]["mcc"] == pytest.approx(expected)
+
+
+@needs_weights
+def test_a_default_classification_fit_has_no_cutoffs():
+    result = MolformerXL().train(
+        _context(_frame([float(i % 2) for i in range(12)]), TaskType.BINARY_CLASSIFICATION)
+    )
+    assert result.cutoffs is None

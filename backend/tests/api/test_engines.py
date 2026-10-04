@@ -42,6 +42,11 @@ async def test_engines_are_listed_with_their_conditions(client):
     )
     assert chemprop_weighting["tasks"] == ["binary_classification"]
     assert "rdkit_descriptors" in {c["key"] for c in chemprop["conditions"]}
+    molformer = next(e for e in engines if e["id"] == "molformer-xl")
+    molformer_weighting = next(
+        c for c in molformer["conditions"] if c["key"] == "positive_weighting"
+    )
+    assert molformer_weighting["tasks"] == ["binary_classification"]
 
 
 async def test_exactly_one_engine_is_marked_as_the_baseline(client):
