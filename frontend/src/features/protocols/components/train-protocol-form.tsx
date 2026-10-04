@@ -236,6 +236,10 @@ export function TrainProtocolForm() {
                 style={{ width: `${Math.round((run.data?.progress ?? 0) * 100)}%` }}
               />
             </div>
+            <p className="text-sm text-muted-foreground">
+              You can leave this page. Training continues, and it is listed under Protocols until it
+              finishes.
+            </p>
             <p className="text-xs text-muted-foreground">
               Training the selected engine and the baseline. On a scaffold split, the engine is also
               trained on a random split to measure the optimism gap.

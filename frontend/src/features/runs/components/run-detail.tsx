@@ -126,7 +126,9 @@ export function RunDetail({ runId }: { runId: string }) {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold">
-              {protocol?.name ?? (run.kind === "training" ? "Training run" : "Prediction run")}
+              {protocol?.name ??
+                run.name ??
+                (run.kind === "training" ? "Training run" : "Prediction run")}
             </h1>
             <Badge variant={run.status === "ready" ? "default" : "outline"} className="font-normal">
               {RUN_STATUS_COPY[run.status] ?? run.status}

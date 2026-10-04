@@ -11,9 +11,17 @@ import type {
   ScorecardResponse,
   TrainProtocolBody,
 } from "@/shared/lib/api/model";
-import { STALE_TIME, mapStaleTime, pollInterval } from "@/shared/lib/query-defaults";
+import {
+  RUN_POLL_MS,
+  RUN_RETRY_POLL_MS,
+  STALE_TIME,
+  isTerminal,
+  mapStaleTime,
+  pollInterval,
+} from "@/shared/lib/query-defaults";
 import { showError, showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { PROTOCOLS_KEY, PROTOCOL_KEY, PROTOCOL_RUNS_KEY, SCORECARD_KEY } from "./query-keys";
 
 /**
@@ -180,4 +188,45 @@ export function useProtocolRuns(protocolId: string | undefined) {
     enabled: Boolean(protocolId),
     staleTime: STALE_TIME.SHORT,
   });
+}
+
+/**
+ * Training runs still in flight. Between "Train" and the Protocol it produces
+ * this run is the only record of the work, and the train form holds its id in
+ * state alone, so closing that tab would otherwise lose the way back to it.
+ *
+ * Polls while any run is live, and refreshes the Protocols list when one
+ * finishes so the new Protocol appears where the run just was. It calls the
+ * list endpoint itself because `@/features/runs` imports this feature's barrel.
+ * ponytail: only the newest page of training runs is checked; an active run
+ * older than that page is missed. Add a status filter to `GET /runs` if that
+ * ever happens.
+ */
+export function useActiveTrainingRuns() {
+  const queryClient = useQueryClient();
+  const { data } = useQuery({
+    queryKey: [...PROTOCOL_RUNS_KEY, "active-training"],
+    queryFn: () =>
+      customInstance<PaginatedResponseRunResponse>({
+        url: `${API_V1}/runs`,
+        method: "GET",
+        params: { kind: "training" },
+      }),
+    refetchInterval: (query) => {
+      if (!query.state.data?.items.some((run) => !isTerminal(run.status))) return false;
+      // A failed refetch with the list on screen is a blip, not the end of the watch.
+      return query.state.status === "error" ? RUN_RETRY_POLL_MS : RUN_POLL_MS;
+    },
+  });
+  const live = (data?.items ?? []).filter((run) => !isTerminal(run.status));
+
+  const liveBefore = useRef(live.length);
+  useEffect(() => {
+    if (live.length < liveBefore.current) {
+      queryClient.invalidateQueries({ queryKey: PROTOCOLS_KEY });
+    }
+    liveBefore.current = live.length;
+  }, [live.length, queryClient]);
+
+  return live;
 }
