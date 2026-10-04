@@ -320,6 +320,28 @@ def test_a_subsampled_parity_scatter_says_that_it_was_subsampled():
     assert 0 < len(card.parity) <= 4000
 
 
+def test_the_interval_figure_gets_the_redraws_the_interval_was_read_from():
+    """The figure draws these bins under the interval, so the two must be one
+    set of redraws: every redraw counted once, and the interval inside the bins."""
+    size = 60
+    card = regression_card(
+        actual=[float(i % 7) for i in range(size)],
+        predicted=[float(i % 7) + (0.5 if i % 3 else -0.8) for i in range(size)],
+        structures=["CCO"] * size,
+    )
+    histogram, interval = card.primary_metric_bootstrap, card.primary_metric_ci
+    assert histogram is not None and interval is not None
+    assert len(histogram.edges) == len(histogram.counts) + 1
+    assert sum(histogram.counts) == 1000
+    assert histogram.edges[0] <= interval[0] < interval[1] <= histogram.edges[-1]
+
+
+def test_no_interval_means_no_redraws_to_draw():
+    card = regression_card()
+    assert card.primary_metric_ci is None
+    assert card.primary_metric_bootstrap is None
+
+
 def test_residual_histogram_is_regression_only():
     """For classification `actual` is a 0/1 label and `predicted` a probability,
     so their difference is bimodal by construction and says nothing."""

@@ -4,8 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
  * The clock behind every explainer figure. `t` runs 0 -> 1 once, the first
- * time the figure is a third in view, and again on pointer-enter (when idle)
- * or replay(). It rests at 1, so the first render, a server render and
+ * time the figure is a third in view, and again on replay(). It rests at 1, so the first render, a server render and
  * reduced motion all show the complete final frame.
  */
 export function useTimeline<T extends Element>(durationMs: number) {
@@ -30,10 +29,6 @@ export function useTimeline<T extends Element>(durationMs: number) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    const onEnter = () => {
-      if (frame.current === 0) replay();
-    };
-    el.addEventListener("pointerenter", onEnter);
     let observer: IntersectionObserver | undefined;
     if (typeof IntersectionObserver !== "undefined") {
       observer = new IntersectionObserver(
@@ -47,7 +42,6 @@ export function useTimeline<T extends Element>(durationMs: number) {
       observer.observe(el);
     }
     return () => {
-      el.removeEventListener("pointerenter", onEnter);
       observer?.disconnect();
       cancelAnimationFrame(frame.current);
       frame.current = 0;

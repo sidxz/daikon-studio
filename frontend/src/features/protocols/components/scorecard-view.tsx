@@ -1,14 +1,23 @@
 "use client";
 
 import { useEngines } from "@/features/engines";
-import { BootstrapExplainer } from "@/shared/components/explainers/figures/bootstrap";
+import {
+  type BootstrapData,
+  BootstrapExplainer,
+} from "@/shared/components/explainers/figures/bootstrap";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Progress } from "@/shared/components/ui/progress";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
 import { formatCutoff } from "../lib/format-cutoff";
-import { type Verdict, computeOptimismGap, computeVerdict, describeBaseline } from "../lib/verdict";
+import {
+  type Verdict,
+  computeOptimismGap,
+  computeVerdict,
+  describeBaseline,
+  higherIsBetter,
+} from "../lib/verdict";
 import { metricLabel } from "../types";
 import { LargestErrors } from "./largest-errors";
 import { ScorecardDiagnostics, SplitComparison } from "./scorecard-diagnostics";
@@ -108,9 +117,24 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
   );
 }
 
-/** The interval explainer needs an interval and a real comparison to explain. */
-export function showsBootstrapExplainer(verdict: Verdict): boolean {
-  return verdict.ci != null && verdict.kind !== "is-baseline" && verdict.kind !== "unknown";
+/** The interval explainer needs an interval, its redraws, and a real comparison to explain. */
+export function bootstrapData(
+  scorecard: ScorecardResponse,
+  verdict: Verdict,
+): BootstrapData | null {
+  const redraws = scorecard.primary_metric_bootstrap;
+  if (verdict.ci == null || verdict.baseline == null || redraws == null) return null;
+  if (verdict.kind === "is-baseline" || verdict.kind === "unknown") return null;
+  return {
+    metric: metricLabel(scorecard.primary_metric),
+    higherIsBetter: higherIsBetter(scorecard.primary_metric),
+    interval: verdict.ci,
+    baseline: verdict.baseline,
+    redraws,
+    compounds: scorecard.parity,
+    testSize: scorecard.parity_sampled_from ?? scorecard.parity.length,
+    cutoff: scorecard.prediction_kind === "probability" ? (scorecard.cutoff ?? 0.5) : null,
+  };
 }
 
 /**
@@ -150,6 +174,7 @@ function CutoffLine({
 
 function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
   const verdict = computeVerdict(scorecard);
+  const bootstrap = bootstrapData(scorecard, verdict);
   const metric = metricLabel(scorecard.primary_metric);
   const { data: engines } = useEngines();
   const engineName =
@@ -206,8 +231,8 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
           </div>
           {verdict.ci && (
             <p className="mt-1 text-xs text-muted-foreground">
-              95% interval for this {metric}: [<ReadoutValue value={verdict.ci[0]} />,{" "}
-              <ReadoutValue value={verdict.ci[1]} />] (bootstrap over the test set, unpaired)
+              Likely range for this {metric}: <ReadoutValue value={verdict.ci[0]} /> to{" "}
+              <ReadoutValue value={verdict.ci[1]} /> (95% interval)
             </p>
           )}
           {/* Within noise by the interval: the only such verdict with no noise floor. */}
@@ -240,9 +265,9 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
               </>
             )}
           </p>
-          {showsBootstrapExplainer(verdict) && (
+          {bootstrap && (
             <div className="mt-3">
-              <BootstrapExplainer startOutside={verdict.kind === "beats"} />
+              <BootstrapExplainer data={bootstrap} />
             </div>
           )}
         </>

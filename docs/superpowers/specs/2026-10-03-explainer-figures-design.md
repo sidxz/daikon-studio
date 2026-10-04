@@ -15,7 +15,7 @@ It must not make the app feel busier. Every figure explains one concept on the s
 | Placements | A (engines), B (splits), C (bootstrap), D (applicability domain), G (nav icons). Dashboard pipeline and empty states are out of scope | Placement question |
 | Visibility | "How this works" disclosure. Open on the first visit, then remembered per browser and per figure | Visibility question |
 | Rendering | Inline SVG, React, no new dependency, no WebGL | Rendering question |
-| Motion | Plays once when 35% of the figure is in view, replays on hover or Replay, final frame only under `prefers-reduced-motion` | Motion question |
+| Motion | Plays once when 35% of the figure is in view, replays on Replay (hover replay removed 2026-10-04), final frame only under `prefers-reduced-motion` | Motion question |
 | Figures A1–A5, B, C, D | Keep as previewed | Preview review, all marked Keep |
 | Icons G | Revise: "make them colored" | Preview review |
 | Icon color treatment | Colored glyphs: each icon in its own hue, labels neutral | Preview G2, option 1 |
@@ -59,7 +59,7 @@ frontend/src/shared/components/icons/nav-icons.tsx
 
 ### `useTimeline(ref, durationMs)`
 
-Returns `{ t, replay }`. It starts at `t = 1` so server rendering, thumbnails, and reduced motion all show the complete final frame. The first time an IntersectionObserver (threshold 0.35) sees the element, it runs `requestAnimationFrame` from 0 to 1, then stops. `pointerenter` and `replay()` restart it if it is idle. Under `prefers-reduced-motion: reduce` it stays at 1. A frame loop runs only while a figure is playing.
+Returns `{ t, replay }`. It starts at `t = 1` so server rendering, thumbnails, and reduced motion all show the complete final frame. The first time an IntersectionObserver (threshold 0.35) sees the element, it runs `requestAnimationFrame` from 0 to 1, then stops. `replay()` restarts it. (Hover replay was removed on 2026-10-04.) Under `prefers-reduced-motion: reduce` it stays at 1. A frame loop runs only while a figure is playing.
 
 Each figure is a pure function of `t`: `(t, data) => <svg>`. Data is computed once with `useMemo` from fixed seeds, so the drawing is deterministic and the math is testable without a DOM. Re-rendering ~110 SVG nodes per frame for a few seconds is well within React's budget; if profiling ever says otherwise, the upgrade is setting attributes through refs, not a library.
 

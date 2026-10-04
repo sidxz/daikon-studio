@@ -18,8 +18,6 @@ interface ExplainerProps {
   durationMs: number;
   /** Replays the figure when this changes, e.g. the selected split strategy. */
   replayKey?: string;
-  /** Interactive controls for the figure. Kept outside the hover-to-replay area, so reaching for one does not restart the animation. */
-  controls?: ReactNode;
   children: (t: number) => ReactNode;
 }
 
@@ -29,7 +27,6 @@ export function Explainer({
   caption,
   durationMs,
   replayKey,
-  controls,
   children,
 }: ExplainerProps) {
   const open = useExplainerStore((state) => !state.closed[id]);
@@ -42,12 +39,7 @@ export function Explainer({
       </CollapsibleTrigger>
       {/* Radix unmounts closed content, so the timeline starts on open. */}
       <CollapsibleContent>
-        <ExplainerFigure
-          caption={caption}
-          durationMs={durationMs}
-          replayKey={replayKey}
-          controls={controls}
-        >
+        <ExplainerFigure caption={caption} durationMs={durationMs} replayKey={replayKey}>
           {children}
         </ExplainerFigure>
       </CollapsibleContent>
@@ -59,7 +51,6 @@ function ExplainerFigure({
   caption,
   durationMs,
   replayKey,
-  controls,
   children,
 }: Omit<ExplainerProps, "id" | "label">) {
   const { ref, t, replay } = useTimeline<HTMLDivElement>(durationMs);
@@ -72,13 +63,12 @@ function ExplainerFigure({
 
   return (
     <div className="space-y-2 border-t pt-3">
-      {controls}
       {/* Capped: on a wide page a full-width figure would push the work below it out of view. */}
       <div ref={ref} className="max-w-3xl">
         {children(t)}
       </div>
       <div className="flex items-start justify-between gap-3">
-        <p className="max-w-prose text-xs text-muted-foreground">{caption}</p>
+        <p className="text-xs text-muted-foreground">{caption}</p>
         <button
           type="button"
           onClick={replay}

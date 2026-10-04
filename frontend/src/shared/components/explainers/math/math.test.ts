@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { boostingExample } from "./boosting";
-import { bootstrapExample } from "./bootstrap";
+import { type BootstrapData, bootstrapLayout, niceTicks } from "./bootstrap";
 import { domainExample, typicalError } from "./domain";
 import { gpExample } from "./gaussian-process";
 import { mulberry32, shuffle } from "./prng";
@@ -67,12 +67,58 @@ describe("gaussian process", () => {
 });
 
 describe("bootstrap", () => {
-  it("reproduces the previewed interval and holds ~95% of redraws", () => {
-    const { accuracies, interval } = bootstrapExample();
-    expect(interval).toEqual([0.625, 0.9]);
-    const inside = accuracies.filter((a) => a >= interval[0] && a <= interval[1]).length;
-    expect(inside / accuracies.length).toBeGreaterThanOrEqual(0.94);
-    for (const a of accuracies) expect((a * 40) % 1).toBeCloseTo(0);
+  const data: BootstrapData = {
+    metric: "RMSE",
+    higherIsBetter: false,
+    interval: [0.6, 0.85],
+    baseline: 1.2,
+    redraws: { edges: [0.5, 0.6, 0.7, 0.8, 0.9], counts: [3, 400, 550, 47] },
+    compounds: Array.from({ length: 300 }, (_, i) => ({ actual: 0, predicted: i / 100 })),
+    testSize: 300,
+    cutoff: null,
+  };
+
+  it("shows at most 40 compounds, spread over the whole test set", () => {
+    const { cells } = bootstrapLayout(data);
+    expect(cells).toHaveLength(38);
+    expect(Math.max(...cells.map((c) => c.size))).toBe(1);
+    expect(cells[0].size).toBe(0);
+  });
+  it("scales dots so the tallest column fits, and never drops a nonempty bin", () => {
+    const { per, dots, total } = bootstrapLayout(data);
+    expect(total).toBe(1000);
+    expect(per).toBe(20);
+    const column = (bin: number) => dots.filter((d) => d.bin === bin);
+    expect(column(0)).toHaveLength(1);
+    expect(column(2)).toHaveLength(28);
+    expect(
+      column(2)
+        .map((d) => d.level)
+        .sort((a, b) => a - b),
+    ).toEqual([...Array(28).keys()]);
+  });
+  it("puts a near baseline on the axis and a far one off it", () => {
+    const near = bootstrapLayout(data);
+    expect(near.baselineOff).toBe(0);
+    expect(near.domain[1]).toBeGreaterThan(1.2);
+    const far = bootstrapLayout({ ...data, baseline: 5 });
+    expect(far.baselineOff).toBe(1);
+    expect(far.domain[1]).toBeLessThan(1);
+  });
+  it("marks classification compounds by whether they were predicted correctly at the cutoff", () => {
+    const { cells } = bootstrapLayout({
+      ...data,
+      cutoff: 0.3,
+      compounds: [
+        { actual: 1, predicted: 0.4 },
+        { actual: 0, predicted: 0.4 },
+      ],
+    });
+    expect(cells.map((c) => c.ok)).toEqual([true, false]);
+  });
+  it("ticks on round numbers inside the domain", () => {
+    expect(niceTicks(0.48, 1.03)).toEqual([0.5, 0.6, 0.7, 0.8, 0.9, 1]);
+    expect(niceTicks(0.55, 1.3)).toEqual([0.6, 0.8, 1, 1.2]);
   });
 });
 

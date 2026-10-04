@@ -5,6 +5,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ScorecardResponsePrimaryMetricCi } from './scorecardResponsePrimaryMetricCi';
+import type { ScorecardResponsePrimaryMetricBootstrap } from './scorecardResponsePrimaryMetricBootstrap';
 import type { ScorecardResponseMetrics } from './scorecardResponseMetrics';
 import type { ScorecardResponseValidationMetrics } from './scorecardResponseValidationMetrics';
 import type { ScorecardResponseMetricsUndefined } from './scorecardResponseMetricsUndefined';
@@ -57,6 +58,7 @@ export interface ScorecardResponse {
   joint_model: boolean;
   primary_metric: string;
   primary_metric_ci: ScorecardResponsePrimaryMetricCi;
+  primary_metric_bootstrap: ScorecardResponsePrimaryMetricBootstrap;
   prediction_kind: string;
   metrics: ScorecardResponseMetrics;
   validation_metrics: ScorecardResponseValidationMetrics;

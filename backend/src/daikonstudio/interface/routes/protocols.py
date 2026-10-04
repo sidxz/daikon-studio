@@ -240,6 +240,15 @@ class ScaffoldErrorResponse(BaseModel):
     median_error: float
 
 
+class BootstrapHistogramResponse(BaseModel):
+    """`edges` is one longer than `counts`: the primary metric on each of the
+    interval's redraws, binned. Its own name for the same reason as
+    `ResidualHistogramResponse`, and so the client type says what it holds."""
+
+    edges: list[float]
+    counts: list[int]
+
+
 class ScorecardResponse(BaseModel):
     """One card per target; `joint_model` says whether one model learned them all.
 
@@ -272,6 +281,9 @@ class ScorecardResponse(BaseModel):
     # over the test set, unpaired. Null when the test set cannot support one.
     # A client that renders "beats the baseline" must look at this first.
     primary_metric_ci: list[float] | None
+    # The redraw scores the interval was read from, binned; null exactly when the
+    # interval is. What the interval's figure draws.
+    primary_metric_bootstrap: BootstrapHistogramResponse | None
     prediction_kind: str
     metrics: dict[str, float | None]
     # Tune against this; `metrics` is the verdict. `null` when the split declared
@@ -316,6 +328,14 @@ class ScorecardResponse(BaseModel):
             joint_model=card.joint_model,
             primary_metric=card.primary_metric,
             primary_metric_ci=list(card.primary_metric_ci) if card.primary_metric_ci else None,
+            primary_metric_bootstrap=(
+                BootstrapHistogramResponse(
+                    edges=card.primary_metric_bootstrap.edges,
+                    counts=card.primary_metric_bootstrap.counts,
+                )
+                if card.primary_metric_bootstrap
+                else None
+            ),
             prediction_kind=card.prediction_kind,
             metrics=card.metrics,
             validation_metrics=card.validation_metrics,

@@ -80,6 +80,10 @@ def primary_metric_for(task: TaskType) -> str:
 #: the resampling, not the model; the card then shows no interval at all.
 _CI_MIN_ROWS = 20
 _CI_RESAMPLES = 1000
+#: The redraw scores reach the client binned, for the interval's figure: two dozen
+#: columns read as a distribution at the figure's width, and a thousand raw floats
+#: per card would be payload for nothing.
+_BOOTSTRAP_BINS = 24
 
 
 def _mcc(actual: np.ndarray, predicted_positive: np.ndarray) -> float | None:
@@ -107,7 +111,7 @@ def primary_metric_ci(
 
     This is what stops "+0.12 over the baseline" at n=197 reading as a win when
     the baseline's number sits inside [0.49, 0.76] (docs/roadmap.md, Traps). It
-    is *unpaired*, and the UI says so: the baseline's per-compound predictions
+    is *unpaired*: the baseline's per-compound predictions
     are not persisted, so this is the sampling noise of this one number, not a
     paired test of the difference. Still the honest floor under the verdict.
 
@@ -116,6 +120,29 @@ def primary_metric_ci(
     point estimate stays theirs, the interval is ours, and a fixed seed makes it
     the same on every page load.
     """
+    return _interval(
+        _bootstrap_scores(task, actual, predicted, resamples=resamples, seed=seed, cutoff=cutoff)
+    )
+
+
+def _interval(scores: list[float] | None) -> tuple[float, float] | None:
+    if scores is None:
+        return None
+    return float(np.percentile(scores, 2.5)), float(np.percentile(scores, 97.5))
+
+
+def _bootstrap_scores(
+    task: TaskType,
+    actual: list[float],
+    predicted: list[float],
+    *,
+    resamples: int,
+    seed: int,
+    cutoff: float,
+) -> list[float] | None:
+    """The headline metric on each redraw of the test set, the interval's raw
+    material. Kept apart from `primary_metric_ci` so the card can bin the same
+    scores for its figure without running the thousand resamples twice."""
     n = len(actual)
     if n < _CI_MIN_ROWS or n != len(predicted):
         return None
@@ -135,7 +162,7 @@ def primary_metric_ci(
         # Most resamples were single-class: the test set is too skewed for an
         # interval to mean anything, which the undefined-metric reason already says.
         return None
-    return float(np.percentile(values, 2.5)), float(np.percentile(values, 97.5))
+    return values
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -199,6 +226,14 @@ def build_scorecard(
     cutoff_note: str | None = None,
 ) -> Scorecard:
     is_classification = task is TaskType.BINARY_CLASSIFICATION
+    scores = _bootstrap_scores(
+        task,
+        actual,
+        predicted,
+        resamples=_CI_RESAMPLES,
+        seed=0,
+        cutoff=cutoff if cutoff is not None else 0.5,
+    )
 
     similarities = chemistry.similarities
     applicability_coverage = (
@@ -230,9 +265,8 @@ def build_scorecard(
         target=target,
         joint_model=joint_model,
         primary_metric=primary_metric_for(task),
-        primary_metric_ci=primary_metric_ci(
-            task, actual, predicted, cutoff=cutoff if cutoff is not None else 0.5
-        ),
+        primary_metric_ci=_interval(scores),
+        primary_metric_bootstrap=_histogram(scores, _BOOTSTRAP_BINS) if scores else None,
         prediction_kind="probability" if is_classification else "value",
         metrics=metrics,
         validation_metrics=validation_metrics,

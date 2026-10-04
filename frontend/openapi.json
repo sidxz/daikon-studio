@@ -2495,6 +2495,31 @@
         ],
         "title": "Body_upload_dataset_file_api_v1_datasets_uploads_post"
       },
+      "BootstrapHistogramResponse": {
+        "properties": {
+          "edges": {
+            "items": {
+              "type": "number"
+            },
+            "type": "array",
+            "title": "Edges"
+          },
+          "counts": {
+            "items": {
+              "type": "integer"
+            },
+            "type": "array",
+            "title": "Counts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "edges",
+          "counts"
+        ],
+        "title": "BootstrapHistogramResponse",
+        "description": "`edges` is one longer than `counts`: the primary metric on each of the\ninterval's redraws, binned. Its own name for the same reason as\n`ResidualHistogramResponse`, and so the client type says what it holds."
+      },
       "ChemicalSpacePointsResponse": {
         "properties": {
           "x": {
@@ -5382,6 +5407,16 @@
             ],
             "title": "Primary Metric Ci"
           },
+          "primary_metric_bootstrap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootstrapHistogramResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "prediction_kind": {
             "type": "string",
             "title": "Prediction Kind"
@@ -5661,6 +5696,7 @@
           "joint_model",
           "primary_metric",
           "primary_metric_ci",
+          "primary_metric_bootstrap",
           "prediction_kind",
           "metrics",
           "validation_metrics",

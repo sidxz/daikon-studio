@@ -211,6 +211,10 @@ class Scorecard:
     # set is too small or too skewed to support one. A verdict that beats the
     # baseline by less than this interval's width is a verdict about noise.
     primary_metric_ci: tuple[float, float] | None = None
+    #: The redraw scores that interval was read from, binned. What the interval's
+    #: figure draws, so the picture is this test set's and not a demonstration.
+    #: None exactly when `primary_metric_ci` is.
+    primary_metric_bootstrap: Histogram | None = None
     target_unit: str | None
     target_direction: str | None
     split_strategy: str
