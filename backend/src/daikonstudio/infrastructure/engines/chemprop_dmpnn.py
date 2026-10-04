@@ -37,9 +37,16 @@ from daikonstudio.application.engines.manifest import (
 )
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.engines._lightning import keep_best_by_validation_loss
+from daikonstudio.infrastructure.engines._options import (
+    POSITIVE_WEIGHTING,
+    RDKIT_DESCRIPTORS,
+    positive_weight,
+)
 from daikonstudio.infrastructure.engines._scoring import (
-    classification_metrics,
+    _require_matching_features,
+    classification_by_column,
     regression_metrics,
+    tuned_cutoffs,
 )
 
 _MANIFEST = EngineManifest(
@@ -105,6 +112,8 @@ _MANIFEST = EngineManifest(
             "classical descriptors; it fixes the hidden size at 2048 and the message "
             "passing steps at 6, so those two settings are ignored when it is selected.",
         ),
+        POSITIVE_WEIGHTING,
+        RDKIT_DESCRIPTORS,
     ),
     lane="gpu",
     supports_multitask=True,
@@ -135,21 +144,57 @@ def _require_chemprop() -> None:
 
 
 def _datapoints(
-    structures: list[str], targets: Sequence[Sequence[float]] | None = None
+    structures: list[str],
+    targets: Sequence[Sequence[float]] | None = None,
+    x_d: Sequence[Any] | None = None,
 ) -> list[Any]:
     """chemprop wants one datapoint per molecule, with `y` a 1-D array of length
     n_tasks. A scalar y silently breaks both `MoleculeDataset.t` and the target
     scaler, so the 1-D shape here is load-bearing rather than stylistic, even
-    when there is only one task."""
+    when there is only one task.
+
+    `x_d` is one row of extra molecule-level features (the RDKit descriptors) per
+    structure, or None for none."""
     import numpy as np
     from chemprop.data import MoleculeDatapoint
 
-    if targets is None:
-        return [MoleculeDatapoint.from_smi(smiles) for smiles in structures]
     return [
-        MoleculeDatapoint.from_smi(smiles, y=np.array([float(value) for value in row]))
-        for smiles, row in zip(structures, targets, strict=True)
+        MoleculeDatapoint.from_smi(
+            smiles,
+            y=None if targets is None else np.array([float(value) for value in targets[index]]),
+            x_d=None if x_d is None else x_d[index],
+        )
+        for index, smiles in enumerate(structures)
     ]
+
+
+def _signed_log(raw: Any) -> Any:
+    import numpy as np
+
+    return np.sign(raw) * np.log1p(np.abs(raw))
+
+
+def _descriptor_inputs(raw: Any, train_mask: Any) -> tuple[Any, Any]:
+    """RDKit descriptors made fit for a neural network, fitted on training rows only.
+
+    A signed log first -- order-preserving and parameter-free -- because RDKit
+    descriptors are heavy-tailed (`Ipc` reaches 1e39) and a plain standardization would
+    let one outlier squash every other molecule to zero. Then each missing value is
+    filled with that descriptor's training-row mean (0.0 for one missing in every
+    training row). Standardization is the third step and is chemprop's own:
+    `normalize_inputs("X_d")` on the training set, installed as the model's
+    `X_d_transform`. Returns the filled matrix and the fill values; predict reapplies
+    both from the checkpoint.
+    """
+    import numpy as np
+
+    logged = _signed_log(raw)
+    train = logged[train_mask]
+    observed = ~np.isnan(train)
+    counts = observed.sum(axis=0)
+    sums = np.where(observed, train, 0.0).sum(axis=0)
+    fill = np.where(counts > 0, sums / np.maximum(counts, 1), 0.0)
+    return np.where(np.isnan(logged), fill, logged), fill
 
 
 def _forward(trainer: Any, model: Any, dataset: Any) -> Any:
@@ -182,6 +227,9 @@ def _build_model(
     is_classification: bool,
     output_transform: Any,
     n_tasks: int,
+    criterion: Any = None,
+    n_descriptors: int = 0,
+    x_d_transform: Any = None,
 ) -> Any:
     """The network, before any data touches it.
 
@@ -190,6 +238,10 @@ def _build_model(
     the form must not be able to build a network the weights do not fit. The
     form pins and disables the two inert conditions so the stored record still
     matches what ran; this function is what makes that safe rather than trusted.
+
+    `criterion` replaces the classification head's stock BCE (None keeps it);
+    `n_descriptors` widens the predictor's input by that many molecule-level features
+    concatenated onto the graph embedding, and `x_d_transform` standardizes them.
     """
     import torch
     from chemprop.models import MPNN
@@ -218,10 +270,11 @@ def _build_model(
         batch_norm = False
 
     # Must equal the message passing's output width, which under a pretrained
-    # encoder is the checkpoint's d_h (2048 for CheMeleon), not `hidden`.
-    input_dim = message_passing.output_dim
+    # encoder is the checkpoint's d_h (2048 for CheMeleon), not `hidden`, plus any
+    # descriptors appended to it.
+    input_dim = message_passing.output_dim + n_descriptors
     predictor = (
-        BinaryClassificationFFN(input_dim=input_dim, n_tasks=n_tasks)
+        BinaryClassificationFFN(input_dim=input_dim, n_tasks=n_tasks, criterion=criterion)
         if is_classification
         else RegressionFFN(input_dim=input_dim, n_tasks=n_tasks, output_transform=output_transform)
     )
@@ -232,6 +285,7 @@ def _build_model(
         agg=MeanAggregation(),
         predictor=predictor,
         batch_norm=batch_norm,
+        X_d_transform=x_d_transform,
     )
 
 
@@ -259,6 +313,8 @@ class ChempropDMPNN:
         depth = int(conditions["depth"])
         batch_size = int(conditions["batch_size"])
         pretrained = str(conditions["pretrained"])
+        use_descriptors = bool(conditions["rdkit_descriptors"])
+        weighting = str(conditions["positive_weighting"])
         columns = ctx.target_columns
         # One task for the whole fit: a joint engine is only ever handed a dataset
         # whose targets share a kind (`joint_kind_error`, at enqueue).
@@ -270,15 +326,34 @@ class ChempropDMPNN:
         validation_rows = ctx.frame.filter(pl.col("split") == "validation")
         test_rows = ctx.frame.filter(pl.col("split") == "test")
 
+        # RDKit descriptors for every row, fitted on the training rows only; each
+        # partition below takes its own rows, in frame order like the `filter`s above.
+        x_d_all = fill = None
+        if use_descriptors:
+            from daikonstudio.infrastructure.chem.featurize import rdkit_descriptors
+
+            x_d_all, fill = _descriptor_inputs(
+                rdkit_descriptors(ctx.frame[ctx.structure_column].to_list()),
+                (ctx.frame["split"] == "train").to_numpy(),
+            )
+
+        def x_d_for(partition: str) -> Any:
+            return (
+                None if x_d_all is None else x_d_all[(ctx.frame["split"] == partition).to_numpy()]
+            )
+
         train_set = MoleculeDataset(
             _datapoints(
-                train_rows[ctx.structure_column].to_list(), train_rows.select(columns).rows()
+                train_rows[ctx.structure_column].to_list(),
+                train_rows.select(columns).rows(),
+                x_d_for("train"),
             )
         )
         validation_set = MoleculeDataset(
             _datapoints(
                 validation_rows[ctx.structure_column].to_list(),
                 validation_rows.select(columns).rows(),
+                x_d_for("validation"),
             )
         )
         output_transform = None
@@ -297,6 +372,28 @@ class ChempropDMPNN:
         # puts predictions back into real units, and scaling the truth as well would
         # cancel out silently.
 
+        x_d_transform = None
+        if use_descriptors:
+            from chemprop.nn.transforms import ScaleTransform
+
+            # Scale the TRAINING set only. ScaleTransform is a no-op in train mode and
+            # standardizes in eval mode, and Lightning validates in eval mode -- so
+            # normalizing the validation set too (as chemprop's own CLI does) would
+            # standardize it twice. Validation, test and predict inputs stay raw (signed
+            # log + fill) and the model scales them once.
+            x_d_transform = ScaleTransform.from_standard_scaler(train_set.normalize_inputs("X_d"))
+
+        criterion = None
+        if is_classification and weighting != "none":
+            from daikonstudio.infrastructure.engines._chemprop_loss import PositiveWeightedBCELoss
+
+            criterion = PositiveWeightedBCELoss(
+                [
+                    positive_weight(train_rows[column].to_numpy(), weighting) or 1.0
+                    for column in columns
+                ]
+            )
+
         model = _build_model(
             pretrained=pretrained,
             weights_dir=Settings().pretrained_weights_dir,
@@ -305,6 +402,9 @@ class ChempropDMPNN:
             is_classification=is_classification,
             output_transform=output_transform,
             n_tasks=len(columns),
+            criterion=criterion,
+            n_descriptors=0 if x_d_all is None else x_d_all.shape[1],
+            x_d_transform=x_d_transform,
         )
 
         def _report_epoch(trainer: Any, _module: Any) -> None:
@@ -357,30 +457,38 @@ class ChempropDMPNN:
         if keep_best.best_state is not None:
             model.load_state_dict(keep_best.best_state)
 
-        def score(rows: pl.DataFrame) -> dict[str, dict[str, float]]:
+        def forward(partition: str, rows: pl.DataFrame) -> Any:
             # A prediction-only dataset, rebuilt from the structures rather than
             # reusing `validation_set`: for a regression task that set's targets were
             # scaled in place by `normalize_targets`, while `_forward` returns
             # predictions already unscaled. Scoring the two against each other would
             # compare a real value to a standardized one.
-            dataset = MoleculeDataset(_datapoints(rows[ctx.structure_column].to_list()))
-            values = _forward(trainer, model, dataset)
-            scored: dict[str, dict[str, float]] = {}
-            for index, column in enumerate(columns):
-                truth = rows[column].to_numpy()
-                if is_classification:
-                    scored[column] = classification_metrics(
-                        truth,
-                        (values[:, index] >= 0.5).astype(float),
-                        values[:, index],
-                        train_has_both_classes=train_rows[column].n_unique() >= 2,
-                    )
-                else:
-                    scored[column] = regression_metrics(truth, values[:, index])
-            return scored
+            dataset = MoleculeDataset(
+                _datapoints(rows[ctx.structure_column].to_list(), x_d=x_d_for(partition))
+            )
+            return _forward(trainer, model, dataset)
 
-        metrics = score(test_rows)
-        validation_metrics = score(validation_rows) if validation_rows.height > 0 else None
+        # The validation partition is run once: it picks the cutoffs, then is scored at
+        # them. Test is scored at those cutoffs and never sees them chosen.
+        validation_values = (
+            forward("validation", validation_rows) if validation_rows.height else None
+        )
+        cutoffs: dict[str, float] = {}
+        if ctx.tune_cutoffs and is_classification and validation_values is not None:
+            cutoffs = tuned_cutoffs(columns, validation_rows, validation_values)
+
+        def score(rows: pl.DataFrame, values: Any) -> dict[str, dict[str, float]]:
+            if is_classification:
+                return classification_by_column(columns, rows, values, cutoffs, train_rows)
+            return {
+                column: regression_metrics(rows[column].to_numpy(), values[:, index])
+                for index, column in enumerate(columns)
+            }
+
+        metrics = score(test_rows, forward("test", test_rows))
+        validation_metrics = (
+            None if validation_values is None else score(validation_rows, validation_values)
+        )
 
         # Lightning writes checkpoints to a path, so this round-trips through the
         # filesystem. `tempfile` honours TMPDIR, which is how a deployment points
@@ -389,15 +497,34 @@ class ChempropDMPNN:
         with tempfile.TemporaryDirectory() as scratch:
             checkpoint = Path(scratch) / "model.ckpt"
             trainer.save_checkpoint(checkpoint)
+            if fill is not None:
+                import torch
+
+                from daikonstudio.infrastructure.chem.featurize import DESCRIPTOR_NAMES
+
+                # map_location="cpu", as Lightning's own loader does: the weights may
+                # sit on a GPU this process cannot read back without it.
+                stored = torch.load(checkpoint, map_location="cpu", weights_only=False)
+                # Read back by `predict`; Lightning ignores keys it does not know on load.
+                stored["daikon_descriptors"] = {
+                    "names": list(DESCRIPTOR_NAMES),
+                    "fill": [float(v) for v in fill],
+                }
+                torch.save(stored, checkpoint)
             artifact = checkpoint.read_bytes()
 
         return TrainResult(
-            artifact=artifact, metrics=metrics, validation_metrics=validation_metrics
+            artifact=artifact,
+            metrics=metrics,
+            validation_metrics=validation_metrics,
+            cutoffs=cutoffs or None,
         )
 
     def predict(self, ctx: PredictContext) -> pl.DataFrame:
         _require_chemprop()
 
+        import numpy as np
+        import torch
         from chemprop.data import MoleculeDataset
         from chemprop.models import MPNN
         from lightning import pytorch as lightning
@@ -405,12 +532,32 @@ class ChempropDMPNN:
         with tempfile.TemporaryDirectory() as scratch:
             checkpoint = Path(scratch) / "model.ckpt"
             checkpoint.write_bytes(ctx.artifact)
+            # weights_only=False because the checkpoint pickles its model classes; safe
+            # for the reason `_scoring._load_bundle` gives: the artifact is only ever
+            # one our own `train` produced. A checkpoint without the key was trained
+            # without descriptors and predicts exactly as it always did.
+            extras = torch.load(checkpoint, map_location="cpu", weights_only=False).get(
+                "daikon_descriptors"
+            )
+            if extras is not None:
+                _require_matching_features(
+                    {"featurizer": "rdkit_descriptors", "feature_names": extras["names"]}
+                )
             # Loaded inside the block, used outside it: the weights are in memory by
             # the time the directory is removed. MPNN.save_hyperparameters() is what
             # makes the architecture recoverable from the checkpoint alone.
             model = MPNN.load_from_checkpoint(checkpoint)
 
-        dataset = MoleculeDataset(_datapoints(ctx.frame[ctx.structure_column].to_list()))
+        structures = ctx.frame[ctx.structure_column].to_list()
+        x_d: Any = None
+        if extras is not None:
+            from daikonstudio.infrastructure.chem.featurize import rdkit_descriptors
+
+            # The training-time preprocessing, with the training-time fill; the model's
+            # own X_d_transform does the standardizing.
+            logged = _signed_log(rdkit_descriptors(structures))
+            x_d = np.where(np.isnan(logged), np.array(extras["fill"]), logged)
+        dataset = MoleculeDataset(_datapoints(structures, x_d=x_d))
         trainer = lightning.Trainer(
             accelerator="auto",
             devices=1,

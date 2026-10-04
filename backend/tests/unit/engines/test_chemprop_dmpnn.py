@@ -268,3 +268,227 @@ def test_predict_refuses_a_target_count_the_checkpoint_was_not_trained_for() -> 
 
 def test_chemprop_declares_that_it_learns_targets_jointly() -> None:
     assert ChempropDMPNN.manifest().supports_multitask is True
+
+
+# --- positive weighting, RDKit descriptors and tuned cutoffs ------------------------
+
+
+def _two_labels(tune_cutoffs: bool = False, **conditions: object) -> TrainContext:
+    from tests.helpers.frames import two_binary_targets_frame
+
+    return TrainContext(
+        frame=two_binary_targets_frame(),
+        targets={"a": TaskType.BINARY_CLASSIFICATION, "b": TaskType.BINARY_CLASSIFICATION},
+        structure_column="smiles",
+        conditions={"epochs": 2, **conditions},
+        seed=1,
+        tune_cutoffs=tune_cutoffs,
+    )
+
+
+def _predict(engine: ChempropDMPNN, frame: pl.DataFrame, artifact: bytes) -> pl.DataFrame:
+    return engine.predict(
+        PredictContext(
+            frame=frame,
+            structure_column="smiles",
+            artifact=artifact,
+            conditions={},
+            target_columns=("a", "b"),
+        )
+    )
+
+
+def test_descriptor_inputs_fill_from_training_rows_only():
+    import numpy as np
+
+    from daikonstudio.infrastructure.engines.chemprop_dmpnn import _descriptor_inputs
+
+    raw = np.array([[1.0, np.nan], [3.0, np.nan], [np.nan, 5.0], [1e39, np.nan]])
+    train = np.array([True, True, False, False])
+    x_d, fill = _descriptor_inputs(raw, train)
+    logged = np.sign(raw) * np.log1p(np.abs(raw))
+    assert fill[0] == pytest.approx(np.mean(logged[:2, 0]))  # training rows only
+    assert fill[1] == 0.0  # missing in every training row
+    assert x_d[2, 0] == pytest.approx(fill[0])  # a non-training gap gets the training fill
+    assert x_d[3, 0] == pytest.approx(np.log1p(1e39))  # heavy tail tamed, about 90
+    assert np.isfinite(x_d).all()
+
+
+def test_the_weighted_loss_is_torchs_pos_weight_bce():
+    import torch
+    from torch.nn import functional as F
+
+    from daikonstudio.infrastructure.engines._chemprop_loss import PositiveWeightedBCELoss
+
+    logits = torch.tensor([[2.0, -1.0], [-0.5, 0.3], [1.0, 1.0]])
+    targets = torch.tensor([[1.0, 0.0], [0.0, 1.0], [1.0, 1.0]])
+    loss = PositiveWeightedBCELoss([3.0, 9.0])
+    expected = F.binary_cross_entropy_with_logits(
+        logits, targets, pos_weight=torch.tensor([3.0, 9.0])
+    )
+    assert loss(logits, targets).item() == pytest.approx(expected.item())
+
+
+def test_the_default_build_keeps_the_stock_loss_and_no_descriptor_input():
+    import torch
+    from chemprop.nn.metrics import BCELoss
+
+    from daikonstudio.infrastructure.engines.chemprop_dmpnn import _build_model
+
+    model = _build_model(
+        pretrained="none",
+        weights_dir="",
+        hidden=64,
+        depth=2,
+        is_classification=True,
+        output_transform=None,
+        n_tasks=1,
+    )
+    assert type(model.predictor.criterion) is BCELoss
+    assert isinstance(model.X_d_transform, torch.nn.Identity)
+    assert model.predictor.ffn[0][0].in_features == model.message_passing.output_dim
+
+
+def test_a_default_classification_fit_stores_no_descriptors_loss_override_or_cutoffs():
+    import io
+
+    import torch
+
+    result = ChempropDMPNN().train(_two_labels())
+
+    assert result.cutoffs is None
+    stored = torch.load(io.BytesIO(result.artifact), weights_only=False)
+    assert "daikon_descriptors" not in stored
+    assert stored["hyper_parameters"]["predictor"]["criterion"] is None  # chemprop's own BCE
+
+
+def test_a_checkpoint_naming_the_stock_loss_and_no_descriptors_still_predicts():
+    """What a checkpoint trained before these options looks like: its criterion is the
+    stock `BCELoss` and it has no descriptor key."""
+    import io
+
+    import torch
+    from chemprop.nn.metrics import BCELoss
+
+    ctx = _two_labels()
+    engine = ChempropDMPNN()
+    stored = torch.load(io.BytesIO(engine.train(ctx).artifact), weights_only=False)
+    stored["hyper_parameters"]["predictor"]["criterion"] = BCELoss(task_weights=[1.0, 1.0])
+    legacy = io.BytesIO()
+    torch.save(stored, legacy)
+
+    assert _predict(engine, ctx.frame.head(4), legacy.getvalue()).height == 8
+
+
+@pytest.mark.parametrize("pretrained", ["none", "CheMeleon"])
+def test_weighting_descriptors_and_cutoffs_train_jointly_and_predict(pretrained):
+    from sklearn.metrics import matthews_corrcoef
+
+    ctx = _two_labels(
+        pretrained=pretrained,
+        positive_weighting="balanced",
+        rdkit_descriptors=True,
+        tune_cutoffs=True,
+    )
+    engine = ChempropDMPNN()
+    result = engine.train(ctx)
+    assert result.cutoffs is not None and set(result.cutoffs) <= {"a", "b"}
+
+    out = _predict(engine, ctx.frame.head(8), result.artifact)
+    assert out.height == 16
+    assert out["value"].is_finite().all()
+
+    # The reported MCC is the one at the tuned cutoff, recomputed here from the predict
+    # path: a Scorecard that ignored the cutoff would score at 0.5 instead.
+    test = ctx.frame.filter(pl.col("split") == "test")
+    probabilities = _predict(engine, test, result.artifact)
+    for column, cutoff in result.cutoffs.items():
+        p = probabilities.filter(pl.col("target") == column)["value"].to_numpy()
+        expected = matthews_corrcoef(test[column].to_numpy(), (p >= cutoff).astype(int))
+        assert result.metrics[column]["mcc"] == pytest.approx(expected)
+
+
+def test_descriptors_are_scaled_on_the_training_set_once(monkeypatch):
+    """chemprop's CLI normalizes the validation set too, and the model's X_d_transform
+    then standardizes it a second time in eval mode. Exactly one `normalize_inputs`
+    call, on the training set, with that set's own statistics."""
+    import numpy as np
+    from chemprop.data import MoleculeDataset
+
+    from daikonstudio.infrastructure.chem.featurize import rdkit_descriptors
+    from daikonstudio.infrastructure.engines.chemprop_dmpnn import _descriptor_inputs
+
+    calls: list[tuple[int, str, np.ndarray]] = []
+    original = MoleculeDataset.normalize_inputs
+
+    def spy(self, key="X_d", scaler=None):
+        scaler = original(self, key, scaler)
+        calls.append((len(self), key, scaler.mean_))
+        return scaler
+
+    monkeypatch.setattr(MoleculeDataset, "normalize_inputs", spy)
+    ctx = _two_labels(rdkit_descriptors=True)
+    ChempropDMPNN().train(ctx)
+
+    train_mask = (ctx.frame["split"] == "train").to_numpy()
+    x_d, _ = _descriptor_inputs(rdkit_descriptors(ctx.frame["smiles"].to_list()), train_mask)
+    assert [(n, key) for n, key, _ in calls] == [(int(train_mask.sum()), "X_d")]
+    assert calls[0][2] == pytest.approx(x_d[train_mask].mean(axis=0), rel=1e-4, abs=1e-4)
+
+
+def test_a_weighted_checkpoint_predicts_in_a_fresh_process(tmp_path):
+    """The checkpoint pickles its criterion by qualified name, so loading it imports
+    `_chemprop_loss`. In this process the class is already imported by `train`; a new
+    interpreter that has not imported it is the real test."""
+    import io
+    import subprocess
+    import sys
+
+    import torch
+
+    from daikonstudio.infrastructure.engines._chemprop_loss import PositiveWeightedBCELoss
+
+    result = ChempropDMPNN().train(_two_labels(positive_weighting="sqrt_balanced"))
+    stored = torch.load(io.BytesIO(result.artifact), weights_only=False)
+    assert type(stored["hyper_parameters"]["predictor"]["criterion"]) is PositiveWeightedBCELoss
+    artifact = tmp_path / "model.ckpt"
+    artifact.write_bytes(result.artifact)
+    script = (
+        "import sys, polars as pl\n"
+        "from daikonstudio.application.engines.context import PredictContext\n"
+        "from daikonstudio.infrastructure.engines.chemprop_dmpnn import ChempropDMPNN\n"
+        "loss = 'daikonstudio.infrastructure.engines._chemprop_loss'\n"
+        "assert loss not in sys.modules\n"
+        "out = ChempropDMPNN().predict(PredictContext(\n"
+        "    frame=pl.DataFrame({'smiles': ['CCO', 'CCN']}), structure_column='smiles',\n"
+        f"    artifact=open({str(artifact)!r}, 'rb').read(), conditions={{}},\n"
+        "    target_columns=('a', 'b')))\n"
+        "assert out.height == 4 and loss in sys.modules\n"
+    )
+    done = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env={**os.environ, "OMP_NUM_THREADS": "1"},
+    )
+    assert done.returncode == 0, done.stderr
+
+
+def test_a_changed_descriptor_list_is_refused_at_predict():
+    import io
+
+    import torch
+
+    from daikonstudio.domain.shared.errors import ValidationError
+
+    ctx = _two_labels(rdkit_descriptors=True)
+    engine = ChempropDMPNN()
+    result = engine.train(ctx)
+    stored = torch.load(io.BytesIO(result.artifact), weights_only=False)
+    names = stored["daikon_descriptors"]["names"]
+    stored["daikon_descriptors"]["names"] = names[:-1]  # as if RDKit had dropped one
+    tampered = io.BytesIO()
+    torch.save(stored, tampered)
+
+    with pytest.raises(ValidationError, match="descriptor"):
+        _predict(engine, ctx.frame.head(3), tampered.getvalue())

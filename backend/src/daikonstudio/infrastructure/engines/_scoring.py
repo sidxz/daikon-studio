@@ -172,6 +172,44 @@ def mcc_cutoff(y_true: np.ndarray, probabilities: np.ndarray) -> float | None:
     return float(cuts[best])
 
 
+def tuned_cutoffs(
+    columns: Sequence[str], validation_rows: pl.DataFrame, probabilities: np.ndarray
+) -> dict[str, float]:
+    """The MCC cutoff of each target column, from validation rows only.
+
+    For the joint engines, whose model returns an (n_rows, n_tasks) probability matrix.
+    A column `mcc_cutoff` declines to tune (too few of a class, or no cutoff separates
+    anything) is left out, and so stays at 0.5.
+    """
+    cutoffs: dict[str, float] = {}
+    for index, column in enumerate(columns):
+        cutoff = mcc_cutoff(validation_rows[column].to_numpy(), probabilities[:, index])
+        if cutoff is not None:
+            cutoffs[column] = cutoff
+    return cutoffs
+
+
+def classification_by_column(
+    columns: Sequence[str],
+    rows: pl.DataFrame,
+    probabilities: np.ndarray,
+    cutoffs: dict[str, float],
+    train_rows: pl.DataFrame,
+) -> dict[str, dict[str, float]]:
+    """`classification_metrics` per target column of a joint model, labelling each
+    compound active when its probability reaches that column's cutoff, or 0.5 where it
+    has none -- exactly the rule these engines applied before cutoffs could be tuned."""
+    return {
+        column: classification_metrics(
+            rows[column].to_numpy(),
+            (probabilities[:, index] >= cutoffs.get(column, 0.5)).astype(float),
+            probabilities[:, index],
+            train_has_both_classes=train_rows[column].n_unique() >= 2,
+        )
+        for index, column in enumerate(columns)
+    }
+
+
 def _metrics_on(
     model: Any, x: np.ndarray, y: np.ndarray, is_classification: bool, cutoff: float | None
 ) -> dict[str, float]:

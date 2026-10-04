@@ -36,6 +36,12 @@ async def test_engines_are_listed_with_their_conditions(client):
     assert weighting["tasks"] == ["binary_classification"] and weighting["default"] == "none"
     descriptors = next(c for c in xgb["conditions"] if c["key"] == "rdkit_descriptors")
     assert descriptors["tasks"] == [] and descriptors["default"] is False
+    chemprop = next(e for e in engines if e["id"] == "chemprop-dmpnn")
+    chemprop_weighting = next(
+        c for c in chemprop["conditions"] if c["key"] == "positive_weighting"
+    )
+    assert chemprop_weighting["tasks"] == ["binary_classification"]
+    assert "rdkit_descriptors" in {c["key"] for c in chemprop["conditions"]}
 
 
 async def test_exactly_one_engine_is_marked_as_the_baseline(client):
