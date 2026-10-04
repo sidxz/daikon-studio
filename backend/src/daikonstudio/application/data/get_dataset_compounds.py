@@ -4,7 +4,7 @@ Until this existed there was no way to look at the data a Dataset contains --
 the snapshot was written at freeze time and read back only by training. A
 scientist could see how many compounds survived validation and not one of them.
 
-Deliberately narrow: structure, target, partition and, when the dataset names
+Deliberately narrow: structure, every target, partition and, when the dataset names
 one, the compound's ID, searchable by ID; sorted by target or by partition. Not
 a general query surface over the uploader's other columns, and not sortable by
 structure -- ordering compounds by their SMILES string is alphabetical nonsense
@@ -41,7 +41,8 @@ MAX_LIMIT = 200
 @dataclass(frozen=True, kw_only=True)
 class Compound:
     structure: str
-    target: float | None
+    # Keyed by target column, in the Dataset's order.
+    targets: dict[str, float | None]
     split: str
     compound_id: str | None
 
@@ -58,6 +59,9 @@ class GetDatasetCompoundsQuery:
     offset: int = 0
     limit: int = 50
     sort: Literal["target", "split"] | None = None
+    # Which target `sort="target"` orders by, as an index into `Dataset.targets`. An
+    # index rather than a name, so no client-supplied string ever reaches the frame.
+    target: int = 0
     descending: bool = False
     split: str | None = None
     # Case-insensitive "contains" on the compound's ID; needs an identifier column.
@@ -78,6 +82,11 @@ class GetDatasetCompounds:
         dataset = await self._repository.get(auth.workspace_id, query.dataset_id)
         if dataset is None:
             return Failure(NotFoundError("Dataset", str(query.dataset_id)))
+        if not 0 <= query.target < len(dataset.targets):
+            return Failure(
+                ValidationError(f"Target index {query.target} is out of range for this dataset.")
+            )
+        columns = dataset.target_columns
 
         search = (query.q or "").strip().lower()
         if search and dataset.id_column is None:
@@ -94,7 +103,9 @@ class GetDatasetCompounds:
         # measurably slow.
         frame = pl.read_parquet(io.BytesIO(raw)).select(
             pl.col(dataset.structure_column).alias("structure"),
-            pl.col(dataset.single_target().column).cast(pl.Float64, strict=False).alias("target"),
+            # The reserved-name check guarantees no target is named `structure`, `split`
+            # or `compound_id`, so none of these aliases can shadow another.
+            *(pl.col(column).cast(pl.Float64, strict=False) for column in columns),
             pl.col("split"),
             (
                 id_text(dataset.id_column)
@@ -117,8 +128,9 @@ class GetDatasetCompounds:
             # requests for the same page of a column with ties (every row of a
             # binary target is 0.0 or 1.0) cannot return different rows -- the
             # same unstable-sort hazard `apply_result_view` documents.
+            key = columns[query.target] if query.sort == "target" else "split"
             frame = frame.sort(
-                [query.sort, "structure"],
+                [key, "structure"],
                 descending=[query.descending, False],
                 nulls_last=[True, False],
             )
@@ -130,7 +142,10 @@ class GetDatasetCompounds:
                 items=[
                     Compound(
                         structure=str(row["structure"]),
-                        target=None if row["target"] is None else float(row["target"]),
+                        targets={
+                            column: None if row[column] is None else float(row[column])
+                            for column in columns
+                        },
                         split=str(row["split"]),
                         compound_id=row["compound_id"],
                     )

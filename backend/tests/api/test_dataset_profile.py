@@ -17,9 +17,9 @@ from daikonstudio.application.data import get_dataset_profile
 _create_dataset = test_protocols._create_dataset
 
 
-async def _until_ready(client, dataset_id: str, attempts: int = 200):
+async def _until_ready(client, dataset_id: str, attempts: int = 200, params: dict | None = None):
     for _ in range(attempts):
-        response = await client.get(f"/api/v1/datasets/{dataset_id}/profile")
+        response = await client.get(f"/api/v1/datasets/{dataset_id}/profile", params=params)
         if response.status_code != 202:
             return response
         await asyncio.sleep(0.05)
@@ -84,3 +84,26 @@ async def test_a_failed_computation_is_reported_once_then_retried(client, csv_up
     monkeypatch.setattr(get_dataset_profile, "build_profile", get_dataset_profile.build_profile)
     retried = await client.get(f"/api/v1/datasets/{dataset_id}/profile")
     assert retried.status_code == 202
+
+
+async def test_each_target_has_its_own_profile(client, csv_upload):
+    from tests.api.test_datasets import TWO_TARGET_CSV, create_body
+
+    upload_ref = await csv_upload(TWO_TARGET_CSV)
+    created = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref,
+            targets=[
+                {"column": "solubility", "kind": "numeric"},
+                {"column": "reactive", "kind": "binary"},
+            ],
+        ),
+    )
+    dataset_id = created.json()["id"]
+
+    first = await _until_ready(client, dataset_id)
+    second = await _until_ready(client, dataset_id, params={"target": 1})
+
+    assert first.json()["target_kind"] == "numeric"
+    assert second.json()["target_kind"] == "binary"

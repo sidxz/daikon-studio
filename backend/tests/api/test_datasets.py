@@ -565,3 +565,32 @@ async def test_the_structure_column_cannot_also_be_a_target(client, csv_upload):
         json=create_body(upload_ref, targets=[{"column": "smiles", "kind": "numeric"}]),
     )
     assert response.status_code == 422, response.text
+
+
+async def test_compounds_carry_every_target_and_sort_by_any_one(client, csv_upload):
+    upload_ref = await csv_upload(TWO_TARGET_CSV)
+    created = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref,
+            targets=[
+                {"column": "solubility", "kind": "numeric"},
+                {"column": "reactive", "kind": "binary"},
+            ],
+        ),
+    )
+    dataset_id = created.json()["id"]
+    response = await client.get(
+        f"/api/v1/datasets/{dataset_id}/compounds",
+        params={"sort": "target", "target": 1, "sort_dir": "desc"},
+    )
+    assert response.status_code == 200, response.text
+    items = response.json()["items"]
+    assert set(items[0]["targets"]) == {"solubility", "reactive"}
+    assert items[0]["targets"]["reactive"] == 1.0
+    assert items[-1]["targets"]["reactive"] == 0.0
+
+    out_of_range = await client.get(
+        f"/api/v1/datasets/{dataset_id}/compounds", params={"sort": "target", "target": 2}
+    )
+    assert out_of_range.status_code == 422

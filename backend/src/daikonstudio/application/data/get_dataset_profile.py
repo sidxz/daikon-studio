@@ -20,6 +20,10 @@ first request starts it and answers `ProfileComputing`, every later request --
 a reload, a second tab, a second reader -- joins the same computation, and once
 the result is saved every request reads it. One viewer waits once, and never
 starts a second copy of the work by reloading.
+
+ponytail: the structure-only sections (similarity, scaffolds, descriptors) are
+recomputed for every target's profile. Split the profile into a structure half and
+per-target halves if multi-target datasets are profiled often.
 """
 
 from __future__ import annotations
@@ -48,18 +52,29 @@ from daikonstudio.domain.data.profile import (
     profile_from_dict,
     profile_to_dict,
 )
-from daikonstudio.domain.shared.errors import ConflictError, DomainError, NotFoundError
+from daikonstudio.domain.shared.errors import (
+    ConflictError,
+    DomainError,
+    NotFoundError,
+    ValidationError,
+)
 
 logger = logging.getLogger(__name__)
 
 
-def profile_key(workspace_id: uuid.UUID | str, dataset_id: uuid.UUID | str) -> str:
-    return f"{workspace_id}/datasets/{dataset_id}/profile.json"
+def profile_key(workspace_id: uuid.UUID | str, dataset_id: uuid.UUID | str, *, target: int) -> str:
+    """One profile per target. Target 0's keeps the name every profile had before a
+    Dataset could hold several targets, so those stay cached. An index, never the
+    column name, so nothing a CSV header contains reaches a blob key."""
+    name = "profile.json" if target == 0 else f"profile-{target}.json"
+    return f"{workspace_id}/datasets/{dataset_id}/{name}"
 
 
 @dataclass(frozen=True, kw_only=True)
 class GetDatasetProfileQuery:
     dataset_id: uuid.UUID
+    # An index into `Dataset.targets`: the profile is of one target at a time.
+    target: int = 0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -70,7 +85,7 @@ class ProfileComputing:
     compounds: int
 
 
-_Key = tuple[uuid.UUID, uuid.UUID]
+_Key = tuple[uuid.UUID, uuid.UUID, int]
 
 #: The computation running for each dataset, so a second request joins it instead of
 #: starting another. Module-level because a use case is built per request.
@@ -104,8 +119,12 @@ class GetDatasetProfile:
             # 404 rather than 403 for another tenant's id, matching `GetDataset`:
             # a distinguishable "exists but not yours" is itself a disclosure.
             return Failure(NotFoundError("Dataset", str(query.dataset_id)))
+        if not 0 <= query.target < len(dataset.targets):
+            return Failure(
+                ValidationError(f"Target index {query.target} is out of range for this dataset.")
+            )
 
-        key = profile_key(dataset.workspace_id, dataset.id)
+        key = profile_key(dataset.workspace_id, dataset.id, target=query.target)
         try:
             cached = self._store.get_bytes(key)
         except FileNotFoundError:
@@ -127,7 +146,7 @@ class GetDatasetProfile:
                 # rather than to a 500.
                 pass
 
-        running_key = (dataset.workspace_id, dataset.id)
+        running_key = (dataset.workspace_id, dataset.id, query.target)
         if running_key in _FAILED:
             _FAILED.discard(running_key)
             return Failure(
@@ -161,14 +180,14 @@ class GetDatasetProfile:
                 build_profile,
                 frame=pl.read_parquet(io.BytesIO(raw)),
                 structure_column=dataset.structure_column,
-                target=dataset.single_target(),
+                target=dataset.targets[key[2]],
                 normalizer=self._normalizer,
             )
             if not self._store.exists(snapshot_key(dataset.workspace_id, dataset.id)):
                 # Deleted while this ran: saving would recreate its folder.
                 return
             self._store.put_bytes(
-                profile_key(dataset.workspace_id, dataset.id),
+                profile_key(dataset.workspace_id, dataset.id, target=key[2]),
                 json.dumps(profile_to_dict(profile)).encode(),
             )
         except Exception:

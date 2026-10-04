@@ -314,7 +314,7 @@ class DatasetProfileResponse(BaseModel):
 
 class CompoundResponse(BaseModel):
     structure: str
-    target: float | None
+    targets: dict[str, float | None]
     split: str
     compound_id: str | None
 
@@ -322,7 +322,7 @@ class CompoundResponse(BaseModel):
     def from_domain(cls, compound: Compound) -> CompoundResponse:
         return cls(
             structure=compound.structure,
-            target=compound.target,
+            targets=compound.targets,
             split=compound.split,
             compound_id=compound.compound_id,
         )
@@ -471,14 +471,17 @@ class ProfileComputingResponse(BaseModel):
     responses={202: {"model": ProfileComputingResponse, "description": "Being computed"}},
 )
 async def get_dataset_profile(
-    dataset_id: uuid.UUID, auth: AuthDep, service: GetDatasetProfileDep
+    dataset_id: uuid.UUID,
+    auth: AuthDep,
+    service: GetDatasetProfileDep,
+    target: Annotated[int, Query(ge=0)] = 0,
 ) -> DatasetProfileResponse | JSONResponse:
     """Computed once per Dataset, in the background, and cached beside its
     snapshot. Until it is saved this answers 202 with when the computation
     started; afterwards, 200 with the profile. See
     `application/data/get_dataset_profile.py`."""
     profile = result_to_response(
-        await service(GetDatasetProfileQuery(dataset_id=dataset_id), auth=auth)
+        await service(GetDatasetProfileQuery(dataset_id=dataset_id, target=target), auth=auth)
     )
     if isinstance(profile, ProfileComputing):
         body = ProfileComputingResponse(started_at=profile.started_at, compounds=profile.compounds)
@@ -494,6 +497,7 @@ async def get_dataset_compounds(
     offset: int = 0,
     limit: int = 50,
     sort: Literal["target", "split"] | None = None,
+    target: Annotated[int, Query(ge=0)] = 0,
     sort_dir: Literal["asc", "desc"] = "asc",
     split: Literal["train", "validation", "test"] | None = None,
     q: Annotated[str | None, Query(max_length=128)] = None,
@@ -507,6 +511,7 @@ async def get_dataset_compounds(
                 offset=offset,
                 limit=limit,
                 sort=sort,
+                target=target,
                 descending=sort_dir == "desc",
                 split=split,
                 q=q,
