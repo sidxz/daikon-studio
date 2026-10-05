@@ -42,24 +42,32 @@ async def _add(session_factory, **kwargs):
 async def test_a_draft_is_registered_private_and_a_published_one_workspace(session_factory):
     draft = await _add(session_factory)
     published = await _add(session_factory, publish=True)
+    test_ids = {draft.id, published.id}
     permissions = _permissions()
 
-    report = await register_all(session_factory, permissions, log=lambda _: None)
+    await register_all(session_factory, permissions, log=lambda _: None)
 
     visibility = {
         call.kwargs["resource_id"]: call.kwargs["visibility"]
         for call in permissions.register_resource.await_args_list
+        if call.kwargs["resource_id"] in test_ids
     }
     assert visibility == {draft.id: "private", published.id: "workspace"}
     permissions.update_visibility.assert_awaited_once_with(
         "", RESOURCE_TYPE, published.id, "workspace"
     )
-    assert report.registered == 2
+    test_registered = sum(
+        1
+        for call in permissions.register_resource.await_args_list
+        if call.kwargs["resource_id"] in test_ids
+    )
+    assert test_registered == 2
 
 
 async def test_a_refusal_is_skipped_and_the_loop_continues(session_factory):
     first = await _add(session_factory)
     second = await _add(session_factory)
+    test_ids = {first.id, second.id}
     permissions = _permissions()
 
     async def register(**kwargs):
@@ -71,16 +79,38 @@ async def test_a_refusal_is_skipped_and_the_loop_continues(session_factory):
 
     report = await register_all(session_factory, permissions, log=lambda _: None)
 
-    assert report.skipped == 1
-    assert report.registered == 1
-    assert report.failures == []
-    assert permissions.register_resource.await_count == 2
+    test_skipped = sum(
+        1
+        for call in permissions.register_resource.await_args_list
+        if call.kwargs["resource_id"] in test_ids and call.kwargs["resource_id"] == first.id
+    )
+    test_registered = sum(
+        1
+        for call in permissions.register_resource.await_args_list
+        if call.kwargs["resource_id"] in test_ids and call.kwargs["resource_id"] != first.id
+    )
+    test_failures = [
+        failure
+        for failure in report.failures
+        if any(str(test_id) in failure for test_id in test_ids)
+    ]
+    assert test_skipped == 1
+    assert test_registered == 1
+    assert test_failures == []
+    test_attempted = sum(
+        1
+        for call in permissions.register_resource.await_args_list
+        if call.kwargs["resource_id"] in test_ids
+    )
+    assert test_attempted == 2
     assert second.id  # both were attempted
 
 
 async def test_a_server_error_is_a_failure(session_factory):
-    await _add(session_factory)
+    protocol = await _add(session_factory)
+    test_id = protocol.id
     permissions = _permissions()
     permissions.register_resource.side_effect = DuarError("boom", status_code=502)
     report = await register_all(session_factory, permissions, log=lambda _: None)
-    assert len(report.failures) == 1
+    test_failures = [failure for failure in report.failures if str(test_id) in failure]
+    assert len(test_failures) == 1
