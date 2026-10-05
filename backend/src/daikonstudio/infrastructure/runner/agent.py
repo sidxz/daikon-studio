@@ -37,7 +37,9 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import gc
 import os
+import sys
 import uuid
 
 import httpx
@@ -182,7 +184,22 @@ async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
         with contextlib.suppress(asyncio.CancelledError):
             await heartbeat
         await ctx["_client"].aclose()
+        _release_gpu_memory()
     return True
+
+
+def _release_gpu_memory() -> None:
+    """Hand the finished job's GPU memory back to the device. PyTorch frees a job's
+    tensors but keeps their memory reserved for this process, which outlives every
+    job; on a shared GPU that memory (21.6 GB after a MoLFormer fit at batch 256) was
+    unusable by anything else until the runner restarted. `gc.collect` first: the
+    Lightning trainer and module reference each other, so their tensors are only freed
+    by the cycle collector, and `empty_cache` can only return memory nothing holds.
+    A no-op where torch was never imported or has no CUDA."""
+    torch = sys.modules.get("torch")
+    if torch is not None and torch.cuda.is_available():
+        gc.collect()
+        torch.cuda.empty_cache()
 
 
 async def main() -> None:
