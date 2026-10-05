@@ -11,6 +11,7 @@ import type {
   ScorecardResponse,
   TrainProtocolBody,
 } from "@/shared/lib/api/model";
+import { type Headline, headlines } from "@/shared/lib/headlines";
 import {
   RUN_POLL_MS,
   RUN_RETRY_POLL_MS,
@@ -21,7 +22,7 @@ import {
 } from "@/shared/lib/query-defaults";
 import { showError, showSuccess } from "@/shared/lib/toast";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { PROTOCOLS_KEY, PROTOCOL_KEY, PROTOCOL_RUNS_KEY, SCORECARD_KEY } from "./query-keys";
 
 /**
@@ -233,4 +234,33 @@ export function useActiveTrainingRuns() {
   }, [live.length, queryClient]);
 
   return live;
+}
+
+/**
+ * Each protocol's headline scores, read off its training run: one request for the
+ * whole list, keyed under the protocols list so a finished training refreshes both.
+ * ponytail: the newest 200 training runs only; an older protocol shows no score.
+ * Upgrade: return the headline on the protocol itself.
+ */
+export function useTrainingHeadlines(): Map<string, Headline[]> {
+  const { data } = useQuery({
+    queryKey: [...PROTOCOLS_KEY, "training-headlines"],
+    queryFn: () =>
+      customInstance<PaginatedResponseRunResponse>({
+        url: `${API_V1}/runs`,
+        method: "GET",
+        params: { kind: "training", limit: 200 },
+      }),
+  });
+  return useMemo(() => {
+    const byProtocol = new Map<string, Headline[]>();
+    // Newest first, so the first run with scores is the protocol's latest.
+    for (const run of data?.items ?? []) {
+      const scores = headlines(run.metrics);
+      if (run.protocol_id && scores.length > 0 && !byProtocol.has(run.protocol_id)) {
+        byProtocol.set(run.protocol_id, scores);
+      }
+    }
+    return byProtocol;
+  }, [data]);
 }

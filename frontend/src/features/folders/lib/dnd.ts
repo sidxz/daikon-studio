@@ -14,8 +14,9 @@ export function setDragItem(e: DragEvent, kind: DragKind, id: string): void {
   e.dataTransfer.effectAllowed = "move";
 }
 
-export function canDropItem(e: DragEvent, kind: DragKind): boolean {
-  return Array.from(e.dataTransfer.types).includes(`${ITEM_MIME}.${kind}`);
+/** Takes a React or a native drag event: the rail also watches drags at the document. */
+export function canDropItem(e: { dataTransfer: DataTransfer | null }, kind: DragKind): boolean {
+  return Array.from(e.dataTransfer?.types ?? []).includes(`${ITEM_MIME}.${kind}`);
 }
 
 export function readDragItem(e: DragEvent): { kind: DragKind; id: string } | null {

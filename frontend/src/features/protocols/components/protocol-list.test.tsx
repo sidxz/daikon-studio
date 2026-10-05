@@ -49,11 +49,14 @@ function trainingRun(overrides: Partial<RunResponse>): RunResponse {
   };
 }
 
-/** The protocols list is empty; the runs list is whatever the test supplies. */
-function serve(runs: RunResponse[]) {
-  vi.mocked(customInstance).mockImplementation(async ({ url }) =>
-    url.endsWith("/runs") ? { items: runs, next_cursor: null } : { items: [], next_cursor: null },
-  );
+/** The runs list is whatever the test supplies; so is the protocols list, empty by default. */
+function serve(runs: RunResponse[], protocols: unknown[] = []) {
+  vi.mocked(customInstance).mockImplementation(async ({ url }) => {
+    if (url.endsWith("/engines")) return [{ id: "xgb", name: "XGBoost" }];
+    if (url.endsWith("/runs")) return { items: runs, next_cursor: null };
+    if (url.endsWith("/protocols")) return { items: protocols, next_cursor: null };
+    return { items: [], next_cursor: null };
+  });
 }
 
 describe("the In training section", () => {
@@ -142,26 +145,45 @@ describe("the Mine filter and creators", () => {
     expect(nav.replace).toHaveBeenCalledWith("/protocols?mine=1");
   });
 
-  it("shows the creator on a card", async () => {
-    vi.mocked(customInstance).mockImplementation(async ({ url }) =>
-      url.endsWith("/protocols")
-        ? {
-            items: [
-              {
-                id: "p1",
-                name: "hERG",
-                status: "draft",
-                engine_id: "xgb",
-                protocol_version: 1,
-                created_at: "2026-10-03T12:00:00Z",
-                created_by: "user-1",
-              },
+  it("shows the creator, engine and score on a card", async () => {
+    serve(
+      [
+        trainingRun({
+          id: "run-p1",
+          status: "ready",
+          protocol_id: "p1",
+          metrics: {
+            targets: [
+              { column: "pIC50", primary_metric: "rmse", value: 0.52, baseline_value: 0.61 },
             ],
-            next_cursor: null,
-          }
-        : { items: [], next_cursor: null },
+          },
+        }),
+      ],
+      [
+        {
+          id: "p1",
+          name: "hERG",
+          status: "draft",
+          engine_id: "xgb",
+          readouts: [{ name: "pIC50" }],
+          protocol_version: 1,
+          created_at: "2026-10-03T12:00:00Z",
+          created_by: "user-1",
+          folder_id: null,
+        },
+      ],
     );
     render(<ProtocolList />, { wrapper: Wrapper });
-    expect(await screen.findByText("by Ada")).toBeInTheDocument();
+    expect(await screen.findByRole("img", { name: "Ada" })).toBeInTheDocument();
+    expect(await screen.findByText("XGBoost")).toBeInTheDocument();
+    expect(await screen.findByText("0.520")).toBeInTheDocument();
+    expect(screen.getByText("0.090 better")).toBeInTheDocument();
+    expect(screen.getByText("Draft")).toBeInTheDocument();
+    expect(customInstance).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "/api/v1/runs",
+        params: { kind: "training", limit: 200 },
+      }),
+    );
   });
 });

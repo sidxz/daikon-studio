@@ -1,7 +1,8 @@
 "use client";
 
-import { FolderStrip, MoveToFolderMenu, setDragItem, useFolders } from "@/features/folders";
-import { Badge } from "@/shared/components/ui/badge";
+import { FolderRail, MoveToFolderMenu, setDragItem, useFolders } from "@/features/folders";
+import { DatasetsIcon } from "@/shared/components/icons/nav-icons";
+import { ItemCard, LeadNumber } from "@/shared/components/item-card";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
@@ -12,51 +13,27 @@ import { useState } from "react";
 import { useDatasets } from "../hooks/use-datasets";
 import { type Dataset, SPLIT_COPY } from "../types";
 
-function DatasetRow({
-  dataset,
-  folderName,
-  draggable,
-}: { dataset: Dataset; folderName?: string; draggable: boolean }) {
+function DatasetCard({ dataset, draggable }: { dataset: Dataset; draggable: boolean }) {
   const creator = useMemberName()(dataset.created_by);
+  const [target, ...others] = dataset.targets;
   return (
-    // A div card with a stretched title link: the menu is a sibling, not nested in the <a>.
-    <div
+    <ItemCard
+      href={`/datasets/${dataset.id}`}
+      name={dataset.name}
+      subtitle={
+        target && `Targets ${target.column}${others.length ? ` and ${others.length} more` : ""}`
+      }
+      action={
+        <MoveToFolderMenu kind="dataset" itemId={dataset.id} currentFolderId={dataset.folder_id} />
+      }
+      footerStart={`${SPLIT_COPY[dataset.split.strategy].title} split`}
+      creator={creator}
+      createdAt={dataset.created_at}
       draggable={draggable}
       onDragStart={(e) => setDragItem(e, "dataset", dataset.id)}
-      className="relative flex h-full flex-col gap-2 rounded-lg border border-border p-4 transition-colors hover:bg-muted/40"
     >
-      <div className="flex items-start justify-between gap-3">
-        <Link
-          href={`/datasets/${dataset.id}`}
-          draggable={false}
-          className="font-medium after:absolute after:inset-0"
-        >
-          {dataset.name}
-        </Link>
-        <div className="relative z-10 flex shrink-0 items-center gap-1">
-          <Badge variant="outline" className="font-normal">
-            {SPLIT_COPY[dataset.split.strategy].title}
-          </Badge>
-          <MoveToFolderMenu
-            kind="dataset"
-            itemId={dataset.id}
-            currentFolderId={dataset.folder_id}
-          />
-        </div>
-      </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
-        <span>{dataset.row_count.toLocaleString()} compounds</span>
-        <span className="font-mono">
-          {dataset.targets.map((target) => target.column).join(", ")}
-        </span>
-        {dataset.targets.length === 1 && dataset.targets[0].unit && (
-          <span className="font-mono">{dataset.targets[0].unit}</span>
-        )}
-        <span>{new Date(dataset.created_at).toLocaleDateString()}</span>
-        {creator && <span>by {creator}</span>}
-        {folderName && <span>{folderName}</span>}
-      </div>
-    </div>
+      <LeadNumber label="Compounds" value={dataset.row_count.toLocaleString("en-US")} />
+    </ItemCard>
   );
 }
 
@@ -71,9 +48,9 @@ function DatasetGrid({ folderId }: { folderId: string | undefined }) {
   return (
     <>
       {isLoading && (
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Skeleton className="h-24 w-full" />
-          <Skeleton className="h-24 w-full" />
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <Skeleton className="h-40 w-full" />
+          <Skeleton className="h-40 w-full" />
         </div>
       )}
 
@@ -88,6 +65,7 @@ function DatasetGrid({ folderId }: { folderId: string | undefined }) {
 
       {data && items.length === 0 && folderId && (
         <div className="rounded-lg border border-dashed border-border p-10 text-center">
+          <DatasetsIcon className="mx-auto mb-3 size-6 text-icon-datasets opacity-60" />
           <p className="text-sm font-medium">
             This folder is empty. Drag a dataset here or use Move to folder.
           </p>
@@ -96,6 +74,7 @@ function DatasetGrid({ folderId }: { folderId: string | undefined }) {
 
       {data && items.length === 0 && !folderId && (
         <div className="rounded-lg border border-dashed border-border p-10 text-center">
+          <DatasetsIcon className="mx-auto mb-3 size-6 text-icon-datasets opacity-60" />
           <p className="text-sm font-medium">No datasets yet</p>
           <p className="mt-1 text-sm text-muted-foreground">
             Upload a CSV of structures and measurements to get started.
@@ -110,17 +89,12 @@ function DatasetGrid({ folderId }: { folderId: string | undefined }) {
       )}
 
       {items.length > 0 && (
-        <div className="grid items-stretch gap-3 sm:grid-cols-2">
+        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {items.map((dataset) => (
-            <DatasetRow
+            <DatasetCard
               key={dataset.id}
               dataset={dataset}
               draggable={folders?.can_edit ?? false}
-              folderName={
-                folderId
-                  ? undefined
-                  : folders?.items.find((folder) => folder.id === dataset.folder_id)?.name
-              }
             />
           ))}
         </div>
@@ -150,7 +124,7 @@ export function DatasetList() {
   const folderId = params.get("folder") ?? undefined;
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
+    <div className="mx-auto w-full max-w-6xl space-y-6 p-2">
       <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-lg font-semibold">Datasets</h1>
@@ -167,9 +141,13 @@ export function DatasetList() {
         </Button>
       </div>
 
-      <FolderStrip kind="dataset" activeId={folderId} onSelect={(id) => set({ folder: id })} />
+      <div className="flex flex-col gap-4 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:items-start md:gap-8">
+        <FolderRail kind="dataset" activeId={folderId} onSelect={(id) => set({ folder: id })} />
 
-      <DatasetGrid key={folderId ?? "all"} folderId={folderId} />
+        <div className="min-w-0 space-y-4">
+          <DatasetGrid key={folderId ?? "all"} folderId={folderId} />
+        </div>
+      </div>
     </div>
   );
 }
