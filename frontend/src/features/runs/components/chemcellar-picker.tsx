@@ -33,7 +33,7 @@ import { runOption } from "../lib/chemcellar-runs";
  */
 export function ChemCellarPicker({
   onImported,
-}: { onImported: (imported: ChemCellarImportResponse) => void }) {
+}: { onImported: (imported: ChemCellarImportResponse | null) => void }) {
   const [protocolId, setProtocolId] = useState("");
   const [protocolOpen, setProtocolOpen] = useState(false);
   const [runId, setRunId] = useState("");
@@ -44,6 +44,8 @@ export function ChemCellarPicker({
 
   async function pickRun(id: string) {
     setRunId(id);
+    // Nothing is selected while an import runs, or after one fails.
+    onImported(null);
     try {
       onImported(await importRun.mutateAsync(id));
     } catch {
@@ -96,6 +98,7 @@ export function ChemCellarPicker({
                     onSelect={() => {
                       setProtocolId(protocol.id);
                       setRunId("");
+                      onImported(null);
                       setProtocolOpen(false);
                     }}
                   >
@@ -131,6 +134,7 @@ export function ChemCellarPicker({
               })}
             </SelectContent>
           </Select>
+          {runs.isError && <p className="text-sm text-destructive">{runs.error.message}</p>}
           {runs.data && runs.data.length === 0 && (
             <p className="text-xs text-muted-foreground">This protocol has no runs.</p>
           )}

@@ -216,7 +216,8 @@ export function RunDetail({ runId }: { runId: string }) {
               client-side parse: it includes the rows that did not parse. */}
           {scored != null && uploaded != null ? (
             <p className="mt-1 text-sm text-muted-foreground">
-              Predicted {scored.toLocaleString()} of {uploaded.toLocaleString()} uploaded row
+              Predicted {scored.toLocaleString()} of {uploaded.toLocaleString()}{" "}
+              {run.source ? "imported" : "uploaded"} row
               {uploaded === 1 ? "" : "s"}
               {uploaded !== scored &&
                 ` · ${(uploaded - scored).toLocaleString()} could not be parsed as ${

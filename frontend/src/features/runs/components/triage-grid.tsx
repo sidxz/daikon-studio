@@ -192,7 +192,7 @@ export function TriageGrid({
         filter: false,
         // `input_row` counts data rows from 1, as the upload's ValidationReport
         // does; the CSV's own line number is one more, for the header.
-        headerTooltip: "Row number in the uploaded file, excluding the header",
+        headerTooltip: "Row number in the compound list, excluding any header",
         cellRenderer: OrDash,
       },
     ];

@@ -40,6 +40,16 @@ def test_the_about_sheet_states_the_protocols_own_cutoff():
     assert "at least 0.5," in text
 
 
+def test_a_chemcellar_runs_id_and_row_meanings_do_not_say_uploaded():
+    class Protocol:
+        readouts = ()
+
+    labels = {"compound_id": "ID", "input_row": "Row"}
+    for _, text in _meanings(Protocol(), labels, from_chemcellar=True):  # type: ignore[arg-type]
+        assert "ChemCellar" in text
+        assert "uploaded" not in text
+
+
 def test_a_cutoff_reads_as_the_scorecard_shows_it():
     assert _cutoff(0.4124307930469513) == "0.412"
     assert _cutoff(0.5) == "0.5"

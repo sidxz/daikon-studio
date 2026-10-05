@@ -20,6 +20,7 @@ from datetime import date
 from typing import Any
 
 import httpx
+import structlog
 
 from daikonstudio.application.ports.chemcellar import (
     CellarCompound,
@@ -32,6 +33,8 @@ from daikonstudio.domain.shared.errors import (
     NotFoundError,
     ServiceUnavailableError,
 )
+
+_logger = structlog.get_logger(__name__)
 
 _PAGE_SIZE = 200  # ChemCellar's maximum.
 _IDS_PER_LOOKUP = 100  # About 3.7 KB of query string.
@@ -158,13 +161,12 @@ class HttpChemCellar:
                 timeout=_TIMEOUT_SECONDS,
             )
         except httpx.HTTPError as exc:
-            raise ServiceUnavailableError(
-                "ChemCellar could not be reached.", detail=str(exc)
-            ) from exc
+            _logger.warning("chemcellar_unreachable", path=path, error=str(exc))
+            raise ServiceUnavailableError("ChemCellar could not be reached.") from exc
         if response.status_code in (401, 403):
             raise AuthorizationError(
                 "ChemCellar denied access to this data.",
-                detail=f"({response.status_code}) {_detail(response)}",
+                detail=f"ChemCellar answered {response.status_code}: {_detail(response)}",
             )
         if response.status_code == 404:
             if missing is None:

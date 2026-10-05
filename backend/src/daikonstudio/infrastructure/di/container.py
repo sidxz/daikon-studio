@@ -114,7 +114,8 @@ def create_container(settings: Settings | None = None) -> Container:
         StructureNormalizer,  # type: ignore[type-abstract]
         Singleton(RdkitStructureNormalizer),
     )
-    # One pooled client for the process's lifetime; it closes when the API exits.
+    # One pooled client for the process's lifetime. It is not closed explicitly,
+    # which is harmless at exit.
     container.define(
         ChemCellar,  # type: ignore[type-abstract]
         Singleton(lambda: HttpChemCellar(httpx.AsyncClient(), resolved.chemcellar_api_url)),

@@ -14,7 +14,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
-import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { saveText } from "@/shared/lib/api/download";
 import type { ChemCellarImportResponse } from "@/shared/lib/api/model";
 import { useAppConfig } from "@/shared/lib/app-config";
@@ -189,6 +189,110 @@ export function PredictWizard() {
 
   const busy = upload.isPending || create.isPending;
 
+  const cellarPane = (
+    <>
+      <ChemCellarPicker onImported={setImported} />
+      {imported && (
+        <>
+          <PredictionPreview
+            summary={{ total: imported.compound_count, blank: 0, sample: imported.sample }}
+            column="smiles"
+          />
+          <p className="text-sm text-muted-foreground">
+            From ChemCellar: {imported.source.protocol_name}, run of{" "}
+            {formatRunDate(imported.source.run_date)}
+          </p>
+          {imported.without_structure > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {imported.without_structure} compound
+              {imported.without_structure === 1 ? "" : "s"} in this run{" "}
+              {imported.without_structure === 1 ? "has" : "have"} no disclosed structure and{" "}
+              {imported.without_structure === 1 ? "is" : "are"} not included.
+            </p>
+          )}
+        </>
+      )}
+    </>
+  );
+
+  const csvPane = (
+    <>
+      <div {...getRootProps()} className="space-y-2">
+        <input {...getInputProps()} />
+        {!chemcellarUrl && <Label>Compounds</Label>}
+        <button
+          type="button"
+          onClick={open}
+          className={`flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+            isDragActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+          }`}
+        >
+          <FileUp className="size-6 text-muted-foreground" />
+          <span className="text-sm font-medium">
+            {file ? file.name : "Drop a CSV of structures, or click to choose one"}
+          </span>
+          <span className="text-xs text-muted-foreground">Requires one SMILES column.</span>
+        </button>
+        <div className="flex items-center justify-end">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() =>
+              saveText(PREDICTION_TEMPLATE_CSV, "daikon-studio-prediction-template.csv")
+            }
+          >
+            <Download className="size-4" />
+            Download template
+          </Button>
+        </div>
+      </div>
+
+      {columns.length > 1 && (
+        <>
+          <div className="space-y-1.5">
+            <Label htmlFor="structure-column">Structure column</Label>
+            <Select value={structureColumn} onValueChange={setStructureColumn}>
+              <SelectTrigger id="structure-column">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {columns.map((column) => (
+                  <SelectItem key={column} value={column}>
+                    {column}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="id-column">Identifier column (optional)</Label>
+            <Select
+              value={idColumn ?? NO_ID_COLUMN}
+              onValueChange={(value) => setIdColumn(value === NO_ID_COLUMN ? null : value)}
+            >
+              <SelectTrigger id="id-column">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value={NO_ID_COLUMN}>None</SelectItem>
+                {columns.map((column) => (
+                  <SelectItem key={column} value={column}>
+                    {column}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Included with each prediction and in the export, so results can be matched to your
+              file.
+            </p>
+          </div>
+        </>
+      )}
+      {summary && <PredictionPreview summary={summary} column={structureColumn} />}
+    </>
+  );
+
   return (
     <div className="mx-auto w-full max-w-2xl space-y-4 p-2">
       <div>
@@ -223,7 +327,7 @@ export function PredictWizard() {
             {selectedProtocol && <ProtocolContext protocol={selectedProtocol} />}
           </div>
 
-          {chemcellarUrl && (
+          {chemcellarUrl ? (
             <div className="space-y-2">
               <Label>Compounds</Label>
               <Tabs value={tab} onValueChange={(value) => setTab(value as "csv" | "chemcellar")}>
@@ -231,109 +335,26 @@ export function PredictWizard() {
                   <TabsTrigger value="csv">Upload CSV</TabsTrigger>
                   <TabsTrigger value="chemcellar">From ChemCellar</TabsTrigger>
                 </TabsList>
+                {/* Both panes stay mounted, so the picker keeps its choice across
+                    tab switches and always agrees with what Predict submits. */}
+                <TabsContent
+                  value="csv"
+                  forceMount
+                  className="space-y-4 data-[state=inactive]:hidden"
+                >
+                  {csvPane}
+                </TabsContent>
+                <TabsContent
+                  value="chemcellar"
+                  forceMount
+                  className="space-y-4 data-[state=inactive]:hidden"
+                >
+                  {cellarPane}
+                </TabsContent>
               </Tabs>
             </div>
-          )}
-          {tab === "chemcellar" && chemcellarUrl ? (
-            <>
-              <ChemCellarPicker onImported={setImported} />
-              {imported && (
-                <>
-                  <PredictionPreview
-                    summary={{ total: imported.compound_count, blank: 0, sample: imported.sample }}
-                    column="smiles"
-                  />
-                  <p className="text-sm text-muted-foreground">
-                    From ChemCellar: {imported.source.protocol_name}, run of{" "}
-                    {formatRunDate(imported.source.run_date)}
-                  </p>
-                  {imported.without_structure > 0 && (
-                    <p className="text-xs text-muted-foreground">
-                      {imported.without_structure} compound
-                      {imported.without_structure === 1 ? "" : "s"} in this run{" "}
-                      {imported.without_structure === 1 ? "has" : "have"} no disclosed structure and{" "}
-                      {imported.without_structure === 1 ? "is" : "are"} not included.
-                    </p>
-                  )}
-                </>
-              )}
-            </>
           ) : (
-            <>
-              <div {...getRootProps()} className="space-y-2">
-                <input {...getInputProps()} />
-                {!chemcellarUrl && <Label>Compounds</Label>}
-                <button
-                  type="button"
-                  onClick={open}
-                  className={`flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
-                    isDragActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
-                  }`}
-                >
-                  <FileUp className="size-6 text-muted-foreground" />
-                  <span className="text-sm font-medium">
-                    {file ? file.name : "Drop a CSV of structures, or click to choose one"}
-                  </span>
-                  <span className="text-xs text-muted-foreground">Requires one SMILES column.</span>
-                </button>
-                <div className="flex items-center justify-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() =>
-                      saveText(PREDICTION_TEMPLATE_CSV, "daikon-studio-prediction-template.csv")
-                    }
-                  >
-                    <Download className="size-4" />
-                    Download template
-                  </Button>
-                </div>
-              </div>
-
-              {columns.length > 1 && (
-                <>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="structure-column">Structure column</Label>
-                    <Select value={structureColumn} onValueChange={setStructureColumn}>
-                      <SelectTrigger id="structure-column">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {columns.map((column) => (
-                          <SelectItem key={column} value={column}>
-                            {column}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="id-column">Identifier column (optional)</Label>
-                    <Select
-                      value={idColumn ?? NO_ID_COLUMN}
-                      onValueChange={(value) => setIdColumn(value === NO_ID_COLUMN ? null : value)}
-                    >
-                      <SelectTrigger id="id-column">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={NO_ID_COLUMN}>None</SelectItem>
-                        {columns.map((column) => (
-                          <SelectItem key={column} value={column}>
-                            {column}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Included with each prediction and in the export, so results can be matched to
-                      your file.
-                    </p>
-                  </div>
-                </>
-              )}
-              {summary && <PredictionPreview summary={summary} column={structureColumn} />}
-            </>
+            csvPane
           )}
         </CardContent>
       </Card>

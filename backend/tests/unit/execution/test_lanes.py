@@ -99,7 +99,7 @@ class _StubStore:
     """Enough BlobStore for the upload-existence check and the input hash."""
 
     def exists(self, key: str) -> bool:
-        return True
+        return key.endswith(".csv")
 
     def get_bytes(self, key: str) -> bytes:
         return b"smiles\nCCO\n"

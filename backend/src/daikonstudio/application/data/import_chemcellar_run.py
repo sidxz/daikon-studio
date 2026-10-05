@@ -65,6 +65,8 @@ class ImportChemCellarRun:
             (c for c in found.compounds if c.smiles and c.smiles.strip()),
             key=lambda c: (c.registration_number or "", str(c.molecule_id)),
         )
+        if not found.compounds:
+            return Failure(ValidationError("This ChemCellar run has no compounds yet."))
         if not drawn:
             return Failure(
                 ValidationError("This ChemCellar run has no compounds with a disclosed structure.")

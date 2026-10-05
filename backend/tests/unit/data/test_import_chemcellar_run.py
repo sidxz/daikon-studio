@@ -93,3 +93,12 @@ async def test_a_viewer_cannot_import():
         await ImportChemCellarRun(FakeChemCellar([]), InMemoryBlobStore())(
             RUN, forwarded_headers={}, auth=FakeAuth(workspace_role="viewer")
         )
+
+
+async def test_a_run_with_no_compounds_says_so():
+    result = await ImportChemCellarRun(FakeChemCellar([]), InMemoryBlobStore())(
+        RUN, forwarded_headers={}, auth=FakeAuth()
+    )
+    failure = result.failure()
+    assert isinstance(failure, ValidationError)
+    assert "no compounds yet" in str(failure)

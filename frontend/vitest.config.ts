@@ -10,6 +10,9 @@ export default defineConfig({
     },
   },
   test: {
+    // A US zone, where a UTC-midnight date reads as the previous day, so the
+    // run-date test fails on a UTC CI if it ever stops pinning the zone itself.
+    env: { TZ: "America/Chicago" },
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],

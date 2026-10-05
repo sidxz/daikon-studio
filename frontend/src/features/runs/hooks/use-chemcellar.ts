@@ -34,6 +34,7 @@ export function useChemCellarRuns(protocolId: string) {
       }),
     enabled: protocolId !== "",
     staleTime: STALE_TIME.SHORT,
+    retry: false,
   });
 }
 

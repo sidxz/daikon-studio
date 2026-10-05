@@ -162,15 +162,25 @@ def _labels(protocol: InSilicoProtocol, rows: pl.DataFrame) -> dict[str, str]:
     return labels
 
 
-def _meanings(protocol: InSilicoProtocol, labels: dict[str, str]) -> list[tuple[str, str]]:
+def _meanings(
+    protocol: InSilicoProtocol, labels: dict[str, str], *, from_chemcellar: bool = False
+) -> list[tuple[str, str]]:
     readouts = {readout.name: readout for readout in protocol.readouts}
     meanings: list[tuple[str, str]] = []
     for column, label in labels.items():
         readout = readouts.get(column)
         if column == "compound_id":
-            text = "Your identifier for the compound, from the uploaded file."
+            text = (
+                "The compound's ChemCellar registration number."
+                if from_chemcellar
+                else "Your identifier for the compound, from the uploaded file."
+            )
         elif column == "input_row":
-            text = "The compound's row in your uploaded file, not counting the header."
+            text = (
+                "The compound's position in the list imported from ChemCellar."
+                if from_chemcellar
+                else "The compound's row in your uploaded file, not counting the header."
+            )
         elif column == "structure":
             text = "The compound's structure, as Studio read it."
         elif column == "applicability":
@@ -295,7 +305,10 @@ def _workbook(
         *([["Your uploaded columns", upload_note]] if upload_note else []),
         [],
         [_bold(about, "Column"), _bold(about, "What it means")],
-        *[[_cell(about, label), text] for label, text in _meanings(protocol, labels)],
+        *[
+            [_cell(about, label), text]
+            for label, text in _meanings(protocol, labels, from_chemcellar=bool(source))
+        ],
         *[
             [_cell(about, name), "From ChemCellar." if source else "From your uploaded file."]
             for name in uploaded

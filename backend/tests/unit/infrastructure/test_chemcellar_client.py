@@ -144,8 +144,9 @@ async def test_a_protocols_runs_carry_counts():
 
 @pytest.mark.parametrize("status", [401, 403])
 async def test_a_refusal_is_an_authorization_error(status):
-    with pytest.raises(AuthorizationError):
+    with pytest.raises(AuthorizationError) as raised:
         await _cellar({"/api/v1/protocols": status}).list_protocols(forwarded_headers=HEADERS)
+    assert f"ChemCellar answered {status}: nope" in str(raised.value.detail)
 
 
 async def test_a_missing_run_is_not_found():
@@ -163,8 +164,9 @@ async def test_an_unreachable_chemcellar_is_unavailable():
         raise httpx.ConnectError("refused", request=request)
 
     cellar = HttpChemCellar(httpx.AsyncClient(transport=httpx.MockTransport(refuse)), "http://x")
-    with pytest.raises(ServiceUnavailableError):
+    with pytest.raises(ServiceUnavailableError) as raised:
         await cellar.list_protocols(forwarded_headers=HEADERS)
+    assert not raised.value.detail
 
 
 async def test_an_unconfigured_chemcellar_is_unavailable_without_a_request():
