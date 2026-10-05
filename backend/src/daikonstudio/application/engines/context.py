@@ -21,7 +21,10 @@ class EpochPoint:
 
     `scores` are validation scores in the shared vocabulary -- auroc, auprc and mcc (at
     the 0.5 cutoff) for an active/inactive target; rmse and mae in the target's own unit
-    and r2 for a measured one -- and hold only what the fit could measure. The engine
+    and r2 for a measured one -- and hold only what the fit could measure. `kept_epoch`
+    is the epoch the fit would keep if it stopped now and `kept_by` the rule that chose
+    it, "auprc", "auroc" or "loss" (see `_lightning.keep_best_epoch`); both None
+    without a validation set. The engine
     fills the epoch and the numbers; the wrappers above it fill in which target (one
     fit per target), and which stage of the training run (model, baseline or the
     random-split comparison) the fit belongs to.
@@ -37,6 +40,8 @@ class EpochPoint:
     members: int | None = None
     target: str | None = None  # None: one fit over every target at once
     fit: str = "model"
+    kept_epoch: int | None = None
+    kept_by: str | None = None
     at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 

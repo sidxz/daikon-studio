@@ -694,9 +694,9 @@ def test_the_best_epoch_is_part_of_the_saved_state(tmp_path: Path) -> None:
     state = torch.load(saved, map_location="cpu", weights_only=False)
 
     assert any(
-        math.isfinite(entry["best_loss"])
+        math.isfinite(entry["best"]) and entry["best_epoch"] is not None
         for entry in state["callbacks"].values()
-        if "best_loss" in entry
+        if "best" in entry
     )
 
 
@@ -704,31 +704,31 @@ def test_a_resumed_fit_keeps_the_best_epoch_of_the_attempt_before(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Without it a resumed fit forgets its best epoch and could ship a worse one: the
-    callback must hold the first attempt's best loss before any resumed epoch runs."""
+    callback must hold the first attempt's best before any resumed epoch runs."""
     import math
 
     from daikonstudio.infrastructure.engines import chemprop_dmpnn
 
     created: list[Any] = []
-    real = chemprop_dmpnn.keep_best_by_validation_loss
+    real = chemprop_dmpnn.keep_best_epoch
 
-    def spying() -> Any:
-        callback = real()
+    def spying(**kwargs: Any) -> Any:
+        callback = real(**kwargs)
         created.append(callback)
         return callback
 
-    monkeypatch.setattr(chemprop_dmpnn, "keep_best_by_validation_loss", spying)
+    monkeypatch.setattr(chemprop_dmpnn, "keep_best_epoch", spying)
     store = InMemoryBlobStore()
     with pytest.raises(RunInterrupted):
         ChempropDMPNN().train(_resumable_context(store, _stopping_after_epoch_two([])))
-    saved_best = created[0].best_loss
+    saved_best = created[0].best
     assert math.isfinite(saved_best)
 
     at_resume: list[float] = []
 
     def watch(fraction: float, phase: str) -> None:
         if phase.startswith("Resuming"):  # reported before the first resumed epoch
-            at_resume.append(created[1].best_loss)
+            at_resume.append(created[1].best)
 
     ChempropDMPNN().train(_resumable_context(store, watch))
 
@@ -754,16 +754,17 @@ def test_best_epoch_weights_survive_a_resume_not_only_the_best_loss():
     its last epoch while the Scorecard believed it had kept the best one."""
     import torch
 
-    from daikonstudio.infrastructure.engines._lightning import keep_best_by_validation_loss
+    from daikonstudio.infrastructure.engines._lightning import keep_best_epoch
 
-    saved = keep_best_by_validation_loss()
-    saved.best_loss = 0.25
+    saved = keep_best_epoch()
+    saved.best = -0.25
+    saved.best_epoch = 3
     saved.best_state = {"w": torch.tensor([1.0, 2.0])}
 
-    restored = keep_best_by_validation_loss()
+    restored = keep_best_epoch()
     restored.load_state_dict(saved.state_dict())
 
-    assert restored.best_loss == 0.25
+    assert (restored.best, restored.best_epoch) == (-0.25, 3)
     assert restored.best_state is not None
     assert torch.equal(restored.best_state["w"], torch.tensor([1.0, 2.0]))
 
@@ -993,3 +994,5 @@ def test_every_epoch_is_recorded_with_validation_scores() -> None:
     assert [point.epoch for point in points] == [1, 2]
     assert all(point.epochs == 2 and point.val_loss is not None for point in points)
     assert set(points[-1].scores) == {"auroc", "auprc", "mcc"}
+    # Kept by the default `epoch_selection`, and reported with every point.
+    assert all(point.kept_by == "auprc" and point.kept_epoch in (1, 2) for point in points)

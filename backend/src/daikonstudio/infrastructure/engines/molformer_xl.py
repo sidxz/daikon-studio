@@ -52,13 +52,17 @@ from daikonstudio.application.engines.manifest import (
 )
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.engines._lightning import (
-    keep_best_by_validation_loss,
+    keep_best_epoch,
     record_epochs,
     save_training_state,
     saved_training_state,
     training_state_scope,
 )
-from daikonstudio.infrastructure.engines._options import POSITIVE_WEIGHTING, positive_weight
+from daikonstudio.infrastructure.engines._options import (
+    EPOCH_SELECTION,
+    POSITIVE_WEIGHTING,
+    positive_weight,
+)
 from daikonstudio.infrastructure.engines._scoring import (
     classification_by_column,
     regression_metrics,
@@ -138,6 +142,7 @@ _MANIFEST = EngineManifest(
             "better with thousands of measurements.",
         ),
         POSITIVE_WEIGHTING,
+        EPOCH_SELECTION,
     ),
     lane="gpu",
     supports_multitask=True,
@@ -193,6 +198,13 @@ def _load_backbone(*, freeze_encoder: bool, num_labels: int) -> tuple[Any, Any]:
         # The `classifier` head stays trainable; only the pretrained trunk is pinned.
         model.molformer.requires_grad_(False)
     return tokenizer, model
+
+
+def _validation_scores(module: Any, batch: Any) -> tuple[Any, Any]:
+    """A validation batch's logits and labels, each (rows, targets): what
+    `keep_best_epoch` scores an epoch by. Logits rank exactly as probabilities do."""
+    input_ids, attention_mask, targets = batch
+    return module(input_ids, attention_mask), targets
 
 
 def _collate(tokenizer: Any) -> Any:
@@ -310,8 +322,8 @@ def _build_module(
 
     # Validation scores per epoch for the run page's live charts, logged under the keys
     # chemprop uses so one recorder reads both engines (`_lightning.SCORE_METRICS`).
-    # Pooled over every target the fit predicts, as chemprop's are. Logging only: the
-    # epoch is still selected by validation loss.
+    # Pooled over every target the fit predicts, as chemprop's are; `keep_best_epoch`
+    # logs AUROC and PR AUC averaged over targets, which replace these on the run page.
     score_keys = (
         {"roc": "val/roc", "prc": "val/prc", "mcc": "val/binary-mcc"}
         if is_classification
@@ -359,8 +371,8 @@ def _build_module(
             input_ids, attention_mask, targets = batch
             logits = self(input_ids, attention_mask)
             loss = self._loss(logits, targets)
-            # The key `keep_best_by_validation_loss` reads. `batch_size` is explicit
-            # because Lightning cannot infer it from a tuple batch and warns per step.
+            # The key `keep_best_epoch` reads for a measured target. `batch_size` is
+            # explicit because Lightning cannot infer it from a tuple batch and warns per step.
             self.log("val_loss", loss, batch_size=len(targets))
             predicted = torch.sigmoid(logits) if is_classification else logits
             truth = targets.int() if is_classification else targets
@@ -429,6 +441,7 @@ class MolformerXL:
         learning_rate = float(conditions["learning_rate"])
         freeze_encoder = bool(conditions["freeze_encoder"])
         weighting = str(conditions["positive_weighting"])
+        selection = str(conditions["epoch_selection"])
         columns = ctx.target_columns
         # One task for the whole fit: a joint engine is only ever handed a dataset
         # whose targets share a kind (`joint_kind_error`, at enqueue).
@@ -503,7 +516,11 @@ class MolformerXL:
                 f"Training {_MANIFEST.name} on {trainer.strategy.root_device}",
             )
 
-        keep_best = keep_best_by_validation_loss()
+        keep_best = (
+            keep_best_epoch(by=selection, predict=_validation_scores)
+            if is_classification
+            else keep_best_epoch()
+        )
         callbacks: list[Any] = [
             # Before the reporter, which may raise to stop the fit.
             record_epochs(
@@ -512,6 +529,7 @@ class MolformerXL:
                 unit_scale=float(target_std[0])
                 if not is_classification and len(columns) == 1
                 else None,
+                kept=keep_best if validation_loader is not None else None,
             ),
             LambdaCallback(on_train_epoch_end=_report_epoch),
         ]

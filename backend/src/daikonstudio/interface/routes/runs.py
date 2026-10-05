@@ -232,7 +232,11 @@ async def get_run(run_id: uuid.UUID, auth: AuthDep, service: GetRunDep) -> RunRe
 class EpochResponse(BaseModel):
     """One finished epoch of a neural fit. `fit` is the training run's stage (model,
     baseline, random-split); `target` is None for one fit over every target at once;
-    `scores` are validation scores in the shared vocabulary."""
+    `scores` are validation scores in the shared vocabulary. `kept_epoch` is the epoch
+    the fit would keep if it stopped at this one, and `kept_by` the rule that chose it:
+    "auprc", "auroc" or "loss". Both are None from a fit with no validation set, and on
+    every epoch recorded before fits reported them (those all kept the lowest
+    validation loss)."""
 
     fit: str
     target: str | None
@@ -244,6 +248,8 @@ class EpochResponse(BaseModel):
     val_loss: float | None
     scores: dict[str, float]
     device: str | None
+    kept_epoch: int | None
+    kept_by: str | None
     at: datetime
 
 
@@ -264,6 +270,8 @@ async def get_run_epochs(
             val_loss=point.val_loss,
             scores=point.scores,
             device=point.device,
+            kept_epoch=point.kept_epoch,
+            kept_by=point.kept_by,
             at=point.at,
         )
         for point in points

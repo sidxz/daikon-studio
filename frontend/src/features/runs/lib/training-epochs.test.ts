@@ -3,6 +3,7 @@ import {
   durationLabel,
   groupSeries,
   keptEpoch,
+  keptRule,
   scoreNames,
   secondsLeft,
   secondsPerEpoch,
@@ -33,13 +34,26 @@ describe("groupSeries", () => {
 });
 
 describe("keptEpoch", () => {
-  it("is the lowest validation loss, as both neural engines select it", () => {
+  it("is the epoch the fit reports, whatever its loss", () => {
+    const kept = { kept_epoch: 3, kept_by: "auprc" };
+    const [series] = groupSeries([
+      epoch(1, { val_loss: 0.5, kept_epoch: 1, kept_by: "auprc" }),
+      epoch(2, { val_loss: 0.4, kept_epoch: 1, kept_by: "auprc" }),
+      epoch(3, { val_loss: 0.45, ...kept }),
+      epoch(4, { val_loss: 0.6, ...kept }),
+    ]);
+    expect(keptEpoch(series)?.epoch).toBe(3);
+    expect(keptRule(series)).toBe("best validation PR AUC");
+  });
+
+  it("is the lowest validation loss for a fit recorded before fits reported it", () => {
     const [series] = groupSeries([
       epoch(1, { val_loss: 0.5 }),
       epoch(2, { val_loss: 0.4 }),
       epoch(3, { val_loss: 0.45 }),
     ]);
     expect(keptEpoch(series)?.epoch).toBe(2);
+    expect(keptRule(series)).toBe("lowest validation loss");
   });
 
   it("is null for a fit with no validation set", () => {

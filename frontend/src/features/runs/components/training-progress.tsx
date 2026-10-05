@@ -30,6 +30,7 @@ import {
   groupSeries,
   higherIsBetter,
   keptEpoch,
+  keptRule,
   scoreNames,
   secondsLeft,
   secondsPerEpoch,
@@ -127,7 +128,7 @@ function SeriesView({
         <Stat
           label={live ? "Kept so far" : "Kept epoch"}
           value={kept ? `epoch ${kept.epoch}` : "—"}
-          hint={kept ? "lowest validation loss" : "no validation set"}
+          hint={kept ? keptRule(series) : "no validation set"}
         />
       </div>
 
@@ -164,7 +165,7 @@ function SeriesView({
               epochs={last.epochs}
               kept={kept?.epoch}
               yLabel="loss"
-              caption="Both should fall. Validation loss rising while training loss keeps falling means the model has begun to memorize its training set; the kept epoch is the one before that."
+              caption="Both should fall at first. When validation loss turns upward while training loss keeps falling, the model fits its training compounds better than new ones, often by growing overconfident. Its ranking of new compounds can still improve, as the scores on the right show."
             />
           </div>
         )}

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import logging
 import math
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +29,8 @@ from daikonstudio.application.engines.context import EpochPoint, EpochRecorder, 
 
 __all__ = [
     "SCORE_METRICS",
-    "keep_best_by_validation_loss",
+    "averaged_scores",
+    "keep_best_epoch",
     "record_epochs",
     "save_training_state",
     "saved_training_state",
@@ -38,14 +40,71 @@ __all__ = [
 logger = logging.getLogger(__name__)
 
 
-def keep_best_by_validation_loss() -> Any:
-    """A Lightning callback holding the weights of the lowest-`val_loss` epoch.
+# Validation scores averaged over targets, as `keep_best_epoch` logs them. Each is
+# listed in `SCORE_METRICS` after the pooled score it replaces on the run page.
+_AVERAGED_KEYS = {"auroc": "val/roc-mean", "auprc": "val/prc-mean"}
+
+
+def averaged_scores(scores: Any, targets: Any) -> dict[str, float]:
+    """Validation AUROC and PR AUC (average precision) for each target, over the
+    compounds labelled for it, averaged across targets.
+
+    Each target counts once, so a rare label weighs as much as a frequent one; a pooled
+    score, which chemprop's own `val/roc` and `val/prc` are, puts every label's
+    compounds on one curve, where the frequent labels decide. A target whose validation
+    compounds are all one class has no score and is left out. Empty when no target has
+    both classes, or when a prediction is not finite (a diverged fit).
+    """
+    import numpy as np
+    from sklearn.metrics import (  # type: ignore[import-untyped]
+        average_precision_score,
+        roc_auc_score,
+    )
+
+    predicted = np.asarray(scores, dtype=float).reshape(len(scores), -1)
+    actual = np.asarray(targets, dtype=float).reshape(len(targets), -1)
+    if not np.isfinite(predicted).all():
+        return {}
+    auroc: list[float] = []
+    auprc: list[float] = []
+    for column in range(actual.shape[1]):
+        labelled = np.isfinite(actual[:, column])
+        y = actual[labelled, column]
+        if 0 < y.sum() < y.size:
+            auroc.append(float(roc_auc_score(y, predicted[labelled, column])))
+            auprc.append(float(average_precision_score(y, predicted[labelled, column])))
+    if not auroc:
+        return {}
+    return {"auroc": float(np.mean(auroc)), "auprc": float(np.mean(auprc))}
+
+
+def keep_best_epoch(*, by: str = "loss", predict: Callable[[Any, Any], Any] | None = None) -> Any:
+    """A Lightning callback holding the weights of the epoch the fit keeps.
 
     The validation partition selects the epoch. Without this, Lightning computes
     `val_loss` every epoch and nothing reads it: the weights that survive are
     whichever epoch happened to be last, so a model that peaked at epoch 3 and then
     overfit for two more ships in its overfit state and the validation split -- ten
     percent of the dataset -- buys nothing at all.
+
+    `by` is the `epoch_selection` condition: "auprc" or "auroc" keeps the epoch with
+    the highest validation score averaged over targets (`averaged_scores`), "loss" the
+    lowest validation loss. A classification fit passes `predict(module, batch) ->
+    (scores, targets)`, each (rows, targets), and the averaged scores are then logged
+    every epoch whatever `by` is, so the run page charts the numbers that select. They
+    are computed here, from one extra forward pass over the validation batches, rather
+    than as chemprop metrics, because chemprop pickles its metric objects into every
+    model it saves and rebuilds them on load. When the chosen score cannot be computed
+    (no target with both classes in validation), the loss decides; that is true of
+    every epoch of the fit, since its validation set does not change.
+
+    Why a score and not the loss for an active/inactive target: the loss also punishes
+    confident mistakes, so it often starts rising while ranking still improves, and a
+    model whose cutoff is tuned afterwards is used for its ranking. Selecting on loss
+    kept epoch 5 of a 30-epoch run whose validation PR AUC rose from 0.63 to 0.72 by
+    epoch 15. With positive weighting the loss is weighted too, so a few actives pick
+    the epoch. MCC is not offered: it needs a cutoff, and the cutoff is tuned only
+    once the epoch is chosen.
 
     Deliberately best-checkpoint selection and NOT early stopping. Early stopping
     needs a patience meaningful relative to `epochs`, and at these engines' defaults
@@ -56,19 +115,39 @@ def keep_best_by_validation_loss() -> Any:
     The caller restores `best_state` before scoring or saving, so the numbers on the
     Scorecard and the weights in the artifact are the same model. `best_state` stays
     `None` when there is no validation dataloader -- nothing is recorded and the
-    caller keeps the final epoch.
+    caller keeps the final epoch. `best_epoch` (1-based) is what the run page marks.
 
     Lightning's own `ModelCheckpoint` would do this by writing every candidate to
     disk and reading the winner back; the weights are already in memory and the only
     thing needed is a copy, so this skips the filesystem round-trip and the temporary
     directory that would have to outlive `fit` to make it work.
     """
+    import torch
     from lightning.pytorch.callbacks import Callback
 
-    class _KeepBestByValidationLoss(Callback):
+    class _KeepBestEpoch(Callback):
         def __init__(self) -> None:
-            self.best_loss = float("inf")
+            # Higher is better: the chosen score, or the loss negated.
+            self.best = -math.inf
+            self.best_epoch: int | None = None
+            # `by`, or "loss" when the chosen score could not be computed.
+            self.kept_by: str | None = None
             self.best_state: dict[str, Any] | None = None
+            self._scores: list[Any] = []
+            self._targets: list[Any] = []
+
+        def on_validation_epoch_start(self, trainer: Any, module: Any) -> None:
+            self._scores, self._targets = [], []
+
+        def on_validation_batch_end(
+            self, trainer: Any, module: Any, outputs: Any, batch: Any, *_args: Any
+        ) -> None:
+            if predict is None or trainer.sanity_checking:
+                return
+            # Lightning runs validation with gradients off and the module in eval mode.
+            scores, targets = predict(module, batch)
+            self._scores.append(scores.detach().float().cpu())
+            self._targets.append(targets.detach().float().cpu())
 
         def on_validation_epoch_end(self, trainer: Any, module: Any) -> None:
             # Lightning runs a sanity-check validation pass BEFORE training, and it
@@ -79,14 +158,25 @@ def keep_best_by_validation_loss() -> Any:
             # beats them ships an untrained model with an honest-looking scorecard.
             if trainer.sanity_checking:
                 return
-            # `val_loss` is the key both engines log. Absent means no validation
-            # dataloader, which is legitimate.
-            loss = trainer.callback_metrics.get("val_loss")
-            if loss is None:
-                return
-            value = float(loss)
-            if value < self.best_loss:
-                self.best_loss = value
+            averaged = (
+                averaged_scores(torch.cat(self._scores), torch.cat(self._targets))
+                if self._scores
+                else {}
+            )
+            for name, number in averaged.items():
+                module.log(_AVERAGED_KEYS[name], number)
+            value = averaged.get(by)
+            self.kept_by = by if value is not None else "loss"
+            if value is None:
+                # `val_loss` is the key both engines log. Absent means no validation
+                # dataloader, which is legitimate.
+                loss = trainer.callback_metrics.get("val_loss")
+                if loss is None:
+                    return
+                value = -float(loss)
+            if value > self.best:
+                self.best = value
+                self.best_epoch = trainer.current_epoch + 1
                 # Detached clones: the live tensors keep training after this.
                 self.best_state = {
                     key: tensor.detach().clone() for key, tensor in module.state_dict().items()
@@ -94,15 +184,22 @@ def keep_best_by_validation_loss() -> Any:
 
         # Saved with the training state and restored on resume (Lightning calls these),
         # so best-epoch selection survives a stopped run: without them a resumed fit
-        # would forget its best epoch and keep the last one.
+        # would forget its best epoch and keep the last one. A state saved before this
+        # class replaced `_KeepBestByValidationLoss` is keyed by that name and not
+        # restored: the resumed fit selects among the epochs it trains.
         def state_dict(self) -> dict[str, Any]:
-            return {"best_loss": self.best_loss, "best_state": self.best_state}
+            return {
+                "best": self.best,
+                "best_epoch": self.best_epoch,
+                "best_state": self.best_state,
+            }
 
         def load_state_dict(self, state_dict: dict[str, Any]) -> None:
-            self.best_loss = state_dict["best_loss"]
+            self.best = state_dict["best"]
+            self.best_epoch = state_dict["best_epoch"]
             self.best_state = state_dict["best_state"]
 
-    return _KeepBestByValidationLoss()
+    return _KeepBestEpoch()
 
 
 def training_state_scope(checkpoints: Checkpoints | None, *libraries: str) -> Checkpoints | None:
@@ -196,6 +293,10 @@ def saved_training_state(
 SCORE_METRICS = {
     "val/roc": "auroc",
     "val/prc": "auprc",
+    # Averaged over targets (`keep_best_epoch`), after the pooled scores above so they
+    # replace them wherever a classification fit logs both.
+    "val/roc-mean": "auroc",
+    "val/prc-mean": "auprc",
     "val/binary-mcc": "mcc",
     "val/rmse": "rmse",
     "val/mae": "mae",
@@ -213,6 +314,7 @@ def record_epochs(
     member: int | None = None,
     members: int | None = None,
     unit_scale: float | None = None,
+    kept: Any = None,
 ) -> Any:
     """A callback that hands `record` one EpochPoint per finished epoch.
 
@@ -222,7 +324,8 @@ def record_epochs(
     `unit_scale` is the target's training standard deviation, for a regression fit on
     one target; with none, rmse and mae are left out rather than shown in the wrong
     unit (r2 needs no unit). A score that is not finite -- AUROC on a validation set
-    with one class -- is left out too.
+    with one class -- is left out too. `kept` is the fit's `keep_best_epoch` callback,
+    whose `best_epoch` and `kept_by` each point reports; None without a validation set.
     """
     from lightning.pytorch.callbacks import LambdaCallback
 
@@ -256,6 +359,8 @@ def record_epochs(
                 device=str(trainer.strategy.root_device),
                 member=member,
                 members=members,
+                kept_epoch=None if kept is None else kept.best_epoch,
+                kept_by=None if kept is None else kept.kept_by,
             )
         )
 

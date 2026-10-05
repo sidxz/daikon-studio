@@ -454,6 +454,8 @@ class EpochWire(BaseModel):
     members: int | None = Field(default=None, ge=1, le=1_000)
     target: str | None = Field(default=None, max_length=512)
     fit: str = Field(max_length=32)
+    kept_epoch: int | None = Field(default=None, ge=1, le=100_000)
+    kept_by: str | None = Field(default=None, max_length=16)
     at: datetime
 
     @classmethod
@@ -469,6 +471,8 @@ class EpochWire(BaseModel):
             members=point.members,
             target=point.target,
             fit=point.fit,
+            kept_epoch=point.kept_epoch,
+            kept_by=point.kept_by,
             at=point.at,
         )
 
@@ -484,6 +488,8 @@ class EpochWire(BaseModel):
             members=self.members,
             target=self.target,
             fit=self.fit,
+            kept_epoch=self.kept_epoch,
+            kept_by=self.kept_by,
             at=self.at,
         )
 

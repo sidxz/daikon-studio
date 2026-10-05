@@ -111,4 +111,6 @@ class RunEpochModel(Base):
     val_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
     scores: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     device: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    kept_epoch: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    kept_by: Mapped[str | None] = mapped_column(String(16), nullable=True)
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

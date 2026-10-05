@@ -109,6 +109,8 @@ class SqlAlchemyRunRepository:
                     val_loss=point.val_loss,
                     scores=point.scores,
                     device=point.device,
+                    kept_epoch=point.kept_epoch,
+                    kept_by=point.kept_by,
                     recorded_at=point.at,
                 )
                 for point in points
@@ -139,6 +141,8 @@ class SqlAlchemyRunRepository:
                     members=row.members,
                     target=row.target,
                     fit=row.fit,
+                    kept_epoch=row.kept_epoch,
+                    kept_by=row.kept_by,
                     at=row.recorded_at,
                 )
                 for row in rows

@@ -4030,6 +4030,28 @@
             ],
             "title": "Device"
           },
+          "kept_epoch": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept Epoch"
+          },
+          "kept_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept By"
+          },
           "at": {
             "type": "string",
             "format": "date-time",
@@ -4048,10 +4070,12 @@
           "val_loss",
           "scores",
           "device",
+          "kept_epoch",
+          "kept_by",
           "at"
         ],
         "title": "EpochResponse",
-        "description": "One finished epoch of a neural fit. `fit` is the training run's stage (model,\nbaseline, random-split); `target` is None for one fit over every target at once;\n`scores` are validation scores in the shared vocabulary."
+        "description": "One finished epoch of a neural fit. `fit` is the training run's stage (model,\nbaseline, random-split); `target` is None for one fit over every target at once;\n`scores` are validation scores in the shared vocabulary. `kept_epoch` is the epoch\nthe fit would keep if it stopped at this one, and `kept_by` the rule that chose it:\n\"auprc\", \"auroc\" or \"loss\". Both are None from a fit with no validation set, and on\nevery epoch recorded before fits reported them (those all kept the lowest\nvalidation loss)."
       },
       "EpochWire": {
         "properties": {
@@ -4151,6 +4175,31 @@
             "type": "string",
             "maxLength": 32,
             "title": "Fit"
+          },
+          "kept_epoch": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 100000.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept Epoch"
+          },
+          "kept_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 16
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kept By"
           },
           "at": {
             "type": "string",

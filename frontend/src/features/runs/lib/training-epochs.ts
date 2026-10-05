@@ -56,17 +56,34 @@ export function groupSeries(points: EpochResponse[]): EpochSeries[] {
   return [...byKey.values()];
 }
 
+/** How each `kept_by` rule reads beside the kept epoch. */
+const KEPT_BY: Record<string, string> = {
+  auprc: "best validation PR AUC",
+  auroc: "best validation AUROC",
+  loss: "lowest validation loss",
+};
+
 /**
- * The epoch the fit keeps: the lowest validation loss so far, which is how both neural
- * engines select their final model. Null when the fit has no validation set.
+ * The epoch the fit keeps, as the fit itself last reported it (`kept_epoch`). A fit
+ * recorded before fits reported it kept the lowest validation loss, so that is worked
+ * out here. Null when the fit has no validation set, or when the
+ * kept epoch is from an earlier attempt that this one resumed.
  */
 export function keptEpoch(series: EpochSeries): EpochResponse | null {
+  const reported = series.points[series.points.length - 1]?.kept_epoch;
+  if (reported != null) return series.points.find((point) => point.epoch === reported) ?? null;
   let best: EpochResponse | null = null;
   for (const point of series.points) {
     if (point.val_loss === null) continue;
     if (best === null || point.val_loss < (best.val_loss as number)) best = point;
   }
   return best;
+}
+
+/** What chose the kept epoch, in words. */
+export function keptRule(series: EpochSeries): string {
+  const rule = series.points[series.points.length - 1]?.kept_by;
+  return KEPT_BY[rule ?? "loss"] ?? rule ?? KEPT_BY.loss;
 }
 
 /** Mean seconds per epoch over the last few, or null with fewer than two epochs. */

@@ -9,6 +9,8 @@ import type { EpochWireDevice } from './epochWireDevice';
 import type { EpochWireMember } from './epochWireMember';
 import type { EpochWireMembers } from './epochWireMembers';
 import type { EpochWireTarget } from './epochWireTarget';
+import type { EpochWireKeptEpoch } from './epochWireKeptEpoch';
+import type { EpochWireKeptBy } from './epochWireKeptBy';
 
 /**
  * One finished training epoch, runner to API (application.engines.context.EpochPoint).
@@ -36,5 +38,7 @@ export interface EpochWire {
   target?: EpochWireTarget;
   /** @maxLength 32 */
   fit: string;
+  kept_epoch?: EpochWireKeptEpoch;
+  kept_by?: EpochWireKeptBy;
   at: string;
 }

@@ -562,7 +562,7 @@ function endLabels(lines: EpochLine[], domain: [number, number], height: number)
 /**
  * Lines over a fit's epochs, on one axis: the losses on one chart, the validation
  * scores on another, never both on two scales. `kept` marks the epoch the fit keeps
- * (lowest validation loss) with a labelled rule; `epochs` fixes the x axis at the
+ * (as the fit reports it) with a labelled rule; `epochs` fixes the x axis at the
  * fit's full length, so a live chart shows how far there is still to go.
  */
 export function EpochCurveChart({

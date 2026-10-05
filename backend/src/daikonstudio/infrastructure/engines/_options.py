@@ -29,6 +29,29 @@ POSITIVE_WEIGHTING = ConditionSpec(
     ),
 )
 
+EPOCH_SELECTION = ConditionSpec(
+    key="epoch_selection",
+    label="Keep the epoch with",
+    type=ConditionType.ENUM,
+    default="auprc",
+    options=("auprc", "auroc", "loss"),
+    option_labels=("Best PR AUC", "Best AUROC", "Lowest validation loss"),
+    tasks=(TaskType.BINARY_CLASSIFICATION,),
+    help=(
+        "Training runs every epoch requested, scores the model on the validation "
+        "compounds after each one, and keeps the best. Best PR AUC keeps the epoch that "
+        "ranks actives highest among all compounds, the measure that matters when actives "
+        "are rare; it is the default. Best AUROC also judges ranking but weighs every "
+        "active-inactive pair equally, so it suits labels where actives are common. "
+        "Lowest validation loss also rewards probabilities that match observed rates. "
+        "Loss often starts to rise while ranking is still improving, so this choice tends "
+        "to keep an earlier, less accurate epoch, and with positive-class weighting a few "
+        "actives decide it. With several targets, each is scored separately and the "
+        "scores are averaged. Applies to active/inactive targets only; continuous targets "
+        "keep the epoch with the lowest validation loss."
+    ),
+)
+
 RDKIT_DESCRIPTORS = ConditionSpec(
     key="rdkit_descriptors",
     label="Add RDKit descriptors",

@@ -9,11 +9,17 @@ import type { EpochResponseTrainLoss } from './epochResponseTrainLoss';
 import type { EpochResponseValLoss } from './epochResponseValLoss';
 import type { EpochResponseScores } from './epochResponseScores';
 import type { EpochResponseDevice } from './epochResponseDevice';
+import type { EpochResponseKeptEpoch } from './epochResponseKeptEpoch';
+import type { EpochResponseKeptBy } from './epochResponseKeptBy';
 
 /**
  * One finished epoch of a neural fit. `fit` is the training run's stage (model,
 baseline, random-split); `target` is None for one fit over every target at once;
-`scores` are validation scores in the shared vocabulary.
+`scores` are validation scores in the shared vocabulary. `kept_epoch` is the epoch
+the fit would keep if it stopped at this one, and `kept_by` the rule that chose it:
+"auprc", "auroc" or "loss". Both are None from a fit with no validation set, and on
+every epoch recorded before fits reported them (those all kept the lowest
+validation loss).
  */
 export interface EpochResponse {
   fit: string;
@@ -26,5 +32,7 @@ export interface EpochResponse {
   val_loss: EpochResponseValLoss;
   scores: EpochResponseScores;
   device: EpochResponseDevice;
+  kept_epoch: EpochResponseKeptEpoch;
+  kept_by: EpochResponseKeptBy;
   at: string;
 }

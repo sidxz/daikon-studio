@@ -41,13 +41,14 @@ from daikonstudio.application.engines.manifest import (
 )
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.engines._lightning import (
-    keep_best_by_validation_loss,
+    keep_best_epoch,
     record_epochs,
     save_training_state,
     saved_training_state,
     training_state_scope,
 )
 from daikonstudio.infrastructure.engines._options import (
+    EPOCH_SELECTION,
     POSITIVE_WEIGHTING,
     RDKIT_DESCRIPTORS,
     positive_weight,
@@ -123,6 +124,7 @@ _MANIFEST = EngineManifest(
             "passing steps at 6, so those two settings are ignored when it is selected.",
         ),
         POSITIVE_WEIGHTING,
+        EPOCH_SELECTION,
         RDKIT_DESCRIPTORS,
         ConditionSpec(
             key=ENSEMBLE_SIZE,
@@ -281,6 +283,13 @@ def _predict_trainer() -> Any:
     )
 
 
+def _validation_scores(module: Any, batch: Any) -> tuple[Any, Any]:
+    """A validation batch's predicted probabilities and labels, each (rows, targets),
+    unlabelled entries NaN: what `keep_best_epoch` scores an epoch by."""
+    molecules, atom_features, descriptors, targets, *_ = batch
+    return module(molecules, atom_features, descriptors), targets
+
+
 def _model_bytes(model: Any) -> bytes:
     """One fitted model in chemprop's own `save_model` layout: hyperparameters and
     weights, without the optimizer state a Lightning checkpoint also carries. This is
@@ -401,8 +410,9 @@ def _build_model(
         batch_norm=batch_norm,
         X_d_transform=x_d_transform,
         # Validation scores per epoch, for the run page's live charts (see
-        # `_lightning.record_epochs`). Logging only: the epoch is still selected by
-        # validation loss, which chemprop appends after these as `val_loss`.
+        # `_lightning.record_epochs`). Logging only: `keep_best_epoch` selects the epoch,
+        # from scores it averages over targets itself (these pool them) or from the
+        # validation loss chemprop appends after these as `val_loss`.
         metrics=[BinaryAUROC(), BinaryAUPRC(), BinaryMCCMetric()]
         if is_classification
         else [RMSE(), MAE(), R2Score()],
@@ -436,6 +446,7 @@ class ChempropDMPNN:
         pretrained = str(conditions["pretrained"])
         use_descriptors = bool(conditions["rdkit_descriptors"])
         weighting = str(conditions["positive_weighting"])
+        selection = str(conditions["epoch_selection"])
         members = int(conditions[ENSEMBLE_SIZE])
         columns = ctx.target_columns
         # One task for the whole fit: a joint engine is only ever handed a dataset
@@ -572,11 +583,16 @@ class ChempropDMPNN:
                     f"Training {name} on {trainer.strategy.root_device}",
                 )
 
-            # The validation partition selects the epoch. `val_loss` is what chemprop's
-            # `MPNN` logs (see its `validation_step`); the callback's reasoning, and the
-            # sanity-check trap it guards against, live in `_lightning.py`.
+            # The validation partition selects the epoch, by `epoch_selection` for an
+            # active/inactive target and by `val_loss` (what chemprop's `MPNN` logs, see
+            # its `validation_step`) for a measured one. The callback's reasoning, and
+            # the sanity-check trap it guards against, live in `_lightning.py`.
             selects_best_epoch = len(validation_set) > 0
-            keep_best = keep_best_by_validation_loss()
+            keep_best = (
+                keep_best_epoch(by=selection, predict=_validation_scores)
+                if is_classification
+                else keep_best_epoch()
+            )
             callbacks: list[Any] = [
                 # Before the reporter, which may raise to stop the fit.
                 record_epochs(
@@ -587,6 +603,7 @@ class ChempropDMPNN:
                     unit_scale=float(target_scaler.scale_[0])
                     if target_scaler is not None and len(columns) == 1
                     else None,
+                    kept=keep_best if selects_best_epoch else None,
                 ),
                 LambdaCallback(on_train_epoch_end=_report_epoch),
             ]
