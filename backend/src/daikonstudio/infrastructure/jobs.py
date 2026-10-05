@@ -30,6 +30,9 @@ from typing import Any
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from daikonstudio.application.catalog.access_controlled_repository import (
+    AccessControlledProtocolRepository,
+)
 from daikonstudio.application.engines.checkpoints import DEFAULT_INTERVAL_SECONDS
 from daikonstudio.application.engines.context import RunInterrupted
 from daikonstudio.application.engines.manifest import DEFAULT_LANE
@@ -37,6 +40,8 @@ from daikonstudio.application.execution.failure_message import user_facing_error
 from daikonstudio.application.execution.predict_with_protocol import RunPrediction
 from daikonstudio.application.execution.train_protocol import RunTraining
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
+from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
@@ -64,15 +69,21 @@ def build_sqlalchemy_ctx(
     store: BlobStore,
     *,
     job_deadline_seconds: int | None = None,
+    access: ProtocolAccess | None = None,
 ) -> dict[str, Any]:
     """The one place the SqlAlchemy repository trio is assembled into a ctx --
     used by `InlineEnqueuer`, and by nothing else once arq is gone (a
     self-hosted runner builds its own the same way once it has claimed a
-    run_id)."""
+    run_id).
+
+    With `access`, protocols a job creates are registered with Duar, as on the API."""
+    protocols: ProtocolRepository = SqlAlchemyProtocolRepository(sessions)
+    if access is not None:
+        protocols = AccessControlledProtocolRepository(protocols, access)
     return {
         "runs": SqlAlchemyRunRepository(sessions),
         "datasets": SqlAlchemyDatasetRepository(sessions),
-        "protocols": SqlAlchemyProtocolRepository(sessions),
+        "protocols": protocols,
         "store": store,
         # `None` unless a caller passes one: InlineEnqueuer builds a ctx with no lane
         # deadline to enforce, since dev-mode jobs have no lane to enforce one for.
@@ -236,11 +247,16 @@ class InlineEnqueuer:
     catch them.
     """
 
-    def __init__(self, sessions: async_sessionmaker[AsyncSession], store: BlobStore) -> None:
+    def __init__(
+        self,
+        sessions: async_sessionmaker[AsyncSession],
+        store: BlobStore,
+        access: ProtocolAccess | None = None,
+    ) -> None:
         # Same shape a self-hosted runner builds for itself after claiming a run_id
         # (see `build_sqlalchemy_ctx`), so a handler cannot tell which enqueuer it is
         # running under.
-        self._ctx: dict[str, Any] = build_sqlalchemy_ctx(sessions, store)
+        self._ctx: dict[str, Any] = build_sqlalchemy_ctx(sessions, store, access=access)
 
     async def enqueue(self, run_id: uuid.UUID, lane: str = DEFAULT_LANE) -> None:
         # `lane` is ignored on purpose: running the job in the caller's own process

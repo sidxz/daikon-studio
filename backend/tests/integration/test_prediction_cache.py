@@ -76,6 +76,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository imp
 )
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
 from tests.fakes.auth import FakeAuth
+from tests.fakes.protocol_access import FakeProtocolAccess
 
 # Twenty compounds to train on -- the same shape `test_train_protocol.py` uses
 # and for the same reason: a real 16/2/2 split under either strategy.
@@ -129,7 +130,7 @@ class Studio:
         self.runs = SqlAlchemyRunRepository(sessions)
         self._upload = StoreUpload(self.store)
         self._create_dataset = CreateDataset(self.datasets, self.store, self.normalizer)
-        enqueuer = InlineEnqueuer(sessions, self.store)
+        enqueuer = InlineEnqueuer(sessions, self.store, FakeProtocolAccess())
         self._train = TrainProtocol(self.datasets, self.runs, enqueuer, default_registry())
         self._predict = PredictWithProtocol(
             self.protocols, self.runs, self.store, enqueuer, default_registry()

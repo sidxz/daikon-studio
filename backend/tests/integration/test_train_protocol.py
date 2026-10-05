@@ -75,6 +75,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository imp
 )
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
 from tests.fakes.auth import FakeAuth
+from tests.fakes.protocol_access import FakeProtocolAccess
 from tests.fakes.tunable_data import tunable_csv
 
 # Twenty compounds: one scaffold family of two (benzene/toluene), five acyclic
@@ -177,7 +178,7 @@ class Studio:
         self._train = TrainProtocol(
             self.datasets,
             self.runs,
-            InlineEnqueuer(sessions, self.store),
+            InlineEnqueuer(sessions, self.store, FakeProtocolAccess()),
             default_registry(),
         )
 
@@ -623,7 +624,7 @@ async def test_a_retried_run_resumes_from_the_fits_an_earlier_attempt_saved(
     retry = RetryRun(
         studio.runs,
         studio.protocols,
-        InlineEnqueuer(studio.sessions, studio.store),
+        InlineEnqueuer(studio.sessions, studio.store, FakeProtocolAccess()),
         default_registry(),
         studio.store,
     )
@@ -1321,7 +1322,7 @@ async def test_each_stages_epochs_are_stored_and_a_retry_starts_them_over(
     retry = RetryRun(
         studio.runs,
         studio.protocols,
-        InlineEnqueuer(studio.sessions, studio.store),
+        InlineEnqueuer(studio.sessions, studio.store, FakeProtocolAccess()),
         default_registry(),
         studio.store,
     )

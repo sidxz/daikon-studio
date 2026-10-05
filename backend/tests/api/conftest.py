@@ -34,7 +34,9 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt import PyJWKClient
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from tests.fakes.protocol_access import FakeProtocolAccess
 
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.interface.app import create_app
 from daikonstudio.settings import Settings
@@ -148,7 +150,12 @@ async def session_factory(_migrated_engine: AsyncEngine) -> AsyncIterator[async_
 
 
 @pytest.fixture
-def app(tmp_path, session_factory):
+def protocol_access() -> FakeProtocolAccess:
+    return FakeProtocolAccess()
+
+
+@pytest.fixture
+def app(tmp_path, session_factory, protocol_access):
     """The real app, with the database and blob store pointed at test-owned ones.
 
     Overriding is a child container: lagom refuses a second ``define`` on the same
@@ -163,6 +170,7 @@ def app(tmp_path, session_factory):
         create_container(Settings(blob_base_url=f"file://{tmp_path}", inline_jobs=True))
     )
     container.define(async_sessionmaker, Singleton(lambda: session_factory))
+    container.define(ProtocolAccess, Singleton(lambda: protocol_access))  # type: ignore[type-abstract]
     application.state.container = container
     return application
 

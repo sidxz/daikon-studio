@@ -13,6 +13,9 @@ import httpx
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from daikonstudio.application.catalog.access_controlled_repository import (
+    AccessControlledProtocolRepository,
+)
 from daikonstudio.application.catalog.delete_protocol import DeleteProtocol
 from daikonstudio.application.catalog.get_chemical_space import (
     GetProtocolChemicalSpace,
@@ -64,6 +67,7 @@ from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.chemcellar import ChemCellar
 from daikonstudio.application.ports.dataset_build_repository import DatasetBuildRepository
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.run_repository import RunRepository
@@ -72,6 +76,8 @@ from daikonstudio.application.ports.structure_normalizer import StructureNormali
 from daikonstudio.application.runners.manage import CreateRunner, ListRunners, RevokeRunner
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.chemcellar.client import HttpChemCellar
+from daikonstudio.infrastructure.duar.auth import get_duar
+from daikonstudio.infrastructure.duar.protocol_access import DuarProtocolAccess
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
 from daikonstudio.infrastructure.persistence.session import create_session_factory
@@ -129,8 +135,14 @@ def create_container(settings: Settings | None = None) -> Container:
     def _datasets(c: Container) -> SqlAlchemyDatasetRepository:
         return SqlAlchemyDatasetRepository(c[async_sessionmaker])
 
-    def _protocols(c: Container) -> SqlAlchemyProtocolRepository:
-        return SqlAlchemyProtocolRepository(c[async_sessionmaker])
+    # Lazy: resolved on first use. API tests define a FakeProtocolAccess in a child container.
+    container.define(ProtocolAccess, Singleton(lambda: DuarProtocolAccess(get_duar())))  # type: ignore[type-abstract]
+
+    def _protocols(c: Container) -> ProtocolRepository:
+        return AccessControlledProtocolRepository(
+            SqlAlchemyProtocolRepository(c[async_sessionmaker]),
+            c[ProtocolAccess],  # type: ignore[type-abstract]
+        )
 
     def _runs(c: Container) -> SqlAlchemyRunRepository:
         return SqlAlchemyRunRepository(c[async_sessionmaker])
@@ -200,7 +212,7 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         JobEnqueuer,  # type: ignore[type-abstract]
         lambda c: (
-            InlineEnqueuer(c[async_sessionmaker], c[BlobStore])
+            InlineEnqueuer(c[async_sessionmaker], c[BlobStore], c[ProtocolAccess])
             if resolved.inline_jobs
             else DbEnqueuer(c[RunQueue])
         ),
