@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import pickle
+from pathlib import Path
 from typing import Any
 
 import polars as pl
+import xgboost
+from threadpoolctl import threadpool_limits  # type: ignore[import-untyped]
 from xgboost import XGBClassifier, XGBRegressor
 
 from daikonstudio.application.engines.context import PredictContext, TrainContext, TrainResult
@@ -20,6 +23,7 @@ from daikonstudio.infrastructure.engines._options import (
     POSITIVE_WEIGHTING,
     RDKIT_DESCRIPTORS,
     positive_weight,
+    tree_threads,
 )
 from daikonstudio.infrastructure.engines._scoring import (
     _predict_with_tree_ensemble,
@@ -74,32 +78,43 @@ _MANIFEST = EngineManifest(
 
 
 def xgboost_device() -> str:
-    """Where an XGBoost fit runs: "cuda" when this process can see a GPU, else "cpu".
+    """Where an XGBoost fit runs: "cuda" when this XGBoost is a CUDA build and the
+    process can see an NVIDIA GPU, else "cpu".
 
     A tree baseline on the GPU runner ran on one CPU core -- that image pins
-    OMP_NUM_THREADS=1 (Dockerfile.gpu), so n_jobs=-1 meant one thread -- for as long as
+    OMP_NUM_THREADS=1 (Dockerfile.gpu), which XGBoost never exceeds -- for as long as
     the neural fit before it, with the GPU idle (prod, 2026-10-05). The pinned xgboost
     wheel is the CUDA build. On atlantic (10k nuisance set, 400 trees) a fit took 0.8 s
     on CUDA against 4.2 s on that one core, with the same test AUROC and PR AUC to three
-    decimals and 0.08 GB of GPU memory. Asked through torch, which only the GPU image
-    has; the CPU image cannot import it, and has no GPU to find either.
+    decimals and 0.08 GB of GPU memory.
+
+    Not asked through torch: importing it would load a second OpenMP runtime and cost
+    every later tree fit in this process its threads (`tree_threads`). /dev/nvidiactl is
+    what the NVIDIA container runtime mounts into a container it gives a GPU; should it
+    exist with no usable GPU, XGBoost falls back to the CPU itself, with a warning.
     """
-    try:
-        import torch
-    except ImportError:
-        return "cpu"
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    if xgboost.build_info().get("USE_CUDA") and Path("/dev/nvidiactl").exists():
+        return "cuda"
+    return "cpu"
 
 
 def fit_on_device(model: XGBClassifier | XGBRegressor, x: Any, y: Any) -> None:
-    """Fit where `xgboost_device` says, then move the model to the CPU for everything
-    after: scoring, and the artifact, which must load on a runner with no GPU. Scoring
-    numpy arrays with a CUDA model would only fall back to the CPU with a warning. CUDA
-    fits repeat bit-identically, measured; they can differ from a CPU fit by up to 0.01
-    in a predicted probability, so where a model trains is part of what it is."""
-    model.set_params(device=xgboost_device())
-    model.fit(x, y)
-    model.set_params(device="cpu")
+    """Fit on the GPU when there is one, else on the CPU with `tree_threads` threads;
+    then set the model to the CPU and one thread for everything after: scoring, and the
+    artifact, which must load on a runner with no GPU and predict in a process that may
+    hold torch. Scoring numpy arrays with a CUDA model would only fall back to the CPU
+    with a warning. CUDA fits repeat bit-identically, measured; they can differ from a
+    CPU fit by up to 0.01 in a predicted probability, so where a model trains is part of
+    what it is."""
+    device = xgboost_device()
+    threads = 1 if device == "cuda" else tree_threads()
+    model.set_params(device=device, n_jobs=threads)
+    # XGBoost never runs more threads than OpenMP's own limit, which the images pin to 1;
+    # this lifts it for this fit alone. On this Mac, 80k rows: 26.9 s on 1 thread, 7.9 on
+    # 4, 5.9 on 8, identical predictions.
+    with threadpool_limits(limits=threads, user_api="openmp"):
+        model.fit(x, y)
+    model.set_params(device="cpu", n_jobs=1)
 
 
 class Ecfp4XGBoost:
@@ -129,12 +144,10 @@ class Ecfp4XGBoost:
             "max_depth": conditions["max_depth"],
             "learning_rate": conditions["learning_rate"],
             "random_state": ctx.seed,
-            # n_jobs=-1: unlike RandomForest's predict() (see ecfp4_randomforest.py),
-            # XGBoost's hist tree builder is thread-count deterministic by design --
-            # measured bit-identical metrics across five fit+predict runs at n_jobs=-1
-            # on the same seed, so there is no reproducibility tradeoff to make here.
-            # On a GPU runner the fit runs on CUDA instead (`fit_on_device`).
-            "n_jobs": -1,
+            # Threads and device are `fit_on_device`'s. Unlike RandomForest's predict()
+            # (see ecfp4_randomforest.py), XGBoost's hist tree builder is thread-count
+            # deterministic by design -- measured bit-identical metrics across five
+            # fit+predict runs on the same seed -- so threads cost no reproducibility.
         }
         if is_classification:
             if weight is not None:

@@ -19,7 +19,6 @@ independent estimates of it, so their spread is not an uncertainty.
 
 from __future__ import annotations
 
-import os
 import pickle
 from typing import Any
 
@@ -38,6 +37,7 @@ from daikonstudio.infrastructure.engines._options import (
     POSITIVE_WEIGHTING,
     RDKIT_DESCRIPTORS,
     positive_weight,
+    tree_threads,
 )
 from daikonstudio.infrastructure.engines._scoring import (
     _predict_with_tree_ensemble,
@@ -135,18 +135,13 @@ class Ecfp4LightGBM:
             "learning_rate": conditions["learning_rate"],
             "min_child_samples": conditions["min_child_samples"],
             "random_state": ctx.seed,
-            # Eight threads at most, never every CPU. LightGBM turns n_jobs=-1 into one
-            # thread per LOGICAL CPU (it ignores OMP_NUM_THREADS), and its threads meet
-            # at a barrier many times per tree, so on a host where any core is busy
-            # elsewhere they all spin waiting for the one that is not running. Measured
-            # on atlantic (48 logical CPUs, two cores busy with other work, runner image,
-            # 10k nuisance set): 220 s with 46 cores pegged at n_jobs=-1, 1.0 s on one
-            # thread. On 80k rows: 6.0 s on 1 thread, 2.2 on 4, 1.8 on 8, 1.7 on 16,
-            # 1.8 on LightGBM's own physical-core default -- no gain past eight, and
-            # identical results at every count (`deterministic` below).
-            # ponytail: fixed at 8 from that 80k measurement; re-measure on a much
-            # larger training set before raising it.
-            "n_jobs": min(8, os.process_cpu_count() or 1),
+            # Never n_jobs=-1, which LightGBM turns into one thread per LOGICAL CPU (it
+            # sets OpenMP's limit itself, past OMP_NUM_THREADS): its threads meet at a
+            # barrier many times per tree, and on atlantic (48 CPUs, two busy elsewhere)
+            # that stalled a 1-second fit to 220 s with 46 cores pegged. `tree_threads`
+            # also keeps it at one thread once torch is loaded: LightGBM at 8 threads
+            # after a torch op segfaults on macOS. The model predicts on one thread.
+            "n_jobs": tree_threads(),
             # Unlike XGBoost's hist builder (see ecfp4_xgboost.py, which measured
             # itself bit-identical at n_jobs=-1), LightGBM's multithreaded histogram
             # construction sums floats in thread-completion order and is NOT
@@ -174,6 +169,9 @@ class Ecfp4LightGBM:
         else:
             model = LGBMRegressor(**model_kwargs)
         model.fit(x_train, y_train)
+        # Scoring below, and every later predict, in whatever process loads it: one
+        # thread, so a prediction never runs LightGBM's OpenMP beside torch's.
+        model.set_params(n_jobs=1)
 
         # Same bundle shape as the other tree engines, so `_load_bundle` reads it
         # back without knowing which engine wrote it. Safe to pickle for the reason

@@ -259,9 +259,9 @@ def test_without_tuning_there_are_no_cutoffs() -> None:
     assert Ecfp4LightGBM().train(_binary_ctx(imbalanced_frame())).cutoffs is None
 
 
-def test_training_never_asks_for_more_than_eight_threads() -> None:
-    """n_jobs=-1 meant one thread per logical CPU, and on a busy 48-CPU runner that
-    made a one-second fit take 220 s: every barrier waited on a thread with no core."""
+def test_the_stored_model_predicts_on_one_thread() -> None:
+    """Prediction may run in a process that holds torch, where LightGBM's OpenMP beside
+    torch's segfaults on macOS; training threads are `tree_threads`'s (test_options)."""
     result = Ecfp4LightGBM().train(context())
 
-    assert 1 <= pickle.loads(result.artifact)["model"].get_params()["n_jobs"] <= 8
+    assert pickle.loads(result.artifact)["model"].get_params()["n_jobs"] == 1

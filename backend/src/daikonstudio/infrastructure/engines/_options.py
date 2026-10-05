@@ -7,6 +7,8 @@ same options and the same words -- a sweep comparing engines compares like with 
 from __future__ import annotations
 
 import math
+import os
+import sys
 
 import numpy as np
 
@@ -80,3 +82,24 @@ def positive_weight(y_train: np.ndarray, mode: str) -> float | None:
         return None
     ratio = negatives / positives
     return ratio if mode == "balanced" else math.sqrt(ratio)
+
+
+def tree_threads() -> int:
+    """Threads for a boosted-tree fit (XGBoost on the CPU, LightGBM): up to eight, or one
+    when torch is loaded in this process.
+
+    torch and the tree libraries each bring their own OpenMP runtime, and two runtimes
+    both running thread teams in one process is undefined behaviour. On macOS it
+    segfaults, reproduced 2026-10-05 after one torch op: LightGBM at 8 threads, and
+    XGBoost at 4. That is why both images set OMP_NUM_THREADS=1. A process that never
+    loaded torch has no second runtime, so its trees may use threads: the CPU image has
+    no torch, and a runner on the GPU image loads it only for a neural fit.
+
+    Eight, because there was no gain past it at 80k rows (LightGBM on atlantic: 1.8 s
+    at 8, 1.7 at 16) and one thread per logical CPU stalled a LightGBM fit 220-fold on
+    a host with two cores busy elsewhere. Results do not depend on the count: both
+    libraries are built deterministic here (see their engines).
+    """
+    if "torch" in sys.modules:
+        return 1
+    return min(8, os.process_cpu_count() or 1)

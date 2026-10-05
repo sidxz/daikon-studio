@@ -110,10 +110,7 @@ class DescriptorsXGBoost:
             "max_depth": conditions["max_depth"],
             "learning_rate": conditions["learning_rate"],
             "random_state": ctx.seed,
-            # Matches ecfp4_xgboost: the hist tree builder is thread-count
-            # deterministic, so parallelism costs no reproducibility here. On a GPU
-            # runner the fit runs on CUDA instead (`fit_on_device`).
-            "n_jobs": -1,
+            # Threads and device are `fit_on_device`'s, as in ecfp4_xgboost.
         }
         if is_classification:
             if weight is not None:

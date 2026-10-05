@@ -115,3 +115,15 @@ def test_a_probability_of_exactly_one_half_is_called_active_without_a_cutoff():
     rows = pl.DataFrame({"a": [1, 1, 0, 0]})
     probabilities = np.array([[0.5], [0.9], [0.49], [0.1]])
     assert classification_by_column(("a",), rows, probabilities, {}, rows)["a"]["mcc"] == 1.0
+
+
+def test_tree_fits_take_up_to_eight_threads_but_one_once_torch_is_loaded(monkeypatch):
+    """Two OpenMP runtimes running thread teams in one process segfaults on macOS."""
+    import sys
+
+    from daikonstudio.infrastructure.engines._options import tree_threads
+
+    monkeypatch.delitem(sys.modules, "torch", raising=False)
+    assert 1 <= tree_threads() <= 8
+    monkeypatch.setitem(sys.modules, "torch", object())
+    assert tree_threads() == 1
