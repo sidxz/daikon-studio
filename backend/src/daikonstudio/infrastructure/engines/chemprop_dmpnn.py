@@ -511,6 +511,16 @@ class ChempropDMPNN:
             # log + fill) and the model scales them once.
             x_d_scaler = train_set.normalize_inputs("X_d")
 
+        # Featurize each molecule once for the whole fit. Uncached, chemprop rebuilds a
+        # molecule's graph every time a batch draws it, on the training process's one
+        # thread, every epoch and for every ensemble model. Chemprop's own CLI caches by
+        # default. After the normalization above, as the CLI does; descriptors are not
+        # part of the cached graph.
+        # ponytail: held in memory, about 17 KB a molecule (7 GB at 400k). Featurize in
+        # DataLoader workers, or from disk, if a dataset outgrows the runner's memory.
+        train_set.cache = True
+        validation_set.cache = True
+
         positive_weights = None
         if is_classification and weighting != "none":
             positive_weights = [
