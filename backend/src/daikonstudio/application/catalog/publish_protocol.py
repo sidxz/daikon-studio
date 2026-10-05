@@ -2,9 +2,9 @@
 
 `InSilicoProtocol.publish()` raises `DataLockedError` on a second call
 (mapped to 423 by the shared error handler in `interface/error_handlers.py`),
-so this use case does not special-case "already published" at all: the
-aggregate's own invariant is the only place that rule lives, and a Failure
-here is that same error propagating, not a fresh one.
+so the aggregate's own invariant is the only place that rule lives. This use
+case checks it up front, only so that Duar is not touched for a protocol that is
+already published; the Failure is the same `DataLockedError`.
 """
 
 from __future__ import annotations

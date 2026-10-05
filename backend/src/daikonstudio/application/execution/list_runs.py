@@ -73,10 +73,14 @@ class ListRuns:
             return Failure(error)
         # One more than asked for: if it comes back there is another page, which
         # is cheaper and more truthful than a COUNT over the whole table.
-        visible = await self._access.visible_ids(auth)
+        # Prediction rows never depend on protocol visibility, so that list keeps working
+        # while Duar is down. The folder filter is the one exception.
+        visible = None
+        if query.kind is not RunKind.PREDICTION or query.folder_id is not None:
+            visible = await self._access.visible_ids(auth)
         training_visible_to = (
             None
-            if visible is None
+            if visible is None or query.kind is RunKind.PREDICTION
             else TrainingVisibility(user_id=auth.user_id, protocol_ids=visible)
         )
         protocol_ids = None
@@ -84,6 +88,8 @@ class ListRuns:
             protocol_ids = frozenset(
                 await self._protocols.ids_in_folder(auth.workspace_id, query.folder_id)
             )
+            if visible is not None:  # defense in depth: never list runs of a hidden protocol
+                protocol_ids &= visible
             if query.protocol_id is not None:
                 protocol_ids &= {query.protocol_id}
         runs = await self._repository.list(

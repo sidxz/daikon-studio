@@ -94,7 +94,7 @@ async def test_mine_lists_only_protocols_the_caller_created(
     client, other_editor_client, admin_client, csv_upload
 ):
     protocol_id = await _trained(client, csv_upload)
-    assert await client.post(f"{_API}/{protocol_id}/publish")
+    assert (await client.post(f"{_API}/{protocol_id}/publish")).status_code == 204
     mine = (await client.get(f"{_API}?mine=true")).json()["items"]
     assert [item["id"] for item in mine] == [protocol_id]
     assert (await other_editor_client.get(f"{_API}?mine=true")).json()["items"] == []
@@ -105,6 +105,11 @@ async def test_mine_lists_only_protocols_the_caller_created(
 async def test_a_permissions_outage_is_a_503_not_an_empty_list(client, protocol_access):
     protocol_access.down = True
     assert (await client.get(_API)).status_code == 503
+
+
+async def test_prediction_runs_still_list_while_permissions_are_down(client, protocol_access):
+    protocol_access.down = True
+    assert (await client.get("/api/v1/runs?kind=prediction")).status_code == 200
 
 
 async def test_responses_name_their_creator(client, csv_upload, client_user_id):
