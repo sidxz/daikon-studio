@@ -38,6 +38,7 @@ from daikonstudio.application.data.create_dataset import (
 )
 from daikonstudio.application.engines.checkpoints import checkpoint_root
 from daikonstudio.application.engines.context import EpochPoint, RunInterrupted
+from daikonstudio.application.execution.build_scorecard import HeldOutChemistry
 from daikonstudio.application.execution.retry_run import RetryRun, RetryRunCommand
 from daikonstudio.application.execution.train_protocol import (
     ScorecardInputs,
@@ -46,6 +47,7 @@ from daikonstudio.application.execution.train_protocol import (
     TrainProtocolCommand,
     _cutoff_note,
     artifact_key,
+    scorecard_chemistry_key,
     scorecard_inputs_key,
     unpack_artifact,
 )
@@ -755,6 +757,24 @@ async def test_only_the_chosen_engine_leaves_an_artifact_behind(studio: Studio) 
     assert len(artifacts) == 1
     assert protocol.artifact_uri.endswith(artifact_key(studio.auth.workspace_id, protocol.id))
     assert studio.store.exists(scorecard_inputs_key(studio.auth.workspace_id, protocol.id))
+
+
+async def test_training_stores_the_test_sets_chemistry_for_the_scorecard(studio: Studio) -> None:
+    """Computed where the training ran, so opening the Scorecard never computes it in the
+    API: at 404k compounds that search starved prod's API on every view."""
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD)
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+
+    protocol = await studio.protocol_for(run)
+    key = scorecard_chemistry_key(studio.auth.workspace_id, protocol.id)
+    chemistry = HeldOutChemistry.from_json(studio.store.get_bytes(key))
+    inputs = ScorecardInputs.from_json(
+        studio.store.get_bytes(scorecard_inputs_key(studio.auth.workspace_id, protocol.id))
+    )
+    assert len(chemistry.scaffolds) == len(inputs.structures)
+    assert chemistry.similarities is not None
+    assert len(chemistry.similarities) == len(inputs.structures)
 
 
 async def test_scorecard_inputs_carry_the_test_set_predictions(studio: Studio) -> None:

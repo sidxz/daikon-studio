@@ -81,3 +81,24 @@ def test_the_gpu_search_finds_the_same_neighbours_as_the_cpu_search():
     untied = full[:, 4] > full[:, 5]
     assert untied.mean() > 0.5  # the comparison below is not vacuous
     assert np.array_equal(cpu_indices[untied], gpu_indices[untied])
+
+
+def test_a_reference_in_many_chunks_finds_what_one_chunk_finds(monkeypatch):
+    """The reference is converted a chunk at a time, keeping each query row's best so
+    far; at prod's 323k compounds that is 20 chunks. Same similarities, and the same
+    molecules wherever the k-th place is not a tie."""
+    from daikonstudio.infrastructure.chem.similarity import _top_k_numpy
+
+    rng = np.random.default_rng(11)
+    q = (rng.random((200, 2048)) < 0.02).astype(np.uint8)
+    r = (rng.random((1000, 2048)) < 0.02).astype(np.uint8)
+    whole_indices, whole_similarities = _top_k_numpy(q, r, 5)
+    full = _top_k_numpy(q, r, 6)[1]
+
+    monkeypatch.setattr(similarity, "_REFERENCE_CHUNK", 37)  # 28 chunks, a ragged last one
+    chunked_indices, chunked_similarities = _top_k_numpy(q, r, 5)
+
+    assert np.array_equal(whole_similarities, chunked_similarities)
+    untied = full[:, 4] > full[:, 5]
+    assert untied.mean() > 0.5
+    assert np.array_equal(whole_indices[untied], chunked_indices[untied])

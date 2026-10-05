@@ -1,3 +1,4 @@
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -5,16 +6,23 @@ import numpy as np
 
 from daikonstudio.infrastructure.chem.featurize import ecfp4
 
+logger = logging.getLogger(__name__)
+
 # Rows of the similarity matrix held at once. The full matrix for n structures is
 # n^2 floats -- 1.6 GB at n=20000 -- so the pair scan walks it in bands instead of
 # materializing it. 256 rows is 20 MB at that same n.
 _BAND_ROWS = 256
 
 
-# Query rows compared against the whole reference set at once. At a 100k-compound
-# training set this band is 128 x 100k x 4 B = 51 MB; the whole query at once
-# (10k x 100k) was 4 GB, which is what the single-matrix version allocated.
-_QUERY_BAND = 128
+# Reference rows converted to float32 for the matrix product at a time: 128 MB at
+# 16,384 rows. Converting the whole reference at once was 2.6 GB at 323k compounds,
+# beside a 662 MB bit matrix -- past the API container's 4 GB limit with the API's own
+# memory counted, for the search a Scorecard runs in a child process.
+_REFERENCE_CHUNK = 16_384
+
+# Query rows compared with one reference chunk at a time: 512 x 16,384 is 34 MB per
+# float32 working array.
+_QUERY_BAND = 512
 
 
 def nearest_neighbours_tanimoto(
@@ -35,18 +43,25 @@ def nearest_neighbours_tanimoto(
             np.zeros((len(query), width), dtype=np.int32),
             np.zeros((len(query), width), dtype=np.float32),
         )
-    q = ecfp4(query).astype(np.float32)
-    r = ecfp4(reference).astype(np.float32)
-    torch = _cuda_torch() if len(query) * len(reference) >= _GPU_MIN_PAIRS else None
+    # Bits stay uint8 (2 KB a compound) until a chunk of them is multiplied.
+    q = ecfp4(query)
+    r = ecfp4(reference)
+    torch = _cuda_torch() if len(query) * len(reference) >= LARGE_SEARCH_PAIRS else None
     if torch is not None:
-        return _top_k_torch(q, r, width, torch, torch.device("cuda"))
+        try:
+            return _top_k_torch(q, r, width, torch, torch.device("cuda"))
+        except Exception:
+            # An accelerator, never a reason for the search to fail: the end of a
+            # training run, every prediction's applicability and the map depend on it.
+            logger.warning("GPU neighbour search failed; searching on the CPU", exc_info=True)
     return _top_k_numpy(q, r, width)
 
 
-# Below this many query x reference pairs the CPU takes seconds, less than loading torch
-# and starting CUDA would cost. The map that motivated the GPU path placed 254k compounds
-# against a 150k fit sample: 3.8e10 pairs, 30-60 minutes on one core (prod, 2026-10-05).
-_GPU_MIN_PAIRS = 100_000_000
+# Below this many query x reference pairs a search takes seconds on one core, less than
+# loading torch and starting CUDA, or starting a child process (normalizer.py), would
+# cost. The map that motivated the GPU path placed 254k compounds against a 150k fit
+# sample: 3.8e10 pairs, 30-60 minutes on one core (prod, 2026-10-05).
+LARGE_SEARCH_PAIRS = 100_000_000
 
 
 def _cuda_torch() -> Any:
@@ -66,23 +81,38 @@ def _cuda_torch() -> Any:
 
 
 def _top_k_numpy(q: np.ndarray, r: np.ndarray, width: int) -> tuple[np.ndarray, np.ndarray]:
-    r_counts = r.sum(axis=1)
-    indices = np.empty((len(q), width), dtype=np.int32)
-    similarities = np.empty((len(q), width), dtype=np.float32)
-    for start in range(0, len(q), _QUERY_BAND):
-        band = q[start : start + _QUERY_BAND]
-        intersection = band @ r.T
-        union = band.sum(axis=1)[:, None] + r_counts[None, :] - intersection
-        with np.errstate(divide="ignore", invalid="ignore"):
-            similarity = np.where(union > 0, intersection / union, 0.0).astype(np.float32)
-        if width < similarity.shape[1]:
-            top = np.argpartition(-similarity, width - 1, axis=1)[:, :width]
-        else:
-            top = np.tile(np.arange(similarity.shape[1]), (similarity.shape[0], 1))
-        top_similarity = np.take_along_axis(similarity, top, axis=1)
-        stop = start + band.shape[0]
-        indices[start:stop], similarities[start:stop] = _most_similar_first(top, top_similarity)
-    return indices, similarities
+    """Each query row's `width` most similar reference rows, from 0/1 matrices: the
+    reference a chunk at a time, keeping every query row's best so far, so memory holds
+    the bits plus one float32 chunk however large the reference is."""
+    q_counts = q.sum(axis=1, dtype=np.float32)
+    best_index = np.empty((len(q), 0), dtype=np.int64)
+    best_similarity = np.empty((len(q), 0), dtype=np.float32)
+    for offset in range(0, len(r), _REFERENCE_CHUNK):
+        chunk = r[offset : offset + _REFERENCE_CHUNK].astype(np.float32)
+        chunk_counts = chunk.sum(axis=1)
+        keep = min(width, len(chunk))
+        indices, similarities = [], []
+        for start in range(0, len(q), _QUERY_BAND):
+            band = q[start : start + _QUERY_BAND].astype(np.float32)
+            intersection = band @ chunk.T
+            union = (
+                q_counts[start : start + len(band), None] + chunk_counts[None, :] - intersection
+            )
+            with np.errstate(divide="ignore", invalid="ignore"):
+                similarity = np.where(union > 0, intersection / union, 0.0).astype(np.float32)
+            if keep < similarity.shape[1]:
+                top = np.argpartition(-similarity, keep - 1, axis=1)[:, :keep]
+            else:
+                top = np.tile(np.arange(similarity.shape[1]), (len(band), 1))
+            similarities.append(np.take_along_axis(similarity, top, axis=1))
+            indices.append(top + offset)
+        best_index = np.concatenate([best_index, np.concatenate(indices)], axis=1)
+        best_similarity = np.concatenate([best_similarity, np.concatenate(similarities)], axis=1)
+        if best_index.shape[1] > width:
+            pick = np.argpartition(-best_similarity, width - 1, axis=1)[:, :width]
+            best_index = np.take_along_axis(best_index, pick, axis=1)
+            best_similarity = np.take_along_axis(best_similarity, pick, axis=1)
+    return _most_similar_first(best_index, best_similarity)
 
 
 def _top_k_torch(
@@ -96,7 +126,8 @@ def _top_k_torch(
     the same numbers; `_most_similar_first` orders ties the same way.
     """
     dtype = torch.float16 if device.type == "cuda" else torch.float32
-    ref = torch.from_numpy(r).to(device=device, dtype=dtype)
+    # Up as uint8 and converted on the device: no float copy of the reference on the host.
+    ref = torch.from_numpy(r).to(device).to(dtype)
     ref_counts = ref.sum(dim=1, dtype=torch.float32)
     # Per query row: the float16 intersection plus three float32 rows (intersection,
     # union, similarity) against every reference molecule.
@@ -104,7 +135,7 @@ def _top_k_torch(
     indices = np.empty((len(q), width), dtype=np.int32)
     similarities = np.empty((len(q), width), dtype=np.float32)
     for start in range(0, len(q), rows):
-        band = torch.from_numpy(q[start : start + rows]).to(device=device, dtype=dtype)
+        band = torch.from_numpy(q[start : start + rows]).to(device).to(dtype)
         intersection = (band @ ref.T).float()
         union = band.sum(dim=1, dtype=torch.float32)[:, None] + ref_counts[None, :] - intersection
         similarity = torch.where(union > 0, intersection / union, torch.zeros_like(union))

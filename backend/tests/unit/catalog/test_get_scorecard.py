@@ -46,11 +46,22 @@ class _FakeProtocols:
 
 
 class _FakeStore:
+    """The inputs blob under its own key; anything else only once written."""
+
     def __init__(self, blob: bytes) -> None:
         self._blob = blob
+        self.written: dict[str, bytes] = {}
 
     def get_bytes(self, key: str) -> bytes:
-        return self._blob
+        if key.endswith("scorecard-inputs.json"):
+            return self._blob
+        if key in self.written:
+            return self.written[key]
+        raise FileNotFoundError(key)
+
+    def put_bytes(self, key: str, data: bytes) -> str:
+        self.written[key] = data
+        return key
 
 
 def _target(column: str, **overrides: Any) -> TargetInputs:
@@ -248,3 +259,53 @@ async def test_a_blob_written_before_targets_could_be_several_is_one_scorecard()
     ).encode()
     cards = await _scorecards_from_blob(workspace_id, protocol_id, legacy)
     assert [card.target for card in cards] == ["y"]  # named after the protocol's readout
+
+
+def _counting_chemistry(monkeypatch) -> list[int]:
+    calls = [0]
+    real = module.held_out_chemistry
+
+    def counting(*args, **kwargs):
+        calls[0] += 1
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(module, "held_out_chemistry", counting)
+    return calls
+
+
+async def test_chemistry_is_computed_once_stored_and_then_only_read(monkeypatch) -> None:
+    """A Protocol trained before training stored its chemistry: the first view computes
+    it, every later one reads it. Computing it on each view starved prod's API."""
+    calls = _counting_chemistry(monkeypatch)
+    auth = FakeAuth()
+    protocol = _FakeProtocol(auth.workspace_id, uuid.uuid4())
+    store = _FakeStore(_inputs(protocol.id).to_json())
+    use_case = GetScorecard(
+        _FakeProtocols(protocol), store, RdkitStructureNormalizer(), _NoDatasets()
+    )
+
+    first = (await use_case(GetScorecardQuery(protocol_id=protocol.id), auth)).unwrap()
+    second = (await use_case(GetScorecardQuery(protocol_id=protocol.id), auth)).unwrap()
+
+    assert calls[0] == 1
+    assert [key.endswith("scorecard-chemistry.json") for key in store.written] == [True]
+    assert first == second
+
+
+async def test_simultaneous_first_views_share_one_computation(monkeypatch) -> None:
+    import asyncio
+
+    calls = _counting_chemistry(monkeypatch)
+    auth = FakeAuth()
+    protocol = _FakeProtocol(auth.workspace_id, uuid.uuid4())
+    store = _FakeStore(_inputs(protocol.id).to_json())
+    use_case = GetScorecard(
+        _FakeProtocols(protocol), store, RdkitStructureNormalizer(), _NoDatasets()
+    )
+
+    results = await asyncio.gather(
+        *(use_case(GetScorecardQuery(protocol_id=protocol.id), auth) for _ in range(3))
+    )
+
+    assert calls[0] == 1
+    assert all(len(result.unwrap()) == 1 for result in results)

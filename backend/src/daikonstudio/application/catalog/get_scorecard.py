@@ -26,10 +26,15 @@ from daikonstudio.application.catalog.derive_readouts import target_columns_of
 from daikonstudio.application.data.compound_ids import read_compound_ids
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.execution.build_scorecard import (
+    HeldOutChemistry,
     build_scorecard,
     held_out_chemistry,
 )
-from daikonstudio.application.execution.train_protocol import ScorecardInputs, scorecard_inputs_key
+from daikonstudio.application.execution.train_protocol import (
+    ScorecardInputs,
+    scorecard_chemistry_key,
+    scorecard_inputs_key,
+)
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
@@ -74,16 +79,13 @@ class GetScorecard:
             raw, legacy_column=target_columns_of(protocol.readouts)[0]
         )
 
-        # ponytail: build_scorecard computes Murcko scaffolds and an O(test x
-        # train) Tanimoto matrix -- measured at 0.86s for 16k train/2k test
-        # structures, which blocks every other request on the process's event
-        # loop for the duration. `RunTraining` already offloads this same class
-        # of work (asyncio.to_thread around engine.train/predict); do the same
-        # here, for the whole list, rather than let the most-viewed screen in the
-        # product serialize behind it. Upgrade path if this still isn't enough:
-        # cache the rendered cards next to the blob (the inputs are immutable once
-        # written, so there is nothing to invalidate).
-        scorecards = await asyncio.to_thread(_build_all, inputs, self._normalizer)
+        # The expensive half -- Murcko scaffolds and the O(test x train) Tanimoto
+        # search -- is read, not computed: training stores it (`scorecard_chemistry_
+        # key`). What is left is measured at 0.74 s for four targets at 40k test
+        # compounds, off the event loop. The cards themselves are rendered on every
+        # view, so a change to how a Scorecard reads reaches old Protocols too.
+        chemistry = await self._chemistry(protocol.workspace_id, protocol.id, inputs)
+        scorecards = await asyncio.to_thread(_build_all, inputs, chemistry)
         # IDs are looked up now rather than stored with the inputs, so naming or
         # changing the dataset's identifier column shows here without retraining.
         wanted = {row.structure for card in scorecards for row in card.worst_rows}
@@ -107,10 +109,44 @@ class GetScorecard:
             ]
         return Success(scorecards)
 
+    async def _chemistry(
+        self, workspace_id: uuid.UUID, protocol_id: uuid.UUID, inputs: ScorecardInputs
+    ) -> HeldOutChemistry:
+        """The stored chemistry, or, for a Protocol trained before training stored it,
+        the chemistry computed once and stored for every later view.
 
-def _build_all(inputs: ScorecardInputs, normalizer: StructureNormalizer) -> list[Scorecard]:
+        One computation per Protocol however many views arrive while it runs: a
+        reload, or a second person opening the page, waits for the first instead of
+        starting another. Shielded, so a closed tab does not abandon work every
+        later view needs. The search itself runs in a separate process when it is
+        large (see the RDKit normalizer), so the API keeps answering meanwhile.
+        """
+        key = scorecard_chemistry_key(workspace_id, protocol_id)
+        try:
+            return HeldOutChemistry.from_json(self._store.get_bytes(key))
+        except FileNotFoundError:
+            pass
+        pending = _COMPUTING.get(protocol_id)
+        if pending is None:
+            pending = asyncio.ensure_future(self._compute_and_store(key, inputs))
+            _COMPUTING[protocol_id] = pending
+            pending.add_done_callback(lambda _: _COMPUTING.pop(protocol_id, None))
+        return await asyncio.shield(pending)
+
+    async def _compute_and_store(self, key: str, inputs: ScorecardInputs) -> HeldOutChemistry:
+        chemistry = await asyncio.to_thread(
+            held_out_chemistry, inputs.structures, inputs.train_structures, self._normalizer
+        )
+        await asyncio.to_thread(self._store.put_bytes, key, chemistry.to_json())
+        return chemistry
+
+
+# Per API process, which is the unit that would otherwise repeat the work.
+_COMPUTING: dict[uuid.UUID, asyncio.Future[HeldOutChemistry]] = {}
+
+
+def _build_all(inputs: ScorecardInputs, chemistry: HeldOutChemistry) -> list[Scorecard]:
     """One Scorecard per target, sharing one `HeldOutChemistry`."""
-    chemistry = held_out_chemistry(inputs.structures, inputs.train_structures, normalizer)
     return [
         build_scorecard(
             target=target.column,

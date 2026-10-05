@@ -94,7 +94,10 @@ from daikonstudio.application.engines.manifest import (
 )
 from daikonstudio.application.engines.protocol import Engine
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
-from daikonstudio.application.execution.build_scorecard import primary_metric_for
+from daikonstudio.application.execution.build_scorecard import (
+    held_out_chemistry,
+    primary_metric_for,
+)
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.failure_message import user_facing_error
 from daikonstudio.application.ports.blob_store import BlobStore
@@ -167,6 +170,18 @@ def scorecard_inputs_key(workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> str
     directions with no extra column.
     """
     return f"{workspace_id}/protocols/{protocol_id}/scorecard-inputs.json"
+
+
+def scorecard_chemistry_key(workspace_id: uuid.UUID, protocol_id: uuid.UUID) -> str:
+    """The test set's `HeldOutChemistry`, beside the inputs it is computed from.
+
+    Computed once, where the training ran, so the API never does it on a page load:
+    at 404k compounds it is a 40k x 323k Tanimoto search, which held the API's GIL
+    until /ready stopped answering and the healthcheck killed it, on every reload
+    (prod, 2026-10-05). A Protocol trained before this existed has none; the
+    Scorecard computes it once on first view and stores it here.
+    """
+    return f"{workspace_id}/protocols/{protocol_id}/scorecard-chemistry.json"
 
 
 # How often the reporter is allowed a database round-trip. Cancellation latency is
@@ -863,6 +878,12 @@ class RunTraining:
         )
         result_uri = self._store.put_bytes(
             scorecard_inputs_key(run.workspace_id, protocol_id), inputs.to_json()
+        )
+        chemistry = await asyncio.to_thread(
+            held_out_chemistry, inputs.structures, inputs.train_structures, self._normalizer
+        )
+        self._store.put_bytes(
+            scorecard_chemistry_key(run.workspace_id, protocol_id), chemistry.to_json()
         )
         await self._protocols.add(
             InSilicoProtocol(

@@ -18,6 +18,7 @@ port for one more RDKit function would be a needless abstraction split.
 
 from __future__ import annotations
 
+import json
 import math
 import statistics
 from dataclasses import dataclass
@@ -175,6 +176,15 @@ class HeldOutChemistry:
 
     similarities: list[float] | None
     scaffolds: list[str]
+
+    def to_json(self) -> bytes:
+        payload = {"similarities": self.similarities, "scaffolds": self.scaffolds}
+        return json.dumps(payload).encode()
+
+    @classmethod
+    def from_json(cls, data: bytes) -> HeldOutChemistry:
+        raw = json.loads(data)
+        return cls(similarities=raw["similarities"], scaffolds=raw["scaffolds"])
 
 
 def held_out_chemistry(
