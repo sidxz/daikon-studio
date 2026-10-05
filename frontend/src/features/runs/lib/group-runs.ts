@@ -1,18 +1,27 @@
+import { shortDate } from "@/shared/lib/format-date";
+
 export interface RunDayGroup<T> {
   day: string;
   runs: T[];
 }
 
+/** Local midnight, as a timestamp. */
+const startOfDay = (date: Date) =>
+  new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+
+/** "Today", "Yesterday", else "Sat, Oct 3", with the year only when it is not this one. */
+export function dayLabel(iso: string, now: Date): string {
+  // Rounded, so a 23- or 25-hour day across a clock change still counts as one.
+  const daysAgo = Math.round((startOfDay(now) - startOfDay(new Date(iso))) / 86_400_000);
+  if (daysAgo === 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  return shortDate(iso, now, { weekday: "short" });
+}
+
 /** Calendar day, keeping the incoming order (newest first), so each day lists newest first. */
 export function groupRunsByDay<T extends { created_at: string }>(
   runs: T[],
-  dayOf: (iso: string) => string = (iso) =>
-    new Date(iso).toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    }),
+  dayOf: (iso: string) => string,
 ): RunDayGroup<T>[] {
   const days = new Map<string, T[]>();
   for (const run of runs) {

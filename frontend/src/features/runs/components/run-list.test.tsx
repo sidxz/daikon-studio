@@ -3,6 +3,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { dayLabel } from "../lib/group-runs";
 import { RunList } from "./run-list";
 
 vi.mock("@/shared/lib/api/custom-instance", async (importOriginal) => ({
@@ -27,11 +28,11 @@ function Wrapper({ children }: { children: React.ReactNode }) {
   return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>;
 }
 
-function run(id: string, createdAt: string, name: string | null) {
+function run(id: string, createdAt: string, name: string | null, status = "ready") {
   return {
     id,
     kind: "prediction",
-    status: "ready",
+    status,
     protocol_id: "p1",
     name,
     requested_by: "user-1",
@@ -63,22 +64,51 @@ describe("RunList", () => {
     nav.query = "";
   });
 
-  it("groups runs under day headers and shows name, protocol and member", async () => {
+  it("groups runs under day headers and shows name, protocol, compounds and member", async () => {
+    const today = new Date();
+    const daysAgo = (days: number) =>
+      new Date(today.getFullYear(), today.getMonth(), today.getDate() - days, 12).toISOString();
+    const older = daysAgo(10);
     serve([
-      run("r1", "2026-10-05T18:00:00Z", "batch-7"),
-      run("r2", "2026-10-05T17:00:00Z", null),
-      run("r3", "2026-10-03T17:00:00Z", "older"),
+      run("r1", today.toISOString(), "batch-7"),
+      run("r2", today.toISOString(), null),
+      run("r3", daysAgo(1), "last night"),
+      run("r4", older, "older"),
     ]);
     render(<RunList />, { wrapper: Wrapper });
 
-    expect(await screen.findByRole("heading", { name: /Oct 5, 2026/ })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: /Oct 3, 2026/ })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Today" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Yesterday" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: dayLabel(older, new Date()) })).toBeInTheDocument();
     const row = screen.getByRole("link", { name: /batch-7/ });
     expect(row).toHaveAttribute("href", "/runs/r1");
     expect(row).toHaveTextContent("hERG");
-    expect(row).toHaveTextContent("Ada");
-    // A run without a name falls back to its protocol's name.
-    expect(document.querySelector('a[href="/runs/r2"]')).toHaveTextContent("hERG · 12 compounds");
+    expect(row).toHaveTextContent("12 compounds");
+    expect(within(row).getByRole("img", { name: "Ada" })).toBeInTheDocument();
+    // A run without a name falls back to its protocol's name, and is not repeated beside it.
+    const unnamed = document.querySelector('a[href="/runs/r2"]') as HTMLElement;
+    expect(unnamed.textContent?.match(/hERG/g)).toHaveLength(1);
+    expect(unnamed.textContent).not.toContain("·");
+  });
+
+  it("shows each status as a dot and a word, with no filled Ready pill", async () => {
+    const at = new Date().toISOString();
+    serve([
+      run("r1", at, "a", "ready"),
+      run("r2", at, "b", "running"),
+      run("r3", at, "c", "pending"),
+      run("r4", at, "d", "failed"),
+      run("r5", at, "e", "cancelled"),
+    ]);
+    render(<RunList />, { wrapper: Wrapper });
+
+    expect(await screen.findByText("Ready")).toBeInTheDocument();
+    expect(screen.getByText("Running")).toBeInTheDocument();
+    expect(screen.getByText("Queued")).toBeInTheDocument();
+    expect(screen.getByText("Failed")).toHaveClass("text-destructive");
+    expect(screen.getByText("Canceled")).toBeInTheDocument();
+    expect(screen.getByText("Ready").closest('[data-slot="badge"]')).toBeNull();
+    expect(document.querySelectorAll(".motion-safe\\:animate-status-breathe")).toHaveLength(2);
   });
 
   it("has Mine on by default and requests mine=true", async () => {
@@ -119,8 +149,8 @@ describe("RunList", () => {
     serve([]);
     render(<RunList />, { wrapper: Wrapper });
     expect(await screen.findByText("No runs match these filters.")).toBeInTheDocument();
-    const clear = screen.getAllByRole("button", { name: "Clear filters" });
-    fireEvent.click(clear[clear.length - 1]);
+    expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
     expect(nav.replace).toHaveBeenCalledWith("/runs");
   });
 });
