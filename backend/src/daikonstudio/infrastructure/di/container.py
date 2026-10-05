@@ -9,6 +9,7 @@ which is what keeps production wiring from being quietly reassigned.
 
 from __future__ import annotations
 
+import httpx
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
@@ -30,6 +31,7 @@ from daikonstudio.application.data.export_collection import ExportCollection
 from daikonstudio.application.data.get_dataset import GetDataset
 from daikonstudio.application.data.get_dataset_compounds import GetDatasetCompounds
 from daikonstudio.application.data.get_dataset_profile import GetDatasetProfile
+from daikonstudio.application.data.import_chemcellar_run import ImportChemCellarRun
 from daikonstudio.application.data.list_collections import ListCollections
 from daikonstudio.application.data.list_datasets import ListDatasets
 from daikonstudio.application.data.set_dataset_id_column import (
@@ -59,6 +61,7 @@ from daikonstudio.application.execution.sweeps import (
 )
 from daikonstudio.application.execution.train_protocol import TrainProtocol
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.chemcellar import ChemCellar
 from daikonstudio.application.ports.dataset_build_repository import DatasetBuildRepository
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
@@ -68,6 +71,7 @@ from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.application.runners.manage import CreateRunner, ListRunners, RevokeRunner
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
+from daikonstudio.infrastructure.chemcellar.client import HttpChemCellar
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
 from daikonstudio.infrastructure.persistence.session import create_session_factory
@@ -110,6 +114,11 @@ def create_container(settings: Settings | None = None) -> Container:
         StructureNormalizer,  # type: ignore[type-abstract]
         Singleton(RdkitStructureNormalizer),
     )
+    # One pooled client for the process's lifetime; it closes when the API exits.
+    container.define(
+        ChemCellar,  # type: ignore[type-abstract]
+        Singleton(lambda: HttpChemCellar(httpx.AsyncClient(), resolved.chemcellar_api_url)),
+    )
     # Engines hold no per-run state (infrastructure/engines/registry.py), so one
     # shared registry is safe -- unlike async_sessionmaker, nothing here is ever
     # overridden per test/request, so caching carries none of the JobEnqueuer
@@ -138,6 +147,10 @@ def create_container(settings: Settings | None = None) -> Container:
         return SqlAlchemyCollectionRepository(c[async_sessionmaker])
 
     container.define(StoreUpload, lambda c: StoreUpload(c[BlobStore]))
+    container.define(
+        ImportChemCellarRun,
+        lambda c: ImportChemCellarRun(c[ChemCellar], c[BlobStore]),
+    )
     container.define(
         CreateDataset,
         lambda c: CreateDataset(

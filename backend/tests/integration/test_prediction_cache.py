@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
 import uuid
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -39,6 +40,7 @@ from daikonstudio.application.data.create_dataset import (
     CreateDatasetCommand,
     StoreUpload,
     upload_key,
+    upload_source_key,
 )
 from daikonstudio.application.execution.predict_with_protocol import (
     PredictWithProtocol,
@@ -562,3 +564,50 @@ async def test_an_identifier_column_that_does_not_exist_fails_the_run_clearly(
     )
     assert run.status is RunStatus.FAILED
     assert "nope" in (run.error_message or "")
+
+
+def _plant_source(studio: Studio, upload_ref: str, run_id: uuid.UUID) -> dict[str, str]:
+    source = {
+        "app": "chemcellar",
+        "run_id": str(run_id),
+        "protocol_id": str(uuid.uuid4()),
+        "protocol_name": "NadD-Sumo dose response",
+        "run_date": "2026-06-05",
+    }
+    studio.store.put_bytes(
+        upload_source_key(studio.auth.workspace_id, uuid.UUID(upload_ref)),
+        json.dumps(source).encode(),
+    )
+    return source
+
+
+async def test_an_imported_uploads_source_is_recorded_on_the_run(
+    studio: Studio, published_protocol: InSilicoProtocol, upload_ref: str
+) -> None:
+    source = _plant_source(studio, upload_ref, uuid.uuid4())
+
+    run = await studio.predict(published_protocol.id, upload_ref)
+
+    assert run.params["source"]["run_id"] == source["run_id"]
+    # The source is the run's own record; it is not part of the command the worker reads.
+    assert "source" not in PredictWithProtocolCommand.from_params(run.params).to_params()
+
+
+async def test_the_same_bytes_from_a_file_and_from_chemcellar_are_different_cached_work(
+    studio: Studio, published_protocol: InSilicoProtocol, upload_ref: str
+) -> None:
+    plain = await studio.predict(published_protocol.id, upload_ref)
+    await studio.wait(plain)
+
+    imported_ref = await studio.upload(_QUERY_CSV)
+    source_run = uuid.uuid4()
+    _plant_source(studio, imported_ref, source_run)
+    imported = await studio.predict(published_protocol.id, imported_ref)
+    assert imported.id != plain.id
+    assert imported.params["source"]["run_id"] == str(source_run)
+    await studio.wait(imported)
+
+    again_ref = await studio.upload(_QUERY_CSV)
+    _plant_source(studio, again_ref, source_run)
+    again = await studio.predict(published_protocol.id, again_ref)
+    assert again.id == imported.id

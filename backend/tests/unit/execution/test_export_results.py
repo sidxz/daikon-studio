@@ -3,7 +3,12 @@ regression Protocol) never reach."""
 
 import polars as pl
 
-from daikonstudio.application.execution.export_results import _cutoff, _meanings, _shown
+from daikonstudio.application.execution.export_results import (
+    _cutoff,
+    _meanings,
+    _shown,
+    _source_line,
+)
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
 
 
@@ -40,3 +45,16 @@ def test_a_cutoff_reads_as_the_scorecard_shows_it():
     assert _cutoff(0.5) == "0.5"
     # Rounded to three digits this is 1, which would say nothing is ever active.
     assert _cutoff(0.99997) == "0.99997"
+
+
+def test_the_about_sheet_names_a_chemcellar_source():
+    source = {
+        "app": "chemcellar",
+        "protocol_name": "NadD-Sumo dose response",
+        "run_date": "2026-06-05",
+    }
+    assert (
+        _source_line({"source": source})
+        == "ChemCellar: NadD-Sumo dose response, run of 2026-06-05"
+    )
+    assert _source_line({"upload_ref": "x"}) is None

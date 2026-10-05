@@ -65,6 +65,121 @@
         }
       }
     },
+    "/api/v1/chemcellar/protocols": {
+      "get": {
+        "tags": [
+          "chemcellar"
+        ],
+        "summary": "List Chemcellar Protocols",
+        "operationId": "list_chemcellar_protocols_api_v1_chemcellar_protocols_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ChemCellarProtocolResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Chemcellar Protocols Api V1 Chemcellar Protocols Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chemcellar/protocols/{protocol_id}/runs": {
+      "get": {
+        "tags": [
+          "chemcellar"
+        ],
+        "summary": "List Chemcellar Runs",
+        "operationId": "list_chemcellar_runs_api_v1_chemcellar_protocols__protocol_id__runs_get",
+        "parameters": [
+          {
+            "name": "protocol_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Protocol Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ChemCellarRunResponse"
+                  },
+                  "title": "Response List Chemcellar Runs Api V1 Chemcellar Protocols  Protocol Id  Runs Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/chemcellar/runs/{run_id}/import": {
+      "post": {
+        "tags": [
+          "chemcellar"
+        ],
+        "summary": "Import Chemcellar Run",
+        "operationId": "import_chemcellar_run_api_v1_chemcellar_runs__run_id__import_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChemCellarImportResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/collections": {
       "post": {
         "tags": [
@@ -2787,6 +2902,110 @@
         ],
         "title": "BootstrapHistogramResponse",
         "description": "`edges` is one longer than `counts`: the primary metric on each of the\ninterval's redraws, binned. Its own name for the same reason as\n`ResidualHistogramResponse`, and so the client type says what it holds."
+      },
+      "ChemCellarImportResponse": {
+        "properties": {
+          "upload_ref": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Upload Ref"
+          },
+          "compound_count": {
+            "type": "integer",
+            "title": "Compound Count"
+          },
+          "without_structure": {
+            "type": "integer",
+            "title": "Without Structure"
+          },
+          "sample": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Sample"
+          },
+          "source": {
+            "$ref": "#/components/schemas/RunSourceResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "upload_ref",
+          "compound_count",
+          "without_structure",
+          "sample",
+          "source"
+        ],
+        "title": "ChemCellarImportResponse"
+      },
+      "ChemCellarProtocolResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ChemCellarProtocolResponse"
+      },
+      "ChemCellarRunResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "protocol_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Protocol Id"
+          },
+          "run_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Run Date"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "measured_count": {
+            "type": "integer",
+            "title": "Measured Count"
+          },
+          "plate_count": {
+            "type": "integer",
+            "title": "Plate Count"
+          },
+          "plate_barcodes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Plate Barcodes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "protocol_id",
+          "run_date",
+          "status",
+          "measured_count",
+          "plate_count",
+          "plate_barcodes"
+        ],
+        "title": "ChemCellarRunResponse"
       },
       "ChemicalSpacePointsResponse": {
         "properties": {
@@ -5738,6 +5957,21 @@
             ],
             "title": "Name"
           },
+          "requested_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Requested By"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RunSourceResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -5758,9 +5992,54 @@
           "metrics",
           "lane",
           "name",
+          "requested_by",
+          "source",
           "created_at"
         ],
         "title": "RunResponse"
+      },
+      "RunSourceResponse": {
+        "properties": {
+          "app": {
+            "type": "string",
+            "const": "chemcellar",
+            "title": "App"
+          },
+          "run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Run Id"
+          },
+          "protocol_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Protocol Id"
+          },
+          "protocol_name": {
+            "type": "string",
+            "title": "Protocol Name"
+          },
+          "run_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Run Date"
+          },
+          "compounds_without_structure": {
+            "type": "integer",
+            "title": "Compounds Without Structure",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "required": [
+          "app",
+          "run_id",
+          "protocol_id",
+          "protocol_name",
+          "run_date"
+        ],
+        "title": "RunSourceResponse",
+        "description": "Where a prediction run's compounds came from, when not from an uploaded file."
       },
       "RunUpdateEnvelope": {
         "properties": {

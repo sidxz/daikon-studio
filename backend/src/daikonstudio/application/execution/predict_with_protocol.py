@@ -42,6 +42,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import json
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -57,7 +58,7 @@ from daikonstudio.application.catalog.chemical_space import (
     neighbours_parquet,
 )
 from daikonstudio.application.catalog.derive_readouts import target_columns_of
-from daikonstudio.application.data.create_dataset import upload_key
+from daikonstudio.application.data.create_dataset import upload_key, upload_source_key
 from daikonstudio.application.data.prepare_frame import read_csv_upload
 from daikonstudio.application.engines.context import EpochPoint, PredictContext
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
@@ -199,6 +200,15 @@ class PredictWithProtocol:
         if not self._store.exists(key):
             return Failure(NotFoundError("Upload", str(upload_ref)))
 
+        # An import from ChemCellar leaves a record of its source beside the upload
+        # (`ImportChemCellarRun`); a file someone uploaded has none.
+        source_key = upload_source_key(auth.workspace_id, upload_ref)
+        source: dict[str, Any] | None = (
+            json.loads(self._store.get_bytes(source_key))
+            if self._store.exists(source_key)
+            else None
+        )
+
         # The content itself, not just its ref: two different uploads could
         # collide on a ref only across workspaces (refs are per-workspace
         # UUIDs), which cache_key's own workspace scoping already prevents --
@@ -224,6 +234,9 @@ class PredictWithProtocol:
             conditions=command.conditions,
             # A different identifier column is a different results file.
             id_column=command.id_column,
+            # Only when there is one, so every key for an uploaded file stays as it was.
+            # With it, a cache hit's run always names the source this request came from.
+            **({"source_run_id": source["run_id"]} if source else {}),
         )
 
         # Only a READY hit is reusable. `find_by_cache_key` does not filter by
@@ -248,7 +261,7 @@ class PredictWithProtocol:
             workspace_id=auth.workspace_id,
             requested_by=auth.user_id,
             cache_key=cache_key,
-            params=command.to_params(),
+            params={**command.to_params(), **({"source": source} if source else {})},
             # Also in `params`, which is what the worker reads to do the work.
             # Set here as well so the *column* answers "which Protocol is this
             # Run about" for both kinds -- a training Run has no such params

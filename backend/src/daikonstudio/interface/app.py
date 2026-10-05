@@ -23,6 +23,7 @@ from daikonstudio.infrastructure.duar.auth import (
 from daikonstudio.infrastructure.persistence.migrate import upgrade_to_head
 from daikonstudio.interface.error_handlers import register_error_handlers
 from daikonstudio.interface.middleware import RequestIdMiddleware
+from daikonstudio.interface.routes.chemcellar import router as chemcellar_router
 from daikonstudio.interface.routes.collections import router as collections_router
 from daikonstudio.interface.routes.datasets import router as datasets_router
 from daikonstudio.interface.routes.engines import router as engines_router
@@ -182,6 +183,7 @@ def create_app() -> FastAPI:
             "environment": os.environ.get("APP_ENV", "development"),
         }
 
+    app.include_router(chemcellar_router)
     app.include_router(collections_router)
     app.include_router(datasets_router)
     app.include_router(engines_router)

@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -85,6 +85,17 @@ class PredictBody(BaseModel):
     id_column: str | None = None
 
 
+class RunSourceResponse(BaseModel):
+    """Where a prediction run's compounds came from, when not from an uploaded file."""
+
+    app: Literal["chemcellar"]
+    run_id: uuid.UUID
+    protocol_id: uuid.UUID
+    protocol_name: str
+    run_date: date
+    compounds_without_structure: int = 0
+
+
 class RunResponse(BaseModel):
     id: uuid.UUID
     workspace_id: uuid.UUID
@@ -117,6 +128,10 @@ class RunResponse(BaseModel):
     # `params`. It lets the Protocols page label a run that has no Protocol yet;
     # a prediction Run carries none.
     name: str | None
+    # The Duar user id of whoever started the run; the client resolves it to a name.
+    requested_by: uuid.UUID
+    # The ChemCellar run a prediction's compounds were imported from; null for a file.
+    source: RunSourceResponse | None
     created_at: datetime
 
     @classmethod
@@ -134,6 +149,12 @@ class RunResponse(BaseModel):
             metrics=run.metrics,
             lane=run.lane,
             name=run.params.get("name"),
+            requested_by=run.requested_by,
+            source=(
+                RunSourceResponse.model_validate(run.params["source"])
+                if run.params.get("source")
+                else None
+            ),
             created_at=run.created_at,
         )
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import io
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC
 from typing import Any
@@ -195,6 +196,14 @@ def _meanings(protocol: InSilicoProtocol, labels: dict[str, str]) -> list[tuple[
     return meanings
 
 
+def _source_line(params: Mapping[str, Any]) -> str | None:
+    """Where the compounds came from, when not from an uploaded file."""
+    source = params.get("source")
+    if not source:
+        return None
+    return f"ChemCellar: {source['protocol_name']}, run of {source['run_date']}"
+
+
 def _cutoff(value: float) -> str:
     """Three significant digits, as the scorecard shows a cutoff (`formatCutoff`), but
     never rounded up to 1: "at least 1" for 0.99997 would mean nothing is ever active."""
@@ -271,6 +280,7 @@ def _workbook(
         if sort is None
         else f"{labels[sort.column]}, {'highest' if sort.descending else 'lowest'} first"
     )
+    source = _source_line(run.params)
     created = f"{run.created_at.astimezone(UTC):%Y-%m-%d %H:%M} UTC" if run.created_at else ""
     for line in [
         [_bold(about, "Predictions from DAIKON Studio")],
@@ -278,6 +288,7 @@ def _workbook(
         ["Protocol", protocol.name],
         ["Engine", protocol.engine_id],
         ["Run started", created],
+        *([["Compounds from", source]] if source else []),
         ["Compounds in this file", f"{rows.height:,} of {total:,} scored"],
         ["Filters", "; ".join(f"{labels[f.column]}: {_bounds(f)}" for f in filters) or "None"],
         ["Sorted by", sorted_by],
@@ -285,7 +296,10 @@ def _workbook(
         [],
         [_bold(about, "Column"), _bold(about, "What it means")],
         *[[_cell(about, label), text] for label, text in _meanings(protocol, labels)],
-        *[[_cell(about, name), "From your uploaded file."] for name in uploaded],
+        *[
+            [_cell(about, name), "From ChemCellar." if source else "From your uploaded file."]
+            for name in uploaded
+        ],
     ]:
         about.append(line)
 

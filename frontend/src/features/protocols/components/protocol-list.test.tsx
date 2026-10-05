@@ -32,6 +32,8 @@ function trainingRun(overrides: Partial<RunResponse>): RunResponse {
     metrics: null,
     lane: "cpu",
     name: "solubility model",
+    requested_by: "user-1",
+    source: null,
     created_at: "2026-10-03T12:00:00Z",
     ...overrides,
   };

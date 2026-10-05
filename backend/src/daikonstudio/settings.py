@@ -71,6 +71,11 @@ class Settings(BaseSettings):
     idp_audience: str = ""
     idp_issuer: str = "https://accounts.google.com"
 
+    # ChemCellar's API, read on the user's behalf for "Predict with a ChemCellar run"
+    # (infrastructure/chemcellar/client.py). Empty turns the integration off: its routes
+    # answer 503 and the frontend hides the tab (APP_CHEMCELLAR_URL there).
+    chemcellar_api_url: str = ""
+
     # Self-hosted runners (2026-08-04 spec). Gates `RunQueue.claim_next`'s per-workspace
     # concurrency cap: no single workspace can starve every other tenant's runs off a
     # shared runner fleet.

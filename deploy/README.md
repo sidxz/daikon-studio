@@ -108,6 +108,13 @@ Restore, onto a booted stack (on a new host, run First boot first):
    `X-Request-ID`. From a browser repro, copy it from the failing request's response
    headers (DevTools > Network), then `docker compose logs api | grep <id>`.
 
+## ChemCellar (optional)
+
+To predict on a ChemCellar run's compounds, set `STUDIO_CHEMCELLAR_API_URL` in `.env` to
+ChemCellar's API, which must be reachable from the API container. Set `APP_CHEMCELLAR_URL`
+to ChemCellar's web address; it shows the tab and builds links. Leave both empty to turn
+the feature off. ChemCellar needs no configuration for Studio.
+
 ## 7. What this stack does not do
 
 1. No GPU runner on this host. Without one (section 3), gpu-lane runs stay pending.

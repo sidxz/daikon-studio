@@ -41,6 +41,12 @@ def upload_key(workspace_id: uuid.UUID, upload_ref: uuid.UUID) -> str:
     return f"{workspace_id}/uploads/{upload_ref}.csv"
 
 
+def upload_source_key(workspace_id: uuid.UUID, upload_ref: uuid.UUID) -> str:
+    """Beside an upload made from another app's record: which record it was
+    (`ImportChemCellarRun`). An upload of the user's own file has none."""
+    return f"{workspace_id}/uploads/{upload_ref}.source.json"
+
+
 @dataclass
 class BuildProgress:
     """Where a build is: written by its worker thread, read by the event loop that
