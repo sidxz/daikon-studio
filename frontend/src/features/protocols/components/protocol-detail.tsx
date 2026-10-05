@@ -63,7 +63,7 @@ export function Scorecards({ scorecards }: { scorecards: ScorecardResponse[] }) 
 }
 
 export function ProtocolDetail({ protocolId }: { protocolId: string }) {
-  const { data: protocol, isLoading, isError } = useProtocol(protocolId);
+  const { data: protocol, isLoading, isError, error } = useProtocol(protocolId);
   const creator = useMemberName()(protocol?.created_by);
   const scorecard = useScorecard(protocolId);
   const { data: dataset } = useDataset(protocol?.dataset_id);
@@ -84,10 +84,15 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
   }
 
   if (isError || !protocol) {
+    const missing = error instanceof ApiError && error.status === 404;
     return (
       <div className="mx-auto w-full max-w-5xl p-2">
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="text-sm font-medium text-destructive">Could not load this protocol</p>
+          <p className="text-sm font-medium text-destructive">
+            {missing
+              ? "This protocol does not exist in this workspace."
+              : "Could not load this protocol"}
+          </p>
         </div>
       </div>
     );
