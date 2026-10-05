@@ -1,3 +1,4 @@
+import { formatCutoff } from "@/features/protocols";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { cn } from "@/shared/lib/utils";
 import { formatThousandths } from "../lib/cell-scale";
@@ -66,7 +67,7 @@ export function ProbabilityCell({ value, cutoff }: { value: number | null; cutof
   const active = value >= cutoff;
   return (
     <Stack
-      title={`Probability ${value.toPrecision(3)}. Called active at ${cutoff.toFixed(2)} or above.`}
+      title={`Probability ${value.toPrecision(3)}. Called active at ${formatCutoff(cutoff)} or above.`}
     >
       <span className="tabular-nums">{formatThousandths(value)}</span>
       <Meter fraction={value} fill={active ? "bg-primary" : "bg-foreground/50"} tick={cutoff} />
