@@ -12,7 +12,8 @@ for anything unmeasurable (see `rdkit_descriptors`), XGBoost treats NaN as missi
 learns a split direction for it, and sklearn's RandomForest raises on NaN outright. The
 representation and the estimator are chosen together here.
 
-Runs on the default lane: RDKit plus XGBoost, no torch, no GPU.
+Runs on the default lane: RDKit plus XGBoost, no torch. A runner that has a GPU fits on it
+(`ecfp4_xgboost.fit_on_device`).
 """
 
 from __future__ import annotations
@@ -33,6 +34,7 @@ from daikonstudio.application.engines.manifest import (
 from daikonstudio.infrastructure.chem.featurize import DESCRIPTOR_NAMES, rdkit_descriptors
 from daikonstudio.infrastructure.engines._options import POSITIVE_WEIGHTING, positive_weight
 from daikonstudio.infrastructure.engines._scoring import _predict_with_tree_ensemble, _scored
+from daikonstudio.infrastructure.engines.ecfp4_xgboost import fit_on_device
 
 _MANIFEST = EngineManifest(
     id="descriptors-xgboost",
@@ -109,7 +111,8 @@ class DescriptorsXGBoost:
             "learning_rate": conditions["learning_rate"],
             "random_state": ctx.seed,
             # Matches ecfp4_xgboost: the hist tree builder is thread-count
-            # deterministic, so parallelism costs no reproducibility here.
+            # deterministic, so parallelism costs no reproducibility here. On a GPU
+            # runner the fit runs on CUDA instead (`fit_on_device`).
             "n_jobs": -1,
         }
         if is_classification:
@@ -118,7 +121,7 @@ class DescriptorsXGBoost:
             model = XGBClassifier(**model_kwargs)
         else:
             model = XGBRegressor(**model_kwargs)
-        model.fit(x_train, y_train)
+        fit_on_device(model, x_train, y_train)
 
         artifact = pickle.dumps(
             {

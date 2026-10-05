@@ -308,3 +308,29 @@ def test_too_few_validation_actives_leave_the_cutoff_untuned():
     )
     assert cutoffs is None and spy.predicted
     assert metrics["y"]["mcc"] == 0.0
+
+
+def test_an_xgboost_fit_uses_a_visible_gpu_and_ends_on_the_cpu(monkeypatch):
+    """CUDA is only in prod, so the switch is checked here: fit where the GPU is, then
+    score and store on the CPU, so the artifact loads on a runner with no GPU."""
+    import sys
+    from types import SimpleNamespace
+
+    import numpy as np
+    from xgboost import XGBClassifier
+
+    from daikonstudio.infrastructure.engines import ecfp4_xgboost
+
+    gpu = SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True))
+    monkeypatch.setitem(sys.modules, "torch", gpu)
+    assert ecfp4_xgboost.xgboost_device() == "cuda"
+    monkeypatch.setitem(sys.modules, "torch", None)  # the CPU image: no torch at all
+    assert ecfp4_xgboost.xgboost_device() == "cpu"
+
+    monkeypatch.setattr(ecfp4_xgboost, "xgboost_device", lambda: "cuda")
+    model = XGBClassifier(n_estimators=2)
+    during: list[str] = []
+    monkeypatch.setattr(model, "fit", lambda x, y: during.append(model.get_params()["device"]))
+    ecfp4_xgboost.fit_on_device(model, np.zeros((4, 2)), np.array([0, 1, 0, 1]))
+    assert during == ["cuda"]
+    assert model.get_params()["device"] == "cpu"

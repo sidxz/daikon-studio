@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pickle
+from typing import Any
 
 import polars as pl
 from xgboost import XGBClassifier, XGBRegressor
@@ -72,6 +73,35 @@ _MANIFEST = EngineManifest(
 )
 
 
+def xgboost_device() -> str:
+    """Where an XGBoost fit runs: "cuda" when this process can see a GPU, else "cpu".
+
+    A tree baseline on the GPU runner ran on one CPU core -- that image pins
+    OMP_NUM_THREADS=1 (Dockerfile.gpu), so n_jobs=-1 meant one thread -- for as long as
+    the neural fit before it, with the GPU idle (prod, 2026-10-05). The pinned xgboost
+    wheel is the CUDA build. On atlantic (10k nuisance set, 400 trees) a fit took 0.8 s
+    on CUDA against 4.2 s on that one core, with the same test AUROC and PR AUC to three
+    decimals and 0.08 GB of GPU memory. Asked through torch, which only the GPU image
+    has; the CPU image cannot import it, and has no GPU to find either.
+    """
+    try:
+        import torch
+    except ImportError:
+        return "cpu"
+    return "cuda" if torch.cuda.is_available() else "cpu"
+
+
+def fit_on_device(model: XGBClassifier | XGBRegressor, x: Any, y: Any) -> None:
+    """Fit where `xgboost_device` says, then move the model to the CPU for everything
+    after: scoring, and the artifact, which must load on a runner with no GPU. Scoring
+    numpy arrays with a CUDA model would only fall back to the CPU with a warning. CUDA
+    fits repeat bit-identically, measured; they can differ from a CPU fit by up to 0.01
+    in a predicted probability, so where a model trains is part of what it is."""
+    model.set_params(device=xgboost_device())
+    model.fit(x, y)
+    model.set_params(device="cpu")
+
+
 class Ecfp4XGBoost:
     @staticmethod
     def manifest() -> EngineManifest:
@@ -103,6 +133,7 @@ class Ecfp4XGBoost:
             # XGBoost's hist tree builder is thread-count deterministic by design --
             # measured bit-identical metrics across five fit+predict runs at n_jobs=-1
             # on the same seed, so there is no reproducibility tradeoff to make here.
+            # On a GPU runner the fit runs on CUDA instead (`fit_on_device`).
             "n_jobs": -1,
         }
         if is_classification:
@@ -111,7 +142,7 @@ class Ecfp4XGBoost:
             model = XGBClassifier(**model_kwargs)
         else:
             model = XGBRegressor(**model_kwargs)
-        model.fit(x_train, y_train)
+        fit_on_device(model, x_train, y_train)
 
         # pickle.dumps serializes the fitted model; safe to write, since only our
         # own predict() ever reads this artifact back (see _scoring.py for the load
