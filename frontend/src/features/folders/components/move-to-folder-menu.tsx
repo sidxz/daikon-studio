@@ -31,12 +31,6 @@ export function MoveToFolderMenu({
 
   if (!data?.can_edit) return null;
 
-  // The card is a link: the menu must neither navigate nor bubble up to it.
-  const stop = (e: React.SyntheticEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-  };
-
   return (
     <>
       <DropdownMenu>
@@ -46,12 +40,11 @@ export function MoveToFolderMenu({
             size="icon"
             className="size-7 shrink-0"
             aria-label="Move to folder"
-            onClick={stop}
           >
             <FolderInput className="size-4" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+        <DropdownMenuContent align="end">
           {data.items.map((folder) => (
             <DropdownMenuItem
               key={folder.id}
@@ -70,19 +63,15 @@ export function MoveToFolderMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       {naming && (
-        // The dialog is portaled but React events still bubble to the card's link.
-        // biome-ignore lint/a11y/useKeyWithClickEvents: only stops propagation
-        <div onClick={(e) => e.stopPropagation()}>
-          <FolderNameDialog
-            open
-            onOpenChange={(open) => !open && setNaming(false)}
-            title="New folder"
-            onSubmit={async (name) => {
-              const folder = await create.mutateAsync(name);
-              await file.mutateAsync({ itemId, folderId: folder.id });
-            }}
-          />
-        </div>
+        <FolderNameDialog
+          open
+          onOpenChange={(open) => !open && setNaming(false)}
+          title="New folder"
+          onSubmit={async (name) => {
+            const folder = await create.mutateAsync(name);
+            await file.mutateAsync({ itemId, folderId: folder.id });
+          }}
+        />
       )}
     </>
   );

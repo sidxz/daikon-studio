@@ -95,16 +95,22 @@ function ProtocolGrid({ mine, folderId }: { mine: boolean; folderId: string | un
               ? undefined
               : folders?.items.find((candidate) => candidate.id === protocol.folder_id);
             return (
-              <Link
+              // A div card with a stretched title link: the menu is a sibling, not nested in the <a>.
+              <div
                 key={protocol.id}
-                href={`/protocols/${protocol.id}`}
-                draggable={folders?.can_edit}
+                draggable={folders?.can_edit ?? false}
                 onDragStart={(e) => setDragItem(e, "protocol", protocol.id)}
-                className="flex h-full flex-col gap-2 rounded-lg border border-border p-4 transition-colors hover:bg-muted/40"
+                className="relative flex h-full flex-col gap-2 rounded-lg border border-border p-4 transition-colors hover:bg-muted/40"
               >
                 <div className="flex items-start justify-between gap-3">
-                  <span className="font-medium">{protocol.name}</span>
-                  <div className="flex shrink-0 items-center gap-1">
+                  <Link
+                    href={`/protocols/${protocol.id}`}
+                    draggable={false}
+                    className="font-medium after:absolute after:inset-0"
+                  >
+                    {protocol.name}
+                  </Link>
+                  <div className="relative z-10 flex shrink-0 items-center gap-1">
                     <Badge
                       variant={protocol.status === "draft" ? "outline" : "default"}
                       className="font-normal"
@@ -125,7 +131,7 @@ function ProtocolGrid({ mine, folderId }: { mine: boolean; folderId: string | un
                   {creator && <span>by {creator}</span>}
                   {folder && <span>{folder.name}</span>}
                 </div>
-              </Link>
+              </div>
             );
           })}
         </div>

@@ -130,7 +130,7 @@ export function PredictWizard() {
           return;
         }
         setFile(dropped);
-        setName(dropped.name.replace(/\.[^.]*$/, ""));
+        setName(dropped.name.replace(/\.[^.]*$/, "").slice(0, 200));
         setColumns(fields);
         setRows(result.data);
         const guess =
@@ -199,7 +199,8 @@ export function PredictWizard() {
       <ChemCellarPicker
         onImported={(value) => {
           setImported(value);
-          if (value) setName(`${value.source.protocol_name} · ${value.source.run_date}`);
+          if (value)
+            setName(`${value.source.protocol_name} · ${value.source.run_date}`.slice(0, 200));
         }}
       />
       {imported && (

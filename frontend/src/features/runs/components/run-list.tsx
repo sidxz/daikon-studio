@@ -34,11 +34,21 @@ const STATUS_OPTIONS = [
 function RunRows({
   filters,
   filtered,
+  onlyMine,
   onClear,
-}: { filters: RunFilters; filtered: boolean; onClear: () => void }) {
+  onShowAll,
+}: {
+  filters: RunFilters;
+  filtered: boolean;
+  onlyMine: boolean;
+  onClear: () => void;
+  onShowAll: () => void;
+}) {
   const [cursor, setCursor] = useState<string | undefined>();
   const [pages, setPages] = useState<Run[]>([]);
   const { data, isLoading, isError } = useRuns("prediction", cursor, filters);
+  // ponytail: the newest 200 protocols only; a workspace past that loses older names here
+  // (and in the Protocol filter). Upgrade: a published-only filter or a lookup by id.
   const protocols = useProtocols(undefined, 200);
   const memberName = useMemberName();
 
@@ -65,7 +75,14 @@ function RunRows({
 
       {data && items.length === 0 && (
         <div className="rounded-lg border border-dashed border-border p-10 text-center">
-          {filtered ? (
+          {onlyMine ? (
+            <>
+              <p className="text-sm font-medium">You have no runs yet.</p>
+              <Button variant="outline" className="mt-4" onClick={onShowAll}>
+                Show all runs
+              </Button>
+            </>
+          ) : filtered ? (
             <>
               <p className="text-sm font-medium">No runs match these filters.</p>
               <Button variant="outline" className="mt-4" onClick={onClear}>
@@ -162,6 +179,7 @@ function RunRows({
 
 export function RunList() {
   const { params, set } = useUrlParams();
+  // ponytail: newest 200 protocols only, as in RunRows. Upgrade: a published-only filter.
   const protocols = useProtocols(undefined, 200);
   const folders = useFolders("protocol");
 
@@ -313,7 +331,9 @@ export function RunList() {
         key={JSON.stringify(filters)}
         filters={filters}
         filtered={filtered}
+        onlyMine={mine && !protocolId && !status && !folderId && !q}
         onClear={clear}
+        onShowAll={() => set({ mine: "0" })}
       />
     </div>
   );

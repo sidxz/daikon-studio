@@ -19,15 +19,21 @@ function DatasetRow({
 }: { dataset: Dataset; folderName?: string; draggable: boolean }) {
   const creator = useMemberName()(dataset.created_by);
   return (
-    <Link
-      href={`/datasets/${dataset.id}`}
+    // A div card with a stretched title link: the menu is a sibling, not nested in the <a>.
+    <div
       draggable={draggable}
       onDragStart={(e) => setDragItem(e, "dataset", dataset.id)}
-      className="flex h-full flex-col gap-2 rounded-lg border border-border p-4 transition-colors hover:bg-muted/40"
+      className="relative flex h-full flex-col gap-2 rounded-lg border border-border p-4 transition-colors hover:bg-muted/40"
     >
       <div className="flex items-start justify-between gap-3">
-        <span className="font-medium">{dataset.name}</span>
-        <div className="flex shrink-0 items-center gap-1">
+        <Link
+          href={`/datasets/${dataset.id}`}
+          draggable={false}
+          className="font-medium after:absolute after:inset-0"
+        >
+          {dataset.name}
+        </Link>
+        <div className="relative z-10 flex shrink-0 items-center gap-1">
           <Badge variant="outline" className="font-normal">
             {SPLIT_COPY[dataset.split.strategy].title}
           </Badge>
@@ -50,7 +56,7 @@ function DatasetRow({
         {creator && <span>by {creator}</span>}
         {folderName && <span>{folderName}</span>}
       </div>
-    </Link>
+    </div>
   );
 }
 
