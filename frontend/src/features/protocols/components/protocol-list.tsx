@@ -1,13 +1,14 @@
 "use client";
 
+import { FolderStrip, MoveToFolderMenu, setDragItem, useFolders } from "@/features/folders";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Progress } from "@/shared/components/ui/progress";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
+import { useUrlParams } from "@/shared/lib/use-url-params";
 import { Plus } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useActiveTrainingRuns, useProtocols } from "../hooks/use-protocols";
 import type { Protocol } from "../types";
@@ -43,11 +44,12 @@ function InTraining() {
   );
 }
 
-function ProtocolGrid({ mine }: { mine: boolean }) {
+function ProtocolGrid({ mine, folderId }: { mine: boolean; folderId: string | undefined }) {
   const [cursor, setCursor] = useState<string | undefined>();
   const [pages, setPages] = useState<Protocol[]>([]);
-  const { data, isLoading, isError } = useProtocols(cursor, undefined, { mine });
+  const { data, isLoading, isError } = useProtocols(cursor, undefined, { mine, folderId });
   const memberName = useMemberName();
+  const folders = useFolders("protocol").data;
 
   const items = cursor ? [...pages, ...(data?.items ?? [])] : (data?.items ?? []);
 
@@ -68,7 +70,11 @@ function ProtocolGrid({ mine }: { mine: boolean }) {
 
       {data && items.length === 0 && (
         <div className="rounded-lg border border-dashed border-border p-10 text-center">
-          {mine ? (
+          {folderId ? (
+            <p className="text-sm font-medium">
+              This folder is empty. Drag a protocol here or use Move to folder.
+            </p>
+          ) : mine ? (
             <p className="text-sm font-medium">You have not trained a protocol yet.</p>
           ) : (
             <>
@@ -85,26 +91,39 @@ function ProtocolGrid({ mine }: { mine: boolean }) {
         <div className="grid items-stretch gap-3 sm:grid-cols-2">
           {items.map((protocol) => {
             const creator = memberName(protocol.created_by);
+            const folder = folderId
+              ? undefined
+              : folders?.items.find((candidate) => candidate.id === protocol.folder_id);
             return (
               <Link
                 key={protocol.id}
                 href={`/protocols/${protocol.id}`}
+                draggable={folders?.can_edit}
+                onDragStart={(e) => setDragItem(e, "protocol", protocol.id)}
                 className="flex h-full flex-col gap-2 rounded-lg border border-border p-4 transition-colors hover:bg-muted/40"
               >
                 <div className="flex items-start justify-between gap-3">
                   <span className="font-medium">{protocol.name}</span>
-                  <Badge
-                    variant={protocol.status === "draft" ? "outline" : "default"}
-                    className="shrink-0 font-normal"
-                  >
-                    {protocol.status === "draft" ? "Draft" : "Published"}
-                  </Badge>
+                  <div className="flex shrink-0 items-center gap-1">
+                    <Badge
+                      variant={protocol.status === "draft" ? "outline" : "default"}
+                      className="font-normal"
+                    >
+                      {protocol.status === "draft" ? "Draft" : "Published"}
+                    </Badge>
+                    <MoveToFolderMenu
+                      kind="protocol"
+                      itemId={protocol.id}
+                      currentFolderId={protocol.folder_id}
+                    />
+                  </div>
                 </div>
                 <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span className="font-mono">{protocol.engine_id}</span>
                   <span>v{protocol.protocol_version}</span>
                   <span>{new Date(protocol.created_at).toLocaleDateString()}</span>
                   {creator && <span>by {creator}</span>}
+                  {folder && <span>{folder.name}</span>}
                 </div>
               </Link>
             );
@@ -130,18 +149,10 @@ function ProtocolGrid({ mine }: { mine: boolean }) {
 }
 
 export function ProtocolList() {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const mine = searchParams.get("mine") === "1";
-
-  const setMine = (next: boolean) => {
-    const params = new URLSearchParams(searchParams.toString());
-    if (next) params.set("mine", "1");
-    else params.delete("mine");
-    const query = params.toString();
-    router.replace(query ? `${pathname}?${query}` : pathname);
-  };
+  const { params, set } = useUrlParams();
+  const mine = params.get("mine") === "1";
+  const folderId = params.get("folder") ?? undefined;
+  const setMine = (next: boolean) => set({ mine: next ? "1" : undefined });
 
   return (
     <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
@@ -181,9 +192,11 @@ export function ProtocolList() {
         </Button>
       </fieldset>
 
+      <FolderStrip kind="protocol" activeId={folderId} onSelect={(id) => set({ folder: id })} />
+
       <InTraining />
 
-      <ProtocolGrid key={String(mine)} mine={mine} />
+      <ProtocolGrid key={`${mine}-${folderId}`} mine={mine} folderId={folderId} />
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { customInstance } from "@/shared/lib/api/custom-instance";
 import type { RunResponse } from "@/shared/lib/api/model";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProtocolList } from "./protocol-list";
@@ -119,7 +119,11 @@ describe("the Mine filter and creators", () => {
     render(<ProtocolList />, { wrapper: Wrapper });
 
     expect(screen.getByRole("button", { name: "Mine" })).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
+    expect(
+      within(screen.getByRole("group", { name: "Protocol owner" })).getByRole("button", {
+        name: "All",
+      }),
+    ).toHaveAttribute("aria-pressed", "false");
     await waitFor(() =>
       expect(customInstance).toHaveBeenCalledWith(
         expect.objectContaining({
