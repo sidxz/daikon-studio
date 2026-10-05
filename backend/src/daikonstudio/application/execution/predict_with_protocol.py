@@ -58,6 +58,7 @@ from daikonstudio.application.catalog.chemical_space import (
     neighbours_parquet,
 )
 from daikonstudio.application.catalog.derive_readouts import target_columns_of
+from daikonstudio.application.catalog.visibility import visible_protocol
 from daikonstudio.application.data.create_dataset import upload_key, upload_source_key
 from daikonstudio.application.data.prepare_frame import read_csv_upload
 from daikonstudio.application.engines.context import EpochPoint, PredictContext
@@ -76,6 +77,7 @@ from daikonstudio.application.execution.train_protocol import (
 )
 from daikonstudio.application.pagination import PageResult, clamp_limit
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
@@ -161,7 +163,9 @@ class PredictWithProtocol:
         store: BlobStore,
         enqueuer: JobEnqueuer,
         engines: EngineRegistry,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._protocols = protocols
         self._runs = runs
         self._store = store
@@ -179,7 +183,9 @@ class PredictWithProtocol:
         # Protocol from another workspace does not exist as far as this call is
         # concerned. "Colleague" means another user of the *same* workspace --
         # publishing shares a Protocol across the people in it, not across tenants.
-        protocol = await self._protocols.get(auth.workspace_id, command.protocol_id)
+        protocol = await visible_protocol(
+            self._protocols, self._access, auth, auth.workspace_id, command.protocol_id
+        )
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(command.protocol_id)))
         if not protocol.is_locked:
@@ -588,8 +594,13 @@ class GetPredictionResults:
     """
 
     def __init__(
-        self, runs: RunRepository, protocols: ProtocolRepository, store: BlobStore
+        self,
+        runs: RunRepository,
+        protocols: ProtocolRepository,
+        store: BlobStore,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._runs = runs
         self._protocols = protocols
         self._store = store
@@ -610,7 +621,9 @@ class GetPredictionResults:
             )
         limit = clamp_limit(query.limit)
 
-        loaded = await load_results(self._runs, self._protocols, self._store, query.run_id, auth)
+        loaded = await load_results(
+            self._runs, self._protocols, self._store, query.run_id, auth, self._access
+        )
         if not is_successful(loaded):
             return Failure(loaded.failure())
         _, protocol, frame = loaded.unwrap()
@@ -683,6 +696,7 @@ async def load_results(
     store: BlobStore,
     run_id: uuid.UUID,
     auth: AuthContext | None,
+    access: ProtocolAccess,
 ) -> Result[tuple[Run, InSilicoProtocol, pl.DataFrame], DomainError]:
     """A finished prediction Run, its Protocol and its whole results file."""
     require_authenticated(auth)
@@ -703,7 +717,7 @@ async def load_results(
         )
 
     protocol_id = uuid.UUID(run.params["protocol_id"])
-    protocol = await protocols.get(auth.workspace_id, protocol_id)
+    protocol = await visible_protocol(protocols, access, auth, auth.workspace_id, protocol_id)
     if protocol is None:
         return Failure(NotFoundError("Protocol", str(protocol_id)))
 
@@ -739,8 +753,13 @@ class GetPredictionResultRanges:
     since a page holds a hundred rows of however many the Run scored."""
 
     def __init__(
-        self, runs: RunRepository, protocols: ProtocolRepository, store: BlobStore
+        self,
+        runs: RunRepository,
+        protocols: ProtocolRepository,
+        store: BlobStore,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._runs = runs
         self._protocols = protocols
         self._store = store
@@ -748,7 +767,9 @@ class GetPredictionResultRanges:
     async def __call__(
         self, query: GetPredictionResultRangesQuery, auth: AuthContext | None = None
     ) -> Result[dict[str, ColumnRange], DomainError]:
-        loaded = await load_results(self._runs, self._protocols, self._store, query.run_id, auth)
+        loaded = await load_results(
+            self._runs, self._protocols, self._store, query.run_id, auth, self._access
+        )
         if not is_successful(loaded):
             return Failure(loaded.failure())
         _, protocol, frame = loaded.unwrap()

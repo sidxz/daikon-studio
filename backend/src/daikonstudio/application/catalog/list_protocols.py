@@ -22,12 +22,14 @@ from dataclasses import dataclass
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated
+from daikonstudio.application.catalog.visibility import visible_protocol
 from daikonstudio.application.pagination import (
     PageResult,
     clamp_limit,
     encode_ts_cursor,
     parse_ts_cursor,
 )
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
@@ -39,11 +41,14 @@ class ListProtocolsQuery:
     limit: int | None = None
     # Only the Protocols trained on this Dataset: what stands between it and deletion.
     dataset_id: uuid.UUID | None = None
+    # Only the Protocols the caller created.
+    mine: bool = False
 
 
 class ListProtocols:
-    def __init__(self, repository: ProtocolRepository) -> None:
+    def __init__(self, repository: ProtocolRepository, access: ProtocolAccess) -> None:
         self._repository = repository
+        self._access = access
 
     async def __call__(
         self, query: ListProtocolsQuery, auth: AuthContext | None = None
@@ -57,8 +62,14 @@ class ListProtocols:
             return Failure(error)
         # Fetch one more than asked for: if it comes back, there is another page,
         # which is cheaper and more truthful than a COUNT over the whole table.
+        visible = await self._access.visible_ids(auth)
         protocols = await self._repository.list(
-            auth.workspace_id, cursor=cursor, limit=limit + 1, dataset_id=query.dataset_id
+            auth.workspace_id,
+            cursor=cursor,
+            limit=limit + 1,
+            dataset_id=query.dataset_id,
+            only_ids=visible,
+            created_by=auth.user_id if query.mine else None,
         )
         next_cursor = None
         if len(protocols) > limit:
@@ -73,15 +84,18 @@ class GetProtocolQuery:
 
 
 class GetProtocol:
-    def __init__(self, repository: ProtocolRepository) -> None:
+    def __init__(self, repository: ProtocolRepository, access: ProtocolAccess) -> None:
         self._repository = repository
+        self._access = access
 
     async def __call__(
         self, query: GetProtocolQuery, auth: AuthContext | None = None
     ) -> Result[InSilicoProtocol, DomainError]:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
-        protocol = await self._repository.get(auth.workspace_id, query.protocol_id)
+        protocol = await visible_protocol(
+            self._repository, self._access, auth, auth.workspace_id, query.protocol_id
+        )
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(query.protocol_id)))
         return Success(protocol)

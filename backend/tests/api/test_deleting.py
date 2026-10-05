@@ -50,10 +50,12 @@ async def test_a_draft_is_deletable_by_its_creator_until_it_is_published(
 
     assert (await client.get(url)).json()["can_delete"] is True
     assert (await admin_client.get(url)).json()["can_delete"] is True
-    assert (await other_editor_client.get(url)).json()["can_delete"] is False
+    # A colleague cannot see the draft at all.
+    assert (await other_editor_client.get(url)).status_code == 404
 
     assert (await client.post(f"{url}/publish")).status_code == 204
     assert (await client.get(url)).json()["can_delete"] is False
+    assert (await other_editor_client.get(url)).json()["can_delete"] is False
     assert (await admin_client.get(url)).json()["can_delete"] is False
 
 
@@ -93,12 +95,10 @@ async def test_only_the_creator_or_an_admin_may_delete_a_draft(
     _, protocol_id = await _train_protocol(client, dataset_id)
     url = f"/api/v1/protocols/{protocol_id}"
 
-    refused = await other_editor_client.delete(url)
-    assert refused.status_code == 403
-    assert refused.json()["message"] == (
-        "Only an admin or the person who created it can delete this."
-    )
-    assert (await viewer_client.delete(url)).status_code == 403
+    # A draft is invisible to everyone but its creator and admins, so for anyone else
+    # delete is a 404: a 403 would confirm it exists.
+    assert (await other_editor_client.delete(url)).status_code == 404
+    assert (await viewer_client.delete(url)).status_code == 404
     assert (await other_workspace_client.delete(url)).status_code == 404
     assert (await admin_client.delete(url)).status_code == 204
 
@@ -159,7 +159,8 @@ async def test_a_dataset_with_a_protocol_is_refused_until_the_draft_is_deleted(c
     refused = await client.delete(f"/api/v1/datasets/{dataset_id}")
     assert refused.status_code == 409
     assert refused.json()["message"] == (
-        "Protocols trained on this dataset must be deleted first. "
+        "Protocols trained on this dataset must be deleted first, "
+        "including drafts you may not be able to see. "
         "A dataset used by a published protocol cannot be deleted."
     )
     listing = await client.get("/api/v1/protocols", params={"dataset_id": dataset_id})

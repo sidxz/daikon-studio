@@ -130,12 +130,13 @@ class Studio:
         self.runs = SqlAlchemyRunRepository(sessions)
         self._upload = StoreUpload(self.store)
         self._create_dataset = CreateDataset(self.datasets, self.store, self.normalizer)
-        enqueuer = InlineEnqueuer(sessions, self.store, FakeProtocolAccess())
+        self.access = FakeProtocolAccess()
+        enqueuer = InlineEnqueuer(sessions, self.store, self.access)
         self._train = TrainProtocol(self.datasets, self.runs, enqueuer, default_registry())
         self._predict = PredictWithProtocol(
-            self.protocols, self.runs, self.store, enqueuer, default_registry()
+            self.protocols, self.runs, self.store, enqueuer, default_registry(), self.access
         )
-        self._publish = PublishProtocol(self.protocols)
+        self._publish = PublishProtocol(self.protocols, self.access)
 
     async def upload(self, data: bytes) -> str:
         return str((await self._upload(data, self.auth)).unwrap())
@@ -205,7 +206,9 @@ class Studio:
         version-invalidates-cache property, not the training pipeline again.
         """
         child = protocol.new_version(artifact_uri=protocol.artifact_uri)
+        child.created_by = self.auth.user_id  # `new_version` does not carry its creator
         await self.protocols.add(child)
+        await self.access.register(child)
         return (
             await self._publish(PublishProtocolCommand(protocol_id=child.id), self.auth)
         ).unwrap()

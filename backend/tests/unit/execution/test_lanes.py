@@ -37,6 +37,7 @@ from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ValidationReport
 from daikonstudio.domain.shared.errors import NotFoundError
 from tests.fakes.auth import FakeAuth
+from tests.fakes.protocol_access import FakeProtocolAccess
 
 
 class _StubEngine:
@@ -217,7 +218,7 @@ async def test_the_baseline_pair_changes_the_cache_key(training_setup: Any) -> N
 def prediction_setup() -> Any:
     """Builds PredictWithProtocol against stubs, with a published Protocol whose
     engine declares lane='gpu'."""
-    auth = FakeAuth()
+    auth = FakeAuth(workspace_role="admin")  # admins see every protocol
     protocol = InSilicoProtocol(
         workspace_id=auth.workspace_id,
         name="a published protocol",
@@ -241,6 +242,7 @@ def prediction_setup() -> Any:
         _StubStore(),
         enqueuer,
         registry,
+        FakeProtocolAccess(),
     )
     command = PredictWithProtocolCommand(
         protocol_id=protocol.id, upload_ref=str(uuid.uuid4()), structure_column="smiles"

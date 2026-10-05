@@ -23,6 +23,7 @@ from daikonstudio.domain.catalog.readout import Readout, ReadoutType
 from daikonstudio.domain.execution.scorecard import Scorecard
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from tests.fakes.auth import FakeAuth
+from tests.fakes.protocol_access import FakeProtocolAccess
 
 
 class _FakeProtocol:
@@ -107,7 +108,7 @@ class _NoDatasets:
 
 
 async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
-    auth = FakeAuth()
+    auth = FakeAuth(workspace_role="admin")  # admins see every protocol
     protocol = _FakeProtocol(auth.workspace_id, uuid.uuid4())
     inputs = _inputs(protocol.id)
     seen: list[threading.Thread] = []
@@ -152,6 +153,7 @@ async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:
         _FakeStore(inputs.to_json()),
         normalizer=RdkitStructureNormalizer(),
         datasets=_NoDatasets(),
+        access=FakeProtocolAccess(),
     )
     result = await use_case(GetScorecardQuery(protocol_id=protocol.id), auth)
 
@@ -165,10 +167,15 @@ async def _scorecards_from_blob(
 ) -> list[Scorecard]:
     protocol = _FakeProtocol(workspace_id, protocol_id)
     use_case = GetScorecard(
-        _FakeProtocols(protocol), _FakeStore(blob), RdkitStructureNormalizer(), _NoDatasets()
+        _FakeProtocols(protocol),
+        _FakeStore(blob),
+        RdkitStructureNormalizer(),
+        _NoDatasets(),
+        FakeProtocolAccess(),
     )
     result = await use_case(
-        GetScorecardQuery(protocol_id=protocol_id), auth=FakeAuth(workspace_id=workspace_id)
+        GetScorecardQuery(protocol_id=protocol_id),
+        auth=FakeAuth(workspace_id=workspace_id, workspace_role="admin"),
     )
     return result.unwrap()
 
@@ -277,11 +284,15 @@ async def test_chemistry_is_computed_once_stored_and_then_only_read(monkeypatch)
     """A Protocol trained before training stored its chemistry: the first view computes
     it, every later one reads it. Computing it on each view starved prod's API."""
     calls = _counting_chemistry(monkeypatch)
-    auth = FakeAuth()
+    auth = FakeAuth(workspace_role="admin")  # admins see every protocol
     protocol = _FakeProtocol(auth.workspace_id, uuid.uuid4())
     store = _FakeStore(_inputs(protocol.id).to_json())
     use_case = GetScorecard(
-        _FakeProtocols(protocol), store, RdkitStructureNormalizer(), _NoDatasets()
+        _FakeProtocols(protocol),
+        store,
+        RdkitStructureNormalizer(),
+        _NoDatasets(),
+        FakeProtocolAccess(),
     )
 
     first = (await use_case(GetScorecardQuery(protocol_id=protocol.id), auth)).unwrap()
@@ -296,11 +307,15 @@ async def test_simultaneous_first_views_share_one_computation(monkeypatch) -> No
     import asyncio
 
     calls = _counting_chemistry(monkeypatch)
-    auth = FakeAuth()
+    auth = FakeAuth(workspace_role="admin")  # admins see every protocol
     protocol = _FakeProtocol(auth.workspace_id, uuid.uuid4())
     store = _FakeStore(_inputs(protocol.id).to_json())
     use_case = GetScorecard(
-        _FakeProtocols(protocol), store, RdkitStructureNormalizer(), _NoDatasets()
+        _FakeProtocols(protocol),
+        store,
+        RdkitStructureNormalizer(),
+        _NoDatasets(),
+        FakeProtocolAccess(),
     )
 
     results = await asyncio.gather(

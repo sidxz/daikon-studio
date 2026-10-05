@@ -34,7 +34,8 @@ logger = logging.getLogger(__name__)
 _ACTIVE = {RunStatus.PENDING, RunStatus.RUNNING}
 
 PROTOCOLS_FIRST = (
-    "Protocols trained on this dataset must be deleted first. "
+    "Protocols trained on this dataset must be deleted first, "
+    "including drafts you may not be able to see. "
     "A dataset used by a published protocol cannot be deleted."
 )
 

@@ -15,9 +15,11 @@ from dataclasses import dataclass
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
+from daikonstudio.application.catalog.visibility import visible_protocol
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
-from daikonstudio.domain.shared.errors import DomainError, NotFoundError
+from daikonstudio.domain.shared.errors import DataLockedError, DomainError, NotFoundError
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -26,8 +28,9 @@ class PublishProtocolCommand:
 
 
 class PublishProtocol:
-    def __init__(self, repository: ProtocolRepository) -> None:
+    def __init__(self, repository: ProtocolRepository, access: ProtocolAccess) -> None:
         self._repository = repository
+        self._access = access
 
     async def __call__(
         self, command: PublishProtocolCommand, auth: AuthContext | None = None
@@ -36,10 +39,16 @@ class PublishProtocol:
         require_editor(auth)
         assert auth is not None  # require_authenticated has already rejected None
 
-        protocol = await self._repository.get(auth.workspace_id, command.protocol_id)
+        protocol = await visible_protocol(
+            self._repository, self._access, auth, auth.workspace_id, command.protocol_id
+        )
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(command.protocol_id)))
+        if protocol.is_locked:
+            return Failure(DataLockedError("This protocol is already published."))
 
+        # Duar first: if it fails, the protocol stays a draft and Publish can be retried.
+        await self._access.make_workspace_visible(auth, protocol)
         try:
             protocol.publish()
         except DomainError as error:

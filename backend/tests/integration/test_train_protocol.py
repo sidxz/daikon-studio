@@ -627,6 +627,7 @@ async def test_a_retried_run_resumes_from_the_fits_an_earlier_attempt_saved(
         InlineEnqueuer(studio.sessions, studio.store, FakeProtocolAccess()),
         default_registry(),
         studio.store,
+        FakeProtocolAccess(),
     )
     (await retry(RetryRunCommand(run_id=run.id), studio.auth)).unwrap()
 
@@ -1325,6 +1326,7 @@ async def test_each_stages_epochs_are_stored_and_a_retry_starts_them_over(
         InlineEnqueuer(studio.sessions, studio.store, FakeProtocolAccess()),
         default_registry(),
         studio.store,
+        FakeProtocolAccess(),
     )
     (await retry(RetryRunCommand(run_id=run.id), studio.auth)).unwrap()
 

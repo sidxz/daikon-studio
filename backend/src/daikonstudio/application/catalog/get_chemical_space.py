@@ -26,10 +26,12 @@ from daikonstudio.application.catalog.chemical_space import (
     read_neighbours,
     read_points,
 )
+from daikonstudio.application.catalog.visibility import visible_protocol
 from daikonstudio.application.data.compound_ids import read_compound_ids
 from daikonstudio.application.execution.build_scorecard import _APPLICABILITY_THRESHOLD
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
@@ -124,7 +126,13 @@ def _too_many(count: int) -> ValidationError | None:
 
 
 class GetProtocolChemicalSpace:
-    def __init__(self, protocols: ProtocolRepository, store: BlobStore) -> None:
+    def __init__(
+        self,
+        protocols: ProtocolRepository,
+        store: BlobStore,
+        access: ProtocolAccess,
+    ) -> None:
+        self._access = access
         self._protocols = protocols
         self._store = store
 
@@ -133,7 +141,9 @@ class GetProtocolChemicalSpace:
     ) -> Result[ChemicalSpaceView, DomainError]:
         require_authenticated(auth)
         assert auth is not None
-        protocol = await self._protocols.get(auth.workspace_id, query.protocol_id)
+        protocol = await visible_protocol(
+            self._protocols, self._access, auth, auth.workspace_id, query.protocol_id
+        )
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(query.protocol_id)))
         meta = read_meta(self._store, protocol.workspace_id, protocol.id)
@@ -158,8 +168,13 @@ class GetProtocolChemicalSpace:
 
 class GetProtocolChemicalSpaceCompounds:
     def __init__(
-        self, protocols: ProtocolRepository, store: BlobStore, datasets: DatasetRepository
+        self,
+        protocols: ProtocolRepository,
+        store: BlobStore,
+        datasets: DatasetRepository,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._protocols = protocols
         self._store = store
         self._datasets = datasets
@@ -171,7 +186,9 @@ class GetProtocolChemicalSpaceCompounds:
         assert auth is not None
         if error := _too_many(len(query.indices)):
             return Failure(error)
-        protocol = await self._protocols.get(auth.workspace_id, query.protocol_id)
+        protocol = await visible_protocol(
+            self._protocols, self._access, auth, auth.workspace_id, query.protocol_id
+        )
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(query.protocol_id)))
         try:
@@ -211,6 +228,7 @@ async def _ready_prediction(
     protocols: ProtocolRepository,
     auth: AuthContext,
     run_id: uuid.UUID,
+    access: ProtocolAccess,
 ) -> tuple[Run, InSilicoProtocol] | DomainError:
     """The same guards as the results endpoint, so the two agree about which runs exist."""
     run = await runs.get(auth.workspace_id, run_id)
@@ -221,7 +239,7 @@ async def _ready_prediction(
             f"The map is available only for completed runs; this run is {run.status.label}."
         )
     protocol_id = uuid.UUID(run.params["protocol_id"])
-    protocol = await protocols.get(auth.workspace_id, protocol_id)
+    protocol = await visible_protocol(protocols, access, auth, auth.workspace_id, protocol_id)
     if protocol is None:
         return NotFoundError("Protocol", str(protocol_id))
     return run, protocol
@@ -229,8 +247,13 @@ async def _ready_prediction(
 
 class GetRunChemicalSpace:
     def __init__(
-        self, runs: RunRepository, protocols: ProtocolRepository, store: BlobStore
+        self,
+        runs: RunRepository,
+        protocols: ProtocolRepository,
+        store: BlobStore,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._runs = runs
         self._protocols = protocols
         self._store = store
@@ -240,7 +263,9 @@ class GetRunChemicalSpace:
     ) -> Result[RunChemicalSpaceView, DomainError]:
         require_authenticated(auth)
         assert auth is not None
-        found = await _ready_prediction(self._runs, self._protocols, auth, query.run_id)
+        found = await _ready_prediction(
+            self._runs, self._protocols, auth, query.run_id, self._access
+        )
         if isinstance(found, DomainError):
             return Failure(found)
         run, protocol = found
@@ -285,8 +310,13 @@ class GetRunChemicalSpace:
 
 class GetRunChemicalSpaceCompounds:
     def __init__(
-        self, runs: RunRepository, protocols: ProtocolRepository, store: BlobStore
+        self,
+        runs: RunRepository,
+        protocols: ProtocolRepository,
+        store: BlobStore,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._runs = runs
         self._protocols = protocols
         self._store = store
@@ -298,7 +328,9 @@ class GetRunChemicalSpaceCompounds:
         assert auth is not None
         if error := _too_many(len(query.rows)):
             return Failure(error)
-        found = await _ready_prediction(self._runs, self._protocols, auth, query.run_id)
+        found = await _ready_prediction(
+            self._runs, self._protocols, auth, query.run_id, self._access
+        )
         if isinstance(found, DomainError):
             return Failure(found)
         run, protocol = found

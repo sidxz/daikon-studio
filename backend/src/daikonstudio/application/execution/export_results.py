@@ -37,6 +37,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
 )
 from daikonstudio.application.execution.result_view import RangeFilter, SortSpec
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
@@ -63,8 +64,13 @@ class ExportPredictionResultsQuery:
 
 class ExportPredictionResults:
     def __init__(
-        self, runs: RunRepository, protocols: ProtocolRepository, store: BlobStore
+        self,
+        runs: RunRepository,
+        protocols: ProtocolRepository,
+        store: BlobStore,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._runs = runs
         self._protocols = protocols
         self._store = store
@@ -72,7 +78,9 @@ class ExportPredictionResults:
     async def __call__(
         self, query: ExportPredictionResultsQuery, auth: AuthContext | None = None
     ) -> Result[bytes, DomainError]:
-        loaded = await load_results(self._runs, self._protocols, self._store, query.run_id, auth)
+        loaded = await load_results(
+            self._runs, self._protocols, self._store, query.run_id, auth, self._access
+        )
         if not is_successful(loaded):
             return Failure(loaded.failure())
         run, protocol, frame = loaded.unwrap()

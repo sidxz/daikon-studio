@@ -183,9 +183,17 @@ def _client(app, headers: dict[str, str] | None) -> httpx.AsyncClient:
     )
 
 
+@pytest.fixture
+def client_user_id() -> uuid.UUID:
+    """`client`'s user id, so a test can assert `created_by`/`requested_by` exactly."""
+    return uuid.uuid4()
+
+
 @pytest_asyncio.fixture
-async def client(app, signing_key, workspace_id) -> AsyncIterator[httpx.AsyncClient]:
-    headers = auth_headers(signing_key[0], workspace_id=workspace_id)
+async def client(
+    app, signing_key, workspace_id, client_user_id
+) -> AsyncIterator[httpx.AsyncClient]:
+    headers = auth_headers(signing_key[0], workspace_id=workspace_id, user_id=client_user_id)
     async with _client(app, headers) as http_client:
         yield http_client
 

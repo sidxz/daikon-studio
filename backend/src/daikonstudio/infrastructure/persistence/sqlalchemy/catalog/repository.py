@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CursorResult, Select, select, tuple_
+from sqlalchemy import CursorResult, Select, false, select, tuple_
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
@@ -191,6 +191,8 @@ class SqlAlchemyProtocolRepository:
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
         dataset_id: uuid.UUID | None = None,
+        only_ids: frozenset[uuid.UUID] | None = None,
+        created_by: uuid.UUID | None = None,
     ) -> list[InSilicoProtocol]:
         statement = (
             select(InSilicoProtocolModel)
@@ -199,6 +201,12 @@ class SqlAlchemyProtocolRepository:
         )
         if dataset_id is not None:
             statement = statement.where(InSilicoProtocolModel.dataset_id == dataset_id)
+        if only_ids is not None:
+            statement = statement.where(
+                InSilicoProtocolModel.id.in_(only_ids) if only_ids else false()
+            )
+        if created_by is not None:
+            statement = statement.where(InSilicoProtocolModel.created_by == created_by)
         if cursor is not None:
             statement = statement.where(
                 tuple_(InSilicoProtocolModel.created_at, InSilicoProtocolModel.id) < cursor

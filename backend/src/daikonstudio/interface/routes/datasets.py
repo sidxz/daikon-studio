@@ -217,6 +217,7 @@ class DatasetResponse(BaseModel):
     id_column: str | None
     # Whether this viewer may change its settings (the identifier column).
     can_edit: bool
+    created_by: uuid.UUID | None
 
     @classmethod
     def from_domain(cls, dataset: Dataset, *, auth: AuthContext | None) -> DatasetResponse:
@@ -238,6 +239,7 @@ class DatasetResponse(BaseModel):
             can_delete=may_delete(auth, dataset.created_by),
             id_column=dataset.id_column,
             can_edit=is_editor(auth),
+            created_by=dataset.created_by,
         )
 
 

@@ -155,6 +155,7 @@ class ProtocolResponse(BaseModel):
     created_at: datetime
     # Whether this viewer may delete it: a draft, and an admin or its creator.
     can_delete: bool
+    created_by: uuid.UUID | None
 
     @classmethod
     def from_domain(
@@ -176,6 +177,7 @@ class ProtocolResponse(BaseModel):
             protocol_version=protocol.protocol_version,
             created_at=protocol.created_at,
             can_delete=not protocol.is_locked and may_delete(auth, protocol.created_by),
+            created_by=protocol.created_by,
         )
 
 
@@ -412,10 +414,12 @@ async def list_protocols(
     cursor: str | None = None,
     limit: int | None = None,
     dataset_id: uuid.UUID | None = None,
+    mine: bool = False,
 ) -> PaginatedResponse[ProtocolResponse]:
     page = result_to_response(
         await service(
-            ListProtocolsQuery(cursor=cursor, limit=limit, dataset_id=dataset_id), auth=auth
+            ListProtocolsQuery(cursor=cursor, limit=limit, dataset_id=dataset_id, mine=mine),
+            auth=auth,
         )
     )
     return PaginatedResponse(

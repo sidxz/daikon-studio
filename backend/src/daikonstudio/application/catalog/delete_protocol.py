@@ -24,7 +24,9 @@ from daikonstudio.application.auth import (
     require_authenticated,
     require_may_delete,
 )
+from daikonstudio.application.catalog.visibility import visible_protocol
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import RunStatus
@@ -49,8 +51,13 @@ class DeleteProtocolCommand:
 
 class DeleteProtocol:
     def __init__(
-        self, protocols: ProtocolRepository, runs: RunRepository, store: BlobStore
+        self,
+        protocols: ProtocolRepository,
+        runs: RunRepository,
+        store: BlobStore,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._protocols = protocols
         self._runs = runs
         self._store = store
@@ -61,7 +68,9 @@ class DeleteProtocol:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
 
-        protocol = await self._protocols.get(auth.workspace_id, command.protocol_id)
+        protocol = await visible_protocol(
+            self._protocols, self._access, auth, auth.workspace_id, command.protocol_id
+        )
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(command.protocol_id)))
         require_may_delete(auth, protocol.created_by)

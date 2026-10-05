@@ -43,7 +43,14 @@ class AccessControlledProtocolRepository:
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
         dataset_id: uuid.UUID | None = None,
+        only_ids: frozenset[uuid.UUID] | None = None,
+        created_by: uuid.UUID | None = None,
     ) -> list[InSilicoProtocol]:
         return await self._inner.list(
-            workspace_id, cursor=cursor, limit=limit, dataset_id=dataset_id
+            workspace_id,
+            cursor=cursor,
+            limit=limit,
+            dataset_id=dataset_id,
+            only_ids=only_ids,
+            created_by=created_by,
         )

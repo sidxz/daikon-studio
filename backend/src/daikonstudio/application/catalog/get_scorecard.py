@@ -23,6 +23,7 @@ from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated
 from daikonstudio.application.catalog.derive_readouts import target_columns_of
+from daikonstudio.application.catalog.visibility import visible_protocol
 from daikonstudio.application.data.compound_ids import read_compound_ids
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.execution.build_scorecard import (
@@ -37,6 +38,7 @@ from daikonstudio.application.execution.train_protocol import (
 )
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.execution.scorecard import Scorecard
@@ -55,7 +57,9 @@ class GetScorecard:
         store: BlobStore,
         normalizer: StructureNormalizer,
         datasets: DatasetRepository,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._protocols = protocols
         self._store = store
         self._normalizer = normalizer
@@ -67,7 +71,9 @@ class GetScorecard:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
 
-        protocol = await self._protocols.get(auth.workspace_id, query.protocol_id)
+        protocol = await visible_protocol(
+            self._protocols, self._access, auth, auth.workspace_id, query.protocol_id
+        )
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(query.protocol_id)))
 

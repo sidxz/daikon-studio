@@ -16,11 +16,13 @@ from dataclasses import dataclass
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
+from daikonstudio.application.catalog.visibility import visible_protocol
 from daikonstudio.application.engines.checkpoints import checkpoint_root
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.train_protocol import training_lane
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import Run, RunKind
@@ -43,7 +45,9 @@ class RetryRun:
         enqueuer: JobEnqueuer,
         engines: EngineRegistry,
         store: BlobStore,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._runs = runs
         self._protocols = protocols
         self._enqueuer = enqueuer
@@ -96,7 +100,9 @@ class RetryRun:
                     self._engines, run.params["engine_id"], run.params.get("baseline_engine_id")
                 )
             protocol_id = uuid.UUID(run.params["protocol_id"])
-            protocol = await self._protocols.get(auth.workspace_id, protocol_id)
+            protocol = await visible_protocol(
+                self._protocols, self._access, auth, auth.workspace_id, protocol_id
+            )
             if protocol is None:
                 raise NotFoundError("Protocol", str(protocol_id))
             return self._engines.get(protocol.engine_id).manifest().lane

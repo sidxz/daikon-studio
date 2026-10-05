@@ -32,9 +32,11 @@ import polars as pl
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
+from daikonstudio.application.catalog.visibility import visible_protocol
 from daikonstudio.application.execution.predict_with_protocol import predictions_key
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.collection_repository import CollectionRepository
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.data.collection import Collection
@@ -74,7 +76,9 @@ class CreateCollection:
         runs: RunRepository,
         protocols: ProtocolRepository,
         store: BlobStore,
+        access: ProtocolAccess,
     ) -> None:
+        self._access = access
         self._collections = collections
         self._runs = runs
         self._protocols = protocols
@@ -110,7 +114,9 @@ class CreateCollection:
             return Failure(ValidationError("Each compound can be selected only once."))
 
         protocol_id = uuid.UUID(run.params["protocol_id"])
-        protocol = await self._protocols.get(auth.workspace_id, protocol_id)
+        protocol = await visible_protocol(
+            self._protocols, self._access, auth, auth.workspace_id, protocol_id
+        )
         if protocol is None:
             return Failure(NotFoundError("Protocol", str(protocol_id)))
 

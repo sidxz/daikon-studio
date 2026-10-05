@@ -261,37 +261,49 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(ListSweeps, lambda c: ListSweeps(_runs(c)))
     container.define(GetSweep, lambda c: GetSweep(_runs(c)))
     container.define(CancelSweep, lambda c: CancelSweep(_runs(c)))
-    container.define(PublishProtocol, lambda c: PublishProtocol(_protocols(c)))
+    container.define(PublishProtocol, lambda c: PublishProtocol(_protocols(c), c[ProtocolAccess]))
     container.define(
-        DeleteProtocol, lambda c: DeleteProtocol(_protocols(c), _runs(c), c[BlobStore])
+        DeleteProtocol,
+        lambda c: DeleteProtocol(_protocols(c), _runs(c), c[BlobStore], c[ProtocolAccess]),
     )
     container.define(
         GetScorecard,
-        lambda c: GetScorecard(_protocols(c), c[BlobStore], c[StructureNormalizer], _datasets(c)),
+        lambda c: GetScorecard(
+            _protocols(c), c[BlobStore], c[StructureNormalizer], _datasets(c), c[ProtocolAccess]
+        ),
     )
     container.define(
         GetProtocolChemicalSpace,
-        lambda c: GetProtocolChemicalSpace(_protocols(c), c[BlobStore]),
+        lambda c: GetProtocolChemicalSpace(_protocols(c), c[BlobStore], c[ProtocolAccess]),
     )
     container.define(
         GetProtocolChemicalSpaceCompounds,
-        lambda c: GetProtocolChemicalSpaceCompounds(_protocols(c), c[BlobStore], _datasets(c)),
+        lambda c: GetProtocolChemicalSpaceCompounds(
+            _protocols(c), c[BlobStore], _datasets(c), c[ProtocolAccess]
+        ),
     )
     container.define(
         GetRunChemicalSpace,
-        lambda c: GetRunChemicalSpace(_runs(c), _protocols(c), c[BlobStore]),
+        lambda c: GetRunChemicalSpace(_runs(c), _protocols(c), c[BlobStore], c[ProtocolAccess]),
     )
     container.define(
         GetRunChemicalSpaceCompounds,
-        lambda c: GetRunChemicalSpaceCompounds(_runs(c), _protocols(c), c[BlobStore]),
+        lambda c: GetRunChemicalSpaceCompounds(
+            _runs(c), _protocols(c), c[BlobStore], c[ProtocolAccess]
+        ),
     )
-    container.define(ListProtocols, lambda c: ListProtocols(_protocols(c)))
-    container.define(GetProtocol, lambda c: GetProtocol(_protocols(c)))
+    container.define(ListProtocols, lambda c: ListProtocols(_protocols(c), c[ProtocolAccess]))
+    container.define(GetProtocol, lambda c: GetProtocol(_protocols(c), c[ProtocolAccess]))
 
     container.define(
         PredictWithProtocol,
         lambda c: PredictWithProtocol(
-            _protocols(c), _runs(c), c[BlobStore], c[JobEnqueuer], c[EngineRegistry]
+            _protocols(c),
+            _runs(c),
+            c[BlobStore],
+            c[JobEnqueuer],
+            c[EngineRegistry],
+            c[ProtocolAccess],
         ),
     )
     container.define(GetRun, lambda c: GetRun(_runs(c)))
@@ -304,23 +316,32 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         RetryRun,
         lambda c: RetryRun(
-            _runs(c), _protocols(c), c[JobEnqueuer], c[EngineRegistry], c[BlobStore]
+            _runs(c),
+            _protocols(c),
+            c[JobEnqueuer],
+            c[EngineRegistry],
+            c[BlobStore],
+            c[ProtocolAccess],
         ),
     )
     container.define(
         GetPredictionResults,
-        lambda c: GetPredictionResults(_runs(c), _protocols(c), c[BlobStore]),
+        lambda c: GetPredictionResults(_runs(c), _protocols(c), c[BlobStore], c[ProtocolAccess]),
     )
 
     container.define(
         CreateCollection,
-        lambda c: CreateCollection(_collections(c), _runs(c), _protocols(c), c[BlobStore]),
+        lambda c: CreateCollection(
+            _collections(c), _runs(c), _protocols(c), c[BlobStore], c[ProtocolAccess]
+        ),
     )
     container.define(GetCollection, lambda c: GetCollection(_collections(c)))
     container.define(ListCollections, lambda c: ListCollections(_collections(c)))
     container.define(
         ExportCollection,
-        lambda c: ExportCollection(_collections(c), _runs(c), _protocols(c), c[BlobStore]),
+        lambda c: ExportCollection(
+            _collections(c), _runs(c), _protocols(c), c[BlobStore], c[ProtocolAccess]
+        ),
     )
 
     return container
