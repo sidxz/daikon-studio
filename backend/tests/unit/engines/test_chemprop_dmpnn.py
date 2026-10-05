@@ -77,6 +77,33 @@ def test_manifest_declares_the_gpu_lane() -> None:
     assert ChempropDMPNN.manifest().lane == "gpu"
 
 
+def test_the_learning_rate_is_the_schedules_peak_and_the_default_is_chemprops_own() -> None:
+    """Saved with the model, so this reads what training was configured with. Unset, the
+    setting must train exactly as before it existed: chemprop's 1e-4 -> 1e-3 -> 1e-4."""
+    import inspect
+    import io
+
+    import torch
+    from chemprop.models import MPNN
+
+    frame = _frame([float(i) for i in range(20)])
+    context = _train_context(frame, TaskType.REGRESSION)
+
+    result = ChempropDMPNN().train(
+        replace(context, conditions={**context.conditions, "learning_rate": 5e-4})
+    )
+
+    saved = torch.load(io.BytesIO(result.artifact), map_location="cpu", weights_only=False)
+    rates = [saved["hyper_parameters"][key] for key in ("init_lr", "max_lr", "final_lr")]
+    assert rates == pytest.approx([5e-5, 5e-4, 5e-5])
+    chemprops = inspect.signature(MPNN).parameters
+    ours = next(c.default for c in ChempropDMPNN.manifest().conditions if c.key == "learning_rate")
+    assert isinstance(ours, float)
+    assert [ours / 10, ours, ours / 10] == pytest.approx(
+        [chemprops[key].default for key in ("init_lr", "max_lr", "final_lr")]
+    )
+
+
 def test_regression_reports_the_shared_metric_vocabulary() -> None:
     frame = _frame([float(i) for i in range(20)])
 

@@ -103,6 +103,21 @@ _MANIFEST = EngineManifest(
             "training data to be beneficial.",
         ),
         ConditionSpec(
+            # The key MoLFormer's setting uses, so a sweep across both engines varies
+            # one setting. Here it is the peak of chemprop's warm-up-then-decay
+            # schedule, hence the label.
+            key="learning_rate",
+            label="Peak learning rate",
+            type=ConditionType.NUMBER,
+            default=1e-3,
+            minimum=1e-6,
+            maximum=1e-2,
+            help="The largest step size of each weight update. Training starts at a tenth "
+            "of it, rises to it over the first two epochs, then decays back to a tenth by "
+            "the last epoch. The default, 0.001, is chemprop's own. Lower it if validation "
+            "loss jumps from one epoch to the next.",
+        ),
+        ConditionSpec(
             key="batch_size",
             label="Batch size",
             type=ConditionType.INTEGER,
@@ -349,6 +364,7 @@ def _build_model(
     criterion: Any = None,
     n_descriptors: int = 0,
     x_d_transform: Any = None,
+    learning_rate: float = 1e-3,
 ) -> Any:
     """The network, before any data touches it.
 
@@ -361,6 +377,9 @@ def _build_model(
     `criterion` replaces the classification head's stock BCE (None keeps it);
     `n_descriptors` widens the predictor's input by that many molecule-level features
     concatenated onto the graph embedding, and `x_d_transform` standardizes them.
+    `learning_rate` is the schedule's peak; it starts and ends at a tenth of that, the
+    ratio of chemprop's own defaults (1e-4, 1e-3, 1e-4), so 1e-3 trains exactly as an
+    unset one did.
     """
     import torch
     from chemprop.models import MPNN
@@ -413,6 +432,9 @@ def _build_model(
         predictor=predictor,
         batch_norm=batch_norm,
         X_d_transform=x_d_transform,
+        init_lr=learning_rate / 10,
+        max_lr=learning_rate,
+        final_lr=learning_rate / 10,
         # Validation scores per epoch, for the run page's live charts (see
         # `_lightning.record_epochs`). Logging only: `keep_best_epoch` selects the epoch,
         # from scores it averages over targets itself (these pool them) or from the
@@ -447,6 +469,7 @@ class ChempropDMPNN:
         hidden = int(conditions["message_hidden_dim"])
         depth = int(conditions["depth"])
         batch_size = int(conditions["batch_size"])
+        learning_rate = float(conditions["learning_rate"])
         pretrained = str(conditions["pretrained"])
         use_descriptors = bool(conditions["rdkit_descriptors"])
         weighting = str(conditions["positive_weighting"])
@@ -557,6 +580,7 @@ class ChempropDMPNN:
                 x_d_transform=None
                 if x_d_scaler is None
                 else ScaleTransform.from_standard_scaler(x_d_scaler),
+                learning_rate=learning_rate,
             )
 
         def fit(index: int) -> tuple[Any, Any]:
