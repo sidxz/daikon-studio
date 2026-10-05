@@ -28,17 +28,17 @@ def _point(epoch: int, **overrides: object) -> dict[str, object]:
     return point
 
 
-async def _claimed_training_run(app, anonymous_client, workspace_id):
-    run = await seed_run(app, workspace_id, kind=RunKind.TRAINING)
+async def _claimed_training_run(app, anonymous_client, workspace_id, requested_by=None):
+    run = await seed_run(app, workspace_id, kind=RunKind.TRAINING, requested_by=requested_by)
     _, headers = await register_runner(app, ["default"])
     await claim(anonymous_client, headers)
     return run, headers
 
 
 async def test_the_page_reads_back_what_the_runner_posted(
-    app, anonymous_client, client, workspace_id
+    app, anonymous_client, client, workspace_id, client_user_id
 ):
-    run, headers = await _claimed_training_run(app, anonymous_client, workspace_id)
+    run, headers = await _claimed_training_run(app, anonymous_client, workspace_id, client_user_id)
 
     posted = await anonymous_client.post(
         f"/api/v1/runner/runs/{run.id}/epochs",
@@ -90,11 +90,11 @@ async def test_a_point_out_of_bounds_is_rejected(app, anonymous_client, workspac
 
 
 async def test_a_redelivered_run_is_charted_from_its_latest_attempt_alone(
-    app, anonymous_client, client, workspace_id
+    app, anonymous_client, client, workspace_id, client_user_id
 ):
     """A runner died mid-fit and the run was claimed again: the second attempt starts
     over at epoch 1, and drawing both would zigzag the curves."""
-    run, headers = await _claimed_training_run(app, anonymous_client, workspace_id)
+    run, headers = await _claimed_training_run(app, anonymous_client, workspace_id, client_user_id)
     await anonymous_client.post(
         f"/api/v1/runner/runs/{run.id}/epochs",
         headers=headers,

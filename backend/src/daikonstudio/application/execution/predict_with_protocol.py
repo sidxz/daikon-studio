@@ -75,6 +75,7 @@ from daikonstudio.application.execution.train_protocol import (
     scorecard_inputs_key,
     unpack_artifact,
 )
+from daikonstudio.application.execution.visibility import run_visible
 from daikonstudio.application.pagination import PageResult, clamp_limit
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
@@ -477,7 +478,8 @@ class GetRun:
     """Read a Run by id, scoped to the caller's workspace -- the poll endpoint
     every kind of Run (training or prediction) shares."""
 
-    def __init__(self, runs: RunRepository) -> None:
+    def __init__(self, runs: RunRepository, access: ProtocolAccess) -> None:
+        self._access = access
         self._runs = runs
 
     async def __call__(
@@ -486,7 +488,7 @@ class GetRun:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
         run = await self._runs.get(auth.workspace_id, query.run_id)
-        if run is None:
+        if run is None or not await run_visible(run, auth, self._access):
             return Failure(NotFoundError("Run", str(query.run_id)))
         return Success(run)
 
@@ -495,7 +497,8 @@ class GetRunEpochs:
     """A training run's finished epochs, for its page's live charts: the latest
     attempt's, oldest first. Empty for a prediction, and for engines with no epochs."""
 
-    def __init__(self, runs: RunRepository) -> None:
+    def __init__(self, runs: RunRepository, access: ProtocolAccess) -> None:
+        self._access = access
         self._runs = runs
 
     async def __call__(
@@ -504,7 +507,8 @@ class GetRunEpochs:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
         # The run is read first for its workspace check: epochs carry no workspace.
-        if await self._runs.get(auth.workspace_id, query.run_id) is None:
+        run = await self._runs.get(auth.workspace_id, query.run_id)
+        if run is None or not await run_visible(run, auth, self._access):
             return Failure(NotFoundError("Run", str(query.run_id)))
         return Success(await self._runs.list_epochs(query.run_id))
 
@@ -520,7 +524,8 @@ class CancelRun:
     `ConflictError`) -- this use case's only job is loading the right row and
     persisting the transition."""
 
-    def __init__(self, runs: RunRepository) -> None:
+    def __init__(self, runs: RunRepository, access: ProtocolAccess) -> None:
+        self._access = access
         self._runs = runs
 
     async def __call__(
@@ -531,7 +536,7 @@ class CancelRun:
         assert auth is not None  # require_authenticated has already rejected None
 
         run = await self._runs.get(auth.workspace_id, command.run_id)
-        if run is None:
+        if run is None or not await run_visible(run, auth, self._access):
             return Failure(NotFoundError("Run", str(command.run_id)))
         try:
             run.cancel()

@@ -52,6 +52,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository imp
 )
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
 from tests.fakes.auth import FakeAuth
+from tests.fakes.protocol_access import FakeProtocolAccess
 
 
 @pytest_asyncio.fixture
@@ -103,7 +104,7 @@ def _mixed_csv() -> bytes:
 
 @pytest.fixture
 def auth() -> FakeAuth:
-    return FakeAuth()
+    return FakeAuth(workspace_role="admin")  # admins see every sweep
 
 
 @pytest_asyncio.fixture
@@ -175,17 +176,17 @@ async def submit_sweep(
 
 @pytest_asyncio.fixture
 async def cancel_sweep(runs_repository: SqlAlchemyRunRepository) -> CancelSweep:
-    return CancelSweep(runs_repository)
+    return CancelSweep(runs_repository, FakeProtocolAccess())
 
 
 @pytest_asyncio.fixture
 async def get_sweep(runs_repository: SqlAlchemyRunRepository) -> GetSweep:
-    return GetSweep(runs_repository)
+    return GetSweep(runs_repository, FakeProtocolAccess())
 
 
 @pytest_asyncio.fixture
 async def list_sweeps(runs_repository: SqlAlchemyRunRepository) -> ListSweeps:
-    return ListSweeps(runs_repository)
+    return ListSweeps(runs_repository, FakeProtocolAccess())
 
 
 def _run(*, workspace_id: uuid.UUID, sweep_id: uuid.UUID | None = None, name: str = "s") -> Run:
@@ -476,7 +477,7 @@ async def test_cancel_sweep_survives_a_version_race_on_one_member(sessions, auth
         def __getattr__(self, name: str):
             return getattr(self._inner, name)
 
-    cancel_sweep = CancelSweep(_RepositoryRacedOnRead(repository))
+    cancel_sweep = CancelSweep(_RepositoryRacedOnRead(repository), FakeProtocolAccess())
 
     result = await cancel_sweep(CancelSweepCommand(sweep_id=sweep_id), auth=auth)
 

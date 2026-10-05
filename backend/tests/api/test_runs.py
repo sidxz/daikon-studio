@@ -841,7 +841,7 @@ async def test_viewer_cannot_retry(
 
 
 async def _failed_training_with_saved_progress(
-    app, session_factory, workspace_id
+    app, session_factory, workspace_id, requested_by
 ) -> tuple[Run, list[str]]:
     """A failed training run with two blobs saved under its checkpoint root.
 
@@ -853,7 +853,7 @@ async def _failed_training_with_saved_progress(
     run = Run(
         kind=RunKind.TRAINING,
         workspace_id=workspace_id,
-        requested_by=uuid.uuid4(),
+        requested_by=requested_by,
         cache_key="retry-training",
         params=TrainProtocolCommand(
             name="solubility model",
@@ -874,9 +874,11 @@ async def _failed_training_with_saved_progress(
 
 
 async def test_start_over_discards_the_saved_progress_before_requeueing(
-    app, client, session_factory, workspace_id
+    app, client, session_factory, workspace_id, client_user_id
 ):
-    run, keys = await _failed_training_with_saved_progress(app, session_factory, workspace_id)
+    run, keys = await _failed_training_with_saved_progress(
+        app, session_factory, workspace_id, client_user_id
+    )
 
     response = await client.post(f"/api/v1/runs/{run.id}/retry", json={"fresh": True})
     assert response.status_code == 204, response.text
@@ -888,9 +890,11 @@ async def test_start_over_discards_the_saved_progress_before_requeueing(
 
 
 async def test_a_start_over_whose_delete_fails_leaves_the_run_stopped_and_its_progress(
-    app, client, session_factory, workspace_id, monkeypatch
+    app, client, session_factory, workspace_id, client_user_id, monkeypatch
 ):
-    run, keys = await _failed_training_with_saved_progress(app, session_factory, workspace_id)
+    run, keys = await _failed_training_with_saved_progress(
+        app, session_factory, workspace_id, client_user_id
+    )
     store = app.state.container[BlobStore]
 
     def unavailable(prefix: str) -> None:
@@ -910,8 +914,12 @@ async def test_a_start_over_whose_delete_fails_leaves_the_run_stopped_and_its_pr
     assert [store.exists(key) for key in keys] == [True, True]
 
 
-async def test_a_plain_retry_keeps_the_saved_progress(app, client, session_factory, workspace_id):
-    run, keys = await _failed_training_with_saved_progress(app, session_factory, workspace_id)
+async def test_a_plain_retry_keeps_the_saved_progress(
+    app, client, session_factory, workspace_id, client_user_id
+):
+    run, keys = await _failed_training_with_saved_progress(
+        app, session_factory, workspace_id, client_user_id
+    )
 
     response = await client.post(f"/api/v1/runs/{run.id}/retry")
     assert response.status_code == 204, response.text

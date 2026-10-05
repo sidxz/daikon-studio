@@ -20,13 +20,13 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime
 
-from sqlalchemy import CursorResult, Select, func, select, tuple_
+from sqlalchemy import CursorResult, Select, false, func, or_, select, tuple_
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.application.engines.context import EpochPoint
-from daikonstudio.application.ports.run_repository import SweepSummary
+from daikonstudio.application.ports.run_repository import SweepSummary, TrainingVisibility
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import ConcurrencyConflictError
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.models import (
@@ -289,6 +289,7 @@ class SqlAlchemyRunRepository:
         protocol_id: uuid.UUID | None = None,
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
+        training_visible_to: TrainingVisibility | None = None,
     ) -> list[Run]:
         statement = (
             select(RunModel)
@@ -301,6 +302,17 @@ class SqlAlchemyRunRepository:
             # Served by `ix_runs_workspace_protocol_id`, created by migration 007
             # for exactly this query and unused until now.
             statement = statement.where(RunModel.protocol_id == protocol_id)
+        if training_visible_to is not None:
+            visible = training_visible_to
+            statement = statement.where(
+                or_(
+                    RunModel.kind == RunKind.PREDICTION.value,
+                    RunModel.requested_by == visible.user_id,
+                    RunModel.protocol_id.in_(visible.protocol_ids)
+                    if visible.protocol_ids
+                    else false(),
+                )
+            )
         if cursor is not None:
             statement = statement.where(tuple_(RunModel.created_at, RunModel.id) < cursor)
         async with self._sessions() as session:
@@ -325,7 +337,11 @@ class SqlAlchemyRunRepository:
             return [_to_domain(model) for model in result.scalars()]
 
     async def sweep_summaries(
-        self, workspace_id: uuid.UUID, *, limit: int = 50
+        self,
+        workspace_id: uuid.UUID,
+        *,
+        limit: int = 50,
+        requested_by: uuid.UUID | None = None,
     ) -> builtins.list[SweepSummary]:
         """One row per sweep, via FILTER-ed aggregates so the LIMIT applies to
         sweeps rather than to (sweep, status) pairs.
@@ -352,6 +368,8 @@ class SqlAlchemyRunRepository:
             .order_by(func.min(RunModel.created_at).desc())
             .limit(limit)
         )
+        if requested_by is not None:
+            statement = statement.where(RunModel.requested_by == requested_by)
         async with self._sessions() as session:
             rows = (await session.execute(statement)).all()
         return [

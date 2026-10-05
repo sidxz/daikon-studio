@@ -35,6 +35,7 @@ from daikonstudio.application.execution.train_protocol import (
 )
 from daikonstudio.application.pagination import clamp_limit
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.run_repository import RunRepository, SweepSummary
 from daikonstudio.domain.execution.run import Run
 from daikonstudio.domain.shared.errors import (
@@ -195,11 +196,18 @@ class SubmitSweep:
         return Success(SweepResult(sweep_id=sweep_id, runs=runs))
 
 
+async def sweep_visible(runs: list[Run], auth: AuthContext, access: ProtocolAccess) -> bool:
+    """A sweep trains drafts, so only whoever started it and those with full access
+    (admins, owners) may see it. Asked after the load, so an unknown sweep is a plain 404."""
+    return await access.visible_ids(auth) is None or runs[0].requested_by == auth.user_id
+
+
 class ListSweeps:
     """The sweeps list page. One grouped query, no cursor -- see
     `sweep_summaries`."""
 
-    def __init__(self, runs: RunRepository) -> None:
+    def __init__(self, runs: RunRepository, access: ProtocolAccess) -> None:
+        self._access = access
         self._runs = runs
 
     async def __call__(
@@ -208,7 +216,15 @@ class ListSweeps:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
         limit = clamp_limit(query.limit)
-        return Success(await self._runs.sweep_summaries(auth.workspace_id, limit=limit))
+        # A sweep trains drafts, so a non-admin lists only the ones they started.
+        visible = await self._access.visible_ids(auth)
+        return Success(
+            await self._runs.sweep_summaries(
+                auth.workspace_id,
+                limit=limit,
+                requested_by=None if visible is None else auth.user_id,
+            )
+        )
 
 
 class GetSweep:
@@ -216,7 +232,8 @@ class GetSweep:
     empty list: a sweep with no members does not exist, and returning `[]` for
     a mistyped id would render as a sweep that mysteriously lost its runs."""
 
-    def __init__(self, runs: RunRepository) -> None:
+    def __init__(self, runs: RunRepository, access: ProtocolAccess) -> None:
+        self._access = access
         self._runs = runs
 
     async def __call__(
@@ -225,7 +242,7 @@ class GetSweep:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
         runs = await self._runs.list_by_sweep(auth.workspace_id, query.sweep_id)
-        if not runs:
+        if not runs or not await sweep_visible(runs, auth, self._access):
             return Failure(NotFoundError("Sweep", str(query.sweep_id)))
         return Success(runs)
 
@@ -256,7 +273,8 @@ class CancelSweep:
     loop move on to the next member.
     """
 
-    def __init__(self, runs: RunRepository) -> None:
+    def __init__(self, runs: RunRepository, access: ProtocolAccess) -> None:
+        self._access = access
         self._runs = runs
 
     async def __call__(
@@ -267,7 +285,7 @@ class CancelSweep:
         assert auth is not None  # require_authenticated has already rejected None
 
         runs = await self._runs.list_by_sweep(auth.workspace_id, command.sweep_id)
-        if not runs:
+        if not runs or not await sweep_visible(runs, auth, self._access):
             return Failure(NotFoundError("Sweep", str(command.sweep_id)))
 
         cancelled = 0

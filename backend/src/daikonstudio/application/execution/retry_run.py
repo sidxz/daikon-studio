@@ -21,6 +21,7 @@ from daikonstudio.application.engines.checkpoints import checkpoint_root
 from daikonstudio.application.engines.registry import EngineRegistry, UnknownEngineError
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.train_protocol import training_lane
+from daikonstudio.application.execution.visibility import run_visible
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
@@ -62,7 +63,7 @@ class RetryRun:
         assert auth is not None  # require_authenticated has already rejected None
 
         run = await self._runs.get(auth.workspace_id, command.run_id)
-        if run is None:
+        if run is None or not await run_visible(run, auth, self._access):
             return Failure(NotFoundError("Run", str(command.run_id)))
         try:
             # Resolve the lane before touching the row, so an engine this deployment

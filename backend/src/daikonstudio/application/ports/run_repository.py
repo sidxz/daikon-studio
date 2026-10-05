@@ -26,6 +26,15 @@ from daikonstudio.domain.execution.run import Run, RunKind
 
 
 @dataclass(frozen=True, kw_only=True)
+class TrainingVisibility:
+    """Which training runs a non-admin may list: the ones they started, and the ones
+    whose protocol they may view. Predictions are always listed."""
+
+    user_id: UUID
+    protocol_ids: frozenset[UUID]
+
+
+@dataclass(frozen=True, kw_only=True)
 class SweepSummary:
     """One row of the sweeps list, assembled by a GROUP BY rather than read
     from a `sweeps` table -- a sweep's only state is its members.
@@ -89,6 +98,7 @@ class RunRepository(Protocol):
         protocol_id: UUID | None = None,
         cursor: tuple[datetime, UUID] | None = None,
         limit: int = 50,
+        training_visible_to: TrainingVisibility | None = None,
     ) -> builtins.list[Run]: ...
 
     # `builtins.list[...]`, not the bare generic: this Protocol already has a
@@ -107,7 +117,7 @@ class RunRepository(Protocol):
         ...
 
     async def sweep_summaries(
-        self, workspace_id: UUID, *, limit: int = 50
+        self, workspace_id: UUID, *, limit: int = 50, requested_by: UUID | None = None
     ) -> builtins.list[SweepSummary]: ...
 
     async def append_epochs(self, run_id: UUID, points: Sequence[EpochPoint]) -> None:

@@ -9,6 +9,7 @@ import pytest_asyncio
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
@@ -18,7 +19,7 @@ from daikonstudio.settings import Settings
 
 
 @pytest.fixture
-def app(tmp_path, session_factory):
+def app(tmp_path, session_factory, protocol_access):
     """Overrides `tests.api.conftest.app`: `inline_jobs=False` so a submitted
     sweep's runs stay `pending` instead of each executing a real fit -- this
     file is testing the endpoint's wiring (status codes, shapes, grouping),
@@ -32,6 +33,7 @@ def app(tmp_path, session_factory):
         create_container(Settings(blob_base_url=f"file://{tmp_path}", inline_jobs=False))
     )
     container.define(async_sessionmaker, Singleton(lambda: session_factory))
+    container.define(ProtocolAccess, Singleton(lambda: protocol_access))  # type: ignore[type-abstract]
     application.state.container = container
     return application
 
@@ -177,6 +179,38 @@ async def test_list_then_read_then_cancel(client, dataset_id) -> None:
     assert (await client.post(f"/api/v1/sweeps/{sweep_id}/cancel")).status_code == 204
     after = (await client.get(f"/api/v1/sweeps/{sweep_id}")).json()
     assert after["runs"][0]["status"] == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_a_sweep_is_private_to_its_submitter_and_admins(
+    client, other_editor_client, admin_client, dataset_id
+) -> None:
+    submitted = (
+        await client.post(
+            "/api/v1/sweeps",
+            json={
+                "name": "private",
+                "dataset_id": str(dataset_id),
+                "configs": [{"engine_id": "ecfp4-randomforest", "conditions": {}}],
+            },
+        )
+    ).json()
+    sweep_id = submitted["sweep_id"]
+
+    async def listed(http_client) -> list[str]:
+        items = (await http_client.get("/api/v1/sweeps")).json()["items"]
+        return [item["sweep_id"] for item in items]
+
+    assert await listed(client) == [sweep_id]
+    assert await listed(admin_client) == [sweep_id]
+    assert await listed(other_editor_client) == []
+    assert (await other_editor_client.get(f"/api/v1/sweeps/{sweep_id}")).status_code == 404
+    assert (await other_editor_client.post(f"/api/v1/sweeps/{sweep_id}/cancel")).status_code == 404
+    assert (await admin_client.get(f"/api/v1/sweeps/{sweep_id}")).status_code == 200
+    # The 404s changed nothing.
+    assert (await client.get(f"/api/v1/sweeps/{sweep_id}")).json()["runs"][0][
+        "status"
+    ] == "pending"
 
 
 @pytest.mark.asyncio

@@ -258,9 +258,9 @@ def create_container(settings: Settings | None = None) -> Container:
         SubmitSweep,
         lambda c: SubmitSweep(_datasets(c), c[EngineRegistry], c[TrainProtocol]),
     )
-    container.define(ListSweeps, lambda c: ListSweeps(_runs(c)))
-    container.define(GetSweep, lambda c: GetSweep(_runs(c)))
-    container.define(CancelSweep, lambda c: CancelSweep(_runs(c)))
+    container.define(ListSweeps, lambda c: ListSweeps(_runs(c), c[ProtocolAccess]))
+    container.define(GetSweep, lambda c: GetSweep(_runs(c), c[ProtocolAccess]))
+    container.define(CancelSweep, lambda c: CancelSweep(_runs(c), c[ProtocolAccess]))
     container.define(PublishProtocol, lambda c: PublishProtocol(_protocols(c), c[ProtocolAccess]))
     container.define(
         DeleteProtocol,
@@ -306,10 +306,10 @@ def create_container(settings: Settings | None = None) -> Container:
             c[ProtocolAccess],
         ),
     )
-    container.define(GetRun, lambda c: GetRun(_runs(c)))
-    container.define(GetRunEpochs, lambda c: GetRunEpochs(_runs(c)))
-    container.define(ListRuns, lambda c: ListRuns(_runs(c)))
-    container.define(CancelRun, lambda c: CancelRun(_runs(c)))
+    container.define(GetRun, lambda c: GetRun(_runs(c), c[ProtocolAccess]))
+    container.define(GetRunEpochs, lambda c: GetRunEpochs(_runs(c), c[ProtocolAccess]))
+    container.define(ListRuns, lambda c: ListRuns(_runs(c), c[ProtocolAccess]))
+    container.define(CancelRun, lambda c: CancelRun(_runs(c), c[ProtocolAccess]))
     container.define(
         DiscardAbandonedProgress, lambda c: DiscardAbandonedProgress(_runs(c), c[BlobStore])
     )

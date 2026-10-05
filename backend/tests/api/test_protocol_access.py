@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from tests.api.test_protocols import _create_dataset, _train
+from tests.api.test_runs import _PREDICTION_CSV, _predict
 
 
 async def _trained(client, csv_upload) -> str:
@@ -114,3 +115,52 @@ async def test_responses_name_their_creator(client, csv_upload, client_user_id):
     assert protocol["created_by"] == str(client_user_id)
     dataset = (await client.get(f"/api/v1/datasets/{dataset_id}")).json()
     assert dataset["created_by"] == str(client_user_id)
+
+
+async def _training_run_id(client) -> str:
+    runs = (await client.get("/api/v1/runs?kind=training")).json()["items"]
+    return str(runs[0]["id"])
+
+
+async def test_a_drafts_training_run_is_listed_for_its_creator_and_admins_only(
+    client, other_editor_client, admin_client, csv_upload
+):
+    protocol_id = await _trained(client, csv_upload)
+    run_id = await _training_run_id(client)
+
+    async def training_ids(http_client) -> list[str]:
+        items = (await http_client.get("/api/v1/runs?kind=training")).json()["items"]
+        return [item["id"] for item in items]
+
+    assert await training_ids(other_editor_client) == []
+    assert run_id in await training_ids(admin_client)
+    assert (await client.post(f"{_API}/{protocol_id}/publish")).status_code == 204
+    assert run_id in await training_ids(other_editor_client)
+
+
+async def test_a_drafts_training_run_is_hidden_from_colleagues_one_at_a_time(
+    client, other_editor_client, admin_client, csv_upload
+):
+    await _trained(client, csv_upload)
+    run_id = await _training_run_id(client)
+    url = f"/api/v1/runs/{run_id}"
+    assert (await other_editor_client.get(url)).status_code == 404
+    assert (await other_editor_client.get(f"{url}/epochs")).status_code == 404
+    assert (await other_editor_client.post(f"{url}/cancel")).status_code == 404
+    assert (await other_editor_client.post(f"{url}/retry")).status_code == 404
+    assert (await client.get(url)).status_code == 200
+    assert (await admin_client.get(url)).status_code == 200
+    assert (await admin_client.get(f"{url}/epochs")).status_code == 200
+
+
+async def test_predictions_on_a_published_protocol_stay_shared(
+    client, other_editor_client, csv_upload
+):
+    protocol_id = await _trained(client, csv_upload)
+    assert (await client.post(f"{_API}/{protocol_id}/publish")).status_code == 204
+    upload_ref = await csv_upload(_PREDICTION_CSV)
+    run_id = (await _predict(client, protocol_id, upload_ref)).json()["id"]
+
+    assert (await other_editor_client.get(f"/api/v1/runs/{run_id}")).status_code == 200
+    listed = (await other_editor_client.get("/api/v1/runs?kind=prediction")).json()["items"]
+    assert run_id in [item["id"] for item in listed]

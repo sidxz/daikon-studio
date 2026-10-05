@@ -31,7 +31,8 @@ from daikonstudio.application.pagination import (
     encode_ts_cursor,
     parse_ts_cursor,
 )
-from daikonstudio.application.ports.run_repository import RunRepository
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
+from daikonstudio.application.ports.run_repository import RunRepository, TrainingVisibility
 from daikonstudio.domain.execution.run import Run, RunKind
 from daikonstudio.domain.shared.errors import DomainError, ValidationError
 
@@ -45,7 +46,8 @@ class ListRunsQuery:
 
 
 class ListRuns:
-    def __init__(self, repository: RunRepository) -> None:
+    def __init__(self, repository: RunRepository, access: ProtocolAccess) -> None:
+        self._access = access
         self._repository = repository
 
     async def __call__(
@@ -60,12 +62,19 @@ class ListRuns:
             return Failure(error)
         # One more than asked for: if it comes back there is another page, which
         # is cheaper and more truthful than a COUNT over the whole table.
+        visible = await self._access.visible_ids(auth)
+        training_visible_to = (
+            None
+            if visible is None
+            else TrainingVisibility(user_id=auth.user_id, protocol_ids=visible)
+        )
         runs = await self._repository.list(
             auth.workspace_id,
             kind=query.kind,
             protocol_id=query.protocol_id,
             cursor=cursor,
             limit=limit + 1,
+            training_visible_to=training_visible_to,
         )
         next_cursor = None
         if len(runs) > limit:

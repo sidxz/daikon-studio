@@ -41,11 +41,12 @@ async def seed_run(
     kind: RunKind = RunKind.PREDICTION,
     lane: str | None = "default",
     params: dict[str, Any] | None = None,
+    requested_by: uuid.UUID | None = None,
 ) -> Run:
     run = Run(
         kind=kind,
         workspace_id=workspace_id,
-        requested_by=uuid.uuid4(),
+        requested_by=requested_by or uuid.uuid4(),
         cache_key=f"runner-protocol-test-{uuid.uuid4()}",
         params=params or {},
     )
