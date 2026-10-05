@@ -1,6 +1,7 @@
 "use client";
 
 import { FolderStrip, MoveToFolderMenu, setDragItem, useFolders } from "@/features/folders";
+import { SegmentedToggle } from "@/shared/components/segmented-toggle";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Progress } from "@/shared/components/ui/progress";
@@ -178,25 +179,15 @@ export function ProtocolList() {
         </Button>
       </div>
 
-      <fieldset className="inline-flex gap-1">
-        <legend className="sr-only">Protocol owner</legend>
-        <Button
-          size="sm"
-          variant={mine ? "outline" : "secondary"}
-          aria-pressed={!mine}
-          onClick={() => setMine(false)}
-        >
-          All
-        </Button>
-        <Button
-          size="sm"
-          variant={mine ? "secondary" : "outline"}
-          aria-pressed={mine}
-          onClick={() => setMine(true)}
-        >
-          Mine
-        </Button>
-      </fieldset>
+      <SegmentedToggle
+        label="Protocol owner"
+        options={[
+          { value: "all", label: "All" },
+          { value: "mine", label: "Mine" },
+        ]}
+        value={mine ? "mine" : "all"}
+        onChange={(value) => setMine(value === "mine")}
+      />
 
       <FolderStrip kind="protocol" activeId={folderId} onSelect={(id) => set({ folder: id })} />
 

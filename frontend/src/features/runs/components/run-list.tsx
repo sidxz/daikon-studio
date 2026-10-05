@@ -2,6 +2,7 @@
 
 import { useFolders } from "@/features/folders";
 import { useProtocols } from "@/features/protocols";
+import { SegmentedToggle } from "@/shared/components/segmented-toggle";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
@@ -240,25 +241,15 @@ export function RunList() {
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
-        <fieldset className="inline-flex gap-1">
-          <legend className="sr-only">Run owner</legend>
-          <Button
-            size="sm"
-            variant={mine ? "outline" : "secondary"}
-            aria-pressed={!mine}
-            onClick={() => set({ mine: "0" })}
-          >
-            All
-          </Button>
-          <Button
-            size="sm"
-            variant={mine ? "secondary" : "outline"}
-            aria-pressed={mine}
-            onClick={() => set({ mine: undefined })}
-          >
-            Mine
-          </Button>
-        </fieldset>
+        <SegmentedToggle
+          label="Run owner"
+          options={[
+            { value: "all", label: "All" },
+            { value: "mine", label: "Mine" },
+          ]}
+          value={mine ? "mine" : "all"}
+          onChange={(value) => set({ mine: value === "mine" ? undefined : "0" })}
+        />
 
         <Select
           value={protocolId ?? ALL}
@@ -313,8 +304,8 @@ export function RunList() {
 
         <Input
           type="search"
-          aria-label="Search run names"
-          placeholder="Search run names"
+          aria-label="Search runs or protocols"
+          placeholder="Search runs or protocols"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="h-8 w-48"
