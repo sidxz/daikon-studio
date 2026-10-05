@@ -320,7 +320,7 @@ export function RunList() {
           label="Run owner"
           options={[
             { value: "all", label: "All" },
-            { value: "mine", label: "Mine" },
+            { value: "mine", label: "Started by me" },
           ]}
           value={mine ? "mine" : "all"}
           onChange={(value) => set({ mine: value === "mine" ? undefined : "0" })}

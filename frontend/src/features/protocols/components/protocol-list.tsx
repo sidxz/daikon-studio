@@ -158,7 +158,7 @@ export function ProtocolList() {
             label="Protocol owner"
             options={[
               { value: "all", label: "All" },
-              { value: "mine", label: "Mine" },
+              { value: "mine", label: "Created by me" },
             ]}
             value={mine ? "mine" : "all"}
             onChange={(value) => setMine(value === "mine")}

@@ -121,7 +121,10 @@ describe("the Mine filter and creators", () => {
     serve([]);
     render(<ProtocolList />, { wrapper: Wrapper });
 
-    expect(screen.getByRole("button", { name: "Mine" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "Created by me" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
     expect(
       within(screen.getByRole("group", { name: "Protocol owner" })).getByRole("button", {
         name: "All",
@@ -141,7 +144,7 @@ describe("the Mine filter and creators", () => {
   it("writes mine=1 to the URL when Mine is clicked", async () => {
     serve([]);
     render(<ProtocolList />, { wrapper: Wrapper });
-    fireEvent.click(screen.getByRole("button", { name: "Mine" }));
+    fireEvent.click(screen.getByRole("button", { name: "Created by me" }));
     expect(nav.replace).toHaveBeenCalledWith("/protocols?mine=1");
   });
 

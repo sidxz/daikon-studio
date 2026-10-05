@@ -115,7 +115,7 @@ describe("RunList", () => {
     serve([]);
     render(<RunList />, { wrapper: Wrapper });
     const owner = screen.getByRole("group", { name: "Run owner" });
-    expect(within(owner).getByRole("button", { name: "Mine" })).toHaveAttribute(
+    expect(within(owner).getByRole("button", { name: "Started by me" })).toHaveAttribute(
       "aria-pressed",
       "true",
     );
