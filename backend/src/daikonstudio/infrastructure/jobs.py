@@ -68,18 +68,18 @@ def build_sqlalchemy_ctx(
     sessions: async_sessionmaker[AsyncSession],
     store: BlobStore,
     *,
+    access: ProtocolAccess,
     job_deadline_seconds: int | None = None,
-    access: ProtocolAccess | None = None,
 ) -> dict[str, Any]:
     """The one place the SqlAlchemy repository trio is assembled into a ctx --
     used by `InlineEnqueuer`, and by nothing else once arq is gone (a
     self-hosted runner builds its own the same way once it has claimed a
     run_id).
 
-    With `access`, protocols a job creates are registered with Duar, as on the API."""
-    protocols: ProtocolRepository = SqlAlchemyProtocolRepository(sessions)
-    if access is not None:
-        protocols = AccessControlledProtocolRepository(protocols, access)
+    Protocols a job creates are registered with Duar through `access`, as on the API."""
+    protocols: ProtocolRepository = AccessControlledProtocolRepository(
+        SqlAlchemyProtocolRepository(sessions), access
+    )
     return {
         "runs": SqlAlchemyRunRepository(sessions),
         "datasets": SqlAlchemyDatasetRepository(sessions),
@@ -251,7 +251,7 @@ class InlineEnqueuer:
         self,
         sessions: async_sessionmaker[AsyncSession],
         store: BlobStore,
-        access: ProtocolAccess | None = None,
+        access: ProtocolAccess,
     ) -> None:
         # Same shape a self-hosted runner builds for itself after claiming a run_id
         # (see `build_sqlalchemy_ctx`), so a handler cannot tell which enqueuer it is

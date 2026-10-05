@@ -21,6 +21,7 @@ import pytest
 from daikonstudio.application.engines.context import RunInterrupted
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.infrastructure import jobs
+from tests.fakes.protocol_access import FakeProtocolAccess
 
 
 def _pending_run() -> Run:
@@ -134,7 +135,7 @@ async def test_inline_enqueuer_swallows_a_handler_failure_after_recording_it(
         raise ValueError("boom")
 
     monkeypatch.setattr(jobs, "run_job", failing_run_job)
-    enqueuer = jobs.InlineEnqueuer(sessions=None, store=None)  # type: ignore[arg-type]
+    enqueuer = jobs.InlineEnqueuer(sessions=None, store=None, access=FakeProtocolAccess())  # type: ignore[arg-type]
 
     await enqueuer.enqueue(uuid.uuid4())  # must not raise
 
@@ -146,7 +147,7 @@ async def test_inline_enqueuer_lets_cancelled_error_propagate(
         raise asyncio.CancelledError()
 
     monkeypatch.setattr(jobs, "run_job", cancelled_run_job)
-    enqueuer = jobs.InlineEnqueuer(sessions=None, store=None)  # type: ignore[arg-type]
+    enqueuer = jobs.InlineEnqueuer(sessions=None, store=None, access=FakeProtocolAccess())  # type: ignore[arg-type]
 
     with pytest.raises(asyncio.CancelledError):
         await enqueuer.enqueue(uuid.uuid4())

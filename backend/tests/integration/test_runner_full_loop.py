@@ -44,6 +44,7 @@ import pytest_asyncio
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
+from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.infrastructure.jobs import run_job
@@ -61,7 +62,7 @@ _PREDICTION_CSV = b"smiles\nCCO\nc1ccccc1\nCc1ccccc1\n"
 
 
 @pytest_asyncio.fixture
-async def app(tmp_path, _migrated_engine: AsyncEngine):
+async def app(tmp_path, _migrated_engine: AsyncEngine, protocol_access):
     """Overrides `tests.api.conftest.app` for this module -- `inline_jobs=False`
     so `POST /api/v1/protocols` only enqueues (leaves the Run `pending`); this
     test drives it to completion itself, over the runner protocol.
@@ -80,6 +81,7 @@ async def app(tmp_path, _migrated_engine: AsyncEngine):
         async_sessionmaker,
         Singleton(lambda: async_sessionmaker(bind=_migrated_engine, expire_on_commit=False)),
     )
+    container.define(ProtocolAccess, Singleton(lambda: protocol_access))  # type: ignore[type-abstract]
     application.state.container = container
 
     # `runners` is instance-level, not workspace-scoped, so this fixture's
