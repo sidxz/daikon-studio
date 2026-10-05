@@ -334,7 +334,7 @@ def create_container(settings: Settings | None = None) -> Container:
     )
     container.define(GetRun, lambda c: GetRun(_runs(c), c[ProtocolAccess]))
     container.define(GetRunEpochs, lambda c: GetRunEpochs(_runs(c), c[ProtocolAccess]))
-    container.define(ListRuns, lambda c: ListRuns(_runs(c), c[ProtocolAccess]))
+    container.define(ListRuns, lambda c: ListRuns(_runs(c), c[ProtocolAccess], _protocols(c)))
     container.define(CancelRun, lambda c: CancelRun(_runs(c), c[ProtocolAccess]))
     container.define(
         DiscardAbandonedProgress, lambda c: DiscardAbandonedProgress(_runs(c), c[BlobStore])

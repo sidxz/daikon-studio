@@ -22,7 +22,7 @@ from typing import Protocol
 from uuid import UUID
 
 from daikonstudio.application.engines.context import EpochPoint
-from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -99,6 +99,10 @@ class RunRepository(Protocol):
         cursor: tuple[datetime, UUID] | None = None,
         limit: int = 50,
         training_visible_to: TrainingVisibility | None = None,
+        requested_by: UUID | None = None,
+        statuses: Sequence[RunStatus] | None = None,
+        protocol_ids: frozenset[UUID] | None = None,
+        name_contains: str | None = None,
     ) -> builtins.list[Run]: ...
 
     # `builtins.list[...]`, not the bare generic: this Protocol already has a

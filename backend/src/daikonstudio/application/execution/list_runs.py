@@ -32,8 +32,9 @@ from daikonstudio.application.pagination import (
     parse_ts_cursor,
 )
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
+from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository, TrainingVisibility
-from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import DomainError, ValidationError
 
 
@@ -43,12 +44,22 @@ class ListRunsQuery:
     protocol_id: uuid.UUID | None = None
     cursor: str | None = None
     limit: int | None = None
+    # Only the runs the caller started.
+    mine: bool = False
+    statuses: tuple[RunStatus, ...] = ()
+    # Only runs of the protocols filed in this folder.
+    folder_id: uuid.UUID | None = None
+    # Runs whose name contains this text, case-insensitively.
+    q: str | None = None
 
 
 class ListRuns:
-    def __init__(self, repository: RunRepository, access: ProtocolAccess) -> None:
+    def __init__(
+        self, repository: RunRepository, access: ProtocolAccess, protocols: ProtocolRepository
+    ) -> None:
         self._access = access
         self._repository = repository
+        self._protocols = protocols
 
     async def __call__(
         self, query: ListRunsQuery, auth: AuthContext | None = None
@@ -68,10 +79,21 @@ class ListRuns:
             if visible is None
             else TrainingVisibility(user_id=auth.user_id, protocol_ids=visible)
         )
+        protocol_ids = None
+        if query.folder_id is not None:
+            protocol_ids = frozenset(
+                await self._protocols.ids_in_folder(auth.workspace_id, query.folder_id)
+            )
+            if query.protocol_id is not None:
+                protocol_ids &= {query.protocol_id}
         runs = await self._repository.list(
             auth.workspace_id,
             kind=query.kind,
             protocol_id=query.protocol_id,
+            protocol_ids=protocol_ids,
+            requested_by=auth.user_id if query.mine else None,
+            statuses=query.statuses,
+            name_contains=(query.q or "").strip() or None,
             cursor=cursor,
             limit=limit + 1,
             training_visible_to=training_visible_to,

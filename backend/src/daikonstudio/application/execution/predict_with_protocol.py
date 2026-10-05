@@ -116,6 +116,9 @@ class PredictWithProtocolCommand:
     # predictions back to the file they uploaded -- the one thing a canonical
     # SMILES cannot do for them. Optional: a file of bare structures has none.
     id_column: str | None = None
+    # What the scientist calls this run. Not part of the cache key: the same work
+    # under another name is still the same work.
+    name: str | None = None
 
     def to_params(self) -> dict[str, Any]:
         return {
@@ -124,6 +127,8 @@ class PredictWithProtocolCommand:
             "structure_column": self.structure_column,
             "conditions": self.conditions,
             "id_column": self.id_column,
+            # Only when there is one, so params of unnamed runs stay as they were.
+            **({"name": name} if (name := (self.name or "").strip()) else {}),
         }
 
     @classmethod
@@ -138,6 +143,7 @@ class PredictWithProtocolCommand:
             structure_column=params["structure_column"],
             conditions=params.get("conditions", {}),
             id_column=params.get("id_column"),
+            name=params.get("name"),
         )
 
 

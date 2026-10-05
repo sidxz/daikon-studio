@@ -1054,3 +1054,84 @@ async def test_exporting_a_training_run_is_a_404(client, csv_upload):
     response = await _train(client, dataset_id)
     export = await client.get(f"/api/v1/runs/{response.json()['id']}/results/export")
     assert export.status_code == 404, export.text
+
+
+# --- Filters and run names -------------------------------------------------------------
+
+_RUNS = "/api/v1/runs"
+
+
+async def _upload(http, data: bytes) -> str:
+    response = await http.post(
+        "/api/v1/datasets/uploads", files={"file": ("data.csv", data, "text/csv")}
+    )
+    assert response.status_code == 201, response.text
+    return str(response.json()["upload_ref"])
+
+
+async def _run_ids(http, **params: object) -> list[str]:
+    response = await http.get(_RUNS, params={"kind": "prediction", **params})
+    assert response.status_code == 200, response.text
+    return [item["id"] for item in response.json()["items"]]
+
+
+async def test_runs_filter_by_mine_status_name_and_protocol_folder(
+    client, other_editor_client, published_protocol_id, prediction_upload_ref
+):
+    named = await _predict(
+        client, published_protocol_id, prediction_upload_ref, name="Batch 7 % actives"
+    )
+    assert named.status_code == 202, named.text
+    assert named.json()["name"] == "Batch 7 % actives"
+    other_ref = await _upload(other_editor_client, b"smiles\nCCN\nCCC\n")
+    theirs = await other_editor_client.post(
+        _RUNS, json=_predict_body(published_protocol_id, other_ref)
+    )
+    assert theirs.status_code == 202, theirs.text
+    mine_id, theirs_id = named.json()["id"], theirs.json()["id"]
+
+    assert await _run_ids(other_editor_client, mine="true") == [theirs_id]
+    assert set(await _run_ids(other_editor_client)) == {mine_id, theirs_id}
+    assert await _run_ids(client, q="7 %") == [mine_id]
+    assert await _run_ids(client, q="BATCH 7") == [mine_id]
+    # `%` and `_` are matched literally, not as wildcards.
+    assert await _run_ids(client, q="%") == [mine_id]
+    assert await _run_ids(client, q="_") == []
+    assert set(await _run_ids(client, status=["ready", "failed"])) == {mine_id, theirs_id}
+    assert await _run_ids(client, status="failed") == []
+
+    folder = (
+        await client.post("/api/v1/folders", json={"kind": "protocol", "name": "Gyrase"})
+    ).json()
+    empty = (
+        await client.post("/api/v1/folders", json={"kind": "protocol", "name": "Empty"})
+    ).json()
+    filed = await client.put(
+        f"/api/v1/protocols/{published_protocol_id}/folder", json={"folder_id": folder["id"]}
+    )
+    assert filed.status_code == 200, filed.text
+    assert set(await _run_ids(client, folder_id=folder["id"])) == {mine_id, theirs_id}
+    assert await _run_ids(client, folder_id=empty["id"]) == []
+    assert await _run_ids(client, folder_id=folder["id"], mine="true") == [mine_id]
+    assert await _run_ids(client, folder_id=folder["id"], protocol_id=str(uuid.uuid4())) == []
+
+
+async def test_a_run_name_is_trimmed_and_bounded(
+    client, published_protocol_id, prediction_upload_ref, csv_upload
+):
+    response = await _predict(client, published_protocol_id, prediction_upload_ref, name="  x  ")
+    assert response.json()["name"] == "x"
+    ref = await csv_upload(b"smiles\nCCN\n")
+    blank = await _predict(client, published_protocol_id, ref, name="")
+    assert blank.status_code == 202
+    assert blank.json()["name"] is None
+    too_long = await _predict(client, published_protocol_id, ref, name="n" * 201)
+    assert too_long.status_code == 422
+
+
+async def test_a_name_does_not_change_the_cache_key(
+    client, published_protocol_id, prediction_upload_ref
+):
+    first = await _predict(client, published_protocol_id, prediction_upload_ref, name="a")
+    second = await _predict(client, published_protocol_id, prediction_upload_ref, name="b")
+    assert second.json()["id"] == first.json()["id"]

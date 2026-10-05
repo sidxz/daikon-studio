@@ -290,6 +290,10 @@ class SqlAlchemyRunRepository:
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
         training_visible_to: TrainingVisibility | None = None,
+        requested_by: uuid.UUID | None = None,
+        statuses: Sequence[RunStatus] | None = None,
+        protocol_ids: frozenset[uuid.UUID] | None = None,
+        name_contains: str | None = None,
     ) -> list[Run]:
         statement = (
             select(RunModel)
@@ -302,6 +306,20 @@ class SqlAlchemyRunRepository:
             # Served by `ix_runs_workspace_protocol_id`, created by migration 007
             # for exactly this query and unused until now.
             statement = statement.where(RunModel.protocol_id == protocol_id)
+        if requested_by is not None:
+            statement = statement.where(RunModel.requested_by == requested_by)
+        if statuses:
+            statement = statement.where(RunModel.status.in_([s.value for s in statuses]))
+        if protocol_ids is not None:
+            statement = statement.where(
+                RunModel.protocol_id.in_(protocol_ids) if protocol_ids else false()
+            )
+        if name_contains:
+            # The typed text is matched literally: `%` and `_` are escaped, not wildcards.
+            escaped = name_contains.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            statement = statement.where(
+                RunModel.params["name"].astext.ilike(f"%{escaped}%", escape="\\")
+            )
         if training_visible_to is not None:
             visible = training_visible_to
             statement = statement.where(

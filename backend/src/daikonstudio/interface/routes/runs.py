@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, ConfigDict, StrictBool
+from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from daikonstudio.application.catalog.get_chemical_space import (
     MAX_LOOKUPS,
@@ -50,7 +50,7 @@ from daikonstudio.application.execution.predict_with_protocol import (
 )
 from daikonstudio.application.execution.result_view import RangeFilter, SortSpec
 from daikonstudio.application.execution.retry_run import RetryRun, RetryRunCommand
-from daikonstudio.domain.execution.run import Run, RunKind
+from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.interface.dependencies._container import use_case
 from daikonstudio.interface.dependencies._core import AuthDep
 from daikonstudio.interface.error_handlers import result_to_response
@@ -83,6 +83,8 @@ class PredictBody(BaseModel):
     # Optional: the uploaded column that names each compound, carried into the
     # results as `compound_id` so predictions can be joined back to the file.
     id_column: str | None = None
+    # What to call this run in the runs list. Trimmed; blank means none.
+    name: str | None = Field(default=None, max_length=200)
 
 
 class RunSourceResponse(BaseModel):
@@ -215,6 +217,7 @@ async def create_run(
         structure_column=body.structure_column,
         conditions=body.conditions,
         id_column=body.id_column,
+        name=body.name,
     )
     return RunResponse.from_domain(result_to_response(await service(command, auth=auth)))
 
@@ -225,6 +228,10 @@ async def list_runs(
     service: ListRunsDep,
     kind: RunKind | None = None,
     protocol_id: uuid.UUID | None = None,
+    folder_id: uuid.UUID | None = None,
+    mine: bool = False,
+    status: Annotated[list[RunStatus] | None, Query()] = None,
+    q: Annotated[str | None, Query(max_length=200)] = None,
     cursor: str | None = None,
     limit: int | None = None,
 ) -> PaginatedResponse[RunResponse]:
@@ -234,7 +241,16 @@ async def list_runs(
     # directly must get the same ceiling as an HTTP caller.
     page = result_to_response(
         await service(
-            ListRunsQuery(kind=kind, protocol_id=protocol_id, cursor=cursor, limit=limit),
+            ListRunsQuery(
+                kind=kind,
+                protocol_id=protocol_id,
+                folder_id=folder_id,
+                mine=mine,
+                statuses=tuple(status or ()),
+                q=q,
+                cursor=cursor,
+                limit=limit,
+            ),
             auth=auth,
         )
     )
