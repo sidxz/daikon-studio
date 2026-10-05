@@ -62,6 +62,19 @@ RUN uv python install 3.13 \
 
 WORKDIR /app
 
+# The runtime user, before any large layer, so ownership is set on empty directories
+# rather than by a `chown -R` over what is installed. That recursive chown, last in an
+# earlier revision, copied every file of /app -- the whole CUDA venv -- into a new layer
+# on every release, because the source copied above it changes every release: 310 s of
+# build (measured 2026-10-04) and a multi-GB layer to push and to pull on every deploy.
+# Only what the runtime writes belongs to studio: /app itself (the working directory,
+# not its contents), /scratch (TMPDIR) and /opt/weights (HF_HOME; MoLFormer downloads
+# there on first use). The venv and the source stay root's, so the service cannot
+# modify its own code.
+RUN useradd --create-home --uid 10001 studio \
+ && mkdir -p /scratch /opt/weights \
+ && chown studio /app /scratch /opt/weights
+
 # Torch comes from the lock: on linux x86_64 that is 2.13.0+cu126 from PyTorch's CUDA 12.6
 # index ([tool.uv.sources] in pyproject.toml), and its wheels vendor their own CUDA
 # userspace (the nvidia-*-cu12 dependency wheels). The base image's CUDA tag is therefore
@@ -89,9 +102,15 @@ RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra 
 # which has neither curl nor wget. BuildKit fetches an `ADD <url>` from the builder
 # itself, so it needs no client binary in the image at all. Do not "clean this up" back
 # to curl; it will not build.
+#
+# --checksum both verifies the download (it replaced an md5sum step; md5
+# 6a80b54fdb7de37ef0374d302f01e8ce, same file) and keys BuildKit's cache on the hash, so
+# a rebuild no longer fetches 35 MB from Zenodo to find out nothing changed (42 s a
+# release). --chown: a remote ADD lands mode 600, readable by its owner only.
 ENV STUDIO_PRETRAINED_WEIGHTS_DIR=/opt/weights
-ADD https://zenodo.org/records/15460715/files/chemeleon_mp.pt /opt/weights/chemeleon_mp.pt
-RUN echo "6a80b54fdb7de37ef0374d302f01e8ce  /opt/weights/chemeleon_mp.pt" | md5sum -c -
+ADD --checksum=sha256:c376624d3407204e780a0ed13a9ac097cc9bb1c13ef89cdbc633c1715c183651 \
+    --chown=studio \
+    https://zenodo.org/records/15460715/files/chemeleon_mp.pt /opt/weights/chemeleon_mp.pt
 
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra gpu --extra s3
@@ -108,9 +127,6 @@ ENV PATH="/app/.venv/bin:$PATH" \
     PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True \
     TMPDIR=/scratch
 
-RUN mkdir -p /scratch \
- && useradd --create-home --uid 10001 studio \
- && chown -R studio /app /scratch /opt/weights
 # OMP_NUM_THREADS=1 is load-bearing, not tuning. torch and scikit-learn each ship
 # their own OpenMP runtime, and a training job loads BOTH -- RunTraining fits the
 # chosen engine and the mandatory ECFP4 baseline in one process, by design. Multiple

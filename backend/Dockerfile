@@ -23,6 +23,19 @@ RUN apt-get update \
 RUN python -m pip uninstall -y pip \
  && rm -rf /usr/local/lib/python3.13/ensurepip /root/.cache/pip
 
+# The runtime user, before any large layer, so ownership is set on empty directories
+# rather than by a `chown -R /app` over the installed venv, which an earlier revision
+# ran last and so re-copied the whole venv into a new layer on every release (see
+# Dockerfile.gpu for the measurement). Only what the runtime writes belongs to studio:
+# /app itself (the working directory, not its contents) and /data. /data/blobs is the
+# default STUDIO_BLOB_BASE_URL, created and owned here so a named volume mounted on it
+# inherits writable ownership for uid 10001 instead of failing the first upload with
+# PermissionError.
+RUN useradd --create-home --uid 10001 studio \
+ && mkdir -p /data/blobs \
+ && chown studio /app \
+ && chown -R studio /data
+
 # Dependencies before source, so a code change does not re-resolve the world.
 COPY pyproject.toml uv.lock ./
 # The uv cache lives in a BuildKit cache mount, not in the layer: with UV_LINK_MODE=copy
@@ -36,12 +49,6 @@ COPY alembic ./alembic
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra s3
 
 ENV PATH="/app/.venv/bin:$PATH"
-# /data/blobs is the default STUDIO_BLOB_BASE_URL. Created and owned here so a
-# named volume mounted on it inherits writable ownership for uid 10001 instead
-# of failing the first upload with PermissionError.
-RUN useradd --create-home --uid 10001 studio \
- && mkdir -p /data/blobs \
- && chown -R studio /app /data
 # OMP_NUM_THREADS=1 is load-bearing, not tuning. torch and scikit-learn each ship
 # their own OpenMP runtime, and a training job loads BOTH -- RunTraining fits the
 # chosen engine and the mandatory ECFP4 baseline in one process, by design. Multiple
