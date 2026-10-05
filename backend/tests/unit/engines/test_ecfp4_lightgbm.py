@@ -257,3 +257,11 @@ def test_a_tuned_cutoff_is_returned_and_mcc_is_reported_at_it() -> None:
 
 def test_without_tuning_there_are_no_cutoffs() -> None:
     assert Ecfp4LightGBM().train(_binary_ctx(imbalanced_frame())).cutoffs is None
+
+
+def test_training_never_asks_for_more_than_eight_threads() -> None:
+    """n_jobs=-1 meant one thread per logical CPU, and on a busy 48-CPU runner that
+    made a one-second fit take 220 s: every barrier waited on a thread with no core."""
+    result = Ecfp4LightGBM().train(context())
+
+    assert 1 <= pickle.loads(result.artifact)["model"].get_params()["n_jobs"] <= 8

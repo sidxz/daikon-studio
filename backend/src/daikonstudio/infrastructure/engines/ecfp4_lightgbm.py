@@ -19,6 +19,7 @@ independent estimates of it, so their spread is not an uncertainty.
 
 from __future__ import annotations
 
+import os
 import pickle
 from typing import Any
 
@@ -134,7 +135,18 @@ class Ecfp4LightGBM:
             "learning_rate": conditions["learning_rate"],
             "min_child_samples": conditions["min_child_samples"],
             "random_state": ctx.seed,
-            "n_jobs": -1,
+            # Eight threads at most, never every CPU. LightGBM turns n_jobs=-1 into one
+            # thread per LOGICAL CPU (it ignores OMP_NUM_THREADS), and its threads meet
+            # at a barrier many times per tree, so on a host where any core is busy
+            # elsewhere they all spin waiting for the one that is not running. Measured
+            # on atlantic (48 logical CPUs, two cores busy with other work, runner image,
+            # 10k nuisance set): 220 s with 46 cores pegged at n_jobs=-1, 1.0 s on one
+            # thread. On 80k rows: 6.0 s on 1 thread, 2.2 on 4, 1.8 on 8, 1.7 on 16,
+            # 1.8 on LightGBM's own physical-core default -- no gain past eight, and
+            # identical results at every count (`deterministic` below).
+            # ponytail: fixed at 8 from that 80k measurement; re-measure on a much
+            # larger training set before raising it.
+            "n_jobs": min(8, os.process_cpu_count() or 1),
             # Unlike XGBoost's hist builder (see ecfp4_xgboost.py, which measured
             # itself bit-identical at n_jobs=-1), LightGBM's multithreaded histogram
             # construction sums floats in thread-completion order and is NOT
