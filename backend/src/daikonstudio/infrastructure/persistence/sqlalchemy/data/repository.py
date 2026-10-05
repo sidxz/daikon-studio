@@ -37,6 +37,7 @@ def _to_domain(model: DatasetModel) -> Dataset:
         validation_report=report_from_dict(model.validation_report),
         created_by=model.created_by,
         id_column=model.id_column,
+        folder_id=model.folder_id,
         created_at=model.created_at,
         updated_at=model.updated_at,
         version=model.version,
@@ -57,6 +58,7 @@ def _to_model(dataset: Dataset) -> DatasetModel:
         validation_report=report_to_dict(dataset.validation_report),
         created_by=dataset.created_by,
         id_column=dataset.id_column,
+        folder_id=dataset.folder_id,
         version=dataset.version,
         # Explicit, rather than letting the column's server_default fill them in:
         # otherwise the created_at in the 201 response body (the aggregate's own
@@ -117,6 +119,29 @@ class SqlAlchemyDatasetRepository:
             )
             await session.commit()
 
+    async def set_folder(
+        self, workspace_id: uuid.UUID, dataset_id: uuid.UUID, folder_id: uuid.UUID | None
+    ) -> None:
+        # Filing is organisation, not a change to the dataset: no version bump.
+        async with self._sessions() as session:
+            await session.execute(
+                sa_update(DatasetModel)
+                .where(DatasetModel.id == dataset_id, DatasetModel.workspace_id == workspace_id)
+                .values(folder_id=folder_id)
+            )
+            await session.commit()
+
+    async def count_by_folder(self, workspace_id: uuid.UUID) -> dict[uuid.UUID, int]:
+        async with self._sessions() as session:
+            rows = await session.execute(
+                select(DatasetModel.folder_id, func.count())
+                .where(
+                    DatasetModel.workspace_id == workspace_id, DatasetModel.folder_id.is_not(None)
+                )
+                .group_by(DatasetModel.folder_id)
+            )
+            return {folder_id: count for folder_id, count in rows if folder_id is not None}
+
     async def find_by_content_hash(
         self, workspace_id: uuid.UUID, content_hash: str
     ) -> Dataset | None:
@@ -133,12 +158,15 @@ class SqlAlchemyDatasetRepository:
         *,
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
+        folder_id: uuid.UUID | None = None,
     ) -> list[Dataset]:
         statement = (
             select(DatasetModel)
             .where(DatasetModel.workspace_id == workspace_id)
             .order_by(DatasetModel.created_at.desc(), DatasetModel.id.desc())
         )
+        if folder_id is not None:
+            statement = statement.where(DatasetModel.folder_id == folder_id)
         if cursor is not None:
             statement = statement.where(tuple_(DatasetModel.created_at, DatasetModel.id) < cursor)
         async with self._sessions() as session:

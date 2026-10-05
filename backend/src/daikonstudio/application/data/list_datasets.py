@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 
 from returns.result import Failure, Result, Success
@@ -22,6 +23,7 @@ from daikonstudio.domain.shared.errors import DomainError, ValidationError
 class ListDatasetsQuery:
     cursor: str | None = None
     limit: int | None = None
+    folder_id: uuid.UUID | None = None
 
 
 class ListDatasets:
@@ -40,7 +42,9 @@ class ListDatasets:
             return Failure(error)
         # Fetch one more than asked for: if it comes back, there is another page,
         # which is cheaper and more truthful than a COUNT over the whole table.
-        datasets = await self._repository.list(auth.workspace_id, cursor=cursor, limit=limit + 1)
+        datasets = await self._repository.list(
+            auth.workspace_id, cursor=cursor, limit=limit + 1, folder_id=query.folder_id
+        )
         next_cursor = None
         if len(datasets) > limit:
             datasets = datasets[:limit]

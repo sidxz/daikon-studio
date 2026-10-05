@@ -46,6 +46,7 @@ class InSilicoProtocol(AggregateRoot):
         parent_protocol_id: uuid.UUID | None = None,
         protocol_version: int = 1,
         created_by: uuid.UUID | None = None,
+        folder_id: uuid.UUID | None = None,
         id: uuid.UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -74,6 +75,8 @@ class InSilicoProtocol(AggregateRoot):
         # Who trained it, for the delete permission (backfilled by migration 011
         # from the training run's `requested_by`).
         self.created_by = created_by
+        # The shared folder it is filed in, if any. Organisation only.
+        self.folder_id = folder_id
 
     @property
     def conditions(self) -> Mapping[str, Any]:

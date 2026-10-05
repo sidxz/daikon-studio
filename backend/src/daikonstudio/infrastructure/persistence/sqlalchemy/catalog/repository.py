@@ -12,10 +12,11 @@ an `update`, not just `add`/`get`/`list`.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CursorResult, Select, false, select, tuple_
+from sqlalchemy import CursorResult, Select, false, func, select, tuple_
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
@@ -66,6 +67,7 @@ def _to_domain(model: InSilicoProtocolModel) -> InSilicoProtocol:
         parent_protocol_id=model.parent_protocol_id,
         protocol_version=model.protocol_version,
         created_by=model.created_by,
+        folder_id=model.folder_id,
         created_at=model.created_at,
         updated_at=model.updated_at,
         version=model.version,
@@ -90,6 +92,7 @@ def _to_model(protocol: InSilicoProtocol) -> InSilicoProtocolModel:
         parent_protocol_id=protocol.parent_protocol_id,
         protocol_version=protocol.protocol_version,
         created_by=protocol.created_by,
+        folder_id=protocol.folder_id,
         version=protocol.version,
         # Explicit, rather than the column's server_default: otherwise the
         # created_at in a 201 response body (the aggregate's own clock) and the
@@ -193,6 +196,7 @@ class SqlAlchemyProtocolRepository:
         dataset_id: uuid.UUID | None = None,
         only_ids: frozenset[uuid.UUID] | None = None,
         created_by: uuid.UUID | None = None,
+        folder_id: uuid.UUID | None = None,
     ) -> list[InSilicoProtocol]:
         statement = (
             select(InSilicoProtocolModel)
@@ -207,6 +211,8 @@ class SqlAlchemyProtocolRepository:
             )
         if created_by is not None:
             statement = statement.where(InSilicoProtocolModel.created_by == created_by)
+        if folder_id is not None:
+            statement = statement.where(InSilicoProtocolModel.folder_id == folder_id)
         if cursor is not None:
             statement = statement.where(
                 tuple_(InSilicoProtocolModel.created_at, InSilicoProtocolModel.id) < cursor
@@ -214,6 +220,52 @@ class SqlAlchemyProtocolRepository:
         async with self._sessions() as session:
             result = await session.execute(statement.limit(limit))
             return [_to_domain(model) for model in result.scalars()]
+
+    async def set_folder(
+        self, workspace_id: uuid.UUID, protocol_id: uuid.UUID, folder_id: uuid.UUID | None
+    ) -> None:
+        # Filing is organisation, not a model change: no version bump, and it works on a
+        # published, locked protocol.
+        async with self._sessions() as session:
+            await session.execute(
+                sa_update(InSilicoProtocolModel)
+                .where(
+                    InSilicoProtocolModel.id == protocol_id,
+                    InSilicoProtocolModel.workspace_id == workspace_id,
+                )
+                .values(folder_id=folder_id)
+            )
+            await session.commit()
+
+    async def count_by_folder(
+        self, workspace_id: uuid.UUID, only_ids: frozenset[uuid.UUID] | None
+    ) -> dict[uuid.UUID, int]:
+        if only_ids is not None and not only_ids:
+            return {}
+        statement = (
+            select(InSilicoProtocolModel.folder_id, func.count())
+            .where(
+                InSilicoProtocolModel.workspace_id == workspace_id,
+                InSilicoProtocolModel.folder_id.is_not(None),
+            )
+            .group_by(InSilicoProtocolModel.folder_id)
+        )
+        if only_ids is not None:
+            statement = statement.where(InSilicoProtocolModel.id.in_(only_ids))
+        async with self._sessions() as session:
+            return {f: n for f, n in await session.execute(statement) if f is not None}
+
+    async def ids_in_folder(
+        self, workspace_id: uuid.UUID, folder_id: uuid.UUID
+    ) -> Sequence[uuid.UUID]:
+        async with self._sessions() as session:
+            result = await session.execute(
+                select(InSilicoProtocolModel.id).where(
+                    InSilicoProtocolModel.workspace_id == workspace_id,
+                    InSilicoProtocolModel.folder_id == folder_id,
+                )
+            )
+            return list(result.scalars())
 
     async def _one(
         self, statement: Select[tuple[InSilicoProtocolModel]]

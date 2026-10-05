@@ -10,6 +10,7 @@ from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, Integer, St
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from daikonstudio.infrastructure.persistence.sqlalchemy import folders  # noqa: F401  (FK target)
 from daikonstudio.infrastructure.persistence.sqlalchemy.base import (
     Base,
     EntityModelMixin,
@@ -40,6 +41,9 @@ class InSilicoProtocolModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMix
     protocol_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     # Who created it, for the delete permission. NULL for rows made before 011.
     created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("folders.id", ondelete="SET NULL"), nullable=True
+    )
 
     __table_args__ = (
         CheckConstraint("status IN ('draft','published')", name="ck_protocols_status"),

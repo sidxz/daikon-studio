@@ -26,6 +26,12 @@ class DatasetRepository(Protocol):
         self, workspace_id: uuid.UUID, dataset_id: uuid.UUID, id_column: str | None
     ) -> None: ...
 
+    async def set_folder(
+        self, workspace_id: uuid.UUID, dataset_id: uuid.UUID, folder_id: uuid.UUID | None
+    ) -> None: ...
+
+    async def count_by_folder(self, workspace_id: uuid.UUID) -> dict[uuid.UUID, int]: ...
+
     async def find_by_content_hash(
         self, workspace_id: uuid.UUID, content_hash: str
     ) -> Dataset | None: ...
@@ -36,4 +42,5 @@ class DatasetRepository(Protocol):
         *,
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
+        folder_id: uuid.UUID | None = None,
     ) -> list[Dataset]: ...

@@ -43,6 +43,8 @@ class ListProtocolsQuery:
     dataset_id: uuid.UUID | None = None
     # Only the Protocols the caller created.
     mine: bool = False
+    # Only the Protocols filed in this folder.
+    folder_id: uuid.UUID | None = None
 
 
 class ListProtocols:
@@ -70,6 +72,7 @@ class ListProtocols:
             dataset_id=query.dataset_id,
             only_ids=visible,
             created_by=auth.user_id if query.mine else None,
+            folder_id=query.folder_id,
         )
         next_cursor = None
         if len(protocols) > limit:

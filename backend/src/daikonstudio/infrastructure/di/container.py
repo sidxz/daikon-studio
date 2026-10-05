@@ -63,10 +63,19 @@ from daikonstudio.application.execution.sweeps import (
     SubmitSweep,
 )
 from daikonstudio.application.execution.train_protocol import TrainProtocol
+from daikonstudio.application.folders.manage import (
+    CreateFolder,
+    DeleteFolder,
+    FileDataset,
+    FileProtocol,
+    ListFolders,
+    RenameFolder,
+)
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.chemcellar import ChemCellar
 from daikonstudio.application.ports.dataset_build_repository import DatasetBuildRepository
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.folder_repository import FolderRepository
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
@@ -97,6 +106,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.queue import S
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
 )
+from daikonstudio.infrastructure.persistence.sqlalchemy.folders import SqlAlchemyFolderRepository
 from daikonstudio.infrastructure.persistence.sqlalchemy.runners.repository import (
     SqlAlchemyRunnerRepository,
 )
@@ -155,6 +165,22 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(RunRepository, lambda c: _runs(c))  # type: ignore[type-abstract]
     container.define(DatasetRepository, lambda c: _datasets(c))  # type: ignore[type-abstract]
     container.define(ProtocolRepository, lambda c: _protocols(c))  # type: ignore[type-abstract]
+
+    container.define(
+        FolderRepository,  # type: ignore[type-abstract]
+        lambda c: SqlAlchemyFolderRepository(c[async_sessionmaker]),
+    )
+    container.define(
+        ListFolders,
+        lambda c: ListFolders(c[FolderRepository], _datasets(c), _protocols(c), c[ProtocolAccess]),
+    )
+    container.define(CreateFolder, lambda c: CreateFolder(c[FolderRepository]))
+    container.define(RenameFolder, lambda c: RenameFolder(c[FolderRepository]))
+    container.define(DeleteFolder, lambda c: DeleteFolder(c[FolderRepository]))
+    container.define(FileDataset, lambda c: FileDataset(_datasets(c), c[FolderRepository]))
+    container.define(
+        FileProtocol, lambda c: FileProtocol(_protocols(c), c[FolderRepository], c[ProtocolAccess])
+    )
 
     def _collections(c: Container) -> SqlAlchemyCollectionRepository:
         return SqlAlchemyCollectionRepository(c[async_sessionmaker])

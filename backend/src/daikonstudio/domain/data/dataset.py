@@ -46,6 +46,7 @@ class Dataset(AggregateRoot):
         validation_report: ValidationReport,
         created_by: uuid.UUID | None = None,
         id_column: str | None = None,
+        folder_id: uuid.UUID | None = None,
         id: uuid.UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -75,6 +76,8 @@ class Dataset(AggregateRoot):
         # Which snapshot column holds the compounds' own IDs, if any. Display
         # metadata: not part of `content_hash`, and changeable after freezing.
         self.id_column = id_column
+        # The shared folder it is filed in, if any. Organisation only.
+        self.folder_id = folder_id
 
     @property
     def target_columns(self) -> tuple[str, ...]:

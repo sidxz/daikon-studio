@@ -51,6 +51,7 @@ from daikonstudio.application.data.set_dataset_id_column import (
     SetDatasetIdColumn,
     SetDatasetIdColumnCommand,
 )
+from daikonstudio.application.folders.manage import FileDataset, FileItemCommand
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.dataset_build import DatasetBuild
 from daikonstudio.domain.data.profile import DatasetProfile, profile_to_dict
@@ -78,6 +79,7 @@ GetDatasetDep = Annotated[GetDataset, Depends(use_case(GetDataset))]
 DeleteDatasetDep = Annotated[DeleteDataset, Depends(use_case(DeleteDataset))]
 SetDatasetIdColumnDep = Annotated[SetDatasetIdColumn, Depends(use_case(SetDatasetIdColumn))]
 GetDatasetColumnsDep = Annotated[GetDatasetColumns, Depends(use_case(GetDatasetColumns))]
+FileDatasetDep = Annotated[FileDataset, Depends(use_case(FileDataset))]
 ListDatasetsDep = Annotated[ListDatasets, Depends(use_case(ListDatasets))]
 GetDatasetProfileDep = Annotated[GetDatasetProfile, Depends(use_case(GetDatasetProfile))]
 GetDatasetCompoundsDep = Annotated[GetDatasetCompounds, Depends(use_case(GetDatasetCompounds))]
@@ -218,6 +220,8 @@ class DatasetResponse(BaseModel):
     # Whether this viewer may change its settings (the identifier column).
     can_edit: bool
     created_by: uuid.UUID | None
+    # The shared folder it is filed in, if any.
+    folder_id: uuid.UUID | None
 
     @classmethod
     def from_domain(cls, dataset: Dataset, *, auth: AuthContext | None) -> DatasetResponse:
@@ -240,6 +244,7 @@ class DatasetResponse(BaseModel):
             id_column=dataset.id_column,
             can_edit=is_editor(auth),
             created_by=dataset.created_by,
+            folder_id=dataset.folder_id,
         )
 
 
@@ -454,11 +459,14 @@ async def list_datasets(
     service: ListDatasetsDep,
     cursor: str | None = None,
     limit: int | None = None,
+    folder_id: uuid.UUID | None = None,
 ) -> PaginatedResponse[DatasetResponse]:
     # `limit` is clamped inside the use case, not here: a worker calling it
     # directly must get the same ceiling as an HTTP caller.
     page = result_to_response(
-        await service(ListDatasetsQuery(cursor=cursor, limit=limit), auth=auth)
+        await service(
+            ListDatasetsQuery(cursor=cursor, limit=limit, folder_id=folder_id), auth=auth
+        )
     )
     return PaginatedResponse(
         items=[DatasetResponse.from_domain(dataset, auth=auth) for dataset in page.items],
@@ -478,6 +486,23 @@ class SetIdColumnBody(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id_column: str | None = Field(max_length=128)
+
+
+class FolderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    folder_id: uuid.UUID | None
+
+
+@router.put("/{dataset_id}/folder", response_model=DatasetResponse)
+async def file_dataset(
+    dataset_id: uuid.UUID, body: FolderBody, auth: AuthDep, service: FileDatasetDep
+) -> DatasetResponse:
+    """Any editor; `null` unfiles it. Organisation only: nothing frozen changes."""
+    dataset = result_to_response(
+        await service(FileItemCommand(item_id=dataset_id, folder_id=body.folder_id), auth=auth)
+    )
+    return DatasetResponse.from_domain(dataset, auth=auth)
 
 
 class DatasetColumnsResponse(BaseModel):

@@ -8,6 +8,7 @@ neither can skip registration. Reads pass straight through.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
@@ -45,6 +46,7 @@ class AccessControlledProtocolRepository:
         dataset_id: uuid.UUID | None = None,
         only_ids: frozenset[uuid.UUID] | None = None,
         created_by: uuid.UUID | None = None,
+        folder_id: uuid.UUID | None = None,
     ) -> list[InSilicoProtocol]:
         return await self._inner.list(
             workspace_id,
@@ -53,4 +55,20 @@ class AccessControlledProtocolRepository:
             dataset_id=dataset_id,
             only_ids=only_ids,
             created_by=created_by,
+            folder_id=folder_id,
         )
+
+    async def set_folder(
+        self, workspace_id: uuid.UUID, protocol_id: uuid.UUID, folder_id: uuid.UUID | None
+    ) -> None:
+        await self._inner.set_folder(workspace_id, protocol_id, folder_id)
+
+    async def count_by_folder(
+        self, workspace_id: uuid.UUID, only_ids: frozenset[uuid.UUID] | None
+    ) -> dict[uuid.UUID, int]:
+        return await self._inner.count_by_folder(workspace_id, only_ids)
+
+    async def ids_in_folder(
+        self, workspace_id: uuid.UUID, folder_id: uuid.UUID
+    ) -> Sequence[uuid.UUID]:
+        return await self._inner.ids_in_folder(workspace_id, folder_id)

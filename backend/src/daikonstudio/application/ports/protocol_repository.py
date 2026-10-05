@@ -11,6 +11,7 @@ published one.
 """
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
@@ -37,4 +38,17 @@ class ProtocolRepository(Protocol):
         dataset_id: uuid.UUID | None = None,
         only_ids: frozenset[uuid.UUID] | None = None,
         created_by: uuid.UUID | None = None,
+        folder_id: uuid.UUID | None = None,
     ) -> list[InSilicoProtocol]: ...
+
+    async def set_folder(
+        self, workspace_id: uuid.UUID, protocol_id: uuid.UUID, folder_id: uuid.UUID | None
+    ) -> None: ...
+
+    async def count_by_folder(
+        self, workspace_id: uuid.UUID, only_ids: frozenset[uuid.UUID] | None
+    ) -> dict[uuid.UUID, int]: ...
+
+    async def ids_in_folder(
+        self, workspace_id: uuid.UUID, folder_id: uuid.UUID
+    ) -> Sequence[uuid.UUID]: ...

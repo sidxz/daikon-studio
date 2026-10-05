@@ -5,10 +5,11 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from sqlalchemy import Index, Integer, String, Text, Uuid
+from sqlalchemy import ForeignKey, Index, Integer, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
+from daikonstudio.infrastructure.persistence.sqlalchemy import folders  # noqa: F401  (FK target)
 from daikonstudio.infrastructure.persistence.sqlalchemy.base import (
     Base,
     EntityModelMixin,
@@ -33,6 +34,9 @@ class DatasetModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
     created_by: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)
     # The snapshot column holding compound IDs; display metadata, see Dataset.id_column.
     id_column: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    folder_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid, ForeignKey("folders.id", ondelete="SET NULL"), nullable=True
+    )
 
     __table_args__ = (
         # Content addressing is only a real property if the database enforces it:

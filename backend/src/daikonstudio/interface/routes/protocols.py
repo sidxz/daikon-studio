@@ -50,6 +50,7 @@ from daikonstudio.application.catalog.publish_protocol import (
     PublishProtocolCommand,
 )
 from daikonstudio.application.execution.train_protocol import TrainProtocol, TrainProtocolCommand
+from daikonstudio.application.folders.manage import FileItemCommand, FileProtocol
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
 from daikonstudio.domain.data.target import Direction
@@ -63,6 +64,7 @@ from daikonstudio.interface.routes.runs import RunResponse
 router = APIRouter(prefix="/api/v1/protocols", tags=["protocols"])
 
 TrainProtocolDep = Annotated[TrainProtocol, Depends(use_case(TrainProtocol))]
+FileProtocolDep = Annotated[FileProtocol, Depends(use_case(FileProtocol))]
 ListProtocolsDep = Annotated[ListProtocols, Depends(use_case(ListProtocols))]
 GetProtocolDep = Annotated[GetProtocol, Depends(use_case(GetProtocol))]
 GetScorecardDep = Annotated[GetScorecard, Depends(use_case(GetScorecard))]
@@ -156,6 +158,8 @@ class ProtocolResponse(BaseModel):
     # Whether this viewer may delete it: a draft, and an admin or its creator.
     can_delete: bool
     created_by: uuid.UUID | None
+    # The shared folder it is filed in, if any.
+    folder_id: uuid.UUID | None
 
     @classmethod
     def from_domain(
@@ -178,6 +182,7 @@ class ProtocolResponse(BaseModel):
             created_at=protocol.created_at,
             can_delete=not protocol.is_locked and may_delete(auth, protocol.created_by),
             created_by=protocol.created_by,
+            folder_id=protocol.folder_id,
         )
 
 
@@ -415,10 +420,13 @@ async def list_protocols(
     limit: int | None = None,
     dataset_id: uuid.UUID | None = None,
     mine: bool = False,
+    folder_id: uuid.UUID | None = None,
 ) -> PaginatedResponse[ProtocolResponse]:
     page = result_to_response(
         await service(
-            ListProtocolsQuery(cursor=cursor, limit=limit, dataset_id=dataset_id, mine=mine),
+            ListProtocolsQuery(
+                cursor=cursor, limit=limit, dataset_id=dataset_id, mine=mine, folder_id=folder_id
+            ),
             auth=auth,
         )
     )
@@ -434,6 +442,23 @@ async def get_protocol(
 ) -> ProtocolResponse:
     protocol = result_to_response(
         await service(GetProtocolQuery(protocol_id=protocol_id), auth=auth)
+    )
+    return ProtocolResponse.from_domain(protocol, auth=auth)
+
+
+class FolderBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    folder_id: uuid.UUID | None
+
+
+@router.put("/{protocol_id}/folder", response_model=ProtocolResponse)
+async def file_protocol(
+    protocol_id: uuid.UUID, body: FolderBody, auth: AuthDep, service: FileProtocolDep
+) -> ProtocolResponse:
+    """Any editor who can see it; `null` unfiles it. Works on a published protocol."""
+    protocol = result_to_response(
+        await service(FileItemCommand(item_id=protocol_id, folder_id=body.folder_id), auth=auth)
     )
     return ProtocolResponse.from_domain(protocol, auth=auth)
 
