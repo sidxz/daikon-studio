@@ -32,8 +32,14 @@ frontend and any deployed runners are compatible.
 
 ## Cutting a release
 
-1. Make sure `main` is green and pulled locally.
-2. Run the security gate locally and make sure it passes:
+The test suites run once per commit, on `main`; the tag reuses that result. From a
+green `main` to published images takes about 10 minutes, so release a batch of
+changes at once rather than each fix as it lands.
+
+1. Push to `main`. Its CI runs both suites (about 5 minutes). Before pushing, the
+   static checks and the tests for what changed are enough locally; the full suite
+   is CI's job.
+2. While that CI runs, run the security gate locally:
    ```bash
    make security-scan   # Trivy: lockfiles, secrets, then both images
    ```
@@ -45,13 +51,18 @@ frontend and any deployed runners are compatible.
    # commits touching the backend since its last tag
    git log "$(git tag --list 'backend-v*' --sort=-creatordate | head -1)"..HEAD -- backend/
    ```
-4. Tag and push:
+4. Once `main`'s CI and the scan are both green, tag every component that changed and
+   push the tags together:
    ```bash
-   git tag backend-v1.4.0      # or frontend-v2.1.0
-   git push origin backend-v1.4.0
+   git tag backend-v1.4.0 && git tag frontend-v2.1.0
+   git push origin backend-v1.4.0 frontend-v2.1.0
    ```
+   Wait for `main`'s CI to pass first: a tag whose commit already passed there skips
+   the suites. Tagged sooner, it runs them itself, about 6 minutes longer.
 5. CI (`.github/workflows/ci.yml`) then:
-   - runs the full test suites, builds **only** that component, boot-checks the
+   - finds `main`'s passing run for the tagged commit and skips the suites (the
+     `tested` job), or runs them when there is none;
+   - builds **only** that component, boot-checks the
      image, and tags it `1.4.0`, `1.4`, `1` and `latest` (a pre-release such as
      `1.4.0-beta.1` gets only its exact tag);
    - injects `APP_VERSION` / `APP_GIT_SHA` / `APP_BUILD_DATE` into the image — all three
@@ -59,9 +70,12 @@ frontend and any deployed runners are compatible.
    - generates a `git-cliff` changelog scoped to that component since its
      previous tag and publishes a **GitHub Release** ("Backend v1.4.0").
 
-6. **Backend releases only:** publish the CUDA runner from the tag:
+6. **Backend releases only:** publish the CUDA runner from the tag, right after pushing
+   it, alongside the tag's CI. A worktree leaves your own checkout on `main`:
    ```bash
-   git checkout backend-v1.4.0 && make publish-runner-gpu && git checkout main
+   git worktree add --detach ../release backend-v1.4.0
+   make -C ../release publish-runner-gpu
+   git worktree remove ../release
    ```
    It builds `backend/Dockerfile.gpu` on atlantic (x86_64, NVIDIA GPU, lasting layer
    cache) over the `atlantic` docker context, fails unless torch can see the GPU, runs

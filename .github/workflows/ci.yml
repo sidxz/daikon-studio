@@ -12,7 +12,28 @@ permissions: { contents: read }
 # change what runs here. Bump one by resolving its tag again:
 #   gh api repos/<owner>/<repo>/commits/<tag> --jq .sha
 jobs:
+  # A release tag points at a commit main's CI has normally already tested, and running
+  # both suites again held the images back about six minutes per tag. This finds that
+  # passing run; with none (a tag pushed before main's CI finished, on a commit main
+  # never had, or a failed lookup), the suites run here as they always did.
+  tested:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    permissions: { actions: read }
+    outputs:
+      on_main: ${{ steps.find.outputs.on_main }}
+    steps:
+      - id: find
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: |
+          passed=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/ci.yml/runs?head_sha=$GITHUB_SHA&branch=main&event=push&status=success" --jq .total_count || echo 0)
+          echo "on_main=$([ "${passed:-0}" -gt 0 ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   backend:
+    needs: tested
+    # !cancelled(): on main and pull requests `tested` is skipped, which would
+    # otherwise skip this job too.
+    if: ${{ !cancelled() && needs.tested.outputs.on_main != 'true' }}
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: backend } }
     steps:
@@ -27,6 +48,8 @@ jobs:
       - run: env OMP_NUM_THREADS=1 uv run pytest -q
 
   frontend:
+    needs: tested
+    if: ${{ !cancelled() && needs.tested.outputs.on_main != 'true' }}
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: frontend } }
     steps:
@@ -42,10 +65,14 @@ jobs:
       - run: pnpm build
 
   # Release tags only: pushes to main and PRs run the tests above and build nothing.
+  # Gated on the suites passing, here or on main for this same commit (`tested`).
   images:
-    if: github.ref_type == 'tag'
+    if: >-
+      ${{ !cancelled() && github.ref_type == 'tag' &&
+          (needs.tested.outputs.on_main == 'true' ||
+           (needs.backend.result == 'success' && needs.frontend.result == 'success')) }}
     runs-on: ubuntu-latest
-    needs: [backend, frontend]
+    needs: [tested, backend, frontend]
     permissions: { contents: read, packages: write }
     env:
       API_IMAGE: ghcr.io/${{ github.repository }}/api
