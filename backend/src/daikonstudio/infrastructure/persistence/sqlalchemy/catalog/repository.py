@@ -24,7 +24,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
-from daikonstudio.domain.shared.errors import ConcurrencyConflictError, ConflictError
+from daikonstudio.domain.shared.errors import (
+    ConcurrencyConflictError,
+    ConflictError,
+    ValidationError,
+)
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import (
     InSilicoProtocolModel,
 )
@@ -227,15 +231,18 @@ class SqlAlchemyProtocolRepository:
         # Filing is organisation, not a model change: no version bump, and it works on a
         # published, locked protocol.
         async with self._sessions() as session:
-            await session.execute(
-                sa_update(InSilicoProtocolModel)
-                .where(
-                    InSilicoProtocolModel.id == protocol_id,
-                    InSilicoProtocolModel.workspace_id == workspace_id,
+            try:
+                await session.execute(
+                    sa_update(InSilicoProtocolModel)
+                    .where(
+                        InSilicoProtocolModel.id == protocol_id,
+                        InSilicoProtocolModel.workspace_id == workspace_id,
+                    )
+                    .values(folder_id=folder_id)
                 )
-                .values(folder_id=folder_id)
-            )
-            await session.commit()
+                await session.commit()
+            except IntegrityError as error:  # the folder was deleted after it was checked
+                raise ValidationError("Choose a folder for this kind of item.") from error
 
     async def count_by_folder(
         self, workspace_id: uuid.UUID, only_ids: frozenset[uuid.UUID] | None

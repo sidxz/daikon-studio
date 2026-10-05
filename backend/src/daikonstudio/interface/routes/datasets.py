@@ -498,7 +498,7 @@ class FolderBody(BaseModel):
 async def file_dataset(
     dataset_id: uuid.UUID, body: FolderBody, auth: AuthDep, service: FileDatasetDep
 ) -> DatasetResponse:
-    """Any editor; `null` unfiles it. Organisation only: nothing frozen changes."""
+    """Any editor; `null` unfiles it. Organization only: nothing frozen changes."""
     dataset = result_to_response(
         await service(FileItemCommand(item_id=dataset_id, folder_id=body.folder_id), auth=auth)
     )

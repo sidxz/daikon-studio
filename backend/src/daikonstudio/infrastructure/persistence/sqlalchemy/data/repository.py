@@ -19,7 +19,7 @@ from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import split_from_dict, split_to_dict
 from daikonstudio.domain.data.target import target_from_dict, target_to_dict
 from daikonstudio.domain.data.validation import report_from_dict, report_to_dict
-from daikonstudio.domain.shared.errors import ConflictError
+from daikonstudio.domain.shared.errors import ConflictError, ValidationError
 from daikonstudio.infrastructure.persistence.sqlalchemy.data.models import DatasetModel
 
 
@@ -124,12 +124,17 @@ class SqlAlchemyDatasetRepository:
     ) -> None:
         # Filing is organisation, not a change to the dataset: no version bump.
         async with self._sessions() as session:
-            await session.execute(
-                sa_update(DatasetModel)
-                .where(DatasetModel.id == dataset_id, DatasetModel.workspace_id == workspace_id)
-                .values(folder_id=folder_id)
-            )
-            await session.commit()
+            try:
+                await session.execute(
+                    sa_update(DatasetModel)
+                    .where(
+                        DatasetModel.id == dataset_id, DatasetModel.workspace_id == workspace_id
+                    )
+                    .values(folder_id=folder_id)
+                )
+                await session.commit()
+            except IntegrityError as error:  # the folder was deleted after it was checked
+                raise ValidationError("Choose a folder for this kind of item.") from error
 
     async def count_by_folder(self, workspace_id: uuid.UUID) -> dict[uuid.UUID, int]:
         async with self._sessions() as session:
