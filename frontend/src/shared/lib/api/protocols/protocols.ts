@@ -23,6 +23,7 @@ import type {
 
 import type {
   ChemicalSpaceResponse,
+  FolderBody,
   GetChemicalSpaceCompoundsApiV1ProtocolsProtocolIdChemicalSpaceCompoundsGetParams,
   HTTPValidationError,
   ListProtocolsApiV1ProtocolsGetParams,
@@ -348,6 +349,71 @@ export const useDeleteProtocolApiV1ProtocolsProtocolIdDelete = <TError = HTTPVal
       > => {
 
       const mutationOptions = getDeleteProtocolApiV1ProtocolsProtocolIdDeleteMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * Any editor who can see it; `null` unfiles it. Works on a published protocol.
+ * @summary File Protocol
+ */
+export const fileProtocolApiV1ProtocolsProtocolIdFolderPut = (
+    protocolId: string,
+    folderBody: FolderBody,
+ ) => {
+      
+      
+      return customInstance<ProtocolResponse>(
+      {url: `/api/v1/protocols/${protocolId}/folder`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: folderBody
+    },
+      );
+    }
+  
+
+
+export const getFileProtocolApiV1ProtocolsProtocolIdFolderPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof fileProtocolApiV1ProtocolsProtocolIdFolderPut>>, TError,{protocolId: string;data: FolderBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof fileProtocolApiV1ProtocolsProtocolIdFolderPut>>, TError,{protocolId: string;data: FolderBody}, TContext> => {
+
+const mutationKey = ['fileProtocolApiV1ProtocolsProtocolIdFolderPut'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof fileProtocolApiV1ProtocolsProtocolIdFolderPut>>, {protocolId: string;data: FolderBody}> = (props) => {
+          const {protocolId,data} = props ?? {};
+
+          return  fileProtocolApiV1ProtocolsProtocolIdFolderPut(protocolId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FileProtocolApiV1ProtocolsProtocolIdFolderPutMutationResult = NonNullable<Awaited<ReturnType<typeof fileProtocolApiV1ProtocolsProtocolIdFolderPut>>>
+    export type FileProtocolApiV1ProtocolsProtocolIdFolderPutMutationBody = FolderBody
+    export type FileProtocolApiV1ProtocolsProtocolIdFolderPutMutationError = HTTPValidationError
+
+    /**
+ * @summary File Protocol
+ */
+export const useFileProtocolApiV1ProtocolsProtocolIdFolderPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof fileProtocolApiV1ProtocolsProtocolIdFolderPut>>, TError,{protocolId: string;data: FolderBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof fileProtocolApiV1ProtocolsProtocolIdFolderPut>>,
+        TError,
+        {protocolId: string;data: FolderBody},
+        TContext
+      > => {
+
+      const mutationOptions = getFileProtocolApiV1ProtocolsProtocolIdFolderPutMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

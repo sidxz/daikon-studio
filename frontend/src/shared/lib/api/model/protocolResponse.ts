@@ -6,6 +6,8 @@ import type { ReadoutResponse } from './readoutResponse';
 import type { ProtocolResponseConditions } from './protocolResponseConditions';
 import type { ProtocolResponsePublishedAt } from './protocolResponsePublishedAt';
 import type { ProtocolResponseParentProtocolId } from './protocolResponseParentProtocolId';
+import type { ProtocolResponseCreatedBy } from './protocolResponseCreatedBy';
+import type { ProtocolResponseFolderId } from './protocolResponseFolderId';
 
 export interface ProtocolResponse {
   id: string;
@@ -23,4 +25,6 @@ export interface ProtocolResponse {
   protocol_version: number;
   created_at: string;
   can_delete: boolean;
+  created_by: ProtocolResponseCreatedBy;
+  folder_id: ProtocolResponseFolderId;
 }

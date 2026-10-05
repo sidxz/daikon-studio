@@ -29,6 +29,7 @@ import type {
   DatasetColumnsResponse,
   DatasetProfileResponse,
   DatasetResponse,
+  FolderBody,
   GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams,
   GetDatasetProfileApiV1DatasetsDatasetIdProfileGetParams,
   HTTPValidationError,
@@ -578,6 +579,71 @@ export const useDeleteDatasetApiV1DatasetsDatasetIdDelete = <TError = HTTPValida
       > => {
 
       const mutationOptions = getDeleteDatasetApiV1DatasetsDatasetIdDeleteMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * Any editor; `null` unfiles it. Organisation only: nothing frozen changes.
+ * @summary File Dataset
+ */
+export const fileDatasetApiV1DatasetsDatasetIdFolderPut = (
+    datasetId: string,
+    folderBody: FolderBody,
+ ) => {
+      
+      
+      return customInstance<DatasetResponse>(
+      {url: `/api/v1/datasets/${datasetId}/folder`, method: 'PUT',
+      headers: {'Content-Type': 'application/json', },
+      data: folderBody
+    },
+      );
+    }
+  
+
+
+export const getFileDatasetApiV1DatasetsDatasetIdFolderPutMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof fileDatasetApiV1DatasetsDatasetIdFolderPut>>, TError,{datasetId: string;data: FolderBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof fileDatasetApiV1DatasetsDatasetIdFolderPut>>, TError,{datasetId: string;data: FolderBody}, TContext> => {
+
+const mutationKey = ['fileDatasetApiV1DatasetsDatasetIdFolderPut'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof fileDatasetApiV1DatasetsDatasetIdFolderPut>>, {datasetId: string;data: FolderBody}> = (props) => {
+          const {datasetId,data} = props ?? {};
+
+          return  fileDatasetApiV1DatasetsDatasetIdFolderPut(datasetId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FileDatasetApiV1DatasetsDatasetIdFolderPutMutationResult = NonNullable<Awaited<ReturnType<typeof fileDatasetApiV1DatasetsDatasetIdFolderPut>>>
+    export type FileDatasetApiV1DatasetsDatasetIdFolderPutMutationBody = FolderBody
+    export type FileDatasetApiV1DatasetsDatasetIdFolderPutMutationError = HTTPValidationError
+
+    /**
+ * @summary File Dataset
+ */
+export const useFileDatasetApiV1DatasetsDatasetIdFolderPut = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof fileDatasetApiV1DatasetsDatasetIdFolderPut>>, TError,{datasetId: string;data: FolderBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof fileDatasetApiV1DatasetsDatasetIdFolderPut>>,
+        TError,
+        {datasetId: string;data: FolderBody},
+        TContext
+      > => {
+
+      const mutationOptions = getFileDatasetApiV1DatasetsDatasetIdFolderPutMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

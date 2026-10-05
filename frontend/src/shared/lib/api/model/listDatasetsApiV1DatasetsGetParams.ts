@@ -6,4 +6,5 @@
 export type ListDatasetsApiV1DatasetsGetParams = {
 cursor?: string | null;
 limit?: number | null;
+folder_id?: string | null;
 };

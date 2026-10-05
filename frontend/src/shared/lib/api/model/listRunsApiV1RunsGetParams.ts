@@ -3,10 +3,15 @@
  * daikon-studio
  */
 import type { RunKind } from './runKind';
+import type { RunStatus } from './runStatus';
 
 export type ListRunsApiV1RunsGetParams = {
 kind?: RunKind | null;
 protocol_id?: string | null;
+folder_id?: string | null;
+mine?: boolean;
+status?: RunStatus[] | null;
+q?: string | null;
 cursor?: string | null;
 limit?: number | null;
 };

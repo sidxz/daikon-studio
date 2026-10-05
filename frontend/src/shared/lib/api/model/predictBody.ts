@@ -4,6 +4,7 @@
  */
 import type { PredictBodyConditions } from './predictBodyConditions';
 import type { PredictBodyIdColumn } from './predictBodyIdColumn';
+import type { PredictBodyName } from './predictBodyName';
 
 export interface PredictBody {
   protocol_id: string;
@@ -11,4 +12,5 @@ export interface PredictBody {
   structure_column: string;
   conditions?: PredictBodyConditions;
   id_column?: PredictBodyIdColumn;
+  name?: PredictBodyName;
 }

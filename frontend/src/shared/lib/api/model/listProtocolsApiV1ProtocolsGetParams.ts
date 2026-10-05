@@ -7,4 +7,6 @@ export type ListProtocolsApiV1ProtocolsGetParams = {
 cursor?: string | null;
 limit?: number | null;
 dataset_id?: string | null;
+mine?: boolean;
+folder_id?: string | null;
 };
