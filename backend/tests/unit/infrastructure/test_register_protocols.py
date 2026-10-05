@@ -53,9 +53,12 @@ async def test_a_draft_is_registered_private_and_a_published_one_workspace(sessi
         if call.kwargs["resource_id"] in test_ids
     }
     assert visibility == {draft.id: "private", published.id: "workspace"}
-    permissions.update_visibility.assert_awaited_once_with(
-        "", RESOURCE_TYPE, published.id, "workspace"
-    )
+    test_visibility_calls = [
+        call.args
+        for call in permissions.update_visibility.await_args_list
+        if call.args[2] in test_ids
+    ]
+    assert test_visibility_calls == [("", RESOURCE_TYPE, published.id, "workspace")]
     test_registered = sum(
         1
         for call in permissions.register_resource.await_args_list
