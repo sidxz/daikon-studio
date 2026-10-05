@@ -17,6 +17,22 @@
   }
 }
 
+/* ── Status breathing ──────────────────────────────────────── */
+/* The list pages' one ambient motion: a queued or running dot breathes while
+   work is happening. Used only behind motion-safe:, so it is static under
+   reduced motion. */
+@keyframes status-breathe {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: scale(0.75);
+  }
+}
+
 /* ── Navigation icon hues ─────────────────────────────────── */
 /* One hue per section. Measured against --sidebar (#f1f5f9) in light mode,
    each reaches at least 3:1, including on the active row. The token amber
@@ -45,4 +61,5 @@
   --color-icon-collections: var(--icon-collections);
   --color-icon-engines: var(--icon-engines);
   --color-icon-runners: var(--icon-runners);
+  --animate-status-breathe: status-breathe 2.4s ease-in-out infinite;
 }

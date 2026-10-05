@@ -1,3 +1,4 @@
+import { type Headline, headlines } from "@/shared/lib/headlines";
 import type { SweepRun } from "../types";
 
 /**
@@ -7,20 +8,6 @@ import type { SweepRun } from "../types";
  * it from the value would have no way to tell 0.4 RMSE from 0.4 MCC.
  */
 const LOWER_IS_BETTER = new Set(["rmse", "mae"]);
-
-/** One target's headline on a training run (`Run.record_metrics`). */
-export interface Headline {
-  column: string;
-  primary_metric: string;
-  value: number | null;
-  baseline_value: number | null;
-}
-
-/** A run's per-target headlines; empty while it has none. `metrics` is untyped in the contract. */
-export function headlines(metrics: SweepRun["metrics"]): Headline[] {
-  const targets = (metrics as { targets?: unknown } | null)?.targets;
-  return Array.isArray(targets) ? (targets as Headline[]) : [];
-}
 
 /**
  * Every target any member reports, in the order reported. A sweep has one
