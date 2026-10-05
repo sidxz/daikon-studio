@@ -173,6 +173,13 @@ export function RunDetail({ runId }: { runId: string }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date(run.created_at).toLocaleString()}
           </p>
+          {/* 7: the backend's SAVED_PROGRESS_DAYS (discard_abandoned_progress.py). */}
+          {run.kind === "training" && (run.status === "failed" || run.status === "cancelled") && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Resume continues from the last save for 7 days after the run stopped. After that, it
+              trains from the beginning.
+            </p>
+          )}
           {/* The server's count, once there is one, supersedes the wizard's
               client-side parse: it includes the rows that did not parse. */}
           {scored != null && uploaded != null ? (

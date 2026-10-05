@@ -239,6 +239,19 @@ class SqlAlchemyRunRepository:
             result = await session.execute(statement)
             return [_to_domain(model) for model in result.scalars()]
 
+    async def list_stopped_training(self, stopped_before: datetime) -> builtins.list[Run]:
+        # ponytail: every old cancelled or failed training run, every day, including
+        # ones whose progress is already gone. Fine at hundreds; add a column marking
+        # the progress discarded if it reaches thousands.
+        statement = select(RunModel).where(
+            RunModel.kind == RunKind.TRAINING.value,
+            RunModel.status.in_((RunStatus.CANCELLED.value, RunStatus.FAILED.value)),
+            RunModel.updated_at < stopped_before,
+        )
+        async with self._sessions() as session:
+            result = await session.execute(statement)
+            return [_to_domain(model) for model in result.scalars()]
+
     async def get(self, workspace_id: uuid.UUID, run_id: uuid.UUID) -> Run | None:
         return await self._one(
             select(RunModel).where(RunModel.id == run_id, RunModel.workspace_id == workspace_id)

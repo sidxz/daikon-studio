@@ -38,6 +38,9 @@ from daikonstudio.application.data.set_dataset_id_column import (
 )
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.claim_run import ClaimRun
+from daikonstudio.application.execution.discard_abandoned_progress import (
+    DiscardAbandonedProgress,
+)
 from daikonstudio.application.execution.enqueue import JobEnqueuer
 from daikonstudio.application.execution.list_runs import ListRuns
 from daikonstudio.application.execution.predict_with_protocol import (
@@ -269,6 +272,9 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(GetRunEpochs, lambda c: GetRunEpochs(_runs(c)))
     container.define(ListRuns, lambda c: ListRuns(_runs(c)))
     container.define(CancelRun, lambda c: CancelRun(_runs(c)))
+    container.define(
+        DiscardAbandonedProgress, lambda c: DiscardAbandonedProgress(_runs(c), c[BlobStore])
+    )
     container.define(
         RetryRun,
         lambda c: RetryRun(

@@ -1,14 +1,19 @@
 import asyncio
+import contextlib
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from daikonstudio.application.execution.discard_abandoned_progress import (
+    DiscardAbandonedProgress,
+)
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.infrastructure.duar.auth import (
     get_duar,
@@ -44,6 +49,24 @@ async def check_database(sessions: async_sessionmaker[AsyncSession]) -> str | No
     except Exception as exc:  # deliberately broad: a probe reports, it never raises
         return type(exc).__name__
     return None
+
+
+_DAY_SECONDS = 24 * 60 * 60
+
+
+async def _discard_abandoned_progress_daily(app: FastAPI) -> None:
+    """At start and then daily: delete the saved progress of training runs cancelled
+    or failed long ago (`DiscardAbandonedProgress`). Every API replica runs it, which
+    is harmless: the delete is idempotent. A failure is logged and tried again the
+    next day, never allowed to stop the API."""
+    logger = structlog.get_logger(__name__)
+    while True:
+        try:
+            checked = await app.state.container[DiscardAbandonedProgress]()
+            logger.info("discarded abandoned training progress", runs_checked=checked)
+        except Exception:
+            logger.exception("could not discard abandoned training progress")
+        await asyncio.sleep(_DAY_SECONDS)
 
 
 def create_app() -> FastAPI:
@@ -83,7 +106,13 @@ def create_app() -> FastAPI:
             # the SDK logs nothing either way. See log_effective_scope.
             log_effective_scope(duar)
             await register_service_actions(duar)
-            yield
+            cleanup = asyncio.create_task(_discard_abandoned_progress_daily(app))
+            try:
+                yield
+            finally:
+                cleanup.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await cleanup
 
     info = build_info()
     app = FastAPI(title="daikon-studio", version=info.version, lifespan=lifespan)

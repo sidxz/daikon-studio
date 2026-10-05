@@ -64,6 +64,11 @@ class RunRepository(Protocol):
         """Every training run on a Dataset. Unpaginated: they are submitted by hand."""
         ...
 
+    async def list_stopped_training(self, stopped_before: datetime) -> builtins.list[Run]:
+        """Training runs in every workspace that were cancelled or failed and last
+        changed before `stopped_before`. Unscoped: for `DiscardAbandonedProgress` only."""
+        ...
+
     async def get(self, workspace_id: UUID, run_id: UUID) -> Run | None: ...
 
     async def get_by_id(self, run_id: UUID) -> Run | None:
