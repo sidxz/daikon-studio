@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 
 from daikonstudio.infrastructure.chem import similarity
 from daikonstudio.infrastructure.chem.featurize import ecfp4
@@ -59,3 +60,24 @@ def test_an_empty_reference_gives_empty_rows():
     indices, sims = nearest_neighbours_tanimoto(QUERY, [], 5)
     assert indices.shape == (4, 0)
     assert sims.shape == (4, 0)
+
+
+def test_the_gpu_search_finds_the_same_neighbours_as_the_cpu_search():
+    """Run on torch's CPU device, which shares every line with the CUDA path but the
+    dtype (float16 there, exact for 0/1 bits): same similarities, same order, and the
+    same molecules wherever the k-th place is not a tie."""
+    torch = pytest.importorskip("torch")
+    from daikonstudio.infrastructure.chem.similarity import _top_k_numpy, _top_k_torch
+
+    rng = np.random.default_rng(7)
+    q = (rng.random((300, 2048)) < 0.02).astype(np.float32)
+    r = (rng.random((900, 2048)) < 0.02).astype(np.float32)
+
+    cpu_indices, cpu_similarities = _top_k_numpy(q, r, 5)
+    gpu_indices, gpu_similarities = _top_k_torch(q, r, 5, torch, torch.device("cpu"))
+
+    assert np.array_equal(cpu_similarities, gpu_similarities)
+    full = _top_k_numpy(q, r, 6)[1]
+    untied = full[:, 4] > full[:, 5]
+    assert untied.mean() > 0.5  # the comparison below is not vacuous
+    assert np.array_equal(cpu_indices[untied], gpu_indices[untied])
