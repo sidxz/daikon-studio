@@ -31,11 +31,14 @@ import { Progress } from "@/shared/components/ui/progress";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import type { PredictionCountsWire } from "@/shared/lib/api/model";
+import { useAppConfig } from "@/shared/lib/app-config";
+import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { useCancelRun, useRetryRun, useRun, useRunEpochs } from "../hooks/use-runs";
+import { formatRunDate } from "../lib/chemcellar-runs";
 import { RUN_STATUS_COPY } from "../types";
 import { RunChemicalSpace } from "./run-chemical-space";
 import { TrainingProgress } from "./training-progress";
@@ -61,6 +64,8 @@ function LaneHint({ lane }: { lane: string }) {
 export function RunDetail({ runId }: { runId: string }) {
   const router = useRouter();
   const params = useSearchParams();
+  const memberName = useMemberName();
+  const { chemcellarUrl } = useAppConfig();
   // A URL parameter is user input, not a measurement -- `?compounds=9999`
   // must not render as fact. Parsed and range-checked before it is trusted
   // enough to show; a run opened with no parameter (or a bogus one) shows no
@@ -147,6 +152,9 @@ export function RunDetail({ runId }: { runId: string }) {
     );
   }
 
+  const startedBy = memberName(run.requested_by);
+  const sourceLabel = (source: NonNullable<typeof run.source>) =>
+    `${source.protocol_name}, run of ${formatRunDate(source.run_date)}`;
   const running = run.status === "pending" || run.status === "running";
   // A prediction run's `metrics` once READY (`Run.record_prediction_counts`);
   // a training run's hold its headline metric instead, so these stay undefined.
@@ -172,7 +180,31 @@ export function RunDetail({ runId }: { runId: string }) {
               "the July 29th run". */}
           <p className="mt-1 text-sm text-muted-foreground">
             {new Date(run.created_at).toLocaleString()}
+            {startedBy && <> · Started by {startedBy}</>}
           </p>
+          {run.source && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              Compounds from ChemCellar:{" "}
+              {chemcellarUrl ? (
+                <a
+                  href={`${chemcellarUrl.replace(/\/$/, "")}/assays/runs/${run.source.run_id}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  {sourceLabel(run.source)}
+                </a>
+              ) : (
+                sourceLabel(run.source)
+              )}
+              {(run.source.compounds_without_structure ?? 0) > 0 &&
+                ` · ${run.source.compounds_without_structure} compound${
+                  run.source.compounds_without_structure === 1 ? "" : "s"
+                } in that run ${
+                  run.source.compounds_without_structure === 1 ? "has" : "have"
+                } no disclosed structure`}
+            </p>
+          )}
           {/* 7: the backend's SAVED_PROGRESS_DAYS (discard_abandoned_progress.py). */}
           {run.kind === "training" && (run.status === "failed" || run.status === "cancelled") && (
             <p className="mt-1 text-sm text-muted-foreground">

@@ -6,6 +6,7 @@ export interface AppConfig {
   apiBaseUrl: string;
   appUrl: string;
   duarUrl: string;
+  chemcellarUrl: string;
   serviceName: string;
   idp: {
     googleClientId: string;
@@ -24,6 +25,7 @@ const defaultConfig: AppConfig = {
   apiBaseUrl: "http://localhost:8002",
   appUrl: "http://localhost:3003",
   duarUrl: "http://localhost:9003",
+  chemcellarUrl: "",
   serviceName: "daikon-studio",
   idp: { googleClientId: "", entraClientId: "", entraTenantId: "" },
   uiVersion: "0.0.0+dev",

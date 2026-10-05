@@ -14,7 +14,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/shared/components/ui/select";
+import { Tabs, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { saveText } from "@/shared/lib/api/download";
+import type { ChemCellarImportResponse } from "@/shared/lib/api/model";
+import { useAppConfig } from "@/shared/lib/app-config";
 import { guessIdColumn } from "@/shared/lib/guess-id-column";
 import { showError } from "@/shared/lib/toast";
 import { Download, FileUp } from "lucide-react";
@@ -23,7 +26,9 @@ import Papa from "papaparse";
 import { useCallback, useMemo, useState } from "react";
 import { useDropzone } from "react-dropzone";
 import { useCreateRun, useUploadPredictionFile } from "../hooks/use-runs";
+import { activeCompounds, formatRunDate } from "../lib/chemcellar-runs";
 import { summarisePreview } from "../lib/parse-preview";
+import { ChemCellarPicker } from "./chemcellar-picker";
 import { PredictionPreview } from "./prediction-preview";
 
 // Radix forbids an empty item value, and a blank header is dropped on parse, so
@@ -84,12 +89,15 @@ function ProtocolContext({ protocol }: { protocol: Protocol }) {
 export function PredictWizard() {
   const router = useRouter();
   const params = useSearchParams();
+  const { chemcellarUrl } = useAppConfig();
 
   const [protocolId, setProtocolId] = useState(params.get("protocol") ?? "");
   const [file, setFile] = useState<File | null>(null);
   const [columns, setColumns] = useState<string[]>([]);
   const [structureColumn, setStructureColumn] = useState("");
   const [idColumn, setIdColumn] = useState<string | null>(null);
+  const [tab, setTab] = useState<"csv" | "chemcellar">("csv");
+  const [imported, setImported] = useState<ChemCellarImportResponse | null>(null);
   const [rows, setRows] = useState<Record<string, string | undefined>[]>([]);
 
   const protocols = useProtocols(undefined, 200);
@@ -146,21 +154,34 @@ export function PredictWizard() {
     noClick: true,
   });
 
+  const { count, ready } = activeCompounds(tab, compoundCount, imported);
+
   async function submit() {
-    if (!file) return;
     try {
-      const uploadRef = await upload.mutateAsync(file);
-      const run = await create.mutateAsync({
-        protocol_id: protocolId,
-        upload_ref: uploadRef,
-        structure_column: structureColumn,
-        id_column: idColumn,
-      });
+      let run: Awaited<ReturnType<typeof create.mutateAsync>>;
+      if (tab === "chemcellar") {
+        if (!imported) return;
+        run = await create.mutateAsync({
+          protocol_id: protocolId,
+          upload_ref: imported.upload_ref,
+          structure_column: "smiles",
+          id_column: "compound_id",
+        });
+      } else {
+        if (!file) return;
+        const uploadRef = await upload.mutateAsync(file);
+        run = await create.mutateAsync({
+          protocol_id: protocolId,
+          upload_ref: uploadRef,
+          structure_column: structureColumn,
+          id_column: idColumn,
+        });
+      }
       // A cache hit comes back 202 with an already-ready Run, so the status is
       // the only way to tell that no work was started. Saying so beats showing
       // a progress bar that was never going to move.
       const cached = run.status === "ready" ? "&cached=1" : "";
-      router.push(`/runs/${run.id}?compounds=${compoundCount}${cached}`);
+      router.push(`/runs/${run.id}?compounds=${count}${cached}`);
     } catch {
       // The global mutation handler already surfaced the message.
     }
@@ -202,79 +223,118 @@ export function PredictWizard() {
             {selectedProtocol && <ProtocolContext protocol={selectedProtocol} />}
           </div>
 
-          <div {...getRootProps()} className="space-y-2">
-            <input {...getInputProps()} />
-            <Label>Compounds</Label>
-            <button
-              type="button"
-              onClick={open}
-              className={`flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
-                isDragActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
-              }`}
-            >
-              <FileUp className="size-6 text-muted-foreground" />
-              <span className="text-sm font-medium">
-                {file ? file.name : "Drop a CSV of structures, or click to choose one"}
-              </span>
-              <span className="text-xs text-muted-foreground">Requires one SMILES column.</span>
-            </button>
-            <div className="flex items-center justify-end">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() =>
-                  saveText(PREDICTION_TEMPLATE_CSV, "daikon-studio-prediction-template.csv")
-                }
-              >
-                <Download className="size-4" />
-                Download template
-              </Button>
+          {chemcellarUrl && (
+            <div className="space-y-2">
+              <Label>Compounds</Label>
+              <Tabs value={tab} onValueChange={(value) => setTab(value as "csv" | "chemcellar")}>
+                <TabsList>
+                  <TabsTrigger value="csv">Upload CSV</TabsTrigger>
+                  <TabsTrigger value="chemcellar">From ChemCellar</TabsTrigger>
+                </TabsList>
+              </Tabs>
             </div>
-          </div>
-
-          {columns.length > 1 && (
+          )}
+          {tab === "chemcellar" && chemcellarUrl ? (
             <>
-              <div className="space-y-1.5">
-                <Label htmlFor="structure-column">Structure column</Label>
-                <Select value={structureColumn} onValueChange={setStructureColumn}>
-                  <SelectTrigger id="structure-column">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {columns.map((column) => (
-                      <SelectItem key={column} value={column}>
-                        {column}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="id-column">Identifier column (optional)</Label>
-                <Select
-                  value={idColumn ?? NO_ID_COLUMN}
-                  onValueChange={(value) => setIdColumn(value === NO_ID_COLUMN ? null : value)}
+              <ChemCellarPicker onImported={setImported} />
+              {imported && (
+                <>
+                  <PredictionPreview
+                    summary={{ total: imported.compound_count, blank: 0, sample: imported.sample }}
+                    column="smiles"
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    From ChemCellar: {imported.source.protocol_name}, run of{" "}
+                    {formatRunDate(imported.source.run_date)}
+                  </p>
+                  {imported.without_structure > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {imported.without_structure} compound
+                      {imported.without_structure === 1 ? "" : "s"} in this run{" "}
+                      {imported.without_structure === 1 ? "has" : "have"} no disclosed structure and{" "}
+                      {imported.without_structure === 1 ? "is" : "are"} not included.
+                    </p>
+                  )}
+                </>
+              )}
+            </>
+          ) : (
+            <>
+              <div {...getRootProps()} className="space-y-2">
+                <input {...getInputProps()} />
+                {!chemcellarUrl && <Label>Compounds</Label>}
+                <button
+                  type="button"
+                  onClick={open}
+                  className={`flex w-full cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 text-center transition-colors ${
+                    isDragActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+                  }`}
                 >
-                  <SelectTrigger id="id-column">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={NO_ID_COLUMN}>None</SelectItem>
-                    {columns.map((column) => (
-                      <SelectItem key={column} value={column}>
-                        {column}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p className="text-xs text-muted-foreground">
-                  Included with each prediction and in the export, so results can be matched to your
-                  file.
-                </p>
+                  <FileUp className="size-6 text-muted-foreground" />
+                  <span className="text-sm font-medium">
+                    {file ? file.name : "Drop a CSV of structures, or click to choose one"}
+                  </span>
+                  <span className="text-xs text-muted-foreground">Requires one SMILES column.</span>
+                </button>
+                <div className="flex items-center justify-end">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      saveText(PREDICTION_TEMPLATE_CSV, "daikon-studio-prediction-template.csv")
+                    }
+                  >
+                    <Download className="size-4" />
+                    Download template
+                  </Button>
+                </div>
               </div>
+
+              {columns.length > 1 && (
+                <>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="structure-column">Structure column</Label>
+                    <Select value={structureColumn} onValueChange={setStructureColumn}>
+                      <SelectTrigger id="structure-column">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {columns.map((column) => (
+                          <SelectItem key={column} value={column}>
+                            {column}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="id-column">Identifier column (optional)</Label>
+                    <Select
+                      value={idColumn ?? NO_ID_COLUMN}
+                      onValueChange={(value) => setIdColumn(value === NO_ID_COLUMN ? null : value)}
+                    >
+                      <SelectTrigger id="id-column">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_ID_COLUMN}>None</SelectItem>
+                        {columns.map((column) => (
+                          <SelectItem key={column} value={column}>
+                            {column}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <p className="text-xs text-muted-foreground">
+                      Included with each prediction and in the export, so results can be matched to
+                      your file.
+                    </p>
+                  </div>
+                </>
+              )}
+              {summary && <PredictionPreview summary={summary} column={structureColumn} />}
             </>
           )}
-          {summary && <PredictionPreview summary={summary} column={structureColumn} />}
         </CardContent>
       </Card>
 
@@ -282,10 +342,8 @@ export function PredictWizard() {
         <Button variant="ghost" onClick={() => router.push("/runs")} disabled={busy}>
           Cancel
         </Button>
-        <Button onClick={submit} disabled={!protocolId || !file || compoundCount === 0 || busy}>
-          {busy
-            ? "Starting…"
-            : `Predict ${compoundCount} compound${compoundCount === 1 ? "" : "s"}`}
+        <Button onClick={submit} disabled={!protocolId || !ready || busy}>
+          {busy ? "Starting…" : `Predict ${count} compound${count === 1 ? "" : "s"}`}
         </Button>
       </div>
     </div>

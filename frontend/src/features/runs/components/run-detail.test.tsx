@@ -14,6 +14,8 @@ function Wrapper({ children }: { children: React.ReactNode }) {
 const hoisted = vi.hoisted(() => ({
   run: { current: {} as Record<string, unknown> },
   calls: [] as { url: string; method: string; data?: unknown }[],
+  memberName: { current: (): string | undefined => undefined },
+  chemcellarUrl: { current: "" },
 }));
 
 // The real retry hook runs, so what is asserted is the request it sends.
@@ -37,6 +39,12 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/features/collections", () => ({ useCreateCollection: () => ({ isPending: false }) }));
 vi.mock("@/features/protocols", () => ({ useProtocol: () => ({ data: undefined }) }));
 vi.mock("@/features/runners", () => ({ LANE_LABELS: {}, useRunners: () => ({ data: [] }) }));
+vi.mock("@/shared/lib/auth/use-workspace-members", () => ({
+  useMemberName: () => hoisted.memberName.current,
+}));
+vi.mock("@/shared/lib/app-config", () => ({
+  useAppConfig: () => ({ chemcellarUrl: hoisted.chemcellarUrl.current }),
+}));
 vi.mock("./run-chemical-space", () => ({ RunChemicalSpace: () => null }));
 vi.mock("./triage-grid", () => ({ TriageGrid: () => null }));
 
@@ -127,5 +135,47 @@ describe("RunDetail retry buttons", () => {
     expect(screen.queryByRole("button", { name: "Start over" })).toBeNull();
     await waitFor(() => expect(hoisted.calls).toHaveLength(1));
     expect(hoisted.calls[0]).toEqual({ url: "/api/v1/runs/run-1/retry", method: "POST" });
+  });
+});
+
+describe("RunDetail provenance", () => {
+  it("says who started the run and links to the ChemCellar run its compounds came from", async () => {
+    hoisted.memberName.current = () => "Siddhant Rath";
+    hoisted.chemcellarUrl.current = "http://cellar";
+    hoisted.run.current = {
+      ...stoppedRun("prediction", "ready"),
+      requested_by: "u1",
+      source: {
+        app: "chemcellar",
+        run_id: "r1",
+        protocol_id: "p1",
+        protocol_name: "NadD-Sumo dose response",
+        run_date: "2026-06-05",
+        compounds_without_structure: 2,
+      },
+    };
+    render(<RunDetail runId="run-1" />, { wrapper: Wrapper });
+
+    expect(await screen.findByText(/Started by Siddhant Rath/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("link", { name: "NadD-Sumo dose response, run of Jun 5, 2026" }),
+    ).toHaveAttribute("href", "http://cellar/assays/runs/r1");
+    expect(
+      screen.getByText(/2 compounds in that run have no disclosed structure/),
+    ).toBeInTheDocument();
+  });
+
+  it("shows neither line without a known creator or a source", async () => {
+    hoisted.memberName.current = () => undefined;
+    hoisted.run.current = {
+      ...stoppedRun("prediction", "ready"),
+      requested_by: "u1",
+      source: null,
+    };
+    render(<RunDetail runId="run-1" />, { wrapper: Wrapper });
+
+    await screen.findByText(/2026/);
+    expect(screen.queryByText(/Started by/)).toBeNull();
+    expect(screen.queryByText(/Compounds from ChemCellar/)).toBeNull();
   });
 });

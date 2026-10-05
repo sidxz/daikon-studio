@@ -15,6 +15,8 @@ export function GET() {
     apiBaseUrl: process.env.APP_API_BASE_URL ?? "http://localhost:8002",
     appUrl: process.env.APP_URL ?? "http://localhost:3003",
     duarUrl: process.env.APP_DUAR_URL ?? "http://localhost:9003",
+    // ChemCellar's web app: shows "From ChemCellar" on Run a protocol and builds links back. Empty hides it.
+    chemcellarUrl: process.env.APP_CHEMCELLAR_URL ?? "",
     serviceName: process.env.APP_DUAR_SERVICE_NAME ?? "daikon-studio",
     idp: {
       googleClientId: process.env.APP_DUAR_GOOGLE_CLIENT_ID ?? "",
