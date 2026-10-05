@@ -41,6 +41,11 @@ class RegisterReport:
     failures: list[str] = field(default_factory=list)
 
 
+def _skipped(status: str) -> str:
+    # A published protocol nobody can register stays invisible to members: say so loudly.
+    return "PUBLISHED but hidden:" if status == ProtocolStatus.PUBLISHED.value else "skipped"
+
+
 async def register_all(
     session_factory: async_sessionmaker[AsyncSession],
     permissions: Any,
@@ -64,7 +69,7 @@ async def register_all(
         label = f"protocol {protocol_id} ({name})"
         if created_by is None:
             report.skipped += 1
-            log(f"skipped {label}: no creator recorded")
+            log(f"{_skipped(status)} {label}: no creator recorded")
             continue
         published = status == ProtocolStatus.PUBLISHED.value
         try:
@@ -82,7 +87,7 @@ async def register_all(
         except DuarError as error:
             if error.status_code is not None and error.status_code < 500:
                 report.skipped += 1
-                log(f"skipped {label}: {error}")
+                log(f"{_skipped(status)} {label}: {error}")
             else:
                 report.failures.append(f"{label}: {error}")
                 log(f"FAILED {label}: {error}")
@@ -93,14 +98,22 @@ async def register_all(
 
 
 async def main() -> None:
-    from daikonstudio.infrastructure.duar.auth import get_duar
+    from daikonstudio.infrastructure.duar.auth import get_duar, log_effective_scope
     from daikonstudio.infrastructure.persistence.session import create_session_factory
     from daikonstudio.settings import Settings
 
     settings = Settings()
     session_factory = create_session_factory(settings.database_url)
+    standalone = "--standalone" in sys.argv[1:]
     duar = get_duar()
-    await duar.fetch_whoami()  # puts the SDK on the realm scope, as the app lifespan does
+    # Puts the SDK on the realm scope, as the app lifespan does. It returns None on any
+    # failure, which would register every protocol under the wrong service name.
+    whoami = await duar.fetch_whoami()
+    print(f"Duar service scope: {duar.permissions.service_name}")
+    log_effective_scope(duar)
+    if whoami is None and not standalone:
+        print("whoami failed; refusing to register under the wrong scope (--standalone to force)")
+        raise SystemExit(1)
     report = await register_all(session_factory, duar.permissions)
     print(
         f"{report.registered} registered, {report.skipped} skipped, {len(report.failures)} failed"

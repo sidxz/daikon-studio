@@ -3,8 +3,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
+import structlog
 from duar_auth import DuarError
 
+from daikonstudio.application.catalog.access_controlled_repository import (
+    AccessControlledProtocolRepository,
+)
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.shared.errors import ServiceUnavailableError
 from daikonstudio.infrastructure.duar.protocol_access import RESOURCE_TYPE, DuarProtocolAccess
@@ -114,3 +118,68 @@ async def test_publish_flips_visibility():
     auth = MagicMock(update_visibility=AsyncMock(return_value={}))
     await DuarProtocolAccess(_duar()).make_workspace_visible(auth, protocol)
     auth.update_visibility.assert_awaited_once_with(RESOURCE_TYPE, protocol.id, "workspace")
+
+
+async def test_publish_fails_when_the_fallback_registration_is_transiently_down():
+    duar = _duar()
+    duar.permissions.register_resource.side_effect = httpx.ConnectError("down")
+    auth = MagicMock(update_visibility=AsyncMock(side_effect=DuarError("nf", status_code=404)))
+    with pytest.raises(ServiceUnavailableError):
+        await DuarProtocolAccess(duar, retry_delays=(0,)).make_workspace_visible(
+            auth, make_protocol(created_by=uuid.uuid4())
+        )
+
+
+async def test_publish_registers_as_the_publisher_when_the_creator_is_gone():
+    duar = _duar()
+    duar.permissions.register_resource.side_effect = [
+        DuarError("Owner is not a member", status_code=400),
+        {},
+    ]
+    publisher = uuid.uuid4()
+    auth = MagicMock(
+        user_id=publisher,
+        update_visibility=AsyncMock(side_effect=DuarError("nf", status_code=404)),
+    )
+    await DuarProtocolAccess(duar).make_workspace_visible(
+        auth, make_protocol(created_by=uuid.uuid4())
+    )
+    kwargs = duar.permissions.register_resource.await_args.kwargs
+    assert kwargs["owner_id"] == publisher
+    assert kwargs["visibility"] == "workspace"
+
+
+async def test_publish_registers_as_the_publisher_when_there_is_no_creator():
+    duar = _duar()
+    publisher = uuid.uuid4()
+    auth = MagicMock(
+        user_id=publisher,
+        update_visibility=AsyncMock(side_effect=DuarError("nf", status_code=404)),
+    )
+    await DuarProtocolAccess(duar).make_workspace_visible(auth, make_protocol(created_by=None))
+    assert duar.permissions.register_resource.await_args.kwargs["owner_id"] == publisher
+
+
+async def test_register_and_deregister_never_raise_on_a_surprise():
+    duar = _duar()
+    duar.permissions.register_resource.side_effect = ValueError("not json")
+    duar.permissions.deregister_resource.side_effect = ValueError("not json")
+    access = DuarProtocolAccess(duar, retry_delays=())
+    await access.register(make_protocol(created_by=uuid.uuid4()))
+    await access.deregister(uuid.uuid4())
+
+
+async def test_a_surprise_in_register_does_not_lose_the_protocol_row():
+    duar = _duar()
+    duar.permissions.register_resource.side_effect = ValueError("not json")
+    inner = MagicMock(add=AsyncMock())
+    protocol = make_protocol(created_by=uuid.uuid4())
+    await AccessControlledProtocolRepository(inner, DuarProtocolAccess(duar)).add(protocol)
+    inner.add.assert_awaited_once_with(protocol)
+
+
+async def test_a_read_failure_logs_duars_status():
+    auth = MagicMock(accessible=AsyncMock(side_effect=DuarError("boom", status_code=502)))
+    with structlog.testing.capture_logs() as logs, pytest.raises(ServiceUnavailableError):
+        await DuarProtocolAccess(_duar()).visible_ids(auth)
+    assert [(e["event"], e["status"]) for e in logs] == [("protocol_acl_read_failed", 502)]
