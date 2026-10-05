@@ -6,6 +6,7 @@ import { useProtocols } from "@/features/protocols";
 import type { Protocol } from "@/features/protocols";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
+import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import {
   Select,
@@ -98,6 +99,7 @@ export function PredictWizard() {
   const [idColumn, setIdColumn] = useState<string | null>(null);
   const [tab, setTab] = useState<"csv" | "chemcellar">("csv");
   const [imported, setImported] = useState<ChemCellarImportResponse | null>(null);
+  const [name, setName] = useState("");
   const [rows, setRows] = useState<Record<string, string | undefined>[]>([]);
 
   const protocols = useProtocols(undefined, 200);
@@ -128,6 +130,7 @@ export function PredictWizard() {
           return;
         }
         setFile(dropped);
+        setName(dropped.name.replace(/\.[^.]*$/, ""));
         setColumns(fields);
         setRows(result.data);
         const guess =
@@ -166,6 +169,7 @@ export function PredictWizard() {
           upload_ref: imported.upload_ref,
           structure_column: "smiles",
           id_column: "compound_id",
+          name: name.trim() || undefined,
         });
       } else {
         if (!file) return;
@@ -175,6 +179,7 @@ export function PredictWizard() {
           upload_ref: uploadRef,
           structure_column: structureColumn,
           id_column: idColumn,
+          name: name.trim() || undefined,
         });
       }
       // A cache hit comes back 202 with an already-ready Run, so the status is
@@ -191,7 +196,12 @@ export function PredictWizard() {
 
   const cellarPane = (
     <>
-      <ChemCellarPicker onImported={setImported} />
+      <ChemCellarPicker
+        onImported={(value) => {
+          setImported(value);
+          if (value) setName(`${value.source.protocol_name} · ${value.source.run_date}`);
+        }}
+      />
       {imported && (
         <>
           <PredictionPreview
@@ -356,6 +366,19 @@ export function PredictWizard() {
           ) : (
             csvPane
           )}
+
+          <div className="space-y-1.5">
+            <Label htmlFor="run-name">Run name</Label>
+            <Input
+              id="run-name"
+              value={name}
+              maxLength={200}
+              onChange={(e) => setName(e.target.value)}
+            />
+            <p className="text-xs text-muted-foreground">
+              Shown in the runs list. Defaults to the file name.
+            </p>
+          </div>
         </CardContent>
       </Card>
 

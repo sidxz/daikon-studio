@@ -75,6 +75,7 @@ describe("PredictWizard, ChemCellar tab", () => {
       upload_ref: "up-1",
       structure_column: "smiles",
       id_column: "compound_id",
+      name: "NadD · 2026-06-05",
     });
     expect(hoisted.upload).not.toHaveBeenCalled();
   });
@@ -86,5 +87,26 @@ describe("PredictWizard, ChemCellar tab", () => {
     fireEvent.click(screen.getByRole("button", { name: "clear" }));
 
     expect(await screen.findByRole("button", { name: "Predict 0 compounds" })).toBeDisabled();
+  });
+});
+
+describe("PredictWizard, run name", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    hoisted.create.mockResolvedValue({ id: "run-1", status: "pending" });
+    hoisted.upload.mockResolvedValue("up-2");
+  });
+
+  it("prefills the name from the file and submits it", async () => {
+    const { container } = render(<PredictWizard />);
+    const input = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = new File(["smiles\nCCO\nCCN\n"], "batch-7.csv", { type: "text/csv" });
+    fireEvent.change(input, { target: { files: [file] } });
+
+    await waitFor(() => expect(screen.getByLabelText(/Run name/)).toHaveValue("batch-7"));
+    fireEvent.click(await screen.findByRole("button", { name: /^Predict/ }));
+
+    await waitFor(() => expect(hoisted.create).toHaveBeenCalledTimes(1));
+    expect(hoisted.create).toHaveBeenCalledWith(expect.objectContaining({ name: "batch-7" }));
   });
 });

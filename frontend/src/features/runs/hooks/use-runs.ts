@@ -73,17 +73,35 @@ export function useRunMapCompound(id: string, row: number | null) {
   });
 }
 
+export interface RunFilters {
+  mine?: boolean;
+  statuses?: string[];
+  protocolId?: string;
+  folderId?: string;
+  q?: string;
+}
+
 export function useRuns(
   kind: "prediction" | "training" | undefined = "prediction",
   cursor?: string,
+  filters?: RunFilters,
 ) {
   return useQuery({
-    queryKey: [...RUNS_KEY, kind ?? null, cursor ?? null],
+    queryKey: [...RUNS_KEY, kind ?? null, cursor ?? null, filters ?? null],
     queryFn: () =>
       customInstance<PaginatedResponseRunResponse>({
         url: `${API_V1}/runs`,
         method: "GET",
-        params: { kind, cursor },
+        // `customInstance` repeats an array param (status=ready&status=failed).
+        params: {
+          kind,
+          cursor,
+          mine: filters?.mine || undefined,
+          status: filters?.statuses?.length ? filters.statuses : undefined,
+          protocol_id: filters?.protocolId,
+          folder_id: filters?.folderId,
+          q: filters?.q,
+        },
       }),
   });
 }
