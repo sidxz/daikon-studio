@@ -11,9 +11,9 @@ vi.mock("@/shared/lib/api/custom-instance", async (importOriginal) => ({
   customInstance: vi.fn(),
 }));
 
-const readout = (name: string) => ({
+const readout = (name: string, type: "numeric" | "probability" | "class" = "numeric") => ({
   name,
-  type: "numeric" as const,
+  type,
   unit: null,
   direction: null,
   description: "",
@@ -104,13 +104,39 @@ describe("ProtocolCard", () => {
     expect(screen.queryByText("No score")).not.toBeInTheDocument();
   });
 
-  it("counts the other readouts and targets", () => {
+  it("names a classifier's target once, not its probability column", () => {
     renderCard({
-      protocol: protocol({ readouts: [readout("pIC50"), readout("logS"), readout("Caco-2")] }),
-      scores: [headline(), headline({ column: "logS" }), headline({ column: "Caco-2" })],
+      protocol: protocol({
+        readouts: [
+          readout("herg_blocker_probability", "probability"),
+          readout("herg_blocker", "class"),
+        ],
+      }),
+      scores: [headline({ column: "herg_blocker" })],
     });
-    expect(screen.getByText("Predicts pIC50 and 2 more")).toBeInTheDocument();
-    expect(screen.getByText("+2 more targets")).toBeInTheDocument();
+    expect(screen.getByText("Predicts herg_blocker")).toBeInTheDocument();
+    expect(screen.queryByText(/more/)).not.toBeInTheDocument();
+    // One target: the metric needs no "on".
+    expect(screen.getByText("MCC")).toBeInTheDocument();
+  });
+
+  it("counts the other targets and says which one the score is on", () => {
+    renderCard({
+      protocol: protocol({
+        readouts: [
+          readout("aggregator_probability", "probability"),
+          readout("aggregator", "class"),
+          readout("herg_blocker_probability", "probability"),
+          readout("herg_blocker", "class"),
+          readout("logS"),
+        ],
+      }),
+      scores: [headline({ column: "aggregator" }), headline({ column: "herg_blocker" })],
+    });
+    const subtitle = screen.getByText("Predicts aggregator and 2 more");
+    expect(subtitle).toHaveAttribute("title", "aggregator, herg_blocker, logS");
+    expect(screen.getByText("MCC on aggregator")).toBeInTheDocument();
+    expect(screen.queryByText(/more target/)).not.toBeInTheDocument();
   });
 
   it("puts the engine, the creator and the date in the footer", () => {

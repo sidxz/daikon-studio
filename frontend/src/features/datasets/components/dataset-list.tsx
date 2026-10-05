@@ -21,13 +21,19 @@ function DatasetCard({ dataset, draggable }: { dataset: Dataset; draggable: bool
       href={`/datasets/${dataset.id}`}
       name={dataset.name}
       subtitle={
-        target && `Targets ${target.column}${others.length ? ` and ${others.length} more` : ""}`
+        target && (
+          <span title={dataset.targets.map((t) => t.column).join(", ")}>
+            Targets {target.column}
+            {others.length > 0 && ` and ${others.length} more`}
+          </span>
+        )
       }
       action={
         <MoveToFolderMenu kind="dataset" itemId={dataset.id} currentFolderId={dataset.folder_id} />
       }
       footerStart={`${SPLIT_COPY[dataset.split.strategy].title} split`}
       creator={creator}
+      creatorId={dataset.created_by}
       createdAt={dataset.created_at}
       draggable={draggable}
       onDragStart={(e) => setDragItem(e, "dataset", dataset.id)}

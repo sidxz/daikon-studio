@@ -19,6 +19,7 @@ export function ItemCard({
   action,
   footerStart,
   creator,
+  creatorId,
   createdAt,
   draggable,
   onDragStart,
@@ -32,6 +33,8 @@ export function ItemCard({
   action?: ReactNode;
   footerStart?: ReactNode;
   creator?: string;
+  /** Keys the avatar's tint, so two people with the same initials differ. */
+  creatorId?: string | null;
   createdAt: string;
   draggable?: boolean;
   onDragStart?: DragEventHandler<HTMLDivElement>;
@@ -43,32 +46,34 @@ export function ItemCard({
       onDragStart={onDragStart}
       className={cn(
         "group relative flex h-full flex-col gap-4 rounded-lg border border-border p-4 transition-colors hover:border-foreground/20",
-        draft && "border-dashed",
+        draft && "border-dashed border-foreground/25 hover:border-foreground/40",
       )}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
+      <div>
+        <div className="flex items-start justify-between gap-3">
           <Link
             href={href}
             draggable={false}
-            className="font-medium outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring"
+            className="min-w-0 font-medium outline-none after:absolute after:inset-0 after:rounded-lg focus-visible:after:ring-2 focus-visible:after:ring-ring"
           >
             {name}
           </Link>
-          {subtitle && <p className="mt-0.5 text-sm text-muted-foreground">{subtitle}</p>}
+          {/* As tall as the name's line, so the subtitle below sits close to it. */}
+          <div className="relative z-10 flex h-6 shrink-0 items-center gap-1">
+            {draft && (
+              <Badge variant="outline" className="font-normal text-muted-foreground">
+                Draft
+              </Badge>
+            )}
+            {action && (
+              <div className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-[[data-state=open]]:opacity-100 [@media(hover:none)]:opacity-100">
+                {action}
+              </div>
+            )}
+          </div>
         </div>
-        <div className="relative z-10 flex h-7 shrink-0 items-center gap-1">
-          {draft && (
-            <Badge variant="outline" className="font-normal text-muted-foreground">
-              Draft
-            </Badge>
-          )}
-          {action && (
-            <div className="opacity-0 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 has-[[data-state=open]]:opacity-100 [@media(hover:none)]:opacity-100">
-              {action}
-            </div>
-          )}
-        </div>
+        {/* Full width, one line: the title carries the whole list. */}
+        {subtitle && <p className="mt-0.5 truncate text-sm text-muted-foreground">{subtitle}</p>}
       </div>
 
       {children}
@@ -76,7 +81,7 @@ export function ItemCard({
       <div className="mt-auto flex items-center justify-between gap-3 text-xs text-muted-foreground">
         <span className="min-w-0 truncate">{footerStart}</span>
         <span className="flex shrink-0 items-center gap-2">
-          <InitialsAvatar name={creator} />
+          <InitialsAvatar name={creator} id={creatorId} />
           {shortDate(createdAt)}
         </span>
       </div>
@@ -96,7 +101,7 @@ export function LeadNumber({
 }) {
   return (
     <div>
-      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="truncate text-xs text-muted-foreground">{label}</p>
       <div className="flex items-baseline-last gap-3">
         <span className="text-2xl font-semibold tabular-nums">{value}</span>
         {aside && <p className="text-xs leading-4 text-muted-foreground">{aside}</p>}

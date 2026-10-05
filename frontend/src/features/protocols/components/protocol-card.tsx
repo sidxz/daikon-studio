@@ -3,6 +3,7 @@
 import { MoveToFolderMenu, setDragItem, useFolders } from "@/features/folders";
 import { ItemCard, LeadNumber } from "@/shared/components/item-card";
 import type { Headline } from "@/shared/lib/headlines";
+import { targetsOf } from "@/shared/lib/targets";
 import { higherIsBetter } from "../lib/verdict";
 import { type Protocol, metricLabel } from "../types";
 
@@ -27,31 +28,27 @@ function versusBaseline(metric: string, value: number, baseline: number) {
   );
 }
 
-function Score({ headline, more }: { headline: Headline; more: number }) {
-  const label = metricLabel(headline.primary_metric);
+/** With several targets the label names the one scored: "MCC on aggregator". */
+function Score({ headline, several }: { headline: Headline; several: boolean }) {
+  const metric = metricLabel(headline.primary_metric);
+  const label = several ? `${metric} on ${headline.column}` : metric;
   const { value, baseline_value: baseline } = headline;
+  if (value === null) {
+    return (
+      <div>
+        <p className="truncate text-xs text-muted-foreground">{label}</p>
+        <p className="text-sm text-muted-foreground">No score</p>
+      </div>
+    );
+  }
   return (
-    <div className="space-y-1">
-      {value === null ? (
-        <div>
-          <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="text-sm text-muted-foreground">No score</p>
-        </div>
-      ) : (
-        <LeadNumber
-          label={label}
-          value={value.toFixed(3)}
-          aside={
-            baseline === null ? undefined : versusBaseline(headline.primary_metric, value, baseline)
-          }
-        />
-      )}
-      {more > 0 && (
-        <p className="text-xs text-muted-foreground">
-          +{more} more target{more === 1 ? "" : "s"}
-        </p>
-      )}
-    </div>
+    <LeadNumber
+      label={label}
+      value={value.toFixed(3)}
+      aside={
+        baseline === null ? undefined : versusBaseline(headline.primary_metric, value, baseline)
+      }
+    />
   );
 }
 
@@ -68,16 +65,20 @@ export function ProtocolCard({
   creator?: string;
 }) {
   const canEdit = useFolders("protocol").data?.can_edit ?? false;
-  const [readout, ...otherReadouts] = protocol.readouts ?? [];
-  const [headline, ...otherScores] = scores;
+  // Targets, not readouts: a classifier's probability column is not a second target.
+  const targets = targetsOf(protocol.readouts ?? []);
 
   return (
     <ItemCard
       href={`/protocols/${protocol.id}`}
       name={protocol.name}
       subtitle={
-        readout &&
-        `Predicts ${readout.name}${otherReadouts.length ? ` and ${otherReadouts.length} more` : ""}`
+        targets.length > 0 && (
+          <span title={targets.join(", ")}>
+            Predicts {targets[0]}
+            {targets.length > 1 && ` and ${targets.length - 1} more`}
+          </span>
+        )
       }
       draft={protocol.status === "draft"}
       action={
@@ -89,11 +90,12 @@ export function ProtocolCard({
       }
       footerStart={engineName}
       creator={creator}
+      creatorId={protocol.created_by}
       createdAt={protocol.created_at}
       draggable={canEdit}
       onDragStart={(e) => setDragItem(e, "protocol", protocol.id)}
     >
-      {headline && <Score headline={headline} more={otherScores.length} />}
+      {scores[0] && <Score headline={scores[0]} several={targets.length > 1} />}
     </ItemCard>
   );
 }

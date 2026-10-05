@@ -57,8 +57,9 @@ function RunStatus({ status }: { status: string }) {
 
 // The header and every row share these columns, so they line up: time, run name,
 // its protocol (both under "Run"; the protocol keeps 5rem before the name takes
-// the rest), compounds, requester, status.
-const COLUMNS = "sm:grid-cols-[4.5rem_minmax(0,max-content)_minmax(5rem,1fr)_5.5rem_2rem_6rem]";
+// the rest), compounds, requester (avatar, plus the name from lg), status.
+const COLUMNS =
+  "sm:grid-cols-[4.5rem_minmax(0,max-content)_minmax(5rem,1fr)_5.5rem_2rem_6rem] lg:grid-cols-[4.5rem_minmax(0,max-content)_minmax(5rem,1fr)_5.5rem_10rem_6rem]";
 // Below sm a row stacks: name and status, then time, protocol and compounds.
 const ROW = cn(
   "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 [grid-template-areas:'name_name_status''time_proto_count']",
@@ -213,8 +214,15 @@ function RunRows({
                               </>
                             )}
                           </span>
-                          <span className="hidden [grid-area:by] sm:flex">
-                            <InitialsAvatar name={requester} />
+                          <span className="hidden min-w-0 items-center gap-2 [grid-area:by] sm:flex">
+                            <InitialsAvatar name={requester} id={run.requested_by} />
+                            {/* The avatar already names them to a screen reader. */}
+                            <span
+                              aria-hidden
+                              className="hidden max-w-32 truncate text-muted-foreground lg:inline"
+                            >
+                              {requester}
+                            </span>
                           </span>
                           <RunStatus status={run.status} />
                         </Link>
