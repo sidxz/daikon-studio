@@ -109,13 +109,15 @@ export function RunDetail({ runId }: { runId: string }) {
   const [pendingRows, setPendingRows] = useState<number[] | null>(null);
   const [collectionName, setCollectionName] = useState("");
 
+  const title = run?.name ?? protocol?.name;
+
   useBreadcrumbTrail(
     run
       ? [
           { label: "Runs", href: "/runs" },
           {
-            label: protocol
-              ? `${protocol.name} · ${new Date(run.created_at).toLocaleDateString()}`
+            label: title
+              ? `${title} · ${new Date(run.created_at).toLocaleDateString()}`
               : new Date(run.created_at).toLocaleString(),
           },
         ]
@@ -168,14 +170,20 @@ export function RunDetail({ runId }: { runId: string }) {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-lg font-semibold">
-              {protocol?.name ??
-                run.name ??
-                (run.kind === "training" ? "Training run" : "Prediction run")}
+              {title ?? (run.kind === "training" ? "Training run" : "Prediction run")}
             </h1>
             <Badge variant={run.status === "ready" ? "default" : "outline"} className="font-normal">
               {RUN_STATUS_COPY[run.status] ?? run.status}
             </Badge>
           </div>
+          {run.name && run.protocol_id && protocol && (
+            <Link
+              href={`/protocols/${run.protocol_id}`}
+              className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              {protocol.name}
+            </Link>
+          )}
           {/* Identified by protocol and date, never by id -- a chemist says
               "the July 29th run". */}
           <p className="mt-1 text-sm text-muted-foreground">

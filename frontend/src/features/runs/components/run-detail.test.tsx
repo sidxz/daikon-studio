@@ -16,6 +16,8 @@ const hoisted = vi.hoisted(() => ({
   calls: [] as { url: string; method: string; data?: unknown }[],
   memberName: { current: (): string | undefined => undefined },
   chemcellarUrl: { current: "" },
+  protocol: { current: undefined as { name: string } | undefined },
+  trail: { current: undefined as { label: string }[] | null | undefined },
 }));
 
 // The real retry hook runs, so what is asserted is the request it sends.
@@ -37,7 +39,14 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 vi.mock("@/features/collections", () => ({ useCreateCollection: () => ({ isPending: false }) }));
-vi.mock("@/features/protocols", () => ({ useProtocol: () => ({ data: undefined }) }));
+vi.mock("@/features/protocols", () => ({
+  useProtocol: () => ({ data: hoisted.protocol.current }),
+}));
+vi.mock("@/shared/lib/stores/breadcrumb-store", () => ({
+  useBreadcrumbTrail: (trail: { label: string }[] | null) => {
+    hoisted.trail.current = trail;
+  },
+}));
 vi.mock("@/features/runners", () => ({ LANE_LABELS: {}, useRunners: () => ({ data: [] }) }));
 vi.mock("@/shared/lib/auth/use-workspace-members", () => ({
   useMemberName: () => hoisted.memberName.current,
@@ -177,5 +186,34 @@ describe("RunDetail provenance", () => {
     await screen.findByText(/2026/);
     expect(screen.queryByText(/Started by/)).toBeNull();
     expect(screen.queryByText(/Compounds from ChemCellar/)).toBeNull();
+  });
+});
+
+describe("RunDetail title", () => {
+  const named = (name: string | null) => ({
+    ...stoppedRun("prediction", "ready"),
+    protocol_id: "p1",
+    name,
+  });
+
+  it("titles a named run with its name and links the protocol below it", async () => {
+    hoisted.protocol.current = { name: "hERG Model 1" };
+    hoisted.run.current = named("Batch 7");
+    render(<RunDetail runId="run-1" />, { wrapper: Wrapper });
+    expect(await screen.findByRole("heading", { name: "Batch 7" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "hERG Model 1" })).toHaveAttribute(
+      "href",
+      "/protocols/p1",
+    );
+    expect(hoisted.trail.current?.[1]?.label).toMatch(/^Batch 7 · /);
+  });
+
+  it("titles an unnamed run with its protocol and adds no protocol link", async () => {
+    hoisted.protocol.current = { name: "hERG Model 1" };
+    hoisted.run.current = named(null);
+    render(<RunDetail runId="run-1" />, { wrapper: Wrapper });
+    expect(await screen.findByRole("heading", { name: "hERG Model 1" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "hERG Model 1" })).toBeNull();
+    expect(hoisted.trail.current?.[1]?.label).toMatch(/^hERG Model 1 · /);
   });
 });
