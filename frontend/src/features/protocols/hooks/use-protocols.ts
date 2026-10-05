@@ -28,14 +28,18 @@ import { PROTOCOLS_KEY, PROTOCOL_KEY, PROTOCOL_RUNS_KEY, SCORECARD_KEY } from ".
  * A picker passes `limit: 200`, the server's cap, to see past the default page of 50.
  * ponytail: a picker sees the newest 200; past that it needs search, not a bigger page.
  */
-export function useProtocols(cursor?: string, limit?: number) {
+export function useProtocols(
+  cursor?: string,
+  limit?: number,
+  filters?: { mine?: boolean; folderId?: string },
+) {
   return useQuery({
-    queryKey: [...PROTOCOLS_KEY, cursor ?? null, limit ?? null],
+    queryKey: [...PROTOCOLS_KEY, cursor ?? null, limit ?? null, filters ?? null],
     queryFn: () =>
       customInstance<PaginatedResponseProtocolResponse>({
         url: `${API_V1}/protocols`,
         method: "GET",
-        params: { cursor, limit },
+        params: { cursor, limit, mine: filters?.mine || undefined, folder_id: filters?.folderId },
       }),
   });
 }

@@ -3,6 +3,7 @@
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
 import { Plus } from "lucide-react";
 import Link from "next/link";
 import { useState } from "react";
@@ -10,6 +11,7 @@ import { useDatasets } from "../hooks/use-datasets";
 import { type Dataset, SPLIT_COPY } from "../types";
 
 function DatasetRow({ dataset }: { dataset: Dataset }) {
+  const creator = useMemberName()(dataset.created_by);
   return (
     <Link
       href={`/datasets/${dataset.id}`}
@@ -30,6 +32,7 @@ function DatasetRow({ dataset }: { dataset: Dataset }) {
           <span className="font-mono">{dataset.targets[0].unit}</span>
         )}
         <span>{new Date(dataset.created_at).toLocaleDateString()}</span>
+        {creator && <span>by {creator}</span>}
       </div>
     </Link>
   );

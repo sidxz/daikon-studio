@@ -37,6 +37,9 @@ vi.mock("../hooks/use-protocols", () => ({
   usePublishProtocol: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 vi.mock("@/features/datasets", () => ({ useDataset: () => ({ data: undefined }) }));
+vi.mock("@/shared/lib/auth/use-workspace-members", () => ({
+  useMemberName: () => () => undefined,
+}));
 vi.mock("@/shared/lib/stores/breadcrumb-store", () => ({ useBreadcrumbTrail: () => undefined }));
 vi.mock("./delete-protocol-button", () => ({ DeleteProtocolButton: () => null }));
 vi.mock("./protocol-chemical-space", () => ({ ProtocolChemicalSpace: () => null }));

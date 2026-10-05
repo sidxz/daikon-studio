@@ -33,16 +33,16 @@ import {
  * A picker passes `limit: 200`, the server's cap, to see past the default page of 50.
  * ponytail: a picker sees the newest 200; past that it needs search, not a bigger page.
  */
-export function useDatasets(cursor?: string, limit?: number) {
+export function useDatasets(cursor?: string, limit?: number, filters?: { folderId?: string }) {
   return useQuery({
-    queryKey: [...DATASETS_KEY, cursor ?? null, limit ?? null],
+    queryKey: [...DATASETS_KEY, cursor ?? null, limit ?? null, filters ?? null],
     queryFn: () =>
       customInstance<PaginatedResponseDatasetResponse>({
         url: `${API_V1}/datasets`,
         method: "GET",
         // URLSearchParams percent-encodes, which is what keeps an opaque
         // base64 cursor intact through the round trip.
-        params: { cursor, limit },
+        params: { cursor, limit, folder_id: filters?.folderId },
       }),
   });
 }

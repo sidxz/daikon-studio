@@ -13,6 +13,7 @@ import {
 } from "@/shared/components/ui/select";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
+import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useState } from "react";
@@ -36,6 +37,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 
 export function DatasetDetail({ datasetId }: { datasetId: string }) {
   const { data: dataset, isLoading, isError, error } = useDataset(datasetId);
+  const creator = useMemberName()(dataset?.created_by);
   // Fetched alongside the Dataset rather than on tab activation: the first ever
   // request starts the server computing the profile (minutes for a large
   // dataset), so it is better started while the reader is still on the overview.
@@ -77,6 +79,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
           <p className="mt-1 text-sm text-muted-foreground">
             {dataset.row_count.toLocaleString()} compounds · frozen{" "}
             {new Date(dataset.created_at).toLocaleString()}
+            {creator && ` · Created by ${creator}`}
           </p>
         </div>
         <div className="flex gap-2">

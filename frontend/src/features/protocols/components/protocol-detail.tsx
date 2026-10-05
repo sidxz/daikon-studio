@@ -18,6 +18,7 @@ import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
+import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useState } from "react";
@@ -63,6 +64,7 @@ export function Scorecards({ scorecards }: { scorecards: ScorecardResponse[] }) 
 
 export function ProtocolDetail({ protocolId }: { protocolId: string }) {
   const { data: protocol, isLoading, isError } = useProtocol(protocolId);
+  const creator = useMemberName()(protocol?.created_by);
   const scorecard = useScorecard(protocolId);
   const { data: dataset } = useDataset(protocol?.dataset_id);
   const publish = usePublishProtocol();
@@ -113,6 +115,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
                 </Link>
               </>
             )}
+            {creator && ` · Created by ${creator}`}
           </p>
         </div>
         <div className="flex gap-2">

@@ -1,7 +1,7 @@
 import { customInstance } from "@/shared/lib/api/custom-instance";
 import type { RunResponse } from "@/shared/lib/api/model";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ProtocolList } from "./protocol-list";
@@ -9,6 +9,16 @@ import { ProtocolList } from "./protocol-list";
 vi.mock("@/shared/lib/api/custom-instance", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/shared/lib/api/custom-instance")>()),
   customInstance: vi.fn(),
+}));
+
+const nav = vi.hoisted(() => ({ replace: vi.fn(), query: "" }));
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ replace: nav.replace }),
+  usePathname: () => "/protocols",
+  useSearchParams: () => new URLSearchParams(nav.query),
+}));
+vi.mock("@/shared/lib/auth/use-workspace-members", () => ({
+  useMemberName: () => (id: string | null | undefined) => (id === "user-1" ? "Ada" : undefined),
 }));
 
 function Wrapper({ children }: { children: React.ReactNode }) {
@@ -49,6 +59,8 @@ function serve(runs: RunResponse[]) {
 describe("the In training section", () => {
   beforeEach(() => {
     vi.mocked(customInstance).mockReset();
+    nav.replace.mockReset();
+    nav.query = "";
   });
 
   it("lists a live run with its name and phase, linked to the run", async () => {
@@ -91,5 +103,61 @@ describe("the In training section", () => {
 
     expect(await screen.findByText("No protocols yet")).toBeInTheDocument();
     expect(screen.queryByText("In training")).not.toBeInTheDocument();
+  });
+});
+
+describe("the Mine filter and creators", () => {
+  beforeEach(() => {
+    vi.mocked(customInstance).mockReset();
+    nav.replace.mockReset();
+    nav.query = "";
+  });
+
+  it("asks for mine=true and marks the toggle pressed when the URL says so", async () => {
+    nav.query = "mine=1";
+    serve([]);
+    render(<ProtocolList />, { wrapper: Wrapper });
+
+    expect(screen.getByRole("button", { name: "Mine" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "All" })).toHaveAttribute("aria-pressed", "false");
+    await waitFor(() =>
+      expect(customInstance).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: "/api/v1/protocols",
+          params: expect.objectContaining({ mine: true }),
+        }),
+      ),
+    );
+    expect(await screen.findByText("You have not trained a protocol yet.")).toBeInTheDocument();
+  });
+
+  it("writes mine=1 to the URL when Mine is clicked", async () => {
+    serve([]);
+    render(<ProtocolList />, { wrapper: Wrapper });
+    fireEvent.click(screen.getByRole("button", { name: "Mine" }));
+    expect(nav.replace).toHaveBeenCalledWith("/protocols?mine=1");
+  });
+
+  it("shows the creator on a card", async () => {
+    vi.mocked(customInstance).mockImplementation(async ({ url }) =>
+      url.endsWith("/protocols")
+        ? {
+            items: [
+              {
+                id: "p1",
+                name: "hERG",
+                status: "draft",
+                engine_id: "xgb",
+                protocol_version: 1,
+                created_at: "2026-10-03T12:00:00Z",
+                created_by: "user-1",
+              },
+            ],
+            next_cursor: null,
+          }
+        : { items: [], next_cursor: null },
+    );
+    render(<ProtocolList />, { wrapper: Wrapper });
+    expect(await screen.findByText("by Ada")).toBeInTheDocument();
   });
 });
