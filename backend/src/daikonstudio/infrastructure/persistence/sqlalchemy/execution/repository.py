@@ -294,6 +294,7 @@ class SqlAlchemyRunRepository:
         statuses: Sequence[RunStatus] | None = None,
         protocol_ids: frozenset[uuid.UUID] | None = None,
         name_contains: str | None = None,
+        name_or_protocol_ids: frozenset[uuid.UUID] = frozenset(),
     ) -> list[Run]:
         statement = (
             select(RunModel)
@@ -317,8 +318,12 @@ class SqlAlchemyRunRepository:
         if name_contains:
             # The typed text is matched literally: `%` and `_` are escaped, not wildcards.
             escaped = name_contains.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            by_name = RunModel.params["name"].astext.ilike(f"%{escaped}%", escape="\\")
+            # Runs from before run names existed are labelled with their protocol's name.
             statement = statement.where(
-                RunModel.params["name"].astext.ilike(f"%{escaped}%", escape="\\")
+                or_(by_name, RunModel.protocol_id.in_(name_or_protocol_ids))
+                if name_or_protocol_ids
+                else by_name
             )
         if training_visible_to is not None:
             visible = training_visible_to

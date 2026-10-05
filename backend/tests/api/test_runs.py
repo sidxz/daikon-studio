@@ -1135,3 +1135,21 @@ async def test_a_name_does_not_change_the_cache_key(
     first = await _predict(client, published_protocol_id, prediction_upload_ref, name="a")
     second = await _predict(client, published_protocol_id, prediction_upload_ref, name="b")
     assert second.json()["id"] == first.json()["id"]
+
+
+async def test_run_search_also_matches_the_protocol_name(
+    client, published_protocol_id, prediction_upload_ref
+):
+    protocol = (await client.get(f"/api/v1/protocols/{published_protocol_id}")).json()
+    fragment = protocol["name"][1:4].upper()
+    unnamed = await _predict(client, published_protocol_id, prediction_upload_ref)
+    # A second upload: the same file would be a cache hit on the unnamed run.
+    other_ref = await _upload(client, b"smiles\nCCN\nCCC\n")
+    named = await _predict(client, published_protocol_id, other_ref, name="Zzq batch")
+    unnamed_id, named_id = unnamed.json()["id"], named.json()["id"]
+
+    # An unnamed run is found by its protocol's name, and a named one by its own.
+    assert unnamed_id in await _run_ids(client, q=fragment)
+    assert await _run_ids(client, q="zzq") == [named_id]
+    # `%` is literal in the protocol-name match too.
+    assert await _run_ids(client, q=f"{fragment[0]}%{fragment[2]}") == []

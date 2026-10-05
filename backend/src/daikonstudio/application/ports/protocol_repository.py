@@ -52,3 +52,8 @@ class ProtocolRepository(Protocol):
     async def ids_in_folder(
         self, workspace_id: uuid.UUID, folder_id: uuid.UUID
     ) -> Sequence[uuid.UUID]: ...
+
+    async def ids_matching_name(self, workspace_id: uuid.UUID, text: str) -> Sequence[uuid.UUID]:
+        """Ids of the workspace's protocols whose name contains `text`, case-insensitively
+        and literally (`%` and `_` are not wildcards). Not a visibility check."""
+        ...

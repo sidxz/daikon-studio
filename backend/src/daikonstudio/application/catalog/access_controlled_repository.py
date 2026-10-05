@@ -72,3 +72,6 @@ class AccessControlledProtocolRepository:
         self, workspace_id: uuid.UUID, folder_id: uuid.UUID
     ) -> Sequence[uuid.UUID]:
         return await self._inner.ids_in_folder(workspace_id, folder_id)
+
+    async def ids_matching_name(self, workspace_id: uuid.UUID, text: str) -> Sequence[uuid.UUID]:
+        return await self._inner.ids_matching_name(workspace_id, text)

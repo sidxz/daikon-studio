@@ -49,7 +49,7 @@ class ListRunsQuery:
     statuses: tuple[RunStatus, ...] = ()
     # Only runs of the protocols filed in this folder.
     folder_id: uuid.UUID | None = None
-    # Runs whose name contains this text, case-insensitively.
+    # Runs whose name, or whose protocol's name, contains this text, case-insensitively.
     q: str | None = None
 
 
@@ -92,6 +92,12 @@ class ListRuns:
                 protocol_ids &= visible
             if query.protocol_id is not None:
                 protocol_ids &= {query.protocol_id}
+        text = (query.q or "").strip() or None
+        matching_protocols = (
+            frozenset(await self._protocols.ids_matching_name(auth.workspace_id, text))
+            if text
+            else frozenset()
+        )
         runs = await self._repository.list(
             auth.workspace_id,
             kind=query.kind,
@@ -99,7 +105,8 @@ class ListRuns:
             protocol_ids=protocol_ids,
             requested_by=auth.user_id if query.mine else None,
             statuses=query.statuses,
-            name_contains=(query.q or "").strip() or None,
+            name_contains=text,
+            name_or_protocol_ids=matching_protocols,
             cursor=cursor,
             limit=limit + 1,
             training_visible_to=training_visible_to,

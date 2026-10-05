@@ -274,6 +274,17 @@ class SqlAlchemyProtocolRepository:
             )
             return list(result.scalars())
 
+    async def ids_matching_name(self, workspace_id: uuid.UUID, text: str) -> Sequence[uuid.UUID]:
+        escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        async with self._sessions() as session:
+            result = await session.execute(
+                select(InSilicoProtocolModel.id).where(
+                    InSilicoProtocolModel.workspace_id == workspace_id,
+                    InSilicoProtocolModel.name.ilike(f"%{escaped}%", escape="\\"),
+                )
+            )
+            return list(result.scalars())
+
     async def _one(
         self, statement: Select[tuple[InSilicoProtocolModel]]
     ) -> InSilicoProtocol | None:
