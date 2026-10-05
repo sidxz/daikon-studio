@@ -80,6 +80,15 @@ export function keptEpoch(series: EpochSeries): EpochResponse | null {
   return best;
 }
 
+/**
+ * Whether a fit has run all its epochs. A neural fit always does: it keeps its best
+ * epoch rather than stopping early, so a series that reached its last epoch is over.
+ */
+export function isFinished(series: EpochSeries): boolean {
+  const last = series.points[series.points.length - 1];
+  return last !== undefined && last.epoch >= last.epochs;
+}
+
 /** What chose the kept epoch, in words. */
 export function keptRule(series: EpochSeries): string {
   const rule = series.points[series.points.length - 1]?.kept_by;

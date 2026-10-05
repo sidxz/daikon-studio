@@ -29,4 +29,26 @@ describe("TrainingProgress, live", () => {
     expect(screen.getByText("Finished models")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "aggregator" })).toBeInTheDocument();
   });
+
+  it("stops calling the last neural model current once a stage without epochs runs", () => {
+    // Four chemprop models finished; the XGBoost baseline now trains and records nothing.
+    const points = [1, 2, 3, 4].flatMap((member) =>
+      [1, 2].map((n) => epoch(n, { epochs: 2, member, members: 4 })),
+    );
+
+    render(
+      <TrainingProgress
+        points={points}
+        live
+        phase="Baseline: Training on luciferase_inhibitor (2 of 4)"
+        progress={0.63}
+      />,
+    );
+
+    expect(screen.queryByText(/Training now:/)).not.toBeInTheDocument();
+    expect(screen.getByText(/does not report epochs/)).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Model to chart" })).toBeInTheDocument();
+    expect(screen.queryByText("Kept so far")).not.toBeInTheDocument(); // nothing is still choosing
+    expect(screen.getAllByRole("row")).toHaveLength(5); // header + all four models
+  });
 });

@@ -29,6 +29,7 @@ import {
   durationLabel,
   groupSeries,
   higherIsBetter,
+  isFinished,
   keptEpoch,
   keptRule,
   scoreNames,
@@ -268,10 +269,13 @@ export function TrainingProgress({
   const series = useMemo(() => groupSeries(points), [points]);
   const names = useMemo(() => scoreNames(points), [points]);
   const [chosen, setChosen] = useState<string | null>(null);
-  const current = live
-    ? series[series.length - 1]
-    : (series.find((one) => one.key === chosen) ?? series[series.length - 1]);
-  const finished = live ? series.slice(0, -1) : series;
+  const newest = series[series.length - 1];
+  // Live, the newest model is the one training only until its last epoch. After that the
+  // run has moved to a stage that reports no epochs (a tree baseline such as XGBoost), so
+  // the finished models are charted as they are after the run, with a choice of model.
+  const trainingNow = live && newest !== undefined && !isFinished(newest);
+  const current = trainingNow ? newest : (series.find((one) => one.key === chosen) ?? newest);
+  const finished = trainingNow ? series.slice(0, -1) : series;
 
   return (
     <Card>
@@ -298,12 +302,19 @@ export function TrainingProgress({
           </div>
         )}
 
+        {live && !trainingNow && series.length > 0 && (
+          <p className="text-sm text-muted-foreground">
+            The stage training now does not report epochs, so it has no charts. These are the models
+            that finished.
+          </p>
+        )}
+
         {current && theme && (
           <div className="space-y-4">
             <div className="flex flex-wrap items-center gap-2">
-              {live || series.length < 2 ? (
+              {trainingNow || series.length < 2 ? (
                 <p className="text-sm font-medium">
-                  {live ? "Training now: " : ""}
+                  {trainingNow ? "Training now: " : ""}
                   {current.label}
                 </p>
               ) : (
@@ -326,7 +337,7 @@ export function TrainingProgress({
                 </Badge>
               )}
             </div>
-            <SeriesView series={current} theme={theme} live={live} />
+            <SeriesView series={current} theme={theme} live={trainingNow} />
           </div>
         )}
 
