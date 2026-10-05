@@ -106,7 +106,11 @@ _MANIFEST = EngineManifest(
             key="batch_size",
             label="Batch size",
             type=ConditionType.INTEGER,
-            default=64,
+            # 128, not chemprop's 64: on the 10k nuisance set on an RTX 6000 Ada it ran
+            # 1.6x faster per epoch with validation PR AUC 0.509 against 0.496 (30
+            # epochs, two seeds). 256 matched it but kept epoch 27 of 30, still
+            # improving; 512 was no faster than 256 and scored 0.495.
+            default=128,
             minimum=8,
             maximum=512,
             help="Number of molecules per gradient update. Reduce it if training runs "
