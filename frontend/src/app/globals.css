@@ -218,11 +218,11 @@
 }
 
 /* ── Navigation icon hues ─────────────────────────────────── */
-/* One hue per section. Measured against --sidebar (#f1f5f9) in light mode,
+/* One hue per section. Measured against --sidebar (#f0f3f7) in light mode,
    each reaches at least 3:1, including on the active row. The token amber
    (2.9:1) does not, so Runs has its own. */
 :root {
-  --icon-dashboard: var(--ds-text-secondary);
+  --icon-dashboard: var(--ds-accent);
   --icon-datasets: var(--chart-1);
   --icon-protocols: var(--ds-success);
   --icon-sweeps: var(--chart-3);

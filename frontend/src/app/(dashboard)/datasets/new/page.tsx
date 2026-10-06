@@ -1,5 +1,10 @@
 import { DatasetWizard } from "@/features/datasets";
+import { Suspense } from "react";
 
 export default function NewDatasetPage() {
-  return <DatasetWizard />;
+  return (
+    <Suspense fallback={null}>
+      <DatasetWizard />
+    </Suspense>
+  );
 }

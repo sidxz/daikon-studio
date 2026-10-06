@@ -45,6 +45,14 @@ from daikonstudio.application.data.get_dataset_profile import (
     ProfileComputing,
 )
 from daikonstudio.application.data.list_datasets import ListDatasets, ListDatasetsQuery
+from daikonstudio.application.data.preview_dataset import (
+    DatasetPreview,
+    DatasetReadiness,
+    FreezeDatasetPreview,
+    GetDatasetPreview,
+    GetDatasetReadiness,
+    StartDatasetPreview,
+)
 from daikonstudio.application.data.set_dataset_id_column import (
     GetDatasetColumns,
     GetDatasetColumnsQuery,
@@ -83,6 +91,10 @@ FileDatasetDep = Annotated[FileDataset, Depends(use_case(FileDataset))]
 ListDatasetsDep = Annotated[ListDatasets, Depends(use_case(ListDatasets))]
 GetDatasetProfileDep = Annotated[GetDatasetProfile, Depends(use_case(GetDatasetProfile))]
 GetDatasetCompoundsDep = Annotated[GetDatasetCompounds, Depends(use_case(GetDatasetCompounds))]
+StartDatasetPreviewDep = Annotated[StartDatasetPreview, Depends(use_case(StartDatasetPreview))]
+GetDatasetPreviewDep = Annotated[GetDatasetPreview, Depends(use_case(GetDatasetPreview))]
+FreezeDatasetPreviewDep = Annotated[FreezeDatasetPreview, Depends(use_case(FreezeDatasetPreview))]
+GetDatasetReadinessDep = Annotated[GetDatasetReadiness, Depends(use_case(GetDatasetReadiness))]
 
 
 class TargetBody(BaseModel):
@@ -119,6 +131,7 @@ class CreateDatasetBody(BaseModel):
     targets: list[TargetBody] = Field(min_length=1)
     split: SplitBody
     id_column: str | None = Field(default=None, max_length=128)
+    file_name: str | None = Field(default=None, max_length=256)
 
 
 class UploadResponse(BaseModel):
@@ -283,6 +296,54 @@ class ClassBalanceResponse(BaseModel):
     negative: int
 
 
+class TargetClassBalanceResponse(ClassBalanceResponse):
+    column: str
+
+
+class DatasetReadinessResponse(BaseModel):
+    row_count: int
+    partition_counts: dict[str, int]
+    class_balance: list[TargetClassBalanceResponse]
+    warnings: list[str]
+
+    @classmethod
+    def from_domain(cls, readiness: DatasetReadiness) -> DatasetReadinessResponse:
+        from dataclasses import asdict
+
+        return cls.model_validate(asdict(readiness))
+
+
+class DatasetPreparationResponse(BaseModel):
+    name: str
+    file_name: str | None = None
+    structure_column: str
+    targets: list[TargetBody]
+    split: SplitBody
+    id_column: str | None
+    validation_report: ValidationReportResponse
+    readiness: DatasetReadinessResponse
+    expires_at: datetime
+
+
+class DatasetPreviewResponse(DatasetBuildResponse):
+    preparation: DatasetPreparationResponse | None
+
+    @classmethod
+    def from_preview(cls, preview: DatasetPreview) -> DatasetPreviewResponse:
+        return cls(
+            **DatasetBuildResponse.from_domain(preview.build).model_dump(),
+            preparation=DatasetPreparationResponse.model_validate(preview.preparation)
+            if preview.preparation is not None
+            else None,
+        )
+
+
+class FreezeDatasetBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=256)
+
+
 class SimilarityProfileResponse(BaseModel):
     histogram: HistogramResponse
     median: float
@@ -422,6 +483,7 @@ def _create_command(body: CreateDatasetBody) -> CreateDatasetCommand:
         ),
         split=split,
         id_column=body.id_column,
+        file_name=body.file_name,
     )
 
 
@@ -451,6 +513,35 @@ async def get_dataset_build(
     build_id: uuid.UUID, auth: AuthDep, service: GetDatasetBuildDep
 ) -> DatasetBuildResponse:
     return DatasetBuildResponse.from_domain(result_to_response(await service(build_id, auth=auth)))
+
+
+@router.post("/previews", response_model=DatasetPreviewResponse, status_code=202)
+async def start_dataset_preview(
+    body: CreateDatasetBody, auth: AuthDep, service: StartDatasetPreviewDep
+) -> DatasetPreviewResponse:
+    """Validate and split in the background without creating a dataset."""
+    return DatasetPreviewResponse.from_preview(
+        result_to_response(await service(_create_command(body), auth=auth))
+    )
+
+
+@router.get("/previews/{build_id}", response_model=DatasetPreviewResponse)
+async def get_dataset_preview(
+    build_id: uuid.UUID, auth: AuthDep, service: GetDatasetPreviewDep
+) -> DatasetPreviewResponse:
+    return DatasetPreviewResponse.from_preview(
+        result_to_response(await service(build_id, auth=auth))
+    )
+
+
+@router.post("/previews/{build_id}/freeze", response_model=DatasetResponse, status_code=201)
+async def freeze_dataset_preview(
+    build_id: uuid.UUID, body: FreezeDatasetBody, auth: AuthDep, service: FreezeDatasetPreviewDep
+) -> DatasetResponse:
+    """Create a dataset from the exact preparation shown in its review."""
+    return DatasetResponse.from_domain(
+        result_to_response(await service(build_id, body.name, auth=auth)), auth=auth
+    )
 
 
 @router.get("", response_model=PaginatedResponse[DatasetResponse])
@@ -491,6 +582,16 @@ async def get_dataset(
 ) -> DatasetResponse:
     dataset = result_to_response(await service(GetDatasetQuery(dataset_id=dataset_id), auth=auth))
     return DatasetResponse.from_domain(dataset, auth=auth)
+
+
+@router.get("/{dataset_id}/readiness", response_model=DatasetReadinessResponse)
+async def get_dataset_readiness(
+    dataset_id: uuid.UUID, auth: AuthDep, service: GetDatasetReadinessDep
+) -> DatasetReadinessResponse:
+    """Lightweight, exact partition counts and target checks for training setup."""
+    return DatasetReadinessResponse.from_domain(
+        result_to_response(await service(dataset_id, auth=auth))
+    )
 
 
 class SetIdColumnBody(BaseModel):

@@ -41,9 +41,7 @@ export function NavMain() {
                         onClick={() => setOpenMobile(false)}
                         aria-current={isActive ? "page" : undefined}
                       >
-                        <item.icon
-                          className={isActive ? "text-primary" : "text-sidebar-foreground/70"}
-                        />
+                        <item.icon className={item.iconClassName} />
                         <span>{item.title}</span>
                       </Link>
                     </SidebarMenuButton>

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { draftFromUpload, toggleTarget, withColumns } from "./draft-from-upload";
+import {
+  columnRole,
+  draftFromUpload,
+  replaceUpload,
+  setColumnRole,
+  toggleTarget,
+  withColumns,
+} from "./draft-from-upload";
 
 const rows = [
   { smiles: "CCO", solubility: "1.2", reactive: "0", id: "A1" },
@@ -73,5 +80,41 @@ describe("withColumns", () => {
   it("clears the identifier when it becomes the structure column", () => {
     const draft = draftFromUpload(["smiles", "y", "name"], [], "a.csv");
     expect(withColumns(draft, { structureColumn: "name" }).idColumn).toBeNull();
+  });
+});
+
+describe("column roles and replacement", () => {
+  it("moves a target to the identifier role without leaving conflicting mappings", () => {
+    const draft = draftFromUpload(columns, rows, "panel.csv");
+    const next = setColumnRole(draft, "solubility", "identifier", rows);
+    expect(next.idColumn).toBe("solubility");
+    expect(next.targets).toEqual([]);
+    expect(columnRole(next, "id")).toBe("unused");
+  });
+
+  it("clears the required structure choice if that column is deliberately reassigned", () => {
+    const draft = draftFromUpload(columns, rows, "panel.csv");
+    expect(setColumnRole(draft, "smiles", "unused", rows).structureColumn).toBe("");
+  });
+
+  it("preserves target metadata on a replacement with the same columns", () => {
+    const draft = draftFromUpload(columns, rows, "panel.csv");
+    draft.targets[0] = { ...draft.targets[0], unit: "µM", direction: "low" };
+    const next = replaceUpload(draft, columns, rows, new File(["csv"], "corrected.csv"));
+    expect(next.name).toBe("panel");
+    expect(next.targets).toEqual(draft.targets);
+    expect(next.structureColumn).toBe(draft.structureColumn);
+    expect(next.idColumn).toBe(draft.idColumn);
+  });
+
+  it("removes vanished targets instead of silently substituting another measurement", () => {
+    const draft = draftFromUpload(columns, rows, "panel.csv");
+    const next = replaceUpload(
+      draft,
+      ["smiles", "id", "unrelated"],
+      [],
+      new File(["csv"], "replacement.csv"),
+    );
+    expect(next.targets).toEqual([]);
   });
 });

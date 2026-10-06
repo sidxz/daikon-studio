@@ -27,9 +27,12 @@ import type {
   CreateDatasetBody,
   DatasetBuildResponse,
   DatasetColumnsResponse,
+  DatasetPreviewResponse,
   DatasetProfileResponse,
+  DatasetReadinessResponse,
   DatasetResponse,
   FolderBody,
+  FreezeDatasetBody,
   GetDatasetCompoundsApiV1DatasetsDatasetIdCompoundsGetParams,
   GetDatasetProfileApiV1DatasetsDatasetIdProfileGetParams,
   HTTPValidationError,
@@ -428,6 +431,229 @@ export function useGetDatasetBuildApiV1DatasetsBuildsBuildIdGet<TData = Awaited<
 
 
 /**
+ * Validate and split in the background without creating a dataset.
+ * @summary Start Dataset Preview
+ */
+export const startDatasetPreviewApiV1DatasetsPreviewsPost = (
+    createDatasetBody: CreateDatasetBody,
+ signal?: AbortSignal
+) => {
+
+
+      return customInstance<DatasetPreviewResponse>(
+      {url: `/api/v1/datasets/previews`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: createDatasetBody, signal
+    },
+      );
+    }
+
+
+
+export const getStartDatasetPreviewApiV1DatasetsPreviewsPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDatasetPreviewApiV1DatasetsPreviewsPost>>, TError,{data: CreateDatasetBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof startDatasetPreviewApiV1DatasetsPreviewsPost>>, TError,{data: CreateDatasetBody}, TContext> => {
+
+const mutationKey = ['startDatasetPreviewApiV1DatasetsPreviewsPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startDatasetPreviewApiV1DatasetsPreviewsPost>>, {data: CreateDatasetBody}> = (props) => {
+          const {data} = props ?? {};
+
+          return  startDatasetPreviewApiV1DatasetsPreviewsPost(data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartDatasetPreviewApiV1DatasetsPreviewsPostMutationResult = NonNullable<Awaited<ReturnType<typeof startDatasetPreviewApiV1DatasetsPreviewsPost>>>
+    export type StartDatasetPreviewApiV1DatasetsPreviewsPostMutationBody = CreateDatasetBody
+    export type StartDatasetPreviewApiV1DatasetsPreviewsPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Start Dataset Preview
+ */
+export const useStartDatasetPreviewApiV1DatasetsPreviewsPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startDatasetPreviewApiV1DatasetsPreviewsPost>>, TError,{data: CreateDatasetBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof startDatasetPreviewApiV1DatasetsPreviewsPost>>,
+        TError,
+        {data: CreateDatasetBody},
+        TContext
+      > => {
+
+      const mutationOptions = getStartDatasetPreviewApiV1DatasetsPreviewsPostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * @summary Get Dataset Preview
+ */
+export const getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet = (
+    buildId: string,
+ signal?: AbortSignal
+) => {
+
+
+      return customInstance<DatasetPreviewResponse>(
+      {url: `/api/v1/datasets/previews/${buildId}`, method: 'GET', signal
+    },
+      );
+    }
+
+
+
+
+export const getGetDatasetPreviewApiV1DatasetsPreviewsBuildIdGetQueryKey = (buildId?: string,) => {
+    return [
+    `/api/v1/datasets/previews/${buildId}`
+    ] as const;
+    }
+
+
+export const getGetDatasetPreviewApiV1DatasetsPreviewsBuildIdGetQueryOptions = <TData = Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError = HTTPValidationError>(buildId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDatasetPreviewApiV1DatasetsPreviewsBuildIdGetQueryKey(buildId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>> = ({ signal }) => getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet(buildId, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(buildId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetDatasetPreviewApiV1DatasetsPreviewsBuildIdGetQueryResult = NonNullable<Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>>
+export type GetDatasetPreviewApiV1DatasetsPreviewsBuildIdGetQueryError = HTTPValidationError
+
+
+export function useGetDatasetPreviewApiV1DatasetsPreviewsBuildIdGet<TData = Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError = HTTPValidationError>(
+ buildId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetPreviewApiV1DatasetsPreviewsBuildIdGet<TData = Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError = HTTPValidationError>(
+ buildId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetPreviewApiV1DatasetsPreviewsBuildIdGet<TData = Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError = HTTPValidationError>(
+ buildId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Dataset Preview
+ */
+
+export function useGetDatasetPreviewApiV1DatasetsPreviewsBuildIdGet<TData = Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError = HTTPValidationError>(
+ buildId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetPreviewApiV1DatasetsPreviewsBuildIdGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetDatasetPreviewApiV1DatasetsPreviewsBuildIdGetQueryOptions(buildId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
+ * Create a dataset from the exact preparation shown in its review.
+ * @summary Freeze Dataset Preview
+ */
+export const freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost = (
+    buildId: string,
+    freezeDatasetBody: FreezeDatasetBody,
+ signal?: AbortSignal
+) => {
+
+
+      return customInstance<DatasetResponse>(
+      {url: `/api/v1/datasets/previews/${buildId}/freeze`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: freezeDatasetBody, signal
+    },
+      );
+    }
+
+
+
+export const getFreezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost>>, TError,{buildId: string;data: FreezeDatasetBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost>>, TError,{buildId: string;data: FreezeDatasetBody}, TContext> => {
+
+const mutationKey = ['freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost>>, {buildId: string;data: FreezeDatasetBody}> = (props) => {
+          const {buildId,data} = props ?? {};
+
+          return  freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost(buildId,data,)
+        }
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FreezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePostMutationResult = NonNullable<Awaited<ReturnType<typeof freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost>>>
+    export type FreezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePostMutationBody = FreezeDatasetBody
+    export type FreezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Freeze Dataset Preview
+ */
+export const useFreezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost>>, TError,{buildId: string;data: FreezeDatasetBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof freezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePost>>,
+        TError,
+        {buildId: string;data: FreezeDatasetBody},
+        TContext
+      > => {
+
+      const mutationOptions = getFreezeDatasetPreviewApiV1DatasetsPreviewsBuildIdFreezePostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
  * @summary Get Dataset
  */
 export const getDatasetApiV1DatasetsDatasetIdGet = (
@@ -583,6 +809,99 @@ export const useDeleteDatasetApiV1DatasetsDatasetIdDelete = <TError = HTTPValida
       return useMutation(mutationOptions, queryClient);
     }
     /**
+ * Lightweight, exact partition counts and target checks for training setup.
+ * @summary Get Dataset Readiness
+ */
+export const getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet = (
+    datasetId: string,
+ signal?: AbortSignal
+) => {
+
+
+      return customInstance<DatasetReadinessResponse>(
+      {url: `/api/v1/datasets/${datasetId}/readiness`, method: 'GET', signal
+    },
+      );
+    }
+
+
+
+
+export const getGetDatasetReadinessApiV1DatasetsDatasetIdReadinessGetQueryKey = (datasetId?: string,) => {
+    return [
+    `/api/v1/datasets/${datasetId}/readiness`
+    ] as const;
+    }
+
+
+export const getGetDatasetReadinessApiV1DatasetsDatasetIdReadinessGetQueryOptions = <TData = Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError = HTTPValidationError>(datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDatasetReadinessApiV1DatasetsDatasetIdReadinessGetQueryKey(datasetId);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>> = ({ signal }) => getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet(datasetId, signal);
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: !!(datasetId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type GetDatasetReadinessApiV1DatasetsDatasetIdReadinessGetQueryResult = NonNullable<Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>>
+export type GetDatasetReadinessApiV1DatasetsDatasetIdReadinessGetQueryError = HTTPValidationError
+
+
+export function useGetDatasetReadinessApiV1DatasetsDatasetIdReadinessGet<TData = Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError = HTTPValidationError>(
+ datasetId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetReadinessApiV1DatasetsDatasetIdReadinessGet<TData = Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>,
+          TError,
+          Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useGetDatasetReadinessApiV1DatasetsDatasetIdReadinessGet<TData = Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Get Dataset Readiness
+ */
+
+export function useGetDatasetReadinessApiV1DatasetsDatasetIdReadinessGet<TData = Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError = HTTPValidationError>(
+ datasetId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getDatasetReadinessApiV1DatasetsDatasetIdReadinessGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getGetDatasetReadinessApiV1DatasetsDatasetIdReadinessGetQueryOptions(datasetId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
  * Any editor; `null` unfiles it. Organization only: nothing frozen changes.
  * @summary File Dataset
  */

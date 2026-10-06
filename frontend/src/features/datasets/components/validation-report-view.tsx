@@ -1,6 +1,10 @@
 "use client";
 
+import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { saveText } from "@/shared/lib/api/download";
+import { Download } from "lucide-react";
+import Papa from "papaparse";
 import type { ValidationReport } from "../types";
 
 function Stat({
@@ -41,9 +45,48 @@ export function ValidationReportView({
   const hasConflicts = report.conflicting.length > 0;
   // One compound that conflicts in two columns is two entries but one compound.
   const conflictingCompounds = new Set(report.conflicting.map((row) => row.structure)).size;
+  const conflictingRows = new Set(report.conflicting.flatMap((row) => row.row_numbers)).size;
 
   return (
     <div className="space-y-4">
+      {(hasInvalid || hasConflicts) && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground">
+            {rejected
+              ? "Fix the blocking issues before preparing this dataset again."
+              : "Review the rows excluded during preparation."}
+          </p>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() =>
+              saveText(
+                Papa.unparse(
+                  [
+                    ...report.invalid.map((row) => ({
+                      rows: String(row.row_number),
+                      target: "",
+                      value: row.value,
+                      reason: row.reason,
+                    })),
+                    ...report.conflicting.map((row) => ({
+                      rows: row.row_numbers.join(", "),
+                      target: row.column,
+                      value: row.values.join(" / "),
+                      reason: `Conflicting labels for ${row.structure}; this compound is excluded from all targets.`,
+                    })),
+                  ],
+                  { escapeFormulae: true },
+                ),
+                "dataset-issues.csv",
+              )
+            }
+          >
+            <Download className="size-4" />
+            Download issue report
+          </Button>
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <Stat value={report.total_rows.toLocaleString()} label="Rows in the file" />
         {/* `valid_rows` counts rows whose structure parsed, which is *before*
@@ -51,8 +94,12 @@ export function ValidationReportView({
             it here is what stops the page saying "1,008 usable compounds" for a
             dataset that trains on 997. */}
         <Stat
-          value={(report.valid_rows - report.duplicates_collapsed).toLocaleString()}
-          label="Compounds to train on"
+          value={(
+            report.valid_rows -
+            report.duplicates_collapsed -
+            conflictingRows
+          ).toLocaleString()}
+          label="Unique compounds"
         />
         <Stat
           value={report.duplicates_collapsed.toLocaleString()}

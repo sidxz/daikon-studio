@@ -24,12 +24,24 @@ export function parseCsvPreview(file: File): Promise<CsvPreview> {
       skipEmptyLines: true,
       preview: PREVIEW_ROWS,
       complete: (result) => {
+        if (result.errors.length > 0) {
+          reject(
+            new Error(
+              `Could not read this CSV: ${result.errors[0].message}. Check the delimiters and quoted values.`,
+            ),
+          );
+          return;
+        }
         const columns = (result.meta.fields ?? []).filter((field) => field.trim() !== "");
         if (columns.length === 0) {
           reject(new Error("No columns found. The file must be a CSV with a header row."));
           return;
         }
         const rows = result.data;
+        if (rows.length === 0) {
+          reject(new Error("The file has column headers but no data rows."));
+          return;
+        }
         const numericColumns = new Set(
           columns.filter((column) =>
             rows.every((row) => {

@@ -64,6 +64,12 @@ class BuildProgress:
 
 
 @dataclass(frozen=True, kw_only=True)
+class PreparedDataset:
+    frame: pl.DataFrame
+    report: ValidationReport
+
+
+@dataclass(frozen=True, kw_only=True)
 class _Built:
     dataset_id: uuid.UUID
     snapshot_uri: str
@@ -100,6 +106,7 @@ class CreateDatasetCommand:
     targets: tuple[TargetSpec, ...]
     split: SplitSpec
     id_column: str | None = None
+    file_name: str | None = None
 
 
 class CreateDataset:
@@ -163,7 +170,6 @@ class CreateDataset:
             command,
             workspace_id,
             upload_ref,
-            target_columns,
             progress or BuildProgress(),
         )
         if isinstance(built, DomainError):
@@ -204,16 +210,21 @@ class CreateDataset:
             logger.exception("Deleting upload %s failed; it is orphaned", key)
         return Success(dataset)
 
-    def _build(
+    def prepare(
         self,
         command: CreateDatasetCommand,
         workspace_id: uuid.UUID,
         upload_ref: uuid.UUID,
-        target_columns: list[str],
         progress: BuildProgress,
-    ) -> _Built | DomainError:
-        """The synchronous half of creation, run on a worker thread. Returns the
-        error rather than raising it, so a rejection is a value, not a traceback."""
+    ) -> PreparedDataset | DomainError:
+        """Validate and split without creating a Dataset. Shared by creation and review."""
+        try:
+            check_targets(command.targets)
+        except ValidationError as error:
+            return error
+        target_columns = [target.column for target in command.targets]
+        if command.structure_column in target_columns:
+            return ValidationError("The structure column cannot also be a column to predict.")
         key = upload_key(workspace_id, upload_ref)
         if not self._store.exists(key):
             return NotFoundError("Upload", str(upload_ref))
@@ -259,14 +270,14 @@ class CreateDataset:
             # is the net for a column shape nobody has met yet -- a 422 naming the
             # file's problem, never a 500.
             return ValidationError(f"The file could not be interpreted: {error}", detail=None)
-        if report.valid_rows == 0:
+        if report.valid_rows == 0 or prepared.height == 0:
             # `prepared` is deliberately untouched on this path. prepare_frame's
             # zero-valid-rows return hands back a frame whose structure column has
             # degraded to polars' Null dtype (the result of filtering a String
             # column with an all-False mask); the report is the whole payload here.
             return InvalidDatasetError(
-                "The uploaded file has no usable rows. Every row failed structure or "
-                "target validation; see the validation report for reasons.",
+                "No usable compounds remain after preparation. "
+                "See the validation report for reasons.",
                 report=report,
             )
 
@@ -292,17 +303,29 @@ class CreateDataset:
             if degenerate is not None:
                 return degenerate
 
+        return PreparedDataset(frame=split_frame, report=report)
+
+    def _build(
+        self,
+        command: CreateDatasetCommand,
+        workspace_id: uuid.UUID,
+        upload_ref: uuid.UUID,
+        progress: BuildProgress,
+    ) -> _Built | DomainError:
+        prepared = self.prepare(command, workspace_id, upload_ref, progress)
+        if isinstance(prepared, DomainError):
+            return prepared
         progress.begin("Saving")
         dataset_id = uuid.uuid4()
         snapshot_uri, content_hash = write_snapshot(
-            self._store, str(workspace_id), str(dataset_id), split_frame
+            self._store, str(workspace_id), str(dataset_id), prepared.frame
         )
         return _Built(
             dataset_id=dataset_id,
             snapshot_uri=snapshot_uri,
             content_hash=content_hash,
-            row_count=split_frame.height,
-            report=report,
+            row_count=prepared.frame.height,
+            report=prepared.report,
         )
 
 

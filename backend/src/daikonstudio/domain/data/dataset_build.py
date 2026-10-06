@@ -74,6 +74,11 @@ class DatasetBuild(AggregateRoot):
         self.status, self.dataset_id = BuildStatus.SUCCEEDED, dataset_id
         self.updated_at = datetime.now(UTC)
 
+    def ready_for_review(self) -> None:
+        self.status = BuildStatus.SUCCEEDED
+        self.stage = "Ready to review"
+        self.updated_at = datetime.now(UTC)
+
     def fail(self, error: dict[str, Any]) -> None:
         self.status, self.error = BuildStatus.FAILED, error
         self.updated_at = datetime.now(UTC)

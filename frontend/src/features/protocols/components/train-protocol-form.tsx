@@ -1,6 +1,8 @@
 "use client";
 
 import { useDataset, useDatasets } from "@/features/datasets";
+import { DatasetReadinessView } from "@/features/datasets/components/dataset-readiness-view";
+import { useDatasetReadiness } from "@/features/datasets/hooks/use-datasets";
 import type { Condition } from "@/features/engines";
 import {
   EngineExplainer,
@@ -16,6 +18,7 @@ import { TrainingProgress } from "@/features/runs/components/training-progress";
 import { useRunEpochs } from "@/features/runs/hooks/use-runs";
 import { PageHeader } from "@/shared/components/page-header";
 import { QueryError } from "@/shared/components/query-error";
+import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import {
@@ -36,13 +39,20 @@ import { Skeleton } from "@/shared/components/ui/skeleton";
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import { isTerminal } from "@/shared/lib/query-defaults";
 import { showError } from "@/shared/lib/toast";
-import { ChevronDownIcon } from "lucide-react";
+import { Check, ChevronDownIcon, ClipboardCheck, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRunPoll, useTrainProtocol } from "../hooks/use-protocols";
-import { conditionsValid, withoutInapplicable } from "../lib/conditions";
-import { ConditionFields } from "./condition-fields";
+import {
+  appliesToTasks,
+  conditionError,
+  conditionsValid,
+  withoutInapplicable,
+} from "../lib/conditions";
+import { DatasetPicker } from "./dataset-picker";
+import { EnginePicker, computeLabel } from "./engine-picker";
+import { TrainingSettings, changedSettings, settingValue } from "./training-settings";
 import { TuneCutoffsField } from "./tune-cutoffs-field";
 
 /**
@@ -92,10 +102,22 @@ export function TrainProtocolForm() {
   const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
   const [tuneCutoffs, setTuneCutoffs] = useState(false);
   const [runId, setRunId] = useState<string | undefined>();
+  const [datasetSearch, setDatasetSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [baselineOpen, setBaselineOpen] = useState(false);
+  const [revealSettings, setRevealSettings] = useState(false);
+  const [selectionNotice, setSelectionNotice] = useState("");
+  const lastSuggestedName = useRef("");
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedSearch(datasetSearch), 200);
+    return () => window.clearTimeout(timer);
+  }, [datasetSearch]);
 
-  const datasets = useDatasets(undefined, 200);
+  const datasets = useDatasets(undefined, 200, { q: debouncedSearch || undefined });
   const engines = useEngines();
-  const { data: dataset } = useDataset(datasetId || undefined);
+  const datasetQuery = useDataset(datasetId || undefined);
+  const dataset = datasetId ? datasetQuery.data : undefined;
+  const readiness = useDatasetReadiness(datasetId || undefined);
   const train = useTrainProtocol();
   const run = useRunPoll(runId);
   const epochs = useRunEpochs(runId ?? "", Boolean(runId));
@@ -113,21 +135,32 @@ export function TrainProtocolForm() {
   // changes to one either cannot handle, rather than silently submitting an
   // impossible pair or a stale baseline left over from the last dataset.
   useEffect(() => {
-    if (engineId && eligible.length > 0 && !eligible.some((e) => e.id === engineId)) {
+    if (dataset && engines.data && engineId && !eligible.some((e) => e.id === engineId)) {
       setEngineId("");
       setConditions({});
+      setSelectionNotice(
+        "The previous engine cannot train these target types. Choose a compatible engine.",
+      );
     }
     if (
       baselineEngineId &&
-      eligible.length > 0 &&
+      dataset &&
+      engines.data &&
       !eligible.some((e) => e.id === baselineEngineId)
     ) {
       setBaselineEngineId("");
       setBaselineConditions({});
     }
-  }, [engineId, baselineEngineId, eligible]);
+  }, [engineId, baselineEngineId, eligible, dataset, engines.data]);
 
   const engine = eligible.find((candidate) => candidate.id === engineId);
+  const proposedName = dataset && engine ? `${dataset.name} · ${engine.name}` : null;
+  useEffect(() => {
+    if (!proposedName) return;
+    const previousSuggestion = lastSuggestedName.current;
+    setName((previous) => (!previous || previous === previousSuggestion ? proposedName : previous));
+    lastSuggestedName.current = proposedName;
+  }, [proposedName]);
 
   // A baseline comparison is mandatory, so the form defaults to the manifest's
   // flagged engine the moment there is something to default to -- the user
@@ -249,10 +282,62 @@ export function TrainProtocolForm() {
     conditionsValid(engine?.conditions ?? [], conditions, tasks, pinned) &&
     conditionsValid(baselineEngine?.conditions ?? [], baselineConditions, tasks, baselinePinned);
   const canSubmit =
-    Boolean(name.trim() && datasetId && engineId && baselineEngineId) &&
+    Boolean(name.trim() && dataset && engine && baselineEngine) &&
     (!selfCompare || Boolean(engine?.is_baseline)) &&
     settingsValid &&
     !working;
+
+  const issues: { message: string; id: string; baseline?: boolean }[] = [];
+  if (!datasetId) issues.push({ message: "Choose a dataset.", id: "training-dataset" });
+  else if (datasetQuery.isError)
+    issues.push({ message: "Reload the selected dataset.", id: "training-data" });
+  else if (!dataset)
+    issues.push({ message: "Wait for the selected dataset to load.", id: "training-data" });
+  if (dataset && !engine)
+    issues.push({
+      message: eligible.length
+        ? "Choose an engine."
+        : "No compatible engine is available for these targets.",
+      id: "training-engine",
+    });
+  if (dataset && !baselineEngine)
+    issues.push({
+      message: "Choose a compatible baseline.",
+      id: "training-baseline",
+      baseline: true,
+    });
+  if (!name.trim()) issues.push({ message: "Enter a protocol name.", id: "protocol-name" });
+  if (selfCompare && !engine?.is_baseline)
+    issues.push({
+      message:
+        "Choose a different baseline or change its settings; the current comparison is identical.",
+      id: "training-baseline",
+      baseline: true,
+    });
+  for (const [specs, values, fixed, baseline] of [
+    [engine?.conditions ?? [], conditions, pinned, false],
+    [baselineEngine?.conditions ?? [], baselineConditions, baselinePinned, true],
+  ] as const) {
+    for (const spec of specs) {
+      if (!appliesToTasks(spec, tasks) || spec.key in fixed) continue;
+      const error = conditionError(spec, values[spec.key] ?? spec.default);
+      if (error)
+        issues.push({
+          message: `${baseline ? "Baseline: " : ""}${spec.label}: ${error}`,
+          id: `${baseline ? "baseline-condition" : "condition"}-${spec.key}`,
+          baseline,
+        });
+    }
+  }
+  function focusIssue(issue: { id: string; baseline?: boolean }) {
+    if (issue.baseline) setBaselineOpen(true);
+    setRevealSettings(true);
+    window.requestAnimationFrame(() => {
+      const element = document.getElementById(issue.id);
+      element?.scrollIntoView({ behavior: "smooth", block: "center" });
+      element?.focus({ preventScroll: true });
+    });
+  }
 
   if (working && epochs.data && epochs.data.length > 0) {
     // A neural fit reports each epoch: the same live charts as the run's own page.
@@ -300,199 +385,548 @@ export function TrainProtocolForm() {
   }
 
   return (
-    <div className="w-full min-w-0 space-y-4">
+    <div className="w-full min-w-0 space-y-6">
       <PageHeader
         title="Train a protocol"
-        description="Train a model and compare it with a baseline. Review its scorecard before publishing it for others to run."
+        description="Choose your data and model, review the evaluation plan, then start training."
       />
-
-      <div className="w-full min-w-0 max-w-3xl space-y-4">
-        {datasets.isError && (
-          <QueryError
-            title="Could not load datasets"
-            retry={() => datasets.refetch()}
-            retrying={datasets.isFetching}
-          />
-        )}
-        {engines.isError && (
-          <QueryError
-            title="Could not load engines"
-            retry={() => engines.refetch()}
-            retrying={engines.isFetching}
-          />
-        )}
-        {datasets.data && datasets.data.items.length === 0 && (
-          <div className="rounded-lg border border-dashed bg-card p-6 text-center">
-            <p className="font-medium">Create a dataset before training</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Upload structures and measurements to give your model something to learn from.
-            </p>
-            <Button asChild className="mt-4">
-              <Link href="/datasets/new">Create a dataset</Link>
-            </Button>
-          </div>
-        )}
-
-        <Card>
-          <CardContent className="space-y-4 py-6">
-            <div className="space-y-1.5">
-              <Label>Dataset</Label>
-              {datasets.isLoading ? (
-                <Skeleton className="h-9 w-full" />
-              ) : (
-                <Select value={datasetId} onValueChange={setDatasetId}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Choose a dataset" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(datasets.data?.items ?? []).map((item) => (
-                      <SelectItem key={item.id} value={item.id}>
-                        {item.name} · {item.row_count.toLocaleString()} compounds
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              {dataset && <TargetsHint dataset={dataset} engines={engines.data ?? []} />}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Engine</Label>
-              <Select
-                value={engineId}
-                onValueChange={(value) => {
-                  setEngineId(value);
-                  // Otherwise a chemprop condition like `depth` lingers in state
-                  // and, if the new engine is ECFP4, fails validation server-side
-                  // as an unknown condition -- a run that never gets to fit.
-                  setConditions({});
-                }}
-                disabled={!dataset}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={dataset ? "Choose an engine" : "Choose a dataset first"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {eligible.map((candidate) => (
-                    <SelectItem key={candidate.id} value={candidate.id}>
-                      {candidate.name}
-                      {candidate.is_baseline ? " · default baseline" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {engine && <EngineExplainer engineId={engine.id} />}
-              {engine && dataset && trainingKind(engine, dataset.targets.length) && (
-                <p className="text-xs text-muted-foreground">
-                  {trainingKind(engine, dataset.targets.length)}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label>Compare against</Label>
-              <Select
-                value={baselineEngineId}
-                onValueChange={(value) => {
-                  setBaselineEngineId(value);
-                  // Same reason as the chosen-engine selector above: stale
-                  // conditions from the previous baseline engine otherwise
-                  // survive the switch and fail validation on submit.
-                  setBaselineConditions({});
-                }}
-                disabled={!dataset}
-              >
-                <SelectTrigger>
-                  <SelectValue
-                    placeholder={dataset ? "Choose a baseline" : "Choose a dataset first"}
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {eligible.map((candidate) => (
-                    <SelectItem key={candidate.id} value={candidate.id}>
-                      {candidate.name}
-                      {candidate.is_baseline ? " · default baseline" : ""}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selfCompare && (
-                <p className="text-xs text-muted-foreground">
-                  The model and baseline use the same engine and settings. Change a setting or
-                  choose a different baseline engine.
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="protocol-name">Name</Label>
-              <Input
-                id="protocol-name"
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="e.g. Solubility — XGBoost"
-              />
-            </div>
-
-            {canTuneCutoffs && <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />}
-
-            {engine && (
-              <div className="border-t pt-4">
-                <p className="mb-3 text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                  {engine.name} settings
-                </p>
-                <ConditionFields
-                  conditions={engine.conditions}
-                  values={conditions}
-                  onChange={(key, value) => setConditions((prev) => ({ ...prev, [key]: value }))}
-                  pinned={pinned}
-                  tasks={tasks}
+      {datasets.isError && (
+        <QueryError
+          title="Could not load datasets"
+          retry={() => datasets.refetch()}
+          retrying={datasets.isFetching}
+        />
+      )}
+      {engines.isError && (
+        <QueryError
+          title="Could not load engines"
+          retry={() => engines.refetch()}
+          retrying={engines.isFetching}
+        />
+      )}
+      {selectionNotice && (
+        <p aria-live="polite" className="rounded-lg border bg-muted/30 p-3 text-sm">
+          {selectionNotice}
+        </p>
+      )}
+      <div className="grid max-w-7xl items-start gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <div className="min-w-0 space-y-5">
+          <Card id="training-data" className="scroll-mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs">
+                  1
+                </span>
+                Choose your dataset
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Select the structures and measurements this protocol will learn from.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="training-dataset">Dataset</Label>
+                <DatasetPicker
+                  items={datasets.data?.items ?? []}
+                  selected={dataset}
+                  search={datasetSearch}
+                  onSearch={setDatasetSearch}
+                  onSelect={(id) => {
+                    setDatasetId(id);
+                    setSelectionNotice("");
+                  }}
+                  loading={datasets.isFetching ?? datasets.isLoading}
+                  failed={datasets.isError}
                 />
               </div>
-            )}
-
-            {baselineEngine && (
-              <Collapsible className="border-t pt-4">
-                <CollapsibleTrigger className="flex w-full items-center justify-between text-left">
-                  <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                    {baselineEngine.name} baseline settings
+              {datasets.data?.items.length === 0 && !debouncedSearch && !datasetId && (
+                <div className="rounded-lg border border-dashed p-4">
+                  <p className="text-sm font-medium">Create a dataset before training</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Upload structures and measurements to give your model something to learn from.
                   </p>
-                  <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground" />
-                </CollapsibleTrigger>
-                <CollapsibleContent className="mt-3">
-                  <ConditionFields
-                    conditions={baselineEngine.conditions}
-                    values={baselineConditions}
-                    onChange={(key, value) =>
-                      setBaselineConditions((prev) => ({ ...prev, [key]: value }))
-                    }
-                    pinned={baselinePinned}
-                    tasks={tasks}
-                    idPrefix="baseline-condition"
-                  />
+                  <Button asChild variant="outline" size="sm" className="mt-3">
+                    <Link href="/datasets/new">Create a dataset</Link>
+                  </Button>
+                </div>
+              )}
+              {datasetQuery.isError && (
+                <QueryError
+                  title="Could not load the selected dataset"
+                  retry={() => datasetQuery.refetch()}
+                  retrying={datasetQuery.isFetching}
+                />
+              )}
+              {datasetId && !dataset && !datasetQuery.isError && (
+                <Skeleton className="h-20 w-full" />
+              )}
+              {dataset && (
+                <>
+                  <div className="rounded-lg bg-muted/30 p-4">
+                    <p className="mb-2 text-sm font-medium">
+                      {dataset.row_count?.toLocaleString()} unique compounds ·{" "}
+                      {dataset.targets.length} {dataset.targets.length === 1 ? "target" : "targets"}
+                    </p>
+                    <TargetsHint dataset={dataset} engines={engines.data ?? []} />
+                    <ul className="mt-3 space-y-1">
+                      {dataset.targets.map((target) => (
+                        <li
+                          key={target.column}
+                          className="flex flex-wrap items-center gap-2 text-xs"
+                        >
+                          <span className="font-mono font-medium">{target.column}</span>
+                          <span className="text-muted-foreground">
+                            {target.kind === "binary" ? "Active / inactive" : "Measured value"}
+                            {target.unit ? ` · ${target.unit}` : ""}
+                            {target.direction
+                              ? ` · ${target.direction === "high" ? "higher" : "lower"} is better`
+                              : ""}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                  {readiness.isLoading && (
+                    <p aria-live="polite" className="text-xs text-muted-foreground">
+                      Loading exact partition counts and data checks…
+                    </p>
+                  )}
+                  {readiness.isError && (
+                    <QueryError
+                      title="Could not load data checks"
+                      retry={() => readiness.refetch()}
+                      retrying={readiness.isFetching}
+                    />
+                  )}
+                  {readiness.data && <DatasetReadinessView readiness={readiness.data} />}
+                  {dataset.validation_report &&
+                    (dataset.validation_report.invalid.length > 0 ||
+                      dataset.validation_report.duplicates_collapsed > 0 ||
+                      dataset.validation_report.conflicting.length > 0 ||
+                      dataset.validation_report.salts_flagged > 0) && (
+                      <p className="rounded-lg border p-3 text-xs text-muted-foreground">
+                        Preparation excluded {dataset.validation_report.invalid.length} invalid rows
+                        and{" "}
+                        {
+                          new Set(dataset.validation_report.conflicting.map((row) => row.structure))
+                            .size
+                        }{" "}
+                        compounds with conflicting labels, merged{" "}
+                        {dataset.validation_report.duplicates_collapsed} duplicate rows, and flagged{" "}
+                        {dataset.validation_report.salts_flagged} salts or mixtures. See the dataset
+                        report for details.
+                      </p>
+                    )}
+                  <Button asChild variant="link" size="sm" className="h-auto px-0">
+                    <Link href={`/datasets/${dataset.id}`}>View dataset and full diagnostics</Link>
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card id="training-engine" tabIndex={-1} className="scroll-mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs">
+                  2
+                </span>
+                Choose an engine
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Compare the models that can learn your targets. Settings start at their defaults.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!dataset ? (
+                <p className="text-sm text-muted-foreground">
+                  Choose a dataset to see compatible engines.
+                </p>
+              ) : engines.isLoading ? (
+                <Skeleton className="h-32 w-full" />
+              ) : (
+                <EnginePicker
+                  engines={engines.data ?? []}
+                  eligible={eligible}
+                  value={engineId}
+                  onChange={(id) => {
+                    setEngineId(id);
+                    setConditions({});
+                    setRevealSettings(false);
+                  }}
+                  targetCount={dataset.targets.length}
+                />
+              )}
+              {engine && (
+                <details className="rounded-lg border p-3">
+                  <summary className="cursor-pointer text-sm font-medium">
+                    How {engine.name} learns
+                  </summary>
+                  <div className="mt-3">
+                    <EngineExplainer engineId={engine.id} />
+                  </div>
+                </details>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card id="training-evaluation" className="scroll-mt-6">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <span className="flex size-6 items-center justify-center rounded-full bg-muted text-xs">
+                  3
+                </span>
+                Evaluation and settings
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                The model and baseline use the same held-out data, with matching evaluation options.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              {engine ? (
+                <TrainingSettings
+                  title={`${engine.name} settings`}
+                  conditions={engine.conditions}
+                  values={conditions}
+                  onChange={(key, value) =>
+                    setConditions((previous) => ({ ...previous, [key]: value }))
+                  }
+                  onReset={() => {
+                    setConditions({});
+                    setRevealSettings(false);
+                  }}
+                  pinned={pinned}
+                  tasks={tasks}
+                  idPrefix="condition"
+                  reveal={revealSettings}
+                />
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Choose an engine to configure its settings.
+                </p>
+              )}
+              <Collapsible
+                open={baselineOpen}
+                onOpenChange={setBaselineOpen}
+                className="rounded-lg border p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <p className="text-sm font-medium">Comparison baseline</p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {baselineEngine?.name ?? "Choose a dataset to select a baseline"}
+                    </p>
+                  </div>
+                  <CollapsibleTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      <Pencil className="size-3" />
+                      {baselineOpen ? "Hide baseline settings" : "Change baseline"}
+                      <ChevronDownIcon className="size-3" />
+                    </Button>
+                  </CollapsibleTrigger>
+                </div>
+                <p className="mt-3 text-xs text-muted-foreground">
+                  A baseline comparison is included in every protocol. It shows whether your model
+                  adds value over the reference.
+                </p>
+                <CollapsibleContent className="mt-4 space-y-4">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="training-baseline">Compare against</Label>
+                    <Select
+                      value={baselineEngineId}
+                      onValueChange={(value) => {
+                        setBaselineEngineId(value);
+                        setBaselineConditions({});
+                      }}
+                      disabled={!dataset}
+                    >
+                      <SelectTrigger id="training-baseline">
+                        <SelectValue
+                          placeholder={dataset ? "Choose a baseline" : "Choose a dataset first"}
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {eligible.map((candidate) => (
+                          <SelectItem key={candidate.id} value={candidate.id}>
+                            {candidate.name}
+                            {candidate.is_baseline ? " · default baseline" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {baselineEngine && (
+                    <TrainingSettings
+                      title={`${baselineEngine.name} baseline settings`}
+                      conditions={baselineEngine.conditions}
+                      values={baselineConditions}
+                      onChange={(key, value) =>
+                        setBaselineConditions((previous) => ({ ...previous, [key]: value }))
+                      }
+                      onReset={() => setBaselineConditions({})}
+                      pinned={baselinePinned}
+                      tasks={tasks}
+                      idPrefix="baseline-condition"
+                      reveal={revealSettings}
+                    />
+                  )}
                 </CollapsibleContent>
               </Collapsible>
-            )}
-          </CardContent>
-        </Card>
-
-        <div className="flex items-center justify-between">
-          <Button variant="ghost" onClick={() => router.push("/protocols")}>
-            Cancel
-          </Button>
-          <div className="flex items-center gap-3">
-            {!settingsValid && (
-              <span className="text-sm text-destructive">
-                A setting is outside its allowed range.
-              </span>
-            )}
-            <Button onClick={submit} disabled={!canSubmit}>
-              Train
-            </Button>
-          </div>
+              {selfCompare && (
+                <p
+                  aria-live="polite"
+                  className={`rounded-lg border p-3 text-xs ${engine?.is_baseline ? "text-muted-foreground" : "border-destructive/40 text-destructive"}`}
+                >
+                  {engine?.is_baseline
+                    ? "The selected model is the baseline reference. One fit supplies both results; the scorecard labels this explicitly."
+                    : "The model and baseline use the same engine and settings. Change a setting or choose a different baseline engine."}
+                </p>
+              )}
+              {canTuneCutoffs && (
+                <div className="rounded-lg border p-4">
+                  <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
+                </div>
+              )}
+              {dataset?.split.strategy === "scaffold" && (
+                <p className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
+                  Training also fits the selected engine on a random split, with the same seed and
+                  intended fractions. Its score is compared with the scaffold result to measure the
+                  optimism gap.
+                </p>
+              )}
+            </CardContent>
+          </Card>
         </div>
+
+        <aside className="min-w-0 space-y-4" aria-label="Training plan">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2 text-base">
+                <ClipboardCheck className="size-4" />
+                Review and train
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Check the complete plan before starting.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div className="space-y-1.5">
+                <Label htmlFor="protocol-name">Name</Label>
+                <Input
+                  id="protocol-name"
+                  value={name}
+                  maxLength={256}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="e.g. Solubility · XGBoost"
+                />
+              </div>
+              <dl className="space-y-3 text-sm">
+                <div>
+                  <dt className="text-xs text-muted-foreground">Dataset</dt>
+                  <dd className="mt-1 font-medium">{dataset?.name ?? "Choose a dataset"}</dd>
+                  {dataset && (
+                    <dd className="mt-1 text-xs text-muted-foreground">
+                      {dataset.row_count?.toLocaleString()} compounds · {dataset.targets.length}{" "}
+                      targets
+                    </dd>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Predictions</dt>
+                  <dd className="mt-1 space-y-1">
+                    {dataset
+                      ? dataset.targets.map((target) => (
+                          <div key={target.column} className="text-xs">
+                            <span className="font-mono">{target.column}</span>
+                            <span className="text-muted-foreground">
+                              {" "}
+                              ·{" "}
+                              {target.kind === "binary"
+                                ? "0 / 1"
+                                : target.unit || "unit unspecified"}
+                            </span>
+                          </div>
+                        ))
+                      : "Choose targets via a dataset"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Held-out evaluation</dt>
+                  <dd className="mt-1 capitalize">
+                    {dataset
+                      ? `${dataset.split.strategy} split · seed ${dataset.split.seed}`
+                      : "Defined by the dataset"}
+                  </dd>
+                  {readiness.data && (
+                    <dd className="mt-1 text-xs text-muted-foreground">
+                      {readiness.data.partition_counts.train?.toLocaleString()} train /{" "}
+                      {readiness.data.partition_counts.validation?.toLocaleString()} validation /{" "}
+                      {readiness.data.partition_counts.test?.toLocaleString()} test
+                    </dd>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Model</dt>
+                  <dd className="mt-1 font-medium">{engine?.name ?? "Choose an engine"}</dd>
+                  {engine && (
+                    <dd className="mt-1 text-xs text-muted-foreground">
+                      {computeLabel(engine)}
+                      {dataset && trainingKind(engine, dataset.targets.length)
+                        ? ` · ${trainingKind(engine, dataset.targets.length)}`
+                        : ""}
+                    </dd>
+                  )}
+                </div>
+                <div>
+                  <dt className="text-xs text-muted-foreground">Baseline</dt>
+                  <dd className="mt-1">{baselineEngine?.name ?? "Choose a baseline"}</dd>
+                </div>
+              </dl>
+              {engine && (
+                <div className="space-y-2 border-t pt-4">
+                  <p className="text-xs font-medium">Settings</p>
+                  {changedSettings(engine.conditions, conditions, tasks, pinned).length === 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Model defaults
+                      {Object.keys(pinned).length
+                        ? ", with settings fixed by pretrained weights"
+                        : ""}
+                    </p>
+                  ) : (
+                    <ul className="space-y-1 text-xs text-muted-foreground">
+                      {changedSettings(engine.conditions, conditions, tasks, pinned).map((spec) => (
+                        <li key={spec.key}>
+                          {spec.label}:{" "}
+                          <span className="font-medium text-foreground">
+                            {settingValue(spec, conditions[spec.key] ?? spec.default)}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {baselineEngine &&
+                    changedSettings(
+                      baselineEngine.conditions,
+                      baselineConditions,
+                      tasks,
+                      baselinePinned,
+                    ).length > 0 && (
+                      <ul className="space-y-1 text-xs text-muted-foreground">
+                        {changedSettings(
+                          baselineEngine.conditions,
+                          baselineConditions,
+                          tasks,
+                          baselinePinned,
+                        ).map((spec) => (
+                          <li key={spec.key}>
+                            Baseline {spec.label}:{" "}
+                            <span className="font-medium text-foreground">
+                              {settingValue(spec, baselineConditions[spec.key] ?? spec.default)}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  {Object.entries(pinned).map(([key, value]) => (
+                    <p key={key} className="text-xs text-muted-foreground">
+                      {engine.conditions.find((spec) => spec.key === key)?.label ?? key}:{" "}
+                      {String(value)} · fixed by pretrained weights
+                    </p>
+                  ))}
+                  {Object.entries(baselinePinned).map(([key, value]) => (
+                    <p key={key} className="text-xs text-muted-foreground">
+                      Baseline{" "}
+                      {baselineEngine?.conditions.find((spec) => spec.key === key)?.label ?? key}:{" "}
+                      {String(value)} · fixed by pretrained weights
+                    </p>
+                  ))}
+                  {canTuneCutoffs && (
+                    <p className="text-xs text-muted-foreground">
+                      Decision cutoff: {tuneCutoffs ? "tuned on validation data" : "fixed at 0.5"}
+                    </p>
+                  )}
+                </div>
+              )}
+              {engine && dataset && baselineEngine && (
+                <div className="space-y-2 border-t pt-4">
+                  <p className="text-xs font-medium">Planned work</p>
+                  <ol className="space-y-2 text-xs text-muted-foreground">
+                    <li className="flex gap-2">
+                      <Check className="mt-0.5 size-3 shrink-0" />
+                      <span>Train {engine.name} on the dataset split.</span>
+                    </li>
+                    {!selfCompare && (
+                      <li className="flex gap-2">
+                        <Check className="mt-0.5 size-3 shrink-0" />
+                        <span>Train {baselineEngine.name} as the comparison baseline.</span>
+                      </li>
+                    )}
+                    {dataset.split.strategy === "scaffold" && (
+                      <li className="flex gap-2">
+                        <Check className="mt-0.5 size-3 shrink-0" />
+                        <span>Train {engine.name} again on a random split for comparison.</span>
+                      </li>
+                    )}
+                    <li className="flex gap-2">
+                      <Check className="mt-0.5 size-3 shrink-0" />
+                      <span>Generate a scorecard to review before publishing.</span>
+                    </li>
+                  </ol>
+                  <div className="flex flex-wrap gap-1.5">
+                    <Badge variant="outline" className="font-normal">
+                      {dataset.split.strategy === "scaffold"
+                        ? selfCompare
+                          ? 2
+                          : 3
+                        : selfCompare
+                          ? 1
+                          : 2}{" "}
+                      training stages
+                    </Badge>
+                    {engine.lane === "gpu" && <Badge variant="secondary">GPU lane required</Badge>}
+                  </div>
+                </div>
+              )}
+              {issues.length > 0 && (
+                <div
+                  id="training-issues"
+                  className="space-y-2 rounded-lg border bg-muted/30 p-3"
+                  aria-live="polite"
+                >
+                  <p className="text-xs font-medium">Before you train</p>
+                  <ul className="space-y-1">
+                    {issues.map((issue) => (
+                      <li key={issue.id}>
+                        <button
+                          type="button"
+                          onClick={() => focusIssue(issue)}
+                          className="text-left text-xs text-muted-foreground underline decoration-muted-foreground/40 underline-offset-2 hover:text-foreground"
+                        >
+                          {issue.message}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <Button
+                className="w-full"
+                onClick={submit}
+                disabled={!canSubmit}
+                aria-describedby={issues.length ? "training-issues" : undefined}
+              >
+                Train
+              </Button>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                Training runs in the background. The resulting protocol stays a draft until you
+                review its scorecard and publish it.
+              </p>
+              <Button variant="ghost" className="w-full" onClick={() => router.push("/protocols")}>
+                Cancel
+              </Button>
+            </CardContent>
+          </Card>
+        </aside>
       </div>
     </div>
   );

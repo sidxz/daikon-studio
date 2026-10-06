@@ -35,3 +35,19 @@ describe("looksBinary", () => {
     expect(looksBinary([], "y")).toBe(false);
   });
 });
+
+describe("CSV preview errors", () => {
+  it("rejects a header-only file before setup begins", async () => {
+    const { parseCsvPreview } = await import("./parse-csv");
+    await expect(parseCsvPreview(new File(["smiles,y\n"], "empty.csv"))).rejects.toThrow(
+      "no data rows",
+    );
+  });
+
+  it("rejects malformed rows with a useful parsing reason", async () => {
+    const { parseCsvPreview } = await import("./parse-csv");
+    await expect(
+      parseCsvPreview(new File(["smiles,y\nCCO,1,extra\n"], "broken.csv")),
+    ).rejects.toThrow("Could not read this CSV");
+  });
+});

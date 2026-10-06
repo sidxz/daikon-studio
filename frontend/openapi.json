@@ -674,6 +674,145 @@
         }
       }
     },
+    "/api/v1/datasets/previews": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Start Dataset Preview",
+        "description": "Validate and split in the background without creating a dataset.",
+        "operationId": "start_dataset_preview_api_v1_datasets_previews_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatasetBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/previews/{build_id}": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Get Dataset Preview",
+        "operationId": "get_dataset_preview_api_v1_datasets_previews__build_id__get",
+        "parameters": [
+          {
+            "name": "build_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Build Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetPreviewResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/previews/{build_id}/freeze": {
+      "post": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Freeze Dataset Preview",
+        "description": "Create a dataset from the exact preparation shown in its review.",
+        "operationId": "freeze_dataset_preview_api_v1_datasets_previews__build_id__freeze_post",
+        "parameters": [
+          {
+            "name": "build_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Build Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FreezeDatasetBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/datasets/{dataset_id}": {
       "get": {
         "tags": [
@@ -738,6 +877,50 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/datasets/{dataset_id}/readiness": {
+      "get": {
+        "tags": [
+          "datasets"
+        ],
+        "summary": "Get Dataset Readiness",
+        "description": "Lightweight, exact partition counts and target checks for training setup.",
+        "operationId": "get_dataset_readiness_api_v1_datasets__dataset_id__readiness_get",
+        "parameters": [
+          {
+            "name": "dataset_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Dataset Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatasetReadinessResponse"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -4157,6 +4340,18 @@
               }
             ],
             "title": "Id Column"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
           }
         },
         "additionalProperties": false,
@@ -4429,6 +4624,166 @@
         "title": "DatasetEnvelope",
         "description": "Mirrors every `Dataset.__init__` kwarg (`domain/data/dataset.py`)."
       },
+      "DatasetPreparationResponse": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name"
+          },
+          "structure_column": {
+            "type": "string",
+            "title": "Structure Column"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/TargetBody"
+            },
+            "type": "array",
+            "title": "Targets"
+          },
+          "split": {
+            "$ref": "#/components/schemas/SplitBody"
+          },
+          "id_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id Column"
+          },
+          "validation_report": {
+            "$ref": "#/components/schemas/ValidationReportResponse"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/DatasetReadinessResponse"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Expires At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "structure_column",
+          "targets",
+          "split",
+          "id_column",
+          "validation_report",
+          "readiness",
+          "expires_at"
+        ],
+        "title": "DatasetPreparationResponse"
+      },
+      "DatasetPreviewResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "running",
+              "succeeded",
+              "failed"
+            ],
+            "title": "Status"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "done": {
+            "type": "integer",
+            "title": "Done"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Dataset Id"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "preparation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DatasetPreparationResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "status",
+          "stage",
+          "done",
+          "total",
+          "dataset_id",
+          "error",
+          "created_at",
+          "updated_at",
+          "preparation"
+        ],
+        "title": "DatasetPreviewResponse"
+      },
       "DatasetProfileResponse": {
         "properties": {
           "compounds": {
@@ -4529,6 +4884,43 @@
         ],
         "title": "DatasetProfileResponse",
         "description": "What the Dataset is made of -- see `domain/data/profile.py` for what each\nsection means and why it is here.\n\n`target_distribution` and `class_balance` are mutually exclusive: a numeric\ntarget populates the first and a binary one the second, so a consumer must\nbranch on `target_kind` rather than render whichever is non-empty.\n\n`similarity` is `null` only when there was no train/test pair to compare,\nnever an all-zero histogram. `cliffs_sampled_from` is non-null when the\npair scan ran on a subsample -- \"no cliffs found among 3000 of 12000\ncompounds\" is a different claim from \"no cliffs\", and this is which one\nwas made."
+      },
+      "DatasetReadinessResponse": {
+        "properties": {
+          "row_count": {
+            "type": "integer",
+            "title": "Row Count"
+          },
+          "partition_counts": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Partition Counts"
+          },
+          "class_balance": {
+            "items": {
+              "$ref": "#/components/schemas/TargetClassBalanceResponse"
+            },
+            "type": "array",
+            "title": "Class Balance"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row_count",
+          "partition_counts",
+          "class_balance",
+          "warnings"
+        ],
+        "title": "DatasetReadinessResponse"
       },
       "DatasetResponse": {
         "properties": {
@@ -5159,6 +5551,22 @@
           "created_by"
         ],
         "title": "FolderResponse"
+      },
+      "FreezeDatasetBody": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Name"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "FreezeDatasetBody"
       },
       "HTTPValidationError": {
         "properties": {
@@ -7959,6 +8367,34 @@
           "kind"
         ],
         "title": "TargetBody"
+      },
+      "TargetClassBalanceResponse": {
+        "properties": {
+          "split": {
+            "type": "string",
+            "title": "Split"
+          },
+          "positive": {
+            "type": "integer",
+            "title": "Positive"
+          },
+          "negative": {
+            "type": "integer",
+            "title": "Negative"
+          },
+          "column": {
+            "type": "string",
+            "title": "Column"
+          }
+        },
+        "type": "object",
+        "required": [
+          "split",
+          "positive",
+          "negative",
+          "column"
+        ],
+        "title": "TargetClassBalanceResponse"
       },
       "TargetDistributionResponse": {
         "properties": {

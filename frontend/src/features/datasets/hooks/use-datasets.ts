@@ -11,7 +11,9 @@ import type {
   CompoundPageResponse,
   DatasetBuildResponse,
   DatasetColumnsResponse,
+  DatasetPreviewResponse,
   DatasetProfileResponse,
+  DatasetReadinessResponse,
   DatasetResponse,
   PaginatedResponseDatasetResponse,
   PaginatedResponseProtocolResponse,
@@ -111,6 +113,65 @@ export interface CreateDatasetInput {
   targets: { column: string; kind: string; unit?: string | null; direction?: string | null }[];
   split: { strategy: string; seed: number };
   id_column?: string | null;
+  file_name?: string | null;
+}
+
+export function useStartDatasetPreview() {
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: (data: CreateDatasetInput) =>
+      customInstance<DatasetPreviewResponse>({
+        url: `${API_V1}/datasets/previews`,
+        method: "POST",
+        data,
+      }),
+  });
+}
+
+export function useDatasetPreview(id: string | null) {
+  return useQuery({
+    queryKey: ["dataset-preview", id],
+    queryFn: ({ signal }) =>
+      customInstance<DatasetPreviewResponse>({
+        url: `${API_V1}/datasets/previews/${id}`,
+        method: "GET",
+        signal,
+      }),
+    enabled: id !== null,
+    refetchInterval: (query) => (query.state.data?.status === "running" ? BUILD_POLL_MS : false),
+    retry: false,
+  });
+}
+
+export function useFreezeDatasetPreview() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    meta: { silent: true },
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      customInstance<DatasetResponse>({
+        url: `${API_V1}/datasets/previews/${id}/freeze`,
+        method: "POST",
+        data: { name },
+      }),
+    onSuccess: (dataset) => {
+      queryClient.setQueryData([...DATASET_KEY, dataset.id], dataset);
+      queryClient.invalidateQueries({ queryKey: DATASETS_KEY });
+    },
+  });
+}
+
+export function useDatasetReadiness(id: string | undefined) {
+  return useQuery({
+    queryKey: ["dataset-readiness", id],
+    queryFn: ({ signal }) =>
+      customInstance<DatasetReadinessResponse>({
+        url: `${API_V1}/datasets/${id}/readiness`,
+        method: "GET",
+        signal,
+      }),
+    enabled: Boolean(id),
+    staleTime: Number.POSITIVE_INFINITY,
+  });
 }
 
 /**

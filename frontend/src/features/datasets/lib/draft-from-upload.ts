@@ -61,3 +61,53 @@ export function toggleTarget(
     targets: chosen ? [...others, draftTarget(column, rows)] : others,
   });
 }
+
+export type ColumnRole = "structure" | "identifier" | "target" | "unused";
+
+export function columnRole(draft: DatasetDraft, column: string): ColumnRole {
+  if (draft.structureColumn === column) return "structure";
+  if (draft.idColumn === column) return "identifier";
+  return draft.targets.some((target) => target.column === column) ? "target" : "unused";
+}
+
+/** A role change is exclusive; it never discards the settings of another target. */
+export function setColumnRole(
+  draft: DatasetDraft,
+  column: string,
+  role: ColumnRole,
+  rows: Record<string, string>[],
+): DatasetDraft {
+  const target = draft.targets.find((candidate) => candidate.column === column);
+  const next = {
+    ...draft,
+    structureColumn: draft.structureColumn === column ? "" : draft.structureColumn,
+    idColumn: draft.idColumn === column ? null : draft.idColumn,
+    targets: draft.targets.filter((candidate) => candidate.column !== column),
+  };
+  if (role === "structure") next.structureColumn = column;
+  if (role === "identifier") next.idColumn = column;
+  if (role === "target") next.targets = [...next.targets, target ?? draftTarget(column, rows)];
+  return next;
+}
+
+/** Replacing an upload keeps compatible mappings and scientist-entered metadata. */
+export function replaceUpload(
+  draft: DatasetDraft,
+  columns: string[],
+  rows: Record<string, string>[],
+  file: File,
+): DatasetDraft {
+  const guessed = draftFromUpload(columns, rows, file.name);
+  const structureColumn = columns.includes(draft.structureColumn)
+    ? draft.structureColumn
+    : guessed.structureColumn;
+  const targets = draft.targets.filter(
+    (target) => columns.includes(target.column) && target.column !== structureColumn,
+  );
+  const idColumn =
+    draft.idColumn && columns.includes(draft.idColumn) ? draft.idColumn : guessed.idColumn;
+  return withColumns(
+    { ...draft, file, name: draft.name || guessed.name, structureColumn, targets, idColumn },
+    {},
+  );
+}

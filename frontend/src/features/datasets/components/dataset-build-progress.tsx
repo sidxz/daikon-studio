@@ -16,7 +16,10 @@ export function buildPercent(build: Pick<DatasetBuildResponse, "done" | "total">
  * and for a stage that counts rows, a bar and the count itself. A stage without a
  * count (reading the file, saving) shows no bar rather than an invented one.
  */
-export function DatasetBuildProgress({ build }: { build: DatasetBuildResponse }) {
+export function DatasetBuildProgress({
+  build,
+  reviewing = false,
+}: { build: DatasetBuildResponse; reviewing?: boolean }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -27,11 +30,13 @@ export function DatasetBuildProgress({ build }: { build: DatasetBuildResponse })
   return (
     <Card className="w-full min-w-0 max-w-3xl">
       <CardHeader>
-        <CardTitle className="text-base">Building {build.name}</CardTitle>
+        <CardTitle className="text-base">
+          {reviewing ? "Preparing" : "Building"} {build.name}
+        </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Every structure is checked and standardized, which takes a few minutes for a large file.
-          The build continues if you leave this page; the dataset appears in the list when it is
-          ready.
+          {reviewing
+            ? "Checking structures, preparing targets, and calculating the split. Large files can take a few minutes. You can return to this URL to resume the review; no dataset is created until you choose Create dataset."
+            : "Every structure is checked and standardized, which takes a few minutes for a large file. The build continues if you leave this page; the dataset appears in the list when it is ready."}
         </p>
       </CardHeader>
       <CardContent className="space-y-2">

@@ -128,6 +128,8 @@ vi.mock("@/features/datasets", () => ({
   useDataset: () => ({
     data: {
       id: "ds-1",
+      name: "Solubility",
+      row_count: 100,
       targets: hoisted.targets,
       split: { strategy: "scaffold" },
     },
@@ -145,6 +147,10 @@ vi.mock("../hooks/use-protocols", async () => {
     useRunPoll: () => ({ data: undefined }),
   };
 });
+
+vi.mock("@/features/datasets/hooks/use-datasets", () => ({
+  useDatasetReadiness: () => ({ data: undefined, isLoading: false, isError: false }),
+}));
 
 vi.mock("@/features/engines", async () => {
   const actual = await vi.importActual<typeof import("@/features/engines")>("@/features/engines");
@@ -170,7 +176,7 @@ describe("engines for several targets", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(screen.getByRole("button", { name: "Dataset" }));
     fireEvent.click(await screen.findByText(/Solubility/));
 
     expect(
@@ -179,9 +185,8 @@ describe("engines for several targets", () => {
       ),
     ).toBeInTheDocument();
     // The joint engine is not offered for a mixed-kind dataset.
-    fireEvent.click(screen.getByText("Choose an engine"));
-    expect(await screen.findByRole("option", { name: /ECFP4 \+ RF/ })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /Chemprop/ })).not.toBeInTheDocument();
+    expect(await screen.findByRole("radio", { name: /ECFP4 \+ RF/ })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /Chemprop/ })).toBeDisabled();
   });
 });
 
@@ -196,16 +201,17 @@ describe("CheMeleon's pinned settings reach the submitted payload", () => {
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(screen.getByRole("button", { name: "Dataset" }));
     fireEvent.click(await screen.findByText(/Solubility/));
 
-    fireEvent.click(screen.getByText("Choose an engine"));
-    fireEvent.click(await screen.findByText("Chemprop D-MPNN"));
+    fireEvent.click(await screen.findByRole("radio", { name: "Chemprop D-MPNN" }));
 
     // Pick CheMeleon in the chosen-engine settings block.
     const pretrainedTrigger = await screen.findByText("none");
     fireEvent.click(pretrainedTrigger);
     fireEvent.click(await screen.findByText("CheMeleon"));
+
+    fireEvent.click(screen.getByRole("button", { name: /Advanced settings/ }));
 
     // Displayed values are pinned and disabled -- the same fact the merge
     // effect must also have written into submitted state.
@@ -249,19 +255,17 @@ describe("submit is blocked when the run would compare an engine against itself"
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(screen.getByRole("button", { name: "Dataset" }));
     fireEvent.click(await screen.findByText(/Solubility/));
 
     // Indexed rather than by trigger text: once both selects have shown
     // "Chemprop D-MPNN" at some point, the text alone is no longer unique.
-    const [, engineTrigger, baselineTrigger] = screen.getAllByRole("combobox");
-
-    fireEvent.click(engineTrigger);
-    fireEvent.click(await screen.findByRole("option", { name: "Chemprop D-MPNN" }));
+    fireEvent.click(await screen.findByRole("radio", { name: "Chemprop D-MPNN" }));
+    fireEvent.click(screen.getByRole("button", { name: "Change baseline" }));
 
     // The baseline defaults to the flagged engine (ECFP4 + RF); switch it to
     // chemprop too, so both sides are chemprop-dmpnn on identical settings.
-    fireEvent.click(baselineTrigger);
+    fireEvent.click(screen.getByRole("combobox", { name: "Compare against" }));
     fireEvent.click(await screen.findByRole("option", { name: "Chemprop D-MPNN" }));
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
@@ -279,14 +283,13 @@ describe("submit is blocked when the run would compare an engine against itself"
       </QueryClientProvider>,
     );
 
-    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(screen.getByRole("button", { name: "Dataset" }));
     fireEvent.click(await screen.findByText(/Solubility/));
 
     // The baseline already defaults to this same flagged engine, with no
     // conditions on either side -- a self-comparison this product has always
     // allowed, because there is nothing else to compare the baseline against.
-    fireEvent.click(screen.getByText("Choose an engine"));
-    fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: /ECFP4 \+ RF/ }));
 
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
 
@@ -310,11 +313,10 @@ describe("the tune-cutoffs option", () => {
         <TrainProtocolForm />
       </QueryClientProvider>,
     );
-    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(screen.getByRole("button", { name: "Dataset" }));
     fireEvent.click(await screen.findByText(/Solubility/));
     return async () => {
-      fireEvent.click(screen.getByText("Choose an engine"));
-      fireEvent.click(await screen.findByRole("option", { name: /ECFP4 \+ RF/ }));
+      fireEvent.click(await screen.findByRole("radio", { name: /ECFP4 \+ RF/ }));
       fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
       await waitFor(() => expect(screen.getByText("Train")).not.toBeDisabled());
       fireEvent.click(screen.getByText("Train"));
@@ -368,10 +370,9 @@ describe("settings that do not apply to the dataset", () => {
         <TrainProtocolForm />
       </QueryClientProvider>,
     );
-    fireEvent.click(screen.getByText("Choose a dataset"));
+    fireEvent.click(screen.getByRole("button", { name: "Dataset" }));
     fireEvent.click(await screen.findByText(/Solubility/));
-    fireEvent.click(screen.getByText("Choose an engine"));
-    fireEvent.click(await screen.findByRole("option", { name: /Weighted forest/ }));
+    fireEvent.click(await screen.findByRole("radio", { name: /Weighted forest/ }));
     // Set the weighting while it is visible, as a scientist who then changes dataset would.
     fireEvent.click(await screen.findByRole("combobox", { name: "Positive-class weighting" }));
     fireEvent.click(await screen.findByRole("option", { name: "Balanced" }));

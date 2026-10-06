@@ -37,6 +37,12 @@ from daikonstudio.application.data.get_dataset_profile import GetDatasetProfile
 from daikonstudio.application.data.import_chemcellar_run import ImportChemCellarRun
 from daikonstudio.application.data.list_collections import ListCollections
 from daikonstudio.application.data.list_datasets import ListDatasets
+from daikonstudio.application.data.preview_dataset import (
+    FreezeDatasetPreview,
+    GetDatasetPreview,
+    GetDatasetReadiness,
+    StartDatasetPreview,
+)
 from daikonstudio.application.data.set_dataset_id_column import (
     GetDatasetColumns,
     SetDatasetIdColumn,
@@ -207,6 +213,21 @@ def create_container(settings: Settings | None = None) -> Container:
         lambda c: StartDatasetBuild(c[DatasetBuildRepository], c[CreateDataset]),
     )
     container.define(GetDatasetBuild, lambda c: GetDatasetBuild(c[DatasetBuildRepository]))
+    container.define(
+        StartDatasetPreview,
+        lambda c: StartDatasetPreview(c[DatasetBuildRepository], c[CreateDataset], c[BlobStore]),
+    )
+    container.define(
+        GetDatasetPreview,
+        lambda c: GetDatasetPreview(c[DatasetBuildRepository], c[BlobStore]),
+    )
+    container.define(
+        FreezeDatasetPreview,
+        lambda c: FreezeDatasetPreview(c[DatasetBuildRepository], _datasets(c), c[BlobStore]),
+    )
+    container.define(
+        GetDatasetReadiness, lambda c: GetDatasetReadiness(_datasets(c), c[BlobStore])
+    )
     container.define(GetDataset, lambda c: GetDataset(_datasets(c)))
     container.define(ListDatasets, lambda c: ListDatasets(_datasets(c)))
     container.define(
