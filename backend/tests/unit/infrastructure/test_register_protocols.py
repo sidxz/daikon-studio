@@ -7,7 +7,7 @@ from duar_auth import DuarError
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
 
 from daikonstudio.infrastructure.duar.protocol_access import RESOURCE_TYPE
-from daikonstudio.infrastructure.duar.register_protocols import register_all
+from daikonstudio.infrastructure.duar.register_protocols import register_all, register_on_boot
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
 )
@@ -117,3 +117,26 @@ async def test_a_server_error_is_a_failure(session_factory):
     report = await register_all(session_factory, permissions, log=lambda _: None)
     test_failures = [failure for failure in report.failures if str(test_id) in failure]
     assert len(test_failures) == 1
+
+
+def _duar(scope: str) -> MagicMock:
+    duar = MagicMock(service_name="daikon-studio", effective_scope=scope)
+    duar.permissions = _permissions()
+    return duar
+
+
+async def test_boot_registration_skips_without_a_realm_scope(session_factory) -> None:
+    await _add(session_factory)
+    duar = _duar("daikon-studio")
+    await register_on_boot(duar, session_factory)
+    duar.permissions.register_resource.assert_not_called()
+
+
+async def test_boot_registration_registers_and_never_raises(session_factory) -> None:
+    await _add(session_factory)
+    duar = _duar("daikon-siblings")
+    await register_on_boot(duar, session_factory)
+    duar.permissions.register_resource.assert_awaited()
+
+    duar.permissions.register_resource.side_effect = RuntimeError("duar down")
+    await register_on_boot(duar, session_factory)  # logged, not raised

@@ -5,7 +5,7 @@ Workspace admins and owners see every one; that is Duar's rule, not Studio's.
 The port keeps SDK types out of the application layer. `register` and `deregister`
 never raise: they are called from the paths that create and delete protocols, where
 losing a trained model to a permissions outage would be worse than a protocol that
-stays hidden until `register_protocols` runs again. The read methods raise
+stays hidden until the next API boot re-registers it (`register_protocols`). The read methods raise
 `ServiceUnavailableError` when Duar cannot answer; Studio fails closed.
 """
 

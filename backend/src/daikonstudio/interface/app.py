@@ -20,6 +20,7 @@ from daikonstudio.infrastructure.duar.auth import (
     log_effective_scope,
     register_service_actions,
 )
+from daikonstudio.infrastructure.duar.register_protocols import register_on_boot
 from daikonstudio.infrastructure.persistence.migrate import upgrade_to_head
 from daikonstudio.interface.error_handlers import register_error_handlers
 from daikonstudio.interface.middleware import RequestIdMiddleware
@@ -109,12 +110,18 @@ def create_app() -> FastAPI:
             log_effective_scope(duar)
             await register_service_actions(duar)
             cleanup = asyncio.create_task(_discard_abandoned_progress_daily(app))
+            # Background: protocols predating draft privacy, and any whose register
+            # call failed at create, become visible without an operator step.
+            registration = asyncio.create_task(
+                register_on_boot(duar, app.state.container[async_sessionmaker])
+            )
             try:
                 yield
             finally:
-                cleanup.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await cleanup
+                for task in (cleanup, registration):
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
     info = build_info()
     app = FastAPI(title="daikon-studio", version=info.version, lifespan=lifespan)

@@ -1,5 +1,7 @@
 """Register every existing protocol with Duar, so draft privacy covers what predates it.
 
+The API runs this on every boot, in the background (`register_on_boot`); by hand:
+
     make register-protocols     # or: python -m daikonstudio.infrastructure.duar.register_protocols
 
 New protocols register themselves on create (`AccessControlledProtocolRepository`);
@@ -17,6 +19,7 @@ anything failed.
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -32,6 +35,8 @@ from daikonstudio.infrastructure.duar.protocol_access import RESOURCE_TYPE
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import (
     InSilicoProtocolModel,
 )
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -95,6 +100,36 @@ async def register_all(
             report.failures.append(f"{label}: {error}")
             log(f"FAILED {label}: {error}")
     return report
+
+
+async def register_on_boot(duar: Any, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    """Best-effort, from the app lifespan: a failure is logged, never stops the API, and
+    the next boot tries again.
+
+    Skipped when the realm lookup failed (scope fell back to this service's own name),
+    which is the CLI's whoami guard: registering then would file every protocol under
+    the wrong service. A standalone deployment looks the same, so it registers by hand
+    with `--standalone`.
+    """
+    # ponytail: walks every protocol on each boot (two Duar calls per published one);
+    # fine at hundreds, add a "registered" column if it ever reaches the thousands.
+    if duar.effective_scope == duar.service_name:
+        logger.warning("protocol registration skipped: no realm scope (see the scope line)")
+        return
+    try:
+        report = await register_all(session_factory, duar.permissions, log=logger.debug)
+    except Exception:
+        logger.exception("protocol registration failed")
+        return
+    log = logger.warning if report.failures else logger.info
+    log(
+        "protocols registered with Duar: %d registered, %d skipped, %d failed",
+        report.registered,
+        report.skipped,
+        len(report.failures),
+    )
+    for failure in report.failures:
+        logger.warning("protocol registration failed: %s", failure)
 
 
 async def main() -> None:

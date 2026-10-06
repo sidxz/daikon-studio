@@ -93,7 +93,7 @@ migrate: ## Apply DB migrations (alembic)
 backfill-maps: ## Build chemical-space maps (and run neighbours) for protocols that lack one
 	$(BACKEND) && $(BE_ENV) && uv run python -m daikonstudio.infrastructure.backfill_maps
 
-register-protocols: ## Register existing protocols with Duar (drafts private, published workspace-wide)
+register-protocols: ## Re-register protocols with Duar now (the API also does it on every boot)
 	$(BACKEND) && $(BE_ENV) && uv run python -m daikonstudio.infrastructure.duar.register_protocols
 
 seed-runners: ## Ensure the two local dev runners exist

@@ -59,7 +59,8 @@ class DuarProtocolAccess:
             await self._register(protocol, visibility, protocol.created_by)
         except (DuarError, httpx.HTTPError) as error:
             if _transient(error):
-                # ponytail: no automatic reconcile; re-run `register_protocols` by hand.
+                # ponytail: reconciled at the next API boot (`register_on_boot`);
+                # add a periodic pass if hidden-until-restart ever hurts.
                 _logger.error(
                     "protocol_acl_register_failed", protocol_id=str(protocol.id), error=str(error)
                 )
