@@ -18,3 +18,5 @@ deploy/.env
 
 # Working notes, plans and specs stay local; earlier commits keep their copies.
 docs/
+.DS_Store
+.pnpm-store/
