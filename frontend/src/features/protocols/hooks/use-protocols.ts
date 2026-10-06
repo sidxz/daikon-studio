@@ -7,6 +7,7 @@ import type {
   PaginatedResponseProtocolResponse,
   PaginatedResponseRunResponse,
   ProtocolResponse,
+  ProtocolStatus,
   RunResponse,
   ScorecardResponse,
   TrainProtocolBody,
@@ -25,22 +26,34 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef } from "react";
 import { PROTOCOLS_KEY, PROTOCOL_KEY, PROTOCOL_RUNS_KEY, SCORECARD_KEY } from "./query-keys";
 
+export interface ProtocolFilters {
+  mine?: boolean;
+  folderId?: string;
+  q?: string;
+  engineId?: string;
+  status?: ProtocolStatus;
+}
+
 /**
  * A picker passes `limit: 200`, the server's cap, to see past the default page of 50.
  * ponytail: a picker sees the newest 200; past that it needs search, not a bigger page.
  */
-export function useProtocols(
-  cursor?: string,
-  limit?: number,
-  filters?: { mine?: boolean; folderId?: string },
-) {
+export function useProtocols(cursor?: string, limit?: number, filters?: ProtocolFilters) {
   return useQuery({
     queryKey: [...PROTOCOLS_KEY, cursor ?? null, limit ?? null, filters ?? null],
     queryFn: () =>
       customInstance<PaginatedResponseProtocolResponse>({
         url: `${API_V1}/protocols`,
         method: "GET",
-        params: { cursor, limit, mine: filters?.mine || undefined, folder_id: filters?.folderId },
+        params: {
+          cursor,
+          limit,
+          mine: filters?.mine || undefined,
+          folder_id: filters?.folderId,
+          q: filters?.q,
+          engine_id: filters?.engineId,
+          status: filters?.status,
+        },
       }),
   });
 }
@@ -51,6 +64,33 @@ export function useProtocol(id: string | undefined) {
     queryFn: () =>
       customInstance<ProtocolResponse>({ url: `${API_V1}/protocols/${id}`, method: "GET" }),
     enabled: Boolean(id),
+  });
+}
+
+/** The complete catalogue for searchable run pickers and run-name resolution. */
+export function useProtocolOptions() {
+  return useQuery({
+    queryKey: [...PROTOCOLS_KEY, "options"],
+    staleTime: STALE_TIME.MEDIUM,
+    queryFn: async ({ signal }) => {
+      const protocols: ProtocolResponse[] = [];
+      let cursor: string | undefined;
+      const visited = new Set<string>();
+      do {
+        const page = await customInstance<PaginatedResponseProtocolResponse>({
+          url: `${API_V1}/protocols`,
+          method: "GET",
+          params: { cursor, limit: 200 },
+          signal,
+        });
+        protocols.push(...page.items);
+        cursor = page.next_cursor ?? undefined;
+        if (cursor && visited.has(cursor))
+          throw new Error("Could not load all protocols. Try again.");
+        if (cursor) visited.add(cursor);
+      } while (cursor);
+      return protocols;
+    },
   });
 }
 

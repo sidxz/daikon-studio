@@ -1,5 +1,7 @@
 "use client";
 
+import { PageHeader } from "@/shared/components/page-header";
+import { QueryError } from "@/shared/components/query-error";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,22 +56,18 @@ function statusLabel(runner: Runner): string {
 }
 
 export function RunnerList() {
-  const { data, isLoading, isError } = useRunners();
+  const { data, isLoading, isError, refetch, isFetching } = useRunners();
   const revokeRunner = useRevokeRunner();
   const [revokeTarget, setRevokeTarget] = useState<Runner | null>(null);
   const runners = data ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Runners</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Self-hosted machines that run training outside the hosted queue.
-          </p>
-        </div>
-        <NewRunnerDialog />
-      </div>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title="Runners"
+        description="Self-hosted machines that run training outside the hosted queue."
+        action={<NewRunnerDialog />}
+      />
 
       {isLoading && (
         <div className="space-y-2">
@@ -79,9 +77,7 @@ export function RunnerList() {
       )}
 
       {isError && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="text-sm font-medium text-destructive">Could not load runners</p>
-        </div>
+        <QueryError title="Could not load runners" retry={() => refetch()} retrying={isFetching} />
       )}
 
       {data && runners.length === 0 && (
@@ -90,6 +86,9 @@ export function RunnerList() {
           <p className="mt-1 text-sm text-muted-foreground">
             Add one to run training on your own hardware.
           </p>
+          <div className="mt-4">
+            <NewRunnerDialog />
+          </div>
         </div>
       )}
 

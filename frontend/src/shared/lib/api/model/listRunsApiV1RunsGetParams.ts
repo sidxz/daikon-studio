@@ -12,6 +12,8 @@ folder_id?: string | null;
 mine?: boolean;
 status?: RunStatus[] | null;
 q?: string | null;
+created_from?: string | null;
+created_before?: string | null;
 cursor?: string | null;
 limit?: number | null;
 };

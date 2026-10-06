@@ -16,6 +16,8 @@ from daikonstudio.application.pagination import (
 )
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.domain.data.dataset import Dataset
+from daikonstudio.domain.data.split import SplitStrategy
+from daikonstudio.domain.data.target import TargetKind
 from daikonstudio.domain.shared.errors import DomainError, ValidationError
 
 
@@ -24,6 +26,9 @@ class ListDatasetsQuery:
     cursor: str | None = None
     limit: int | None = None
     folder_id: uuid.UUID | None = None
+    q: str | None = None
+    target_kind: TargetKind | None = None
+    split_strategy: SplitStrategy | None = None
 
 
 class ListDatasets:
@@ -35,6 +40,8 @@ class ListDatasets:
     ) -> Result[PageResult[Dataset], DomainError]:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
+        if query.q is not None and len(query.q) > 256:
+            return Failure(ValidationError("Search must be at most 256 characters."))
         limit = clamp_limit(query.limit)
         try:
             cursor = parse_ts_cursor(query.cursor)
@@ -43,7 +50,13 @@ class ListDatasets:
         # Fetch one more than asked for: if it comes back, there is another page,
         # which is cheaper and more truthful than a COUNT over the whole table.
         datasets = await self._repository.list(
-            auth.workspace_id, cursor=cursor, limit=limit + 1, folder_id=query.folder_id
+            auth.workspace_id,
+            cursor=cursor,
+            limit=limit + 1,
+            folder_id=query.folder_id,
+            q=(query.q or "").strip() or None,
+            target_kind=query.target_kind,
+            split_strategy=query.split_strategy,
         )
         next_cursor = None
         if len(datasets) > limit:

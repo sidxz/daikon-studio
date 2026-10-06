@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/shared/components/page-header";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
@@ -51,7 +52,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
+      <div className="w-full min-w-0 space-y-4">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-32 w-full" />
       </div>
@@ -60,7 +61,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
 
   if (isError || !dataset) {
     return (
-      <div className="mx-auto w-full max-w-4xl p-2">
+      <div className="w-full min-w-0 space-y-4">
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm font-medium text-destructive">Could not load this dataset</p>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -72,23 +73,25 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 p-2">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">{dataset.name}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title={dataset.name}
+        description={
+          <>
             {dataset.row_count.toLocaleString()} compounds · frozen{" "}
             {new Date(dataset.created_at).toLocaleString()}
             {creator && ` · Created by ${creator}`}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {dataset.can_delete && <DeleteDatasetButton dataset={dataset} />}
-          <Button asChild>
-            <Link href={`/protocols/new?dataset=${dataset.id}`}>Train a protocol</Link>
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        action={
+          <>
+            {dataset.can_delete && <DeleteDatasetButton dataset={dataset} />}
+            <Button asChild>
+              <Link href={`/protocols/new?dataset=${dataset.id}`}>Train a protocol</Link>
+            </Button>
+          </>
+        }
+      />
 
       <Tabs defaultValue="overview">
         <TabsList>

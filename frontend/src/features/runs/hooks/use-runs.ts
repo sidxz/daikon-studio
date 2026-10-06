@@ -79,28 +79,36 @@ export interface RunFilters {
   protocolId?: string;
   folderId?: string;
   q?: string;
+  createdFrom?: string;
+  createdBefore?: string;
 }
 
 export function useRuns(
-  kind: "prediction" | "training" | undefined = "prediction",
+  kind: "prediction" | "training" | null | undefined = "prediction",
   cursor?: string,
   filters?: RunFilters,
 ) {
   return useQuery({
     queryKey: [...RUNS_KEY, kind ?? null, cursor ?? null, filters ?? null],
+    refetchInterval: (query) =>
+      query.state.data?.items.some((run) => run.status === "pending" || run.status === "running")
+        ? 5000
+        : false,
     queryFn: () =>
       customInstance<PaginatedResponseRunResponse>({
         url: `${API_V1}/runs`,
         method: "GET",
         // `customInstance` repeats an array param (status=ready&status=failed).
         params: {
-          kind,
+          kind: kind ?? undefined,
           cursor,
           mine: filters?.mine || undefined,
           status: filters?.statuses?.length ? filters.statuses : undefined,
           protocol_id: filters?.protocolId,
           folder_id: filters?.folderId,
           q: filters?.q,
+          created_from: filters?.createdFrom,
+          created_before: filters?.createdBefore,
         },
       }),
   });
@@ -204,11 +212,13 @@ export async function fetchResultBlock(
   startRow: number,
   limit: number,
   params: ResultParams,
+  signal?: AbortSignal,
 ): Promise<{ rows: TriageRow[]; nextCursor: string | null }> {
   const page = await customInstance<PaginatedResponsePredictionResponse>({
     url: `${API_V1}/runs/${runId}/results`,
     method: "GET",
     params: { cursor: String(startRow), limit, ...params },
+    signal,
   });
   return {
     // `row_id` from the server, never the page offset: under a sort or filter
@@ -227,16 +237,20 @@ export function useExportRunResults() {
       runId,
       params,
       filename,
+      rowIds,
     }: {
       runId: string;
       params: ResultParams;
       filename: string;
+      rowIds?: number[];
     }) => {
       const query = new URLSearchParams(
         Object.entries(params).filter((entry): entry is [string, string] => entry[1] != null),
       ).toString();
       return downloadFile({
-        url: `${API_V1}/runs/${runId}/results/export${query ? `?${query}` : ""}`,
+        url: `${API_V1}/runs/${runId}/results/export${!rowIds && query ? `?${query}` : ""}`,
+        method: rowIds ? "POST" : "GET",
+        data: rowIds ? { row_ids: rowIds } : undefined,
         filename,
       });
     },

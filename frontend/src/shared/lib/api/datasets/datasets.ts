@@ -583,7 +583,7 @@ export const useDeleteDatasetApiV1DatasetsDatasetIdDelete = <TError = HTTPValida
       return useMutation(mutationOptions, queryClient);
     }
     /**
- * Any editor; `null` unfiles it. Organisation only: nothing frozen changes.
+ * Any editor; `null` unfiles it. Organization only: nothing frozen changes.
  * @summary File Dataset
  */
 export const fileDatasetApiV1DatasetsDatasetIdFolderPut = (

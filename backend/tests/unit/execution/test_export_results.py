@@ -26,7 +26,7 @@ def _class(threshold: float | None) -> Readout:
 def test_a_stored_class_is_named_and_a_missing_one_stays_empty():
     frame = pl.DataFrame({"p_np": [1.0, 0.0, None]})
     shown = frame.select(_shown("p_np", pl.Float64(), _class(0.584)))["p_np"].to_list()
-    assert shown == ["Active", "Inactive", None]
+    assert shown == ["Positive", "Negative", None]
 
 
 def test_the_about_sheet_states_the_protocols_own_cutoff():

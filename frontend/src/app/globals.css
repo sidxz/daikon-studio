@@ -1,9 +1,193 @@
 @import "tailwindcss";
 @import "@structflo/daikon-design-tokens/tokens.css";
 
-/* Every colour, radius and font comes from the tokens package. The app's side
-   of that contract is three things: supply --font-plex-sans / --font-plex-mono
-   / --font-inter via next/font, and drive data-theme and data-font on <html>. */
+/* Studio uses neutral surfaces and blue accents. The shared semantic tokens
+   keep charts and scientific status colours consistent across the app suite. */
+:root {
+  --ds-surface: #f8fafc;
+  --ds-surface-elevated: #ffffff;
+  --ds-surface-sunken: #f0f3f7;
+  --ds-surface-overlay: #ffffff;
+  --ds-surface-hover: #f0f3f7;
+  --ds-border: #dce3ec;
+  --ds-border-subtle: #e9eef5;
+  --ds-text-primary: #202938;
+  --ds-text-secondary: #5d6b7e;
+  --ds-text-muted: #77869a;
+  --ds-text-inverse: #ffffff;
+  --ds-accent: #2563eb;
+  --ds-accent-hover: #1d4ed8;
+  --ds-accent-light: #eaf2ff;
+  --ds-accent-muted: #dbeafe;
+  --ds-accent-text: #2563eb;
+  --ds-accent-subtle: #f1f6ff;
+  /* LogoMark's cooler hues, deepened to keep white labels legible. */
+  --studio-brand-cyan: #37d7fa;
+  --studio-brand-blue: #4b72fe;
+  --studio-brand-pink: #ff8df2;
+  --button-fill: color-mix(in oklch, var(--studio-brand-blue) 74%, #25214a);
+  --button-gradient-start: color-mix(in oklch, var(--studio-brand-cyan) 7%, var(--button-fill));
+  --button-gradient-end: color-mix(in oklch, var(--studio-brand-pink) 8%, var(--button-fill));
+  --button-foreground: #ffffff;
+  --ds-sidebar: #f0f3f7;
+  --ds-sidebar-text: #5d6b7e;
+  --ds-sidebar-text-active: #202938;
+  --ds-sidebar-hover: #e8eef7;
+  --ds-sidebar-active: #e2edff;
+  --ds-sidebar-border: #dce3ec;
+  --muted-foreground: var(--ds-text-secondary);
+  --radius: 0.5rem;
+}
+
+[data-theme="dark"] {
+  --ds-surface: #151b26;
+  --ds-surface-elevated: #1e2838;
+  --ds-surface-sunken: #101620;
+  --ds-surface-overlay: #253248;
+  --ds-surface-hover: #2a3950;
+  --ds-border: #34435b;
+  --ds-border-subtle: #29374c;
+  --ds-text-primary: #edf2fa;
+  --ds-text-secondary: #a9b7cd;
+  --ds-text-muted: #91a3bd;
+  --ds-text-inverse: #10203b;
+  --ds-accent: #7aaaff;
+  --ds-accent-hover: #a5c6ff;
+  --ds-accent-light: #233a60;
+  --ds-accent-muted: #2a4773;
+  --ds-accent-text: #a5c6ff;
+  --ds-accent-subtle: #1d2d48;
+  --ds-sidebar: #111925;
+  --ds-sidebar-text: #a9b7cd;
+  --ds-sidebar-text-active: #edf2fa;
+  --ds-sidebar-hover: #23334c;
+  --ds-sidebar-active: #233a60;
+  --ds-sidebar-border: #29374c;
+}
+
+/* The font preference applies to every text style, including technical data. */
+:root,
+[data-font="inter"] {
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+}
+
+[data-font="plex"] {
+  --font-sans: var(--font-plex-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+[data-font="merriweather"] {
+  --font-sans: var(--font-merriweather), Georgia, serif;
+}
+
+@theme inline {
+  --font-mono: var(--font-sans);
+}
+
+/* Primary actions use a quiet tonal gradient drawn from the logo's blue. The
+   component layer lets focus-ring utilities keep their normal precedence.
+   Dialogs can override the default action with the destructive variant. */
+@layer components {
+  .studio-primary-button:not(.bg-destructive) {
+    border: 1px solid color-mix(in oklch, var(--button-fill) 85%, #1a2443);
+    background-image: linear-gradient(
+      115deg,
+      var(--button-gradient-start) 0%,
+      var(--button-gradient-end) 100%
+    );
+    background-size: 140% 100%;
+    background-position: left center;
+  }
+
+  .studio-primary-button:not(.bg-destructive):hover:not(:disabled):not([aria-disabled="true"]) {
+    background-position: right center;
+  }
+}
+
+/* Results headers: compact hierarchy, with AG Grid's native interactions. */
+.run-results-grid .ag-header {
+  border-bottom: 1px solid var(--ds-border);
+  background: linear-gradient(
+    110deg,
+    color-mix(in oklch, var(--ds-accent) 10%, var(--ds-surface-elevated)) 0%,
+    var(--ds-surface-elevated) 55%,
+    color-mix(in oklch, var(--ds-accent) 5%, var(--ds-surface-elevated)) 100%
+  );
+}
+
+.run-results-grid .ag-header-cell-label,
+.run-results-grid .ag-header-cell-text {
+  min-width: 0;
+}
+
+.results-column-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding-block: 8px;
+}
+
+.results-column-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.results-column-title {
+  color: var(--ds-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.results-column-subtitle {
+  overflow: hidden;
+  color: var(--ds-text-secondary);
+  font-size: 10px;
+  font-weight: 400;
+  line-height: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-results-grid .results-header-group {
+  background: transparent;
+  color: var(--ds-text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.run-results-grid
+  .ag-header-cell:is(
+    .ag-header-cell-sorted-asc,
+    .ag-header-cell-sorted-desc,
+    .ag-header-cell-filtered
+  ) {
+  background: var(--ds-accent-subtle);
+  box-shadow: inset 0 -2px var(--ds-accent);
+}
+
+.run-results-grid :is(.ag-header-cell-filter-button, .ag-header-cell-menu-button) {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--ds-text-secondary);
+}
+
+.run-results-grid :is(.ag-header-cell-filter-button, .ag-header-cell-menu-button):hover {
+  border-color: var(--ds-accent-muted);
+  background: var(--ds-accent-light);
+  color: var(--ds-accent-text);
+}
+
+.run-results-grid .ag-header-cell-filtered .ag-header-cell-filter-button,
+.run-results-grid .ag-sort-indicator-icon {
+  color: var(--ds-accent-text);
+}
 
 /* ── Auth page entrance animation ─────────────────────────── */
 @keyframes auth-enter {

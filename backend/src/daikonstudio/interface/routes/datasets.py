@@ -460,12 +460,23 @@ async def list_datasets(
     cursor: str | None = None,
     limit: int | None = None,
     folder_id: uuid.UUID | None = None,
+    q: Annotated[str | None, Query(max_length=256)] = None,
+    target_kind: TargetKind | None = None,
+    split_strategy: SplitStrategy | None = None,
 ) -> PaginatedResponse[DatasetResponse]:
     # `limit` is clamped inside the use case, not here: a worker calling it
     # directly must get the same ceiling as an HTTP caller.
     page = result_to_response(
         await service(
-            ListDatasetsQuery(cursor=cursor, limit=limit, folder_id=folder_id), auth=auth
+            ListDatasetsQuery(
+                cursor=cursor,
+                limit=limit,
+                folder_id=folder_id,
+                q=q,
+                target_kind=target_kind,
+                split_strategy=split_strategy,
+            ),
+            auth=auth,
         )
     )
     return PaginatedResponse(

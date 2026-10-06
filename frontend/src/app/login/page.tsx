@@ -78,12 +78,7 @@ export default function LoginPage() {
         >
           <div className="flex items-center gap-3">
             <LogoMark className="size-12" />
-            <span
-              className="text-3xl font-medium tracking-tight"
-              style={{ fontFamily: "var(--font-overused-grotesk), ui-sans-serif, sans-serif" }}
-            >
-              DAIKON Studio
-            </span>
+            <span className="text-3xl font-medium tracking-tight">DAIKON Studio</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">
             In-silico protocols for drug discovery

@@ -13,6 +13,8 @@ from datetime import datetime
 from typing import Protocol
 
 from daikonstudio.domain.data.dataset import Dataset
+from daikonstudio.domain.data.split import SplitStrategy
+from daikonstudio.domain.data.target import TargetKind
 
 
 class DatasetRepository(Protocol):
@@ -43,4 +45,7 @@ class DatasetRepository(Protocol):
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
         folder_id: uuid.UUID | None = None,
+        q: str | None = None,
+        target_kind: TargetKind | None = None,
+        split_strategy: SplitStrategy | None = None,
     ) -> list[Dataset]: ...

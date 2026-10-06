@@ -62,6 +62,7 @@ describe("RunList", () => {
     vi.mocked(customInstance).mockReset();
     nav.replace.mockReset();
     nav.query = "";
+    localStorage.clear();
   });
 
   it("groups runs under day headers and shows name, protocol, compounds and member", async () => {
@@ -151,6 +152,26 @@ describe("RunList", () => {
     expect(await screen.findByText("No runs match these filters.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Clear" })).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Clear filters" }));
-    expect(nav.replace).toHaveBeenCalledWith("/runs");
+    expect(nav.replace).toHaveBeenCalledWith("/runs?mine=0");
+  });
+
+  it("remembers All on a return to the plain Runs page and lets an explicit Mine link override it", async () => {
+    serve([]);
+    nav.query = "mine=0";
+    const first = render(<RunList />, { wrapper: Wrapper });
+    first.unmount();
+    nav.query = "";
+    const returned = render(<RunList />, { wrapper: Wrapper });
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: /^All$/ })).toHaveAttribute("aria-pressed", "true"),
+    );
+    expect(runsCall()?.params?.mine).toBeUndefined();
+    returned.unmount();
+    nav.query = "mine=1";
+    render(<RunList />, { wrapper: Wrapper });
+    expect(screen.getByRole("button", { name: "Started by me" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 });

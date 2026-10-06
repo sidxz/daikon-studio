@@ -9,6 +9,7 @@ import {
   resolveConditions,
   withoutInapplicable,
 } from "@/features/protocols";
+import { PageHeader } from "@/shared/components/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
@@ -99,184 +100,186 @@ export function SweepForm() {
 
   return (
     <form
-      className="mx-auto w-full max-w-2xl space-y-4 p-2"
+      className="w-full min-w-0 space-y-4"
       onSubmit={(event) => {
         event.preventDefault();
         void onSubmit();
       }}
     >
-      <div>
-        <h1 className="text-lg font-semibold">New sweep</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Train several engine configurations on one dataset and compare them target by target.
-        </p>
-      </div>
+      <PageHeader
+        title="New sweep"
+        description="Train several engine configurations on one dataset and compare them target by target."
+      />
 
-      <Card>
-        <CardContent className="space-y-4 py-6">
-          <div className="space-y-1.5">
-            <Label>Dataset</Label>
-            {datasets.isLoading ? (
-              <Skeleton className="h-9 w-full" />
-            ) : (
-              <Select value={datasetId} onValueChange={setDatasetId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a dataset" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(datasets.data?.items ?? []).map((item) => (
-                    <SelectItem key={item.id} value={item.id}>
-                      {item.name} · {item.row_count.toLocaleString()} compounds
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            )}
-            {dataset && <TargetsHint dataset={dataset} engines={engines.data ?? []} />}
-          </div>
-
-          <div className="space-y-1.5">
-            <Label htmlFor="sweep-name">Name</Label>
-            <Input
-              id="sweep-name"
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Solubility — engine sweep"
-            />
-          </div>
-
-          <div className="space-y-1.5 border-t pt-4">
-            <Label>Baseline (optional)</Label>
-            <Select
-              value={baselineEngineId}
-              onValueChange={(value) => {
-                setBaselineEngineId(value);
-                // Otherwise a stale condition from the previous baseline
-                // engine survives the switch and fails validation on submit.
-                setBaselineConditions({});
-              }}
-              disabled={!dataset}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder={dataset ? "No baseline" : "Choose a dataset first"} />
-              </SelectTrigger>
-              <SelectContent>
-                {available.map((candidate) => (
-                  <SelectItem key={candidate.id} value={candidate.id}>
-                    {candidate.name}
-                    {candidate.is_baseline ? " · default baseline" : ""}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {baselineEngineId && (
-              <ConditionFields
-                conditions={specsFor(baselineEngineId)}
-                values={baselineConditions}
-                onChange={(key, value) =>
-                  setBaselineConditions((prev) => ({ ...prev, [key]: value }))
-                }
-                tasks={tasks}
-                idPrefix="baseline-condition"
-              />
-            )}
-          </div>
-
-          {canTuneCutoffs && (
-            <div className="border-t pt-4">
-              <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="space-y-3">
-        {configs.map((row, index) => (
-          <Card key={row.id} data-testid="sweep-config-row">
-            <CardContent className="space-y-4 py-6">
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
-                  Configuration {index + 1}
-                </p>
-                {configs.length > 1 && (
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`Remove configuration ${index + 1}`}
-                    onClick={() => setConfigs((rows) => rows.filter((_, i) => i !== index))}
-                  >
-                    <XIcon className="size-4" aria-hidden />
-                  </Button>
-                )}
-              </div>
-
-              <div className="space-y-1.5">
-                <Label>Engine</Label>
-                <Select
-                  value={row.engineId}
-                  onValueChange={(value) =>
-                    updateConfig(index, { engineId: value, conditions: {} })
-                  }
-                  disabled={!dataset}
-                >
+      <div className="w-full min-w-0 max-w-3xl space-y-4">
+        <Card>
+          <CardContent className="space-y-4 py-6">
+            <div className="space-y-1.5">
+              <Label>Dataset</Label>
+              {datasets.isLoading ? (
+                <Skeleton className="h-9 w-full" />
+              ) : (
+                <Select value={datasetId} onValueChange={setDatasetId}>
                   <SelectTrigger>
-                    <SelectValue
-                      placeholder={dataset ? "Choose an engine" : "Choose a dataset first"}
-                    />
+                    <SelectValue placeholder="Choose a dataset" />
                   </SelectTrigger>
                   <SelectContent>
-                    {available.map((candidate) => (
-                      <SelectItem key={candidate.id} value={candidate.id}>
-                        {candidate.name}
-                        {candidate.is_baseline ? " · default baseline" : ""}
+                    {(datasets.data?.items ?? []).map((item) => (
+                      <SelectItem key={item.id} value={item.id}>
+                        {item.name} · {item.row_count.toLocaleString()} compounds
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              )}
+              {dataset && <TargetsHint dataset={dataset} engines={engines.data ?? []} />}
+            </div>
 
-              {row.engineId && (
+            <div className="space-y-1.5">
+              <Label htmlFor="sweep-name">Name</Label>
+              <Input
+                id="sweep-name"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                placeholder="e.g. Solubility — engine sweep"
+              />
+            </div>
+
+            <div className="space-y-1.5 border-t pt-4">
+              <Label>Baseline (optional)</Label>
+              <Select
+                value={baselineEngineId}
+                onValueChange={(value) => {
+                  setBaselineEngineId(value);
+                  // Otherwise a stale condition from the previous baseline
+                  // engine survives the switch and fails validation on submit.
+                  setBaselineConditions({});
+                }}
+                disabled={!dataset}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={dataset ? "No baseline" : "Choose a dataset first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  {available.map((candidate) => (
+                    <SelectItem key={candidate.id} value={candidate.id}>
+                      {candidate.name}
+                      {candidate.is_baseline ? " · default baseline" : ""}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {baselineEngineId && (
                 <ConditionFields
-                  conditions={specsFor(row.engineId)}
-                  values={row.conditions}
+                  conditions={specsFor(baselineEngineId)}
+                  values={baselineConditions}
                   onChange={(key, value) =>
-                    updateConfig(index, { conditions: { ...row.conditions, [key]: value } })
+                    setBaselineConditions((prev) => ({ ...prev, [key]: value }))
                   }
                   tasks={tasks}
-                  idPrefix={`config-${index}-condition`}
+                  idPrefix="baseline-condition"
                 />
               )}
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+            </div>
 
-      <Button
-        type="button"
-        variant="outline"
-        onClick={() => setConfigs((rows) => [...rows, emptyRow()])}
-      >
-        Add configuration
-      </Button>
+            {canTuneCutoffs && (
+              <div className="border-t pt-4">
+                <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
+              </div>
+            )}
+          </CardContent>
+        </Card>
 
-      <div className="flex items-center justify-between">
-        <Button type="button" variant="ghost" onClick={() => router.push("/sweeps")}>
-          Cancel
-        </Button>
+        <div className="space-y-3">
+          {configs.map((row, index) => (
+            <Card key={row.id} data-testid="sweep-config-row">
+              <CardContent className="space-y-4 py-6">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-medium uppercase tracking-widest text-muted-foreground">
+                    Configuration {index + 1}
+                  </p>
+                  {configs.length > 1 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={`Remove configuration ${index + 1}`}
+                      onClick={() => setConfigs((rows) => rows.filter((_, i) => i !== index))}
+                    >
+                      <XIcon className="size-4" aria-hidden />
+                    </Button>
+                  )}
+                </div>
+
+                <div className="space-y-1.5">
+                  <Label>Engine</Label>
+                  <Select
+                    value={row.engineId}
+                    onValueChange={(value) =>
+                      updateConfig(index, { engineId: value, conditions: {} })
+                    }
+                    disabled={!dataset}
+                  >
+                    <SelectTrigger>
+                      <SelectValue
+                        placeholder={dataset ? "Choose an engine" : "Choose a dataset first"}
+                      />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {available.map((candidate) => (
+                        <SelectItem key={candidate.id} value={candidate.id}>
+                          {candidate.name}
+                          {candidate.is_baseline ? " · default baseline" : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                {row.engineId && (
+                  <ConditionFields
+                    conditions={specsFor(row.engineId)}
+                    values={row.conditions}
+                    onChange={(key, value) =>
+                      updateConfig(index, { conditions: { ...row.conditions, [key]: value } })
+                    }
+                    tasks={tasks}
+                    idPrefix={`config-${index}-condition`}
+                  />
+                )}
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+
         <Button
-          type="submit"
-          disabled={
-            submit.isPending ||
-            !datasetId ||
-            !name ||
-            !configs.every((row) => row.engineId) ||
-            !conditionsValid(specsFor(baselineEngineId), baselineConditions, tasks) ||
-            !configs.every((row) => conditionsValid(specsFor(row.engineId), row.conditions, tasks))
-          }
+          type="button"
+          variant="outline"
+          onClick={() => setConfigs((rows) => [...rows, emptyRow()])}
         >
-          Start sweep
+          Add configuration
         </Button>
+
+        <div className="flex items-center justify-between">
+          <Button type="button" variant="ghost" onClick={() => router.push("/sweeps")}>
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            disabled={
+              submit.isPending ||
+              !datasetId ||
+              !name ||
+              !configs.every((row) => row.engineId) ||
+              !conditionsValid(specsFor(baselineEngineId), baselineConditions, tasks) ||
+              !configs.every((row) =>
+                conditionsValid(specsFor(row.engineId), row.conditions, tasks),
+              )
+            }
+          >
+            Start sweep
+          </Button>
+        </div>
       </div>
     </form>
   );

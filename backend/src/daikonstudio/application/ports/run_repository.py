@@ -104,6 +104,8 @@ class RunRepository(Protocol):
         protocol_ids: frozenset[UUID] | None = None,
         name_contains: str | None = None,
         name_or_protocol_ids: frozenset[UUID] = frozenset(),
+        created_from: datetime | None = None,
+        created_before: datetime | None = None,
     ) -> builtins.list[Run]: ...
 
     # `builtins.list[...]`, not the bare generic: this Protocol already has a

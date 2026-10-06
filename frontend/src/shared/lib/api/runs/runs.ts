@@ -24,6 +24,7 @@ import type {
 import type {
   EpochResponse,
   ExportRunResultsApiV1RunsRunIdResultsExportGetParams,
+  ExportSelectedResultsBody,
   GetRunChemicalSpaceCompoundsApiV1RunsRunIdChemicalSpaceCompoundsGetParams,
   GetRunResultRangesApiV1RunsRunIdResultsRangesGet200,
   GetRunResultsApiV1RunsRunIdResultsGetParams,
@@ -784,6 +785,72 @@ export function useExportRunResultsApiV1RunsRunIdResultsExportGet<TData = Awaite
 
 
 /**
+ * Export the selected original row IDs, including rows hidden by UI filters.
+ * @summary Export Selected Run Results
+ */
+export const exportSelectedRunResultsApiV1RunsRunIdResultsExportPost = (
+    runId: string,
+    exportSelectedResultsBody: ExportSelectedResultsBody,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<unknown>(
+      {url: `/api/v1/runs/${runId}/results/export`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: exportSelectedResultsBody, signal
+    },
+      );
+    }
+  
+
+
+export const getExportSelectedRunResultsApiV1RunsRunIdResultsExportPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportSelectedRunResultsApiV1RunsRunIdResultsExportPost>>, TError,{runId: string;data: ExportSelectedResultsBody}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof exportSelectedRunResultsApiV1RunsRunIdResultsExportPost>>, TError,{runId: string;data: ExportSelectedResultsBody}, TContext> => {
+
+const mutationKey = ['exportSelectedRunResultsApiV1RunsRunIdResultsExportPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof exportSelectedRunResultsApiV1RunsRunIdResultsExportPost>>, {runId: string;data: ExportSelectedResultsBody}> = (props) => {
+          const {runId,data} = props ?? {};
+
+          return  exportSelectedRunResultsApiV1RunsRunIdResultsExportPost(runId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ExportSelectedRunResultsApiV1RunsRunIdResultsExportPostMutationResult = NonNullable<Awaited<ReturnType<typeof exportSelectedRunResultsApiV1RunsRunIdResultsExportPost>>>
+    export type ExportSelectedRunResultsApiV1RunsRunIdResultsExportPostMutationBody = ExportSelectedResultsBody
+    export type ExportSelectedRunResultsApiV1RunsRunIdResultsExportPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Export Selected Run Results
+ */
+export const useExportSelectedRunResultsApiV1RunsRunIdResultsExportPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof exportSelectedRunResultsApiV1RunsRunIdResultsExportPost>>, TError,{runId: string;data: ExportSelectedResultsBody}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof exportSelectedRunResultsApiV1RunsRunIdResultsExportPost>>,
+        TError,
+        {runId: string;data: ExportSelectedResultsBody},
+        TContext
+      > => {
+
+      const mutationOptions = getExportSelectedRunResultsApiV1RunsRunIdResultsExportPostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
  * @summary Cancel Run
  */
 export const cancelRunApiV1RunsRunIdCancelPost = (

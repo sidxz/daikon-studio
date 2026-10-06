@@ -31,7 +31,7 @@ from daikonstudio.application.pagination import (
 )
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
-from daikonstudio.domain.catalog.protocol import InSilicoProtocol
+from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
 
 
@@ -45,6 +45,9 @@ class ListProtocolsQuery:
     mine: bool = False
     # Only the Protocols filed in this folder.
     folder_id: uuid.UUID | None = None
+    q: str | None = None
+    engine_id: str | None = None
+    status: ProtocolStatus | None = None
 
 
 class ListProtocols:
@@ -57,6 +60,8 @@ class ListProtocols:
     ) -> Result[PageResult[InSilicoProtocol], DomainError]:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
+        if query.q is not None and len(query.q) > 256:
+            return Failure(ValidationError("Search must be 256 characters or fewer."))
         limit = clamp_limit(query.limit)
         try:
             cursor = parse_ts_cursor(query.cursor)
@@ -73,6 +78,9 @@ class ListProtocols:
             only_ids=visible,
             created_by=auth.user_id if query.mine else None,
             folder_id=query.folder_id,
+            q=query.q.strip() if query.q else None,
+            engine_id=query.engine_id,
+            status=query.status,
         )
         next_cursor = None
         if len(protocols) > limit:

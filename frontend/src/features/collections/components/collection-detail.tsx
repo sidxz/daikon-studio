@@ -1,5 +1,6 @@
 "use client";
 
+import { PageHeader } from "@/shared/components/page-header";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
@@ -21,7 +22,7 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-3xl space-y-4 p-2">
+      <div className="w-full min-w-0 space-y-4">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-32 w-full" />
       </div>
@@ -30,7 +31,7 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
 
   if (isError || !collection) {
     return (
-      <div className="mx-auto w-full max-w-3xl p-2">
+      <div className="w-full min-w-0 space-y-4">
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm font-medium text-destructive">Could not load this collection</p>
         </div>
@@ -39,38 +40,40 @@ export function CollectionDetail({ collectionId }: { collectionId: string }) {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 p-2">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">{collection.name}</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title={collection.name}
+        description={
+          <>
             {collection.member_count.toLocaleString()} compounds · saved{" "}
             {new Date(collection.created_at).toLocaleString()}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            disabled={exporter.isPending}
-            onClick={() =>
-              exporter.mutate({ id: collection.id, name: collection.name, format: "csv" })
-            }
-          >
-            <Download className="size-4" />
-            Export CSV
-          </Button>
-          <Button
-            variant="outline"
-            disabled={exporter.isPending}
-            onClick={() =>
-              exporter.mutate({ id: collection.id, name: collection.name, format: "sdf" })
-            }
-          >
-            <Download className="size-4" />
-            Export SDF
-          </Button>
-        </div>
-      </div>
+          </>
+        }
+        action={
+          <>
+            <Button
+              variant="outline"
+              disabled={exporter.isPending}
+              onClick={() =>
+                exporter.mutate({ id: collection.id, name: collection.name, format: "csv" })
+              }
+            >
+              <Download className="size-4" />
+              Export CSV
+            </Button>
+            <Button
+              variant="outline"
+              disabled={exporter.isPending}
+              onClick={() =>
+                exporter.mutate({ id: collection.id, name: collection.name, format: "sdf" })
+              }
+            >
+              <Download className="size-4" />
+              Export SDF
+            </Button>
+          </>
+        }
+      />
 
       <Card>
         <CardHeader>

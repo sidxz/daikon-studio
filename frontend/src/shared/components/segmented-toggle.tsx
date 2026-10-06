@@ -1,6 +1,6 @@
 import { cn } from "@/shared/lib/utils";
 
-/** A small either/or filter: one pressed segment on a muted track, like TabsList. */
+/** An either/or filter with the same underline treatment as navigation tabs. */
 export function SegmentedToggle<T extends string>({
   label,
   options,
@@ -13,7 +13,7 @@ export function SegmentedToggle<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <fieldset className="inline-flex rounded-md bg-muted p-0.5">
+    <fieldset className="inline-flex min-w-0 gap-1 border-b border-border">
       <legend className="sr-only">{label}</legend>
       {options.map((option) => (
         <button
@@ -22,10 +22,10 @@ export function SegmentedToggle<T extends string>({
           aria-pressed={option.value === value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "rounded-sm px-3 py-1 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "min-h-10 shrink-0 rounded-none border-b-2 px-3 py-2 text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
             option.value === value
-              ? "bg-background text-foreground shadow-sm"
-              : "text-muted-foreground hover:text-foreground",
+              ? "border-primary text-foreground"
+              : "border-transparent text-muted-foreground hover:text-foreground",
           )}
         >
           {option.label}

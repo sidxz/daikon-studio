@@ -1,12 +1,14 @@
 "use client";
 
 import { useFolders } from "@/features/folders";
-import { useProtocols } from "@/features/protocols";
+import { useProtocolOptions } from "@/features/protocols";
 import { RunsIcon } from "@/shared/components/icons/nav-icons";
 import { InitialsAvatar } from "@/shared/components/initials-avatar";
+import { LogoMark } from "@/shared/components/logo-mark";
+import { PageHeader } from "@/shared/components/page-header";
+import { QueryError } from "@/shared/components/query-error";
 import { SegmentedToggle } from "@/shared/components/segmented-toggle";
 import { StatusDot, type StatusTone } from "@/shared/components/status-dot";
-import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Input } from "@/shared/components/ui/input";
 import {
@@ -21,12 +23,16 @@ import type { PredictionCountsWire } from "@/shared/lib/api/model";
 import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
 import { useUrlParams } from "@/shared/lib/use-url-params";
 import { cn } from "@/shared/lib/utils";
-import { Plus, Search, X } from "lucide-react";
+import { ChevronRight, Search, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { useRunOwner } from "../hooks/use-run-owner";
 import { type RunFilters, useRuns } from "../hooks/use-runs";
 import { dayLabel, groupRunsByDay } from "../lib/group-runs";
+import { runDateBounds } from "../lib/run-date-range";
 import { RUN_STATUS_COPY, type Run } from "../types";
+import { ProtocolPicker } from "./protocol-picker";
+import { RunDateFilter } from "./run-date-filter";
 
 const ALL = "all";
 const STATUS_OPTIONS = [
@@ -45,26 +51,42 @@ const STATUS_LOOK: Record<string, { tone: StatusTone; word: string }> = {
   cancelled: { tone: "muted", word: "text-muted-foreground" },
 };
 
-function RunStatus({ status }: { status: string }) {
+function RunStatus({
+  status,
+  phase,
+  progress,
+}: { status: string; phase?: string | null; progress?: number }) {
   const look = STATUS_LOOK[status] ?? STATUS_LOOK.cancelled;
   return (
-    <span className="flex items-center gap-2 justify-self-end [grid-area:status] sm:justify-self-start">
-      <StatusDot tone={look.tone} />
-      <span className={look.word}>{RUN_STATUS_COPY[status] ?? status}</span>
+    <span className="flex min-w-0 flex-col justify-self-end [grid-area:status] sm:justify-self-start">
+      <span className="flex items-center gap-2">
+        <StatusDot tone={look.tone} />
+        <span className={look.word}>{RUN_STATUS_COPY[status] ?? status}</span>
+      </span>
+      {status === "running" && (
+        <span
+          className="mt-0.5 max-w-36 truncate text-xs text-muted-foreground"
+          title={phase ?? undefined}
+        >
+          {phase ?? "Predicting"}
+          {progress != null && ` · ${Math.round(progress * 100)}%`}
+        </span>
+      )}
+      {status === "pending" && (
+        <span className="mt-0.5 text-xs text-muted-foreground">Waiting for a runner</span>
+      )}
     </span>
   );
 }
 
-// The header and every row share these columns, so they line up: time, run name,
-// its protocol (both under "Run"; the protocol keeps 5rem before the name takes
-// the rest), compounds, requester (avatar, plus the name from lg), status.
+// The header and rows share columns. Protocol and source stay with the run name.
 const COLUMNS =
-  "sm:grid-cols-[4.5rem_minmax(0,max-content)_minmax(5rem,1fr)_5.5rem_2rem_6rem] lg:grid-cols-[4.5rem_minmax(0,max-content)_minmax(5rem,1fr)_5.5rem_10rem_6rem]";
-// Below sm a row stacks: name and status, then time, protocol and compounds.
+  "sm:grid-cols-[4.75rem_minmax(0,1fr)_5.5rem_2rem_7.5rem_1rem] lg:grid-cols-[4.75rem_minmax(0,1fr)_6rem_10rem_8rem_1rem]";
+// Below sm: run and status, then time, compounds and the navigation affordance.
 const ROW = cn(
-  "grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-x-3 gap-y-0.5 [grid-template-areas:'name_name_status''time_proto_count']",
+  "grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-x-3 gap-y-1 [grid-template-areas:'name_name_status''time_count_action']",
   COLUMNS,
-  "sm:[grid-template-areas:'time_name_proto_count_by_status']",
+  "sm:[grid-template-areas:'time_name_count_by_status_action']",
 );
 
 function RunRows({
@@ -82,17 +104,15 @@ function RunRows({
 }) {
   const [cursor, setCursor] = useState<string | undefined>();
   const [pages, setPages] = useState<Run[]>([]);
-  const { data, isLoading, isError } = useRuns("prediction", cursor, filters);
-  // ponytail: the newest 200 protocols only; a workspace past that loses older names here
-  // (and in the Protocol filter). Upgrade: a published-only filter or a lookup by id.
-  const protocols = useProtocols(undefined, 200);
+  const { data, isLoading, isError, refetch, isFetching } = useRuns("prediction", cursor, filters);
+  const protocols = useProtocolOptions();
   const memberName = useMemberName();
 
   const items = cursor ? [...pages, ...(data?.items ?? [])] : (data?.items ?? []);
 
   // Resolve the protocol's name so a run is never identified by an id.
   const protocolName = (protocolId: string | null | undefined) =>
-    protocols.data?.items.find((protocol) => protocol.id === protocolId)?.name;
+    protocols.data?.find((protocol) => protocol.id === protocolId)?.name;
 
   const now = new Date();
 
@@ -106,9 +126,7 @@ function RunRows({
       )}
 
       {isError && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="text-sm font-medium text-destructive">Could not load runs</p>
-        </div>
+        <QueryError title="Could not load runs" retry={() => refetch()} retrying={isFetching} />
       )}
 
       {data && items.length === 0 && (
@@ -117,6 +135,12 @@ function RunRows({
           {onlyMine ? (
             <>
               <p className="text-sm font-medium">You have no runs yet.</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Apply a published protocol to your compounds to get started.
+              </p>
+              <Button asChild className="mt-4 mr-2">
+                <Link href="/runs/new">Run a protocol</Link>
+              </Button>
               <Button variant="outline" className="mt-4" onClick={onShowAll}>
                 Show all runs
               </Button>
@@ -134,37 +158,52 @@ function RunRows({
               <p className="mt-1 text-sm text-muted-foreground">
                 Publish a protocol, then run it across your own compounds.
               </p>
+              <Button asChild className="mt-4">
+                <Link href="/runs/new">Run a protocol</Link>
+              </Button>
             </>
           )}
         </div>
       )}
 
       {items.length > 0 && (
-        <div>
+        <div className="overflow-hidden rounded-xl border border-border bg-card">
           <div
             aria-hidden
             className={cn(
-              "mb-2 hidden border-x border-transparent px-3 text-xs text-muted-foreground sm:grid sm:gap-x-3",
+              "hidden items-center gap-x-3 border-b border-border bg-muted/35 px-4 py-2.5 text-xs font-medium text-muted-foreground sm:grid",
               COLUMNS,
             )}
           >
             <span>Time</span>
-            <span className="col-span-2">Run</span>
+            <span>Run / protocol</span>
             <span className="text-right">Compounds</span>
-            <span>By</span>
+            <span>Started by</span>
             <span>Status</span>
+            <span />
           </div>
-          <div className="space-y-5">
+          <div>
             {groupRunsByDay(items, (iso) => dayLabel(iso, now)).map((group) => (
-              <section key={group.day} className="space-y-1.5">
-                <h2 className="text-xs font-medium text-muted-foreground">{group.day}</h2>
-                <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
+              <section key={group.day} className="border-t border-border first:border-t-0">
+                <div className="flex items-center gap-2 border-b border-border/60 bg-muted/15 px-4 py-2">
+                  <h2 className="text-xs font-semibold">{group.day}</h2>
+                  <span className="text-xs text-muted-foreground" title="Runs loaded for this day">
+                    {group.runs.length} shown
+                  </span>
+                </div>
+                <ul className="divide-y divide-border/60">
                   {group.runs.map((run) => {
                     const scored = (run.metrics as Partial<PredictionCountsWire> | null)
                       ?.scored_rows;
                     const protocol = protocolName(run.protocol_id);
                     const name = run.name ?? protocol ?? "Prediction run";
                     const otherProtocol = protocol !== name ? protocol : undefined;
+                    const context = [
+                      otherProtocol,
+                      run.source && `ChemCellar · ${run.source.protocol_name}`,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
                     const requester = memberName(run.requested_by);
                     return (
                       <li key={run.id}>
@@ -172,7 +211,7 @@ function RunRows({
                           href={`/runs/${run.id}`}
                           className={cn(
                             ROW,
-                            "px-3 py-2 text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
+                            "group min-h-[3.25rem] px-4 py-2.5 text-sm transition-colors hover:bg-accent/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring",
                           )}
                         >
                           <span className="tabular-nums text-muted-foreground [grid-area:time]">
@@ -181,30 +220,21 @@ function RunRows({
                               minute: "2-digit",
                             })}
                           </span>
-                          <span
-                            className={cn(
-                              "flex min-w-0 items-center gap-2 [grid-area:name]",
-                              // With no protocol beside it, the name may use that column too.
-                              !otherProtocol && "sm:[grid-column:name-start/proto-end]",
-                            )}
-                          >
-                            <span className="truncate font-medium">{name}</span>
-                            {run.source && (
-                              <Badge
-                                variant="outline"
-                                className="font-normal text-muted-foreground"
+                          <span className="min-w-0 [grid-area:name]">
+                            <span className="block truncate font-medium" title={name}>
+                              {name}
+                            </span>
+                            {context && (
+                              <span
+                                className="mt-0.5 block truncate text-xs text-muted-foreground"
+                                title={context}
                               >
-                                ChemCellar
-                              </Badge>
+                                {context}
+                              </span>
                             )}
                           </span>
-                          {otherProtocol && (
-                            <span className="truncate text-muted-foreground [grid-area:proto]">
-                              {otherProtocol}
-                            </span>
-                          )}
-                          <span className="text-right tabular-nums text-muted-foreground [grid-area:count]">
-                            {scored != null && (
+                          <span className="text-right tabular-nums [grid-area:count]">
+                            {scored != null ? (
                               <>
                                 {scored.toLocaleString("en-US")}
                                 <span className="sm:sr-only">
@@ -212,6 +242,13 @@ function RunRows({
                                   compound{scored === 1 ? "" : "s"}
                                 </span>
                               </>
+                            ) : (
+                              <span
+                                className="text-muted-foreground"
+                                aria-label="Compound count unavailable"
+                              >
+                                —
+                              </span>
                             )}
                           </span>
                           <span className="hidden min-w-0 items-center gap-2 [grid-area:by] sm:flex">
@@ -224,7 +261,15 @@ function RunRows({
                               {requester}
                             </span>
                           </span>
-                          <RunStatus status={run.status} />
+                          <RunStatus
+                            status={run.status}
+                            phase={run.phase}
+                            progress={run.progress}
+                          />
+                          <ChevronRight
+                            aria-hidden
+                            className="size-3.5 justify-self-end text-muted-foreground/50 [grid-area:action] sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-visible:opacity-100"
+                          />
                         </Link>
                       </li>
                     );
@@ -232,6 +277,9 @@ function RunRows({
                 </ul>
               </section>
             ))}
+          </div>
+          <div className="border-t border-border bg-muted/15 px-4 py-2 text-xs text-muted-foreground">
+            {items.length.toLocaleString()} run{items.length === 1 ? "" : "s"} shown
           </div>
         </div>
       )}
@@ -255,16 +303,16 @@ function RunRows({
 
 export function RunList() {
   const { params, set } = useUrlParams();
-  // ponytail: newest 200 protocols only, as in RunRows. Upgrade: a published-only filter.
-  const protocols = useProtocols(undefined, 200);
+  const protocols = useProtocolOptions();
   const folders = useFolders("protocol");
 
-  // Mine is the default: only an explicit `mine=0` shows everyone's runs.
-  const mine = params.get("mine") !== "0";
+  const { mine, ready: ownerReady, rememberOwner } = useRunOwner(params.get("mine"));
   const protocolId = params.get("protocol") ?? undefined;
   const status = params.get("status") ?? undefined;
   const folderId = params.get("folder") ?? undefined;
   const q = params.get("q") ?? "";
+  const from = params.get("from") ?? "";
+  const to = params.get("to") ?? "";
 
   // The box is typed into freely; the URL (and so the request) follows 300 ms later.
   const [search, setSearch] = useState(q);
@@ -276,15 +324,20 @@ export function RunList() {
     return () => clearTimeout(timer);
   }, [search, q]);
 
-  const filtered = !mine || Boolean(protocolId || status || folderId || q);
+  const filtered = Boolean(protocolId || status || folderId || q || from || to);
+  const chooseOwner = (mine: boolean) => {
+    rememberOwner(mine);
+    set({ mine: mine ? "1" : "0" });
+  };
   const clear = () => {
     setSearch("");
     set({
-      mine: undefined,
       protocol: undefined,
       status: undefined,
       folder: undefined,
       q: undefined,
+      from: undefined,
+      to: undefined,
     });
   };
 
@@ -294,28 +347,40 @@ export function RunList() {
     folderId,
     q: q || undefined,
     statuses: status?.split(","),
+    ...runDateBounds(from, to),
   };
-  const published = (protocols.data?.items ?? []).filter((protocol) => protocol.status !== "draft");
+  const published = (protocols.data ?? []).filter((protocol) => protocol.status !== "draft");
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Runs</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Prediction runs apply a published protocol to your compounds. Training runs are listed
-            on their protocol.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/runs/new">
-            <Plus className="size-4" />
-            Run a protocol
-          </Link>
-        </Button>
-      </div>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title="Runs"
+        description="Review prediction results. Training history is on each protocol."
+        action={
+          <Button asChild>
+            <Link href="/runs/new">
+              <LogoMark className="-mx-1 size-7" />
+              Run a protocol
+            </Link>
+          </Button>
+        }
+      />
 
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card p-3">
+        <div className="relative order-first min-w-0 basis-full sm:min-w-48 sm:flex-1 sm:basis-48">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            type="search"
+            aria-label="Search runs or protocols"
+            placeholder="Search runs or protocols…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="h-9 pl-9"
+          />
+        </div>
         <SegmentedToggle
           label="Run owner"
           options={[
@@ -323,31 +388,23 @@ export function RunList() {
             { value: "mine", label: "Started by me" },
           ]}
           value={mine ? "mine" : "all"}
-          onChange={(value) => set({ mine: value === "mine" ? undefined : "0" })}
+          onChange={(value) => chooseOwner(value === "mine")}
         />
 
-        <Select
-          value={protocolId ?? ALL}
-          onValueChange={(value) => set({ protocol: value === ALL ? undefined : value })}
-        >
-          <SelectTrigger size="sm" aria-label="Protocol" className="w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value={ALL}>All protocols</SelectItem>
-            {published.map((protocol) => (
-              <SelectItem key={protocol.id} value={protocol.id}>
-                {protocol.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <ProtocolPicker
+          protocols={published}
+          value={protocolId ?? ""}
+          onChange={(id) => set({ protocol: id || undefined })}
+          allLabel="All protocols"
+          loading={protocols.isLoading}
+          className="h-9 w-full sm:w-48"
+        />
 
         <Select
           value={status ?? ALL}
           onValueChange={(value) => set({ status: value === ALL ? undefined : value })}
         >
-          <SelectTrigger size="sm" aria-label="Status" className="w-32">
+          <SelectTrigger aria-label="Status" className="min-w-32 flex-1 sm:w-32 sm:flex-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -364,7 +421,7 @@ export function RunList() {
           value={folderId ?? ALL}
           onValueChange={(value) => set({ folder: value === ALL ? undefined : value })}
         >
-          <SelectTrigger size="sm" aria-label="Folder" className="w-36">
+          <SelectTrigger aria-label="Folder" className="min-w-32 flex-1 sm:w-36 sm:flex-none">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -377,20 +434,11 @@ export function RunList() {
           </SelectContent>
         </Select>
 
-        <div className="relative min-w-48 flex-1">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground"
-          />
-          <Input
-            type="search"
-            aria-label="Search runs or protocols"
-            placeholder="Search runs or protocols"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="h-8 pl-8"
-          />
-        </div>
+        <RunDateFilter
+          from={from}
+          to={to}
+          onChange={(from, to) => set({ from: from || undefined, to: to || undefined })}
+        />
 
         {filtered && (
           <Button variant="ghost" size="sm" onClick={clear}>
@@ -400,14 +448,18 @@ export function RunList() {
         )}
       </div>
 
-      <RunRows
-        key={JSON.stringify(filters)}
-        filters={filters}
-        filtered={filtered}
-        onlyMine={mine && !protocolId && !status && !folderId && !q}
-        onClear={clear}
-        onShowAll={() => set({ mine: "0" })}
-      />
+      {ownerReady ? (
+        <RunRows
+          key={JSON.stringify(filters)}
+          filters={filters}
+          filtered={filtered}
+          onlyMine={mine && !filtered}
+          onClear={clear}
+          onShowAll={() => chooseOwner(false)}
+        />
+      ) : (
+        <Skeleton className="h-40 w-full" />
+      )}
     </div>
   );
 }

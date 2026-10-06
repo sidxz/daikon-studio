@@ -1,6 +1,8 @@
 "use client";
 
+import { FontSizeControl } from "@/shared/components/layout/font-size-control";
 import { LogoMark } from "@/shared/components/logo-mark";
+import { PageHeader } from "@/shared/components/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { useApiVersion } from "@/shared/hooks/use-api-version";
@@ -16,6 +18,7 @@ const THEMES = [
 const FONTS: { value: FontFamily; label: string }[] = [
   { value: "plex", label: "IBM Plex" },
   { value: "inter", label: "Inter" },
+  { value: "merriweather", label: "Merriweather" },
 ];
 
 function VersionRow({ label, value }: { label: string; value: string }) {
@@ -35,8 +38,8 @@ export default function SettingsPage() {
   const api = useApiVersion();
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-6 p-6">
-      <h1 className="text-lg font-semibold">Settings</h1>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader title="Settings" description="Reading preferences and application information." />
 
       <Card>
         <CardHeader>
@@ -46,6 +49,10 @@ export default function SettingsPage() {
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
+          <div className="flex items-center justify-between gap-4">
+            <span className="text-sm">Text size</span>
+            <FontSizeControl />
+          </div>
           <div className="flex items-center justify-between">
             <span className="text-sm">Theme</span>
             <div className="flex gap-1">

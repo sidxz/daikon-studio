@@ -31,7 +31,7 @@ export function FontSizeControl() {
 
   return (
     <TooltipProvider delayDuration={300}>
-      <div className="hidden items-center gap-1.5 px-1 lg:flex">
+      <div className="flex items-center gap-2 px-1">
         <span aria-hidden className="text-xs font-semibold text-muted-foreground">
           A
         </span>
@@ -46,7 +46,7 @@ export function FontSizeControl() {
                 onValueChange={([value]) => setScale(value)}
                 onDoubleClick={reset}
                 aria-label="Text size"
-                className="w-16"
+                className="w-24"
               />
             </div>
           </TooltipTrigger>

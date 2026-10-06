@@ -9,15 +9,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Select, func, select, tuple_
+from sqlalchemy import Select, column, func, or_, select, tuple_
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.domain.data.dataset import Dataset
-from daikonstudio.domain.data.split import split_from_dict, split_to_dict
-from daikonstudio.domain.data.target import target_from_dict, target_to_dict
+from daikonstudio.domain.data.split import SplitStrategy, split_from_dict, split_to_dict
+from daikonstudio.domain.data.target import TargetKind, target_from_dict, target_to_dict
 from daikonstudio.domain.data.validation import report_from_dict, report_to_dict
 from daikonstudio.domain.shared.errors import ConflictError, ValidationError
 from daikonstudio.infrastructure.persistence.sqlalchemy.data.models import DatasetModel
@@ -164,6 +165,9 @@ class SqlAlchemyDatasetRepository:
         cursor: tuple[datetime, uuid.UUID] | None = None,
         limit: int = 50,
         folder_id: uuid.UUID | None = None,
+        q: str | None = None,
+        target_kind: TargetKind | None = None,
+        split_strategy: SplitStrategy | None = None,
     ) -> list[Dataset]:
         statement = (
             select(DatasetModel)
@@ -172,6 +176,32 @@ class SqlAlchemyDatasetRepository:
         )
         if folder_id is not None:
             statement = statement.where(DatasetModel.folder_id == folder_id)
+        if target_kind is not None:
+            statement = statement.where(
+                DatasetModel.targets.contains([{"kind": target_kind.value}])
+            )
+        if split_strategy is not None:
+            statement = statement.where(
+                DatasetModel.split["strategy"].astext == split_strategy.value
+            )
+        if q:
+            escaped = q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            pattern = f"%{escaped}%"
+            targets = (
+                func.jsonb_array_elements(DatasetModel.targets)
+                .table_valued(column("value", JSONB))
+                .alias("target")
+            )
+            by_target = (
+                select(1)
+                .select_from(targets)
+                .where(targets.c.value["column"].astext.ilike(pattern, escape="\\"))
+                .correlate(DatasetModel)
+                .exists()
+            )
+            statement = statement.where(
+                or_(DatasetModel.name.ilike(pattern, escape="\\"), by_target)
+            )
         if cursor is not None:
             statement = statement.where(tuple_(DatasetModel.created_at, DatasetModel.id) < cursor)
         async with self._sessions() as session:

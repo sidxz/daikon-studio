@@ -11,12 +11,12 @@ import {
   DropdownMenuTrigger,
 } from "@/shared/components/ui/dropdown-menu";
 import { Separator } from "@/shared/components/ui/separator";
+import { SidebarTrigger } from "@/shared/components/ui/sidebar";
 import { forgetWorkspace } from "@/shared/lib/auth/workspace-memory";
 import { useCommandPaletteStore } from "@/shared/lib/stores/command-palette-store";
 import { useAuthz } from "@duar-auth/nextjs";
 import { Building2, ChevronDown, LogOut, Search } from "lucide-react";
 import { Breadcrumbs } from "./breadcrumbs";
-import { FontSizeControl } from "./font-size-control";
 import { ThemeToggle } from "./theme-toggle";
 
 export function Header() {
@@ -33,22 +33,25 @@ export function Header() {
     : "?";
 
   return (
-    <header className="flex h-10 shrink-0 items-center gap-2 border-b border-border/60 px-4">
-      <Breadcrumbs />
-      <div className="ml-auto flex items-center gap-1">
+    <header className="flex min-h-12 shrink-0 items-center gap-2 border-b border-border bg-background px-3 sm:px-6 lg:px-8">
+      <SidebarTrigger className="size-10 shrink-0 md:hidden" aria-label="Open navigation" />
+      <div className="min-w-0 flex-1">
+        <Breadcrumbs />
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-1">
         <Button
           variant="ghost"
           size="sm"
           onClick={() => openPalette(true)}
-          className="hidden gap-2 text-muted-foreground md:flex"
+          aria-label="Go to a page or action"
+          className="size-10 gap-2 text-muted-foreground md:h-9 md:w-auto"
         >
           <Search className="size-4" />
-          <span className="text-xs">Search</span>
-          <kbd className="pointer-events-none ml-1 inline-flex h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-[10px] font-medium text-muted-foreground">
+          <span className="hidden text-sm md:inline">Go to…</span>
+          <kbd className="pointer-events-none ml-1 hidden h-5 select-none items-center gap-1 rounded border bg-muted px-1.5 font-mono text-xs font-medium text-muted-foreground md:inline-flex">
             <span className="text-xs">⌘</span>K
           </kbd>
         </Button>
-        <FontSizeControl />
         <ThemeToggle />
         <Separator orientation="vertical" className="mx-1.5 data-[orientation=vertical]:h-5" />
         <DropdownMenu>
@@ -58,10 +61,6 @@ export function Header() {
               <Avatar className="size-7 rounded-lg">
                 <AvatarFallback className="rounded-lg text-xs">{initials}</AvatarFallback>
               </Avatar>
-              <div className="hidden flex-col text-left leading-tight sm:flex">
-                <span className="text-xs font-medium">{user?.name ?? "User"}</span>
-                <span className="text-[10px] text-muted-foreground">{user?.email ?? ""}</span>
-              </div>
               <ChevronDown className="size-3.5 text-muted-foreground" aria-hidden />
             </Button>
           </DropdownMenuTrigger>

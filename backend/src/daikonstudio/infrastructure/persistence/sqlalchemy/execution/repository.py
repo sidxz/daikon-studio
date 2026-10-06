@@ -295,6 +295,8 @@ class SqlAlchemyRunRepository:
         protocol_ids: frozenset[uuid.UUID] | None = None,
         name_contains: str | None = None,
         name_or_protocol_ids: frozenset[uuid.UUID] = frozenset(),
+        created_from: datetime | None = None,
+        created_before: datetime | None = None,
     ) -> list[Run]:
         statement = (
             select(RunModel)
@@ -309,6 +311,10 @@ class SqlAlchemyRunRepository:
             statement = statement.where(RunModel.protocol_id == protocol_id)
         if requested_by is not None:
             statement = statement.where(RunModel.requested_by == requested_by)
+        if created_from is not None:
+            statement = statement.where(RunModel.created_at >= created_from)
+        if created_before is not None:
+            statement = statement.where(RunModel.created_at < created_before)
         if statuses:
             statement = statement.where(RunModel.status.in_([s.value for s in statuses]))
         if protocol_ids is not None:

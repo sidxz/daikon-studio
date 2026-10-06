@@ -11,6 +11,7 @@ import {
   SidebarMenuItem,
   SidebarRail,
   SidebarTrigger,
+  useSidebar,
 } from "@/shared/components/ui/sidebar";
 import { useAuthz } from "@duar-auth/nextjs";
 import { Settings } from "lucide-react";
@@ -22,10 +23,11 @@ import { NavMain } from "./nav-main";
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname();
   const { user } = useAuthz();
+  const { setOpenMobile } = useSidebar();
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader>
+      <SidebarHeader className="py-4">
         {/* Static brand block: it shows the workspace, it is not a switcher.
             Switching lives in the header's account menu, because the IdP token
             is memory-only in authz mode and cannot list workspaces from here. */}
@@ -35,13 +37,10 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
             <LogoMark className="size-8" />
           </div>
           <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
-            <span
-              className="truncate text-[15px] font-medium tracking-tight text-sidebar-text-active"
-              style={{ fontFamily: "var(--font-overused-grotesk), ui-sans-serif, sans-serif" }}
-            >
+            <span className="truncate text-[15px] font-medium tracking-tight text-sidebar-text-active">
               DAIKON Studio
             </span>
-            <span className="truncate text-xs uppercase tracking-widest text-sidebar-text opacity-60">
+            <span className="mt-1 truncate text-xs text-sidebar-text">
               {user?.workspaceSlug ?? ""}
             </span>
           </div>
@@ -54,7 +53,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={pathname === "/settings"} tooltip="Settings">
-              <Link href="/settings">
+              <Link href="/settings" onClick={() => setOpenMobile(false)}>
                 <Settings />
                 <span>Settings</span>
               </Link>

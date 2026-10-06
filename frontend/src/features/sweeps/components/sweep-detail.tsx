@@ -1,6 +1,7 @@
 "use client";
 
 import { RUN_STATUS_COPY, useRetryRun } from "@/features/runs";
+import { PageHeader } from "@/shared/components/page-header";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Progress } from "@/shared/components/ui/progress";
@@ -37,7 +38,7 @@ import type { SweepRun } from "../types";
 
 function SweepDetailSkeleton() {
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-4 p-2">
+    <div className="w-full min-w-0 space-y-4">
       <Skeleton className="h-8 w-64" />
       <Skeleton className="h-64 w-full" />
     </div>
@@ -74,7 +75,7 @@ export function SweepDetail({ id }: { id: string }) {
   if (isLoadingError) {
     const missing = error instanceof ApiError && error.status === 404;
     return (
-      <div className="mx-auto w-full max-w-7xl p-2">
+      <div className="w-full min-w-0 space-y-4">
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm font-medium text-destructive">
             {missing ? "This sweep does not exist in this workspace" : "Could not load this sweep"}
@@ -99,28 +100,22 @@ export function SweepDetail({ id }: { id: string }) {
   const live = sweep.runs.filter((run) => !isTerminal(run.status));
 
   return (
-    <div className="mx-auto w-full max-w-7xl space-y-4 p-2">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">{sweep.name ?? "Sweep"}</h1>
-          {/*
-            The per-workspace cap (STUDIO_WORKSPACE_MAX_ACTIVE_RUNS, default 10)
-            means a large sweep drains in waves. Saying so is the difference
-            between a fairness predicate doing its job and a product that looks
-            broken. Only shown while it can actually bite.
-          */}
-          {live.length > 10 && (
-            <p className="mt-1 text-sm text-muted-foreground">
-              Each workspace runs at most 10 runs concurrently; the rest are queued.
-            </p>
-          )}
-        </div>
-        {live.length > 0 && (
-          <Button variant="outline" disabled={cancel.isPending} onClick={() => cancel.mutate(id)}>
-            Cancel sweep
-          </Button>
-        )}
-      </div>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title={sweep.name ?? "Sweep"}
+        description={
+          live.length > 10
+            ? "Each workspace runs at most 10 runs concurrently; the rest are queued."
+            : undefined
+        }
+        action={
+          live.length > 0 && (
+            <Button variant="outline" disabled={cancel.isPending} onClick={() => cancel.mutate(id)}>
+              Cancel sweep
+            </Button>
+          )
+        }
+      />
 
       <div className="rounded-lg border border-border">
         <Table>

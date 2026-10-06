@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from returns.result import Failure, Result, Success
 
@@ -51,6 +52,8 @@ class ListRunsQuery:
     folder_id: uuid.UUID | None = None
     # Runs whose name, or whose protocol's name, contains this text, case-insensitively.
     q: str | None = None
+    created_from: datetime | None = None
+    created_before: datetime | None = None
 
 
 class ListRuns:
@@ -66,6 +69,15 @@ class ListRuns:
     ) -> Result[PageResult[Run], DomainError]:
         require_authenticated(auth)
         assert auth is not None  # require_authenticated has already rejected None
+        for boundary in (query.created_from, query.created_before):
+            if boundary is not None and boundary.utcoffset() is None:
+                return Failure(ValidationError("Run date filters must include a time zone"))
+        if (
+            query.created_from is not None
+            and query.created_before is not None
+            and query.created_from >= query.created_before
+        ):
+            return Failure(ValidationError("The end of the date range must follow its start"))
         limit = clamp_limit(query.limit)
         try:
             cursor = parse_ts_cursor(query.cursor)
@@ -105,6 +117,8 @@ class ListRuns:
             protocol_ids=protocol_ids,
             requested_by=auth.user_id if query.mine else None,
             statuses=query.statuses,
+            created_from=query.created_from,
+            created_before=query.created_before,
             name_contains=text,
             name_or_protocol_ids=matching_protocols,
             cursor=cursor,

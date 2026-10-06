@@ -29,6 +29,7 @@ import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import { Progress } from "@/shared/components/ui/progress";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import type { PredictionCountsWire } from "@/shared/lib/api/model";
 import { useAppConfig } from "@/shared/lib/app-config";
@@ -108,6 +109,8 @@ export function RunDetail({ runId }: { runId: string }) {
 
   const [pendingRows, setPendingRows] = useState<number[] | null>(null);
   const [collectionName, setCollectionName] = useState("");
+  const [resultTab, setResultTab] = useState("results");
+  const [mapOpened, setMapOpened] = useState(false);
 
   const title = run?.name ?? protocol?.name;
 
@@ -130,7 +133,7 @@ export function RunDetail({ runId }: { runId: string }) {
   if (isLoadingError) {
     const missing = error instanceof ApiError && error.status === 404;
     return (
-      <div className="mx-auto w-full max-w-6xl p-2">
+      <div className="w-full min-w-0 space-y-4">
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm font-medium text-destructive">
             {missing ? "This run does not exist in this workspace" : "Could not load this run"}
@@ -147,7 +150,7 @@ export function RunDetail({ runId }: { runId: string }) {
 
   if (!run) {
     return (
-      <div className="mx-auto w-full max-w-6xl space-y-4 p-2">
+      <div className="w-full min-w-0 space-y-4">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -165,11 +168,11 @@ export function RunDetail({ runId }: { runId: string }) {
   const uploaded = counts?.uploaded_rows;
 
   return (
-    <div className="mx-auto w-full max-w-6xl space-y-4 p-2">
+    <div className="w-full min-w-0 space-y-4">
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold">
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="break-words text-2xl font-normal tracking-tight sm:text-[1.75rem]">
               {title ?? (run.kind === "training" ? "Training run" : "Prediction run")}
             </h1>
             <Badge variant={run.status === "ready" ? "default" : "outline"} className="font-normal">
@@ -182,6 +185,9 @@ export function RunDetail({ runId }: { runId: string }) {
               className="text-sm text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
             >
               {protocol.name}
+              {protocol.protocol_version != null && (
+                <span className="ml-2 text-xs">v{protocol.protocol_version}</span>
+              )}
             </Link>
           )}
           {/* Identified by protocol and date, never by id -- a chemist says
@@ -301,8 +307,13 @@ export function RunDetail({ runId }: { runId: string }) {
         ) : (
           <Card>
             <CardContent className="space-y-3 py-6">
-              <p className="text-sm text-muted-foreground">{run.phase ?? "Starting…"}</p>
-              <Progress value={Math.round(run.progress * 100)} />
+              <p className="text-sm text-muted-foreground">
+                {run.phase ??
+                  (run.status === "pending"
+                    ? "Queued, waiting for a runner"
+                    : "Predicting compounds…")}
+              </p>
+              {run.status === "running" && <Progress value={Math.round(run.progress * 100)} />}
               {run.status === "pending" && run.lane && <LaneHint lane={run.lane} />}
             </CardContent>
           </Card>
@@ -353,19 +364,111 @@ export function RunDetail({ runId }: { runId: string }) {
       )}
 
       {run.kind === "prediction" && run.status === "ready" && protocol && (
-        <>
-          <RunChemicalSpace runId={runId} protocolId={protocol.id} />
-          <TriageGrid
-            runId={runId}
-            readouts={protocol.readouts}
-            exportName={`${protocol.name} predictions ${run.created_at.slice(0, 10)}`}
-            saving={createCollection.isPending}
-            onSaveSelection={(rowIds) => {
-              setPendingRows(rowIds);
-              setCollectionName("");
-            }}
-          />
-        </>
+        <Tabs
+          value={resultTab}
+          onValueChange={(tab) => {
+            setResultTab(tab);
+            if (tab === "space") setMapOpened(true);
+          }}
+        >
+          <TabsList>
+            <TabsTrigger value="results">Results</TabsTrigger>
+            <TabsTrigger value="space">Chemical space</TabsTrigger>
+            <TabsTrigger value="details">Run details</TabsTrigger>
+          </TabsList>
+          <TabsContent value="results" forceMount className="min-w-0 data-[state=inactive]:hidden">
+            <TriageGrid
+              key={runId}
+              runId={runId}
+              protocolId={protocol.id}
+              engineId={protocol.engine_id}
+              totalCount={scored}
+              readouts={protocol.readouts}
+              exportName={`${protocol.name} predictions ${run.created_at.slice(0, 10)}`}
+              saving={createCollection.isPending}
+              onSaveSelection={(rowIds) => {
+                setPendingRows(rowIds);
+                setCollectionName("");
+              }}
+            />
+          </TabsContent>
+          <TabsContent value="space" forceMount className="space-y-3 data-[state=inactive]:hidden">
+            <p className="text-sm text-muted-foreground">
+              All compounds in this run. Results-table filters apply only to the Results tab.
+            </p>
+            {mapOpened && <RunChemicalSpace runId={runId} protocolId={protocol.id} />}
+          </TabsContent>
+          <TabsContent value="details" className="max-w-3xl">
+            <Card>
+              <CardContent className="space-y-6 py-6">
+                <div>
+                  <h2 className="text-sm font-semibold">Prediction provenance</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    These values are AI-predicted using the published protocol below.
+                  </p>
+                </div>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-3 text-sm">
+                  <dt className="text-muted-foreground">Protocol</dt>
+                  <dd>
+                    <Link
+                      className="underline underline-offset-4"
+                      href={`/protocols/${protocol.id}`}
+                    >
+                      {protocol.name}
+                    </Link>
+                    {protocol.protocol_version != null && ` · v${protocol.protocol_version}`}
+                  </dd>
+                  <dt className="text-muted-foreground">Engine</dt>
+                  <dd>{protocol.engine_id}</dd>
+                  <dt className="text-muted-foreground">Compounds from</dt>
+                  <dd>{run.source ? `ChemCellar: ${sourceLabel(run.source)}` : "Uploaded CSV"}</dd>
+                  <dt className="text-muted-foreground">Started</dt>
+                  <dd>{new Date(run.created_at).toLocaleString()}</dd>
+                  {startedBy && (
+                    <>
+                      <dt className="text-muted-foreground">Started by</dt>
+                      <dd>{startedBy}</dd>
+                    </>
+                  )}
+                </dl>
+                <div>
+                  <h2 className="mb-3 text-sm font-semibold">Declared outputs</h2>
+                  <div className="divide-y">
+                    {(protocol.readouts ?? []).map((readout) => (
+                      <div key={readout.name} className="py-3 text-sm">
+                        <p className="font-medium">
+                          {readout.name}
+                          {readout.unit && ` (${readout.unit})`}
+                        </p>
+                        <p className="text-muted-foreground">{readout.description}</p>
+                        {readout.type === "class" && (
+                          <p className="text-xs text-muted-foreground">
+                            Positive at probability ≥ {readout.threshold ?? 0.5}; negative below it.
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {Object.keys(protocol.conditions ?? {}).length > 0 && (
+                  <details>
+                    <summary className="cursor-pointer text-sm font-medium">
+                      Training settings
+                    </summary>
+                    <dl className="mt-3 grid grid-cols-2 gap-2 text-sm">
+                      {Object.entries(protocol.conditions).map(([name, value]) => (
+                        <div key={name}>
+                          <dt className="text-muted-foreground">{name}</dt>
+                          <dd>{String(value)}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </details>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
       )}
 
       <Dialog open={pendingRows !== null} onOpenChange={(open) => !open && setPendingRows(null)}>

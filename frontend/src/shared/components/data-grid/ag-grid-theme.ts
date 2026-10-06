@@ -15,6 +15,7 @@ export const studioGridTheme = themeQuartz.withParams({
   selectedRowBackgroundColor: "var(--accent)",
   oddRowBackgroundColor: "transparent",
   cellTextColor: "var(--foreground)",
+  fontFamily: "var(--font-sans)",
   fontSize: 13,
   headerFontSize: 12,
   rowBorder: { color: "var(--border)", style: "solid", width: 1 },
@@ -22,4 +23,17 @@ export const studioGridTheme = themeQuartz.withParams({
   wrapperBorderRadius: "var(--radius-lg)",
   wrapperBorder: { color: "var(--border)", style: "solid", width: 1 },
   spacing: 6,
+});
+
+/** Results have a richer header while retaining the shared body and theme tokens. */
+export const resultsGridTheme = studioGridTheme.withParams({
+  headerBackgroundColor: "var(--ds-surface-elevated)",
+  headerFontWeight: 600,
+  headerCellHoverBackgroundColor: "var(--ds-accent-subtle)",
+  headerCellMovingBackgroundColor: "var(--ds-accent-light)",
+  headerColumnBorder: false,
+  headerRowBorder: { color: "var(--ds-border-subtle)", style: "solid", width: 1 },
+  headerColumnResizeHandleColor: "var(--ds-border-subtle)",
+  headerColumnResizeHandleHeight: "24%",
+  headerColumnResizeHandleWidth: 1,
 });

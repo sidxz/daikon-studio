@@ -40,11 +40,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <SidebarProvider>
+    <SidebarProvider style={{ "--sidebar-width": "13rem" } as React.CSSProperties}>
       <AppSidebar />
       <SidebarInset>
         <Header />
-        <main className="flex-1 overflow-auto p-4">{children}</main>
+        <main className="min-w-0 flex-1 overflow-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
+          {children}
+        </main>
       </SidebarInset>
     </SidebarProvider>
   );

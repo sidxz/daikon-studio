@@ -7,6 +7,7 @@ export {
   useProtocolChemicalSpace,
   useProtocolMapCompound,
   useProtocols,
+  useProtocolOptions,
   useRunPoll,
   useScorecard,
 } from "./hooks/use-protocols";

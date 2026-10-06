@@ -31,11 +31,12 @@ export default defineConfig({
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
 
   webServer: {
-    command: "pnpm exec next dev --port 3103",
+    command: "node node_modules/next/dist/bin/next dev --port 3103",
     url: "http://localhost:3103/api/config",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
     env: {
+      APP_E2E: "1",
       // Unresolvable on purpose -- see the note above.
       APP_API_BASE_URL: "http://e2e.invalid",
       APP_URL: "http://localhost:3103",

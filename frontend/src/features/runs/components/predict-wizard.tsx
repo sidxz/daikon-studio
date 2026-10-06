@@ -2,8 +2,9 @@
 
 import { PREDICTION_TEMPLATE_CSV, useDataset } from "@/features/datasets";
 import { useEngines } from "@/features/engines";
-import { useProtocols } from "@/features/protocols";
+import { useProtocolOptions } from "@/features/protocols";
 import type { Protocol } from "@/features/protocols";
+import { PageHeader } from "@/shared/components/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent } from "@/shared/components/ui/card";
 import { Input } from "@/shared/components/ui/input";
@@ -22,6 +23,7 @@ import { useAppConfig } from "@/shared/lib/app-config";
 import { guessIdColumn } from "@/shared/lib/guess-id-column";
 import { showError } from "@/shared/lib/toast";
 import { Download, FileUp } from "lucide-react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import Papa from "papaparse";
 import { useCallback, useMemo, useState } from "react";
@@ -31,6 +33,7 @@ import { activeCompounds, formatRunDate } from "../lib/chemcellar-runs";
 import { summarisePreview } from "../lib/parse-preview";
 import { ChemCellarPicker } from "./chemcellar-picker";
 import { PredictionPreview } from "./prediction-preview";
+import { ProtocolPicker } from "./protocol-picker";
 
 // Radix forbids an empty item value, and a blank header is dropped on parse, so
 // no real column can ever be named this.
@@ -50,9 +53,11 @@ function ProtocolContext({ protocol }: { protocol: Protocol }) {
         Predicts{" "}
         <span className="font-medium">
           {new Intl.ListFormat("en-US", { type: "conjunction" }).format(
-            protocol.readouts.map((readout) =>
-              readout.unit ? `${readout.name} (${readout.unit})` : readout.name,
-            ),
+            protocol.readouts
+              .filter((readout) => readout.type !== "probability")
+              .map((readout) =>
+                readout.unit ? `${readout.name} (${readout.unit})` : readout.name,
+              ),
           )}
         </span>
         {dataset && (
@@ -63,10 +68,10 @@ function ProtocolContext({ protocol }: { protocol: Protocol }) {
         )}
       </p>
       {conditions.length > 0 && (
-        <div className="mt-2">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Trained with
-          </p>
+        <details className="mt-3">
+          <summary className="cursor-pointer text-xs font-medium text-muted-foreground">
+            Training settings
+          </summary>
           {/* Read-only, and not an oversight: neither engine reads conditions
               at predict time, so an input here would be a control that changes
               nothing. When an engine declares predict-time conditions, this
@@ -81,7 +86,7 @@ function ProtocolContext({ protocol }: { protocol: Protocol }) {
               </div>
             ))}
           </dl>
-        </div>
+        </details>
       )}
     </div>
   );
@@ -102,13 +107,13 @@ export function PredictWizard() {
   const [name, setName] = useState("");
   const [rows, setRows] = useState<Record<string, string | undefined>[]>([]);
 
-  const protocols = useProtocols(undefined, 200);
+  const protocols = useProtocolOptions();
   const upload = useUploadPredictionFile();
   const create = useCreateRun();
 
   // Only published protocols are runnable; a draft is not something anyone
   // else can rely on, so offering one here would just produce a 409.
-  const published = (protocols.data?.items ?? []).filter((protocol) => protocol.status !== "draft");
+  const published = (protocols.data ?? []).filter((protocol) => protocol.status !== "draft");
   const selectedProtocol = published.find((protocol) => protocol.id === protocolId);
 
   const onDrop = useCallback((files: File[]) => {
@@ -305,91 +310,111 @@ export function PredictWizard() {
   );
 
   return (
-    <div className="mx-auto w-full max-w-2xl space-y-4 p-2">
-      <div>
-        <h1 className="text-lg font-semibold">Run a protocol</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Predict properties for your compounds with a published protocol. Results are reported in
-          the protocol's units.
-        </p>
-      </div>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title="Run a protocol"
+        description="Predict properties for your compounds with a published protocol. Results are reported in the protocol’s units."
+      />
 
-      <Card>
-        <CardContent className="min-h-[20rem] space-y-4 py-6">
-          <div className="space-y-1.5">
-            <Label>Protocol</Label>
-            <Select value={protocolId} onValueChange={setProtocolId}>
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a published protocol" />
-              </SelectTrigger>
-              <SelectContent>
-                {published.map((protocol) => (
-                  <SelectItem key={protocol.id} value={protocol.id}>
-                    {protocol.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            {protocols.data && published.length === 0 && (
-              <p className="text-xs text-muted-foreground">
-                No published protocols. Train and publish a protocol first.
-              </p>
-            )}
-            {selectedProtocol && <ProtocolContext protocol={selectedProtocol} />}
-          </div>
-
-          {chemcellarUrl ? (
-            <div className="space-y-2">
-              <Label>Compounds</Label>
-              <Tabs value={tab} onValueChange={(value) => setTab(value as "csv" | "chemcellar")}>
-                <TabsList>
-                  <TabsTrigger value="csv">Upload CSV</TabsTrigger>
-                  <TabsTrigger value="chemcellar">From ChemCellar</TabsTrigger>
-                </TabsList>
-                {/* Both panes stay mounted, so the picker keeps its choice across
-                    tab switches and always agrees with what Predict submits. */}
-                <TabsContent
-                  value="csv"
-                  forceMount
-                  className="space-y-4 data-[state=inactive]:hidden"
-                >
-                  {csvPane}
-                </TabsContent>
-                <TabsContent
-                  value="chemcellar"
-                  forceMount
-                  className="space-y-4 data-[state=inactive]:hidden"
-                >
-                  {cellarPane}
-                </TabsContent>
-              </Tabs>
+      <div className="w-full min-w-0 max-w-3xl space-y-4">
+        <Card>
+          <CardContent className="min-h-[20rem] space-y-4 py-6">
+            <div className="space-y-1.5">
+              <Label htmlFor="prediction-protocol">Protocol</Label>
+              <ProtocolPicker
+                id="prediction-protocol"
+                protocols={published}
+                value={protocolId}
+                onChange={setProtocolId}
+                loading={protocols.isLoading}
+              />
+              {protocols.isError && (
+                <p role="alert" className="text-sm text-destructive">
+                  Could not load protocols.{" "}
+                  <button type="button" className="underline" onClick={() => protocols.refetch()}>
+                    Try again
+                  </button>
+                </p>
+              )}
+              {protocols.data && published.length === 0 && (
+                <div className="rounded-lg border border-dashed bg-muted/20 p-4">
+                  <p className="text-sm font-medium">No published protocols</p>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    Train a protocol and review its scorecard, or publish an existing draft.
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <Button asChild size="sm">
+                      <Link href="/protocols/new">Train a protocol</Link>
+                    </Button>
+                    <Button asChild size="sm" variant="outline">
+                      <Link href="/protocols">Review protocols</Link>
+                    </Button>
+                  </div>
+                </div>
+              )}
+              {selectedProtocol && <ProtocolContext protocol={selectedProtocol} />}
             </div>
-          ) : (
-            csvPane
-          )}
 
-          <div className="space-y-1.5">
-            <Label htmlFor="run-name">Run name</Label>
-            <Input
-              id="run-name"
-              value={name}
-              maxLength={200}
-              onChange={(e) => setName(e.target.value)}
-            />
-            <p className="text-xs text-muted-foreground">
-              Shown in the runs list. Defaults to the file name.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+            {chemcellarUrl ? (
+              <div className="space-y-2">
+                <Label>Compounds</Label>
+                <Tabs value={tab} onValueChange={(value) => setTab(value as "csv" | "chemcellar")}>
+                  <TabsList>
+                    <TabsTrigger value="csv">Upload CSV</TabsTrigger>
+                    <TabsTrigger value="chemcellar">From ChemCellar</TabsTrigger>
+                  </TabsList>
+                  {/* Both panes stay mounted, so the picker keeps its choice across
+                    tab switches and always agrees with what Predict submits. */}
+                  <TabsContent
+                    value="csv"
+                    forceMount
+                    className="space-y-4 data-[state=inactive]:hidden"
+                  >
+                    {csvPane}
+                  </TabsContent>
+                  <TabsContent
+                    value="chemcellar"
+                    forceMount
+                    className="space-y-4 data-[state=inactive]:hidden"
+                  >
+                    {cellarPane}
+                  </TabsContent>
+                </Tabs>
+              </div>
+            ) : (
+              csvPane
+            )}
 
-      <div className="flex items-center justify-between">
-        <Button variant="ghost" onClick={() => router.push("/runs")} disabled={busy}>
-          Cancel
-        </Button>
-        <Button onClick={submit} disabled={!protocolId || !ready || busy}>
-          {busy ? "Starting…" : `Predict ${count} compound${count === 1 ? "" : "s"}`}
-        </Button>
+            <div className="space-y-1.5">
+              <Label htmlFor="run-name">Run name</Label>
+              <Input
+                id="run-name"
+                value={name}
+                maxLength={200}
+                onChange={(e) => setName(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown in the runs list. Defaults to the file name.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="flex items-center justify-between">
+          <Button variant="ghost" onClick={() => router.push("/runs")} disabled={busy}>
+            Cancel
+          </Button>
+          <Button onClick={submit} disabled={!protocolId || !ready || busy}>
+            {busy ? "Starting…" : `Predict ${count} compound${count === 1 ? "" : "s"}`}
+          </Button>
+        </div>
+        {selectedProtocol && (
+          <p className="text-right text-xs text-muted-foreground">
+            Using {selectedProtocol.name}
+            {selectedProtocol.protocol_version != null &&
+              ` · v${selectedProtocol.protocol_version}`}
+          </p>
+        )}
       </div>
     </div>
   );

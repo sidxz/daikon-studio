@@ -51,7 +51,7 @@ from daikonstudio.application.catalog.publish_protocol import (
 )
 from daikonstudio.application.execution.train_protocol import TrainProtocol, TrainProtocolCommand
 from daikonstudio.application.folders.manage import FileItemCommand, FileProtocol
-from daikonstudio.domain.catalog.protocol import InSilicoProtocol
+from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
 from daikonstudio.domain.data.target import Direction
 from daikonstudio.domain.execution.scorecard import Scorecard, WorstRow
@@ -421,11 +421,21 @@ async def list_protocols(
     dataset_id: uuid.UUID | None = None,
     mine: bool = False,
     folder_id: uuid.UUID | None = None,
+    q: Annotated[str | None, Query(max_length=256)] = None,
+    engine_id: Annotated[str | None, Query(max_length=256)] = None,
+    status: ProtocolStatus | None = None,
 ) -> PaginatedResponse[ProtocolResponse]:
     page = result_to_response(
         await service(
             ListProtocolsQuery(
-                cursor=cursor, limit=limit, dataset_id=dataset_id, mine=mine, folder_id=folder_id
+                cursor=cursor,
+                limit=limit,
+                dataset_id=dataset_id,
+                mine=mine,
+                folder_id=folder_id,
+                q=q,
+                engine_id=engine_id,
+                status=status,
             ),
             auth=auth,
         )

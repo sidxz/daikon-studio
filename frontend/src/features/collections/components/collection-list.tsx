@@ -1,5 +1,7 @@
 "use client";
 
+import { PageHeader } from "@/shared/components/page-header";
+import { QueryError } from "@/shared/components/query-error";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import Link from "next/link";
@@ -10,31 +12,30 @@ import type { Collection } from "../types";
 export function CollectionList() {
   const [cursor, setCursor] = useState<string | undefined>();
   const [pages, setPages] = useState<Collection[]>([]);
-  const { data, isLoading, isError } = useCollections(cursor);
+  const { data, isLoading, isError, refetch, isFetching } = useCollections(cursor);
 
   const items = cursor ? [...pages, ...(data?.items ?? [])] : (data?.items ?? []);
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
-      <div>
-        <h1 className="text-lg font-semibold">Collections</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          A saved triage decision — the compounds you were willing to order, frozen with the run
-          they came from and marked as AI-predicted.
-        </p>
-      </div>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title="Collections"
+        description="Compounds you selected for follow-up, saved with their source run and marked as AI-predicted."
+      />
 
       {isLoading && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-24 w-full" />
         </div>
       )}
 
       {isError && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="text-sm font-medium text-destructive">Could not load collections</p>
-        </div>
+        <QueryError
+          title="Could not load collections"
+          retry={() => refetch()}
+          retrying={isFetching}
+        />
       )}
 
       {data && items.length === 0 && (
@@ -43,11 +44,14 @@ export function CollectionList() {
           <p className="mt-1 text-sm text-muted-foreground">
             Run a published protocol, then pick the compounds worth pursuing from its results.
           </p>
+          <Button asChild className="mt-4">
+            <Link href="/runs">Review runs</Link>
+          </Button>
         </div>
       )}
 
       {items.length > 0 && (
-        <div className="grid items-stretch gap-3 sm:grid-cols-2">
+        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {items.map((collection) => (
             <Link
               key={collection.id}

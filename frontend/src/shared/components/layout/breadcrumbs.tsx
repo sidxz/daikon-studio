@@ -37,24 +37,38 @@ export function Breadcrumbs() {
   // flash an empty crumb before its name arrives.
   if (trail && trail.length > 0 && trail[trail.length - 1].label) {
     return (
-      <nav className="flex items-center gap-1 text-sm" aria-label="Breadcrumb">
-        <Link href="/" className="text-muted-foreground transition-colors hover:text-foreground">
+      <nav className="flex min-w-0 items-center gap-1 text-sm" aria-label="Breadcrumb">
+        <Link
+          href="/"
+          aria-label="Dashboard"
+          className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+        >
           <Home className="size-3.5" />
         </Link>
         {trail.map((crumb, index) => {
           const isLast = index === trail.length - 1;
           return (
-            <span key={crumb.href ?? crumb.label} className="flex items-center gap-1">
-              <ChevronRight className="size-3 text-muted-foreground" />
+            <span
+              key={crumb.href ?? crumb.label}
+              className={
+                isLast
+                  ? "flex min-w-0 items-center gap-1"
+                  : "hidden min-w-0 items-center gap-1 md:flex"
+              }
+            >
+              <ChevronRight aria-hidden className="size-3 shrink-0 text-muted-foreground" />
               {!isLast && crumb.href ? (
                 <Link
                   href={crumb.href}
-                  className="text-muted-foreground transition-colors hover:text-foreground"
+                  className="truncate text-muted-foreground transition-colors hover:text-foreground"
                 >
                   {crumb.label}
                 </Link>
               ) : (
-                <span className={isLast ? "font-medium" : "text-muted-foreground"}>
+                <span
+                  aria-current={isLast ? "page" : undefined}
+                  className={isLast ? "truncate font-medium" : "truncate text-muted-foreground"}
+                >
                   {crumb.label}
                 </span>
               )}
@@ -77,25 +91,39 @@ export function Breadcrumbs() {
   }
 
   return (
-    <nav className="flex items-center gap-1 text-sm" aria-label="Breadcrumb">
-      <Link href="/" className="text-muted-foreground transition-colors hover:text-foreground">
+    <nav className="flex min-w-0 items-center gap-1 text-sm" aria-label="Breadcrumb">
+      <Link
+        href="/"
+        aria-label="Dashboard"
+        className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+      >
         <Home className="size-3.5" />
       </Link>
       {segments.map((segment, index) => {
         const href = `/${segments.slice(0, index + 1).join("/")}`;
         const isLast = index === segments.length - 1;
         return (
-          <span key={href} className="flex items-center gap-1">
-            <ChevronRight className="size-3 text-muted-foreground" />
+          <span
+            key={href}
+            className={
+              isLast
+                ? "flex min-w-0 items-center gap-1"
+                : "hidden min-w-0 items-center gap-1 md:flex"
+            }
+          >
+            <ChevronRight aria-hidden className="size-3 shrink-0 text-muted-foreground" />
             {!isLast && linkableHrefs.has(href) ? (
               <Link
                 href={href}
-                className="text-muted-foreground transition-colors hover:text-foreground"
+                className="truncate text-muted-foreground transition-colors hover:text-foreground"
               >
                 {resolveLabel(href, segment)}
               </Link>
             ) : (
-              <span className={isLast ? "font-medium" : "text-muted-foreground"}>
+              <span
+                aria-current={isLast ? "page" : undefined}
+                className={isLast ? "truncate font-medium" : "truncate text-muted-foreground"}
+              >
                 {resolveLabel(href, segment)}
               </span>
             )}

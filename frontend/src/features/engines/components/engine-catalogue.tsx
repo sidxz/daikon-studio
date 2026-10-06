@@ -1,5 +1,7 @@
 "use client";
 
+import { PageHeader } from "@/shared/components/page-header";
+import { QueryError } from "@/shared/components/query-error";
 import { Badge } from "@/shared/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -9,35 +11,28 @@ import { ConditionSummary } from "./condition-summary";
 import { EngineExplainer } from "./engine-explainer";
 
 export function EngineCatalogue() {
-  const { data: engines, isLoading, isError, error } = useEngines();
+  const { data: engines, isLoading, isError, refetch, isFetching } = useEngines();
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-6 p-2">
-      <div>
-        <h1 className="text-lg font-semibold">Engines</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Engines available for training protocols, with their settings.
-        </p>
-      </div>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title="Engines"
+        description="Explore the models available for training, their supported targets, and their settings."
+      />
 
       {isLoading && (
-        <div className="grid gap-4 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Skeleton className="h-56 w-full" />
           <Skeleton className="h-56 w-full" />
         </div>
       )}
 
       {isError && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="text-sm font-medium text-destructive">Could not load engines</p>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {error instanceof Error ? error.message : "Unknown error"}
-          </p>
-        </div>
+        <QueryError title="Could not load engines" retry={() => refetch()} retrying={isFetching} />
       )}
 
       {engines && (
-        <div className="grid items-stretch gap-4 sm:grid-cols-2">
+        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {engines.map((engine) => (
             <Card key={engine.id} className="flex h-full flex-col">
               <CardHeader>

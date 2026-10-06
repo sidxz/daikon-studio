@@ -4,7 +4,7 @@ import { persist } from "zustand/middleware";
 // Must match the key the anti-flash script in app/layout.tsx reads before hydration.
 const STORAGE_KEY = "ds-font";
 
-export type FontFamily = "plex" | "inter";
+export type FontFamily = "plex" | "inter" | "merriweather";
 
 interface FontFamilyState {
   font: FontFamily;
@@ -14,7 +14,7 @@ interface FontFamilyState {
 export const useFontFamilyStore = create<FontFamilyState>()(
   persist(
     (set) => ({
-      font: "plex",
+      font: "inter",
       setFont: (font) => set({ font }),
     }),
     { name: STORAGE_KEY },

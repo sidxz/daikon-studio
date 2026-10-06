@@ -13,7 +13,7 @@ from datetime import datetime
 
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
-from daikonstudio.domain.catalog.protocol import InSilicoProtocol
+from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 
 
 class AccessControlledProtocolRepository:
@@ -47,6 +47,9 @@ class AccessControlledProtocolRepository:
         only_ids: frozenset[uuid.UUID] | None = None,
         created_by: uuid.UUID | None = None,
         folder_id: uuid.UUID | None = None,
+        q: str | None = None,
+        engine_id: str | None = None,
+        status: ProtocolStatus | None = None,
     ) -> list[InSilicoProtocol]:
         return await self._inner.list(
             workspace_id,
@@ -56,6 +59,9 @@ class AccessControlledProtocolRepository:
             only_ids=only_ids,
             created_by=created_by,
             folder_id=folder_id,
+            q=q,
+            engine_id=engine_id,
+            status=status,
         )
 
     async def set_folder(

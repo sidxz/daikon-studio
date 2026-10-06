@@ -61,16 +61,15 @@ function Stack({ title, children }: { title: string; children: React.ReactNode }
 
 const Absent = () => <span className="text-muted-foreground">—</span>;
 
-/** P(active), with the cutoff it is called at; the accent fill means "called active". */
+/** P(class=1). A positive class does not imply a desirable compound. */
 export function ProbabilityCell({ value, cutoff }: { value: number | null; cutoff: number }) {
   if (value == null) return <Absent />;
-  const active = value >= cutoff;
   return (
     <Stack
-      title={`Probability ${value.toPrecision(3)}. Called active at ${formatCutoff(cutoff)} or above.`}
+      title={`Probability of class 1: ${value.toPrecision(3)}. Predicted positive at ${formatCutoff(cutoff)} or above.`}
     >
       <span className="tabular-nums">{formatThousandths(value)}</span>
-      <Meter fraction={value} fill={active ? "bg-primary" : "bg-foreground/50"} tick={cutoff} />
+      <Meter fraction={value} fill="bg-primary" tick={cutoff} />
     </Stack>
   );
 }
@@ -81,6 +80,7 @@ export function ClassCell({ value }: { value: number | null }) {
   const active = value >= 0.5;
   return (
     <span
+      title={active ? "Positive (class 1)" : "Negative (class 0)"}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-xs font-medium",
         active ? "bg-primary/10 text-foreground" : "border border-border text-muted-foreground",
@@ -93,7 +93,7 @@ export function ClassCell({ value }: { value: number | null }) {
           active ? "bg-primary" : "border border-muted-foreground",
         )}
       />
-      {active ? "Active" : "Inactive"}
+      {active ? "Positive" : "Negative"}
     </span>
   );
 }

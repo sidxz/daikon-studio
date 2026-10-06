@@ -25,7 +25,7 @@ export function DatasetBuildProgress({ build }: { build: DatasetBuildResponse })
   const percent = buildPercent(build);
 
   return (
-    <Card className="mx-auto w-full max-w-2xl">
+    <Card className="w-full min-w-0 max-w-3xl">
       <CardHeader>
         <CardTitle className="text-base">Building {build.name}</CardTitle>
         <p className="text-sm text-muted-foreground">

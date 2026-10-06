@@ -16,9 +16,10 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import CursorResult, Select, false, func, select, tuple_
+from sqlalchemy import CursorResult, Select, column, false, func, or_, select, tuple_
 from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -201,6 +202,9 @@ class SqlAlchemyProtocolRepository:
         only_ids: frozenset[uuid.UUID] | None = None,
         created_by: uuid.UUID | None = None,
         folder_id: uuid.UUID | None = None,
+        q: str | None = None,
+        engine_id: str | None = None,
+        status: ProtocolStatus | None = None,
     ) -> list[InSilicoProtocol]:
         statement = (
             select(InSilicoProtocolModel)
@@ -217,6 +221,28 @@ class SqlAlchemyProtocolRepository:
             statement = statement.where(InSilicoProtocolModel.created_by == created_by)
         if folder_id is not None:
             statement = statement.where(InSilicoProtocolModel.folder_id == folder_id)
+        if engine_id is not None:
+            statement = statement.where(InSilicoProtocolModel.engine_id == engine_id)
+        if status is not None:
+            statement = statement.where(InSilicoProtocolModel.status == status.value)
+        if q:
+            escaped = q.replace("\\", "\\\\").replace("%", r"\%").replace("_", r"\_")
+            pattern = f"%{escaped}%"
+            readout = (
+                func.jsonb_array_elements(InSilicoProtocolModel.readouts)
+                .table_valued(column("value", JSONB))
+                .alias("readout")
+            )
+            matching_readout = (
+                select(1)
+                .select_from(readout)
+                .where(readout.c.value["name"].astext.ilike(pattern, escape="\\"))
+                .correlate(InSilicoProtocolModel)
+                .exists()
+            )
+            statement = statement.where(
+                or_(InSilicoProtocolModel.name.ilike(pattern, escape="\\"), matching_readout)
+            )
         if cursor is not None:
             statement = statement.where(
                 tuple_(InSilicoProtocolModel.created_at, InSilicoProtocolModel.id) < cursor

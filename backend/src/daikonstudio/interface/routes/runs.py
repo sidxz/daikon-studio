@@ -18,7 +18,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.exceptions import RequestValidationError
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, StrictBool
 
 from daikonstudio.application.catalog.get_chemical_space import (
     MAX_LOOKUPS,
@@ -232,6 +232,8 @@ async def list_runs(
     mine: bool = False,
     status: Annotated[list[RunStatus] | None, Query()] = None,
     q: Annotated[str | None, Query(max_length=200)] = None,
+    created_from: AwareDatetime | None = None,
+    created_before: AwareDatetime | None = None,
     cursor: str | None = None,
     limit: int | None = None,
 ) -> PaginatedResponse[RunResponse]:
@@ -248,6 +250,8 @@ async def list_runs(
                 mine=mine,
                 statuses=tuple(status or ()),
                 q=q,
+                created_from=created_from,
+                created_before=created_before,
                 cursor=cursor,
                 limit=limit,
             ),
@@ -510,6 +514,33 @@ async def export_run_results(
         content=content,
         media_type=XLSX_MEDIA_TYPE,
         headers={"Content-Disposition": f'attachment; filename="results-{run_id}.xlsx"'},
+    )
+
+
+class ExportSelectedResultsBody(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    row_ids: list[Annotated[int, Field(strict=True, ge=0)]] = Field(
+        min_length=1, max_length=1_048_575
+    )
+
+
+@router.post("/{run_id}/results/export")
+async def export_selected_run_results(
+    run_id: uuid.UUID,
+    body: ExportSelectedResultsBody,
+    auth: AuthDep,
+    service: ExportPredictionResultsDep,
+) -> Response:
+    """Export the selected original row IDs, including rows hidden by UI filters."""
+    content = result_to_response(
+        await service(
+            ExportPredictionResultsQuery(run_id=run_id, row_ids=tuple(body.row_ids)), auth=auth
+        )
+    )
+    return Response(
+        content=content,
+        media_type=XLSX_MEDIA_TYPE,
+        headers={"Content-Disposition": f'attachment; filename="selected-results-{run_id}.xlsx"'},
     )
 
 

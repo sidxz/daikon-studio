@@ -514,6 +514,55 @@
               ],
               "title": "Folder Id"
             }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "target_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/TargetKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Target Kind"
+            }
+          },
+          {
+            "name": "split_strategy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SplitStrategy"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Split Strategy"
+            }
           }
         ],
         "responses": {
@@ -709,7 +758,7 @@
           "datasets"
         ],
         "summary": "File Dataset",
-        "description": "Any editor; `null` unfiles it. Organisation only: nothing frozen changes.",
+        "description": "Any editor; `null` unfiles it. Organization only: nothing frozen changes.",
         "operationId": "file_dataset_api_v1_datasets__dataset_id__folder_put",
         "parameters": [
           {
@@ -1380,6 +1429,56 @@
                 }
               ],
               "title": "Folder Id"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          },
+          {
+            "name": "engine_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 256
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Engine Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/ProtocolStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
             }
           }
         ],
@@ -2404,6 +2503,40 @@
             }
           },
           {
+            "name": "created_from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created From"
+            }
+          },
+          {
+            "name": "created_before",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Created Before"
+            }
+          },
+          {
             "name": "cursor",
             "in": "query",
             "required": false,
@@ -2841,6 +2974,56 @@
             }
           }
         ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "summary": "Export Selected Run Results",
+        "description": "Export the selected original row IDs, including rows hidden by UI filters.",
+        "operationId": "export_selected_run_results_api_v1_runs__run_id__results_export_post",
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Run Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ExportSelectedResultsBody"
+              }
+            }
+          }
+        },
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4872,6 +5055,26 @@
         ],
         "title": "ExportFormat"
       },
+      "ExportSelectedResultsBody": {
+        "properties": {
+          "row_ids": {
+            "items": {
+              "type": "integer",
+              "minimum": 0.0
+            },
+            "type": "array",
+            "maxItems": 1048575,
+            "minItems": 1,
+            "title": "Row Ids"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "row_ids"
+        ],
+        "title": "ExportSelectedResultsBody"
+      },
       "FolderBody": {
         "properties": {
           "folder_id": {
@@ -5791,6 +5994,14 @@
           "folder_id"
         ],
         "title": "ProtocolResponse"
+      },
+      "ProtocolStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "published"
+        ],
+        "title": "ProtocolStatus"
       },
       "ProvenanceResponse": {
         "properties": {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useDataset } from "@/features/datasets";
+import { PageHeader } from "@/shared/components/page-header";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -76,7 +77,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
 
   if (isLoading) {
     return (
-      <div className="mx-auto w-full max-w-5xl space-y-4 p-2">
+      <div className="w-full min-w-0 space-y-4">
         <Skeleton className="h-8 w-64" />
         <Skeleton className="h-32 w-full" />
       </div>
@@ -86,7 +87,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
   if (isError || !protocol) {
     const missing = error instanceof ApiError && error.status === 404;
     return (
-      <div className="mx-auto w-full max-w-5xl p-2">
+      <div className="w-full min-w-0 space-y-4">
         <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
           <p className="text-sm font-medium text-destructive">
             {missing
@@ -101,16 +102,18 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
   const published = protocol.status !== "draft";
 
   return (
-    <div className="mx-auto w-full max-w-5xl space-y-4 p-2">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-lg font-semibold">{protocol.name}</h1>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title={
+          <span className="inline-flex flex-wrap items-center gap-2">
+            {protocol.name}
             <Badge variant={published ? "default" : "outline"} className="font-normal">
               {published ? "Published" : "Draft"}
             </Badge>
-          </div>
-          <p className="mt-1 text-sm text-muted-foreground">
+          </span>
+        }
+        description={
+          <>
             {protocol.engine_id}
             {dataset && (
               <>
@@ -121,21 +124,23 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
               </>
             )}
             {creator && ` · Created by ${creator}`}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          {protocol.can_delete && <DeleteProtocolButton protocol={protocol} />}
-          {published ? (
-            <Button asChild>
-              <Link href={`/runs/new?protocol=${protocol.id}`}>Run this protocol</Link>
-            </Button>
-          ) : (
-            <Button onClick={() => setConfirming(true)} disabled={publish.isPending}>
-              {publish.isPending ? "Publishing…" : "Publish"}
-            </Button>
-          )}
-        </div>
-      </div>
+          </>
+        }
+        action={
+          <>
+            {protocol.can_delete && <DeleteProtocolButton protocol={protocol} />}
+            {published ? (
+              <Button asChild>
+                <Link href={`/runs/new?protocol=${protocol.id}`}>Run this protocol</Link>
+              </Button>
+            ) : (
+              <Button onClick={() => setConfirming(true)} disabled={publish.isPending}>
+                {publish.isPending ? "Publishing…" : "Publish"}
+              </Button>
+            )}
+          </>
+        }
+      />
 
       <Card>
         <CardHeader className="pb-2">

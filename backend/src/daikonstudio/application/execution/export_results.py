@@ -60,6 +60,7 @@ class ExportPredictionResultsQuery:
     run_id: uuid.UUID
     sort: SortSpec | None = None
     filters: tuple[RangeFilter, ...] = ()
+    row_ids: tuple[int, ...] | None = None
 
 
 class ExportPredictionResults:
@@ -89,6 +90,20 @@ class ExportPredictionResults:
         if not is_successful(viewed):
             return Failure(viewed.failure())
         rows = viewed.unwrap()
+        if query.row_ids is not None:
+            # Selected handles always refer to the original result file, including
+            # compounds hidden by the current UI filter. No filter is reapplied.
+            if query.sort is not None or query.filters:
+                return Failure(ValidationError("Choose either selected rows or a filtered view."))
+            if not query.row_ids or len(set(query.row_ids)) != len(query.row_ids):
+                return Failure(
+                    ValidationError("Select at least one compound, without duplicates.")
+                )
+            if any(row_id < 0 or row_id >= frame.height for row_id in query.row_ids):
+                return Failure(
+                    ValidationError("Some selected rows are outside this run's results.")
+                )
+            rows = rows[list(query.row_ids)]
         if rows.height > _EXCEL_MAX_ROWS:
             return Failure(
                 ValidationError(
@@ -111,6 +126,7 @@ class ExportPredictionResults:
             upload_note=upload_note,
             sort=query.sort,
             filters=query.filters,
+            selected=query.row_ids is not None,
         )
         return Success(content)
 
@@ -203,10 +219,13 @@ def _meanings(
                 "Empty when the model does not report it."
             )
         elif readout.type is ReadoutType.PROBABILITY:
-            text = "The model's estimated chance that the compound is active, from 0 to 1."
+            text = "The model's estimated probability of class 1 (positive), from 0 to 1."
         elif readout.type is ReadoutType.CLASS:
             cutoff = _cutoff(readout.threshold if readout.threshold is not None else 0.5)
-            text = f"Active when the estimated chance is at least {cutoff}, otherwise Inactive."
+            text = (
+                f"Positive (class 1) when the estimated probability is at least {cutoff}, "
+                "otherwise Negative (class 0)."
+            )
         else:
             unit = f", in {readout.unit}" if readout.unit else ""
             text = f"The model's predicted {readout.name}{unit}."
@@ -252,6 +271,7 @@ def _workbook(
     upload_note: str | None,
     sort: SortSpec | None,
     filters: tuple[RangeFilter, ...],
+    selected: bool = False,
 ) -> bytes:
     labels = _labels(protocol, rows)
     readouts = {readout.name: readout for readout in protocol.readouts}
@@ -294,7 +314,9 @@ def _workbook(
     about.column_dimensions["A"].width = 36
     about.column_dimensions["B"].width = 100
     sorted_by = (
-        "Upload order"
+        "Selection order"
+        if selected
+        else "Upload order"
         if sort is None
         else f"{labels[sort.column]}, {'highest' if sort.descending else 'lowest'} first"
     )
@@ -308,6 +330,11 @@ def _workbook(
         ["Run started", created],
         *([["Compounds from", source]] if source else []),
         ["Compounds in this file", f"{rows.height:,} of {total:,} scored"],
+        [
+            "Scope",
+            "Selected compounds" if selected else "Filtered results" if filters else "All results",
+        ],
+        ["Generation method", "AI-predicted"],
         ["Filters", "; ".join(f"{labels[f.column]}: {_bounds(f)}" for f in filters) or "None"],
         ["Sorted by", sorted_by],
         *([["Your uploaded columns", upload_note]] if upload_note else []),
@@ -336,7 +363,7 @@ def _shown(column: str, dtype: pl.DataType, readout: Readout | None) -> pl.Expr:
     if readout is not None and readout.type is ReadoutType.CLASS:
         # Already 1 or 0, decided at the Protocol's own cutoff when the run was scored
         # (`RunPrediction`); this only names it. Null stays empty.
-        active, inactive = pl.lit("Active"), pl.lit("Inactive")
+        active, inactive = pl.lit("Positive"), pl.lit("Negative")
         return pl.when(value == 1.0).then(active).when(value == 0.0).then(inactive).alias(column)
     if dtype.is_float():
         return value.fill_nan(None)

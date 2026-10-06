@@ -17,7 +17,7 @@ export interface ResultParams {
   filters?: string;
 }
 
-interface NumberFilter {
+export interface NumberFilter {
   filterType?: string;
   type?: string;
   filter?: number | null;
@@ -29,8 +29,9 @@ interface Bounds {
   max?: number;
 }
 
-function boundsFor(model: NumberFilter): Bounds | null {
+export function boundsFor(model: NumberFilter): Bounds | null {
   const { type, filter, filterTo } = model;
+  if (type === "equals" && filter != null) return { min: filter, max: filter };
   if (type === "greaterThanOrEqual" && filter != null) return { min: filter };
   if (type === "lessThanOrEqual" && filter != null) return { max: filter };
   if (type === "inRange" && filter != null && filterTo != null)

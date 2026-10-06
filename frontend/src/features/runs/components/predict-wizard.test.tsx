@@ -29,8 +29,8 @@ vi.mock("@/features/datasets", () => ({
 }));
 vi.mock("@/features/engines", () => ({ useEngines: () => ({ data: [] }) }));
 vi.mock("@/features/protocols", () => ({
-  useProtocols: () => ({
-    data: { items: [{ id: "p1", name: "Protocol one", status: "published", readouts: [] }] },
+  useProtocolOptions: () => ({
+    data: [{ id: "p1", name: "Protocol one", status: "published", readouts: [] }],
   }),
 }));
 vi.mock("../hooks/use-runs", () => ({

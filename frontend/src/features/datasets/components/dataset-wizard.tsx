@@ -2,6 +2,7 @@
 
 import { Explainer } from "@/shared/components/explainers/explainer";
 import { SPLIT_MS, SplitFigure, splitCaption } from "@/shared/components/explainers/figures/split";
+import { PageHeader } from "@/shared/components/page-header";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Checkbox } from "@/shared/components/ui/checkbox";
@@ -44,11 +45,15 @@ const STEPS = ["File", "Columns", "Targets", "Split"] as const;
 
 function StepIndicator({ current }: { current: number }) {
   return (
-    <ol className="flex items-center gap-2 text-xs">
+    <ol aria-label="Dataset setup progress" className="flex flex-wrap items-center gap-2 text-sm">
       {STEPS.map((label, index) => {
         const state = index === current ? "current" : index < current ? "done" : "todo";
         return (
-          <li key={label} className="flex items-center gap-2">
+          <li
+            key={label}
+            aria-current={state === "current" ? "step" : undefined}
+            className="flex items-center gap-2"
+          >
             <span
               className={
                 state === "current"
@@ -185,7 +190,7 @@ export function DatasetWizard() {
 
   if (buildId !== null && build.data?.status === "running") {
     return (
-      <div className="p-2">
+      <div className="w-full min-w-0 space-y-4">
         <DatasetBuildProgress build={build.data} />
       </div>
     );
@@ -193,13 +198,11 @@ export function DatasetWizard() {
 
   if (rejection) {
     return (
-      <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
-        <div>
-          <h1 className="text-lg font-semibold text-destructive">Validation failed</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            No dataset was created. Correct the rows listed below and upload the file again.
-          </p>
-        </div>
+      <div className="w-full min-w-0 space-y-4">
+        <PageHeader
+          title={<span className="text-destructive">Validation failed</span>}
+          description="No dataset was created. Correct the rows listed below and upload the file again."
+        />
         <ValidationReportView report={rejection} rejected />
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={() => router.push("/datasets")}>
@@ -212,310 +215,315 @@ export function DatasetWizard() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-3xl space-y-4 p-2">
-      <div className="flex items-center justify-between gap-4">
-        <h1 className="text-lg font-semibold">New dataset</h1>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title="New dataset"
+        description="Upload your structures and measurements, then choose how to prepare them for training."
+      />
+      <div className="w-full min-w-0 max-w-3xl space-y-4">
         <StepIndicator current={step} />
-      </div>
 
-      {/* Fixed min-height so the panel never resizes between steps. */}
-      <Card>
-        <CardContent className="min-h-[22rem] py-6">
-          {step === 0 && (
-            <div {...getRootProps()} className="flex h-full flex-col">
-              <input {...getInputProps()} />
-              <button
-                type="button"
-                onClick={open}
-                className={`flex flex-1 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
-                  isDragActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
-                }`}
-              >
-                <FileUp className="size-8 text-muted-foreground" />
-                <span className="text-sm font-medium">Drop a CSV here, or click to choose one</span>
-                <span className="max-w-sm text-xs text-muted-foreground">
-                  A SMILES column and at least one target column are required. Other columns are not
-                  used for training.
-                </span>
-              </button>
-              <div className="mt-4 flex items-center justify-between">
-                <span className="text-xs text-muted-foreground">Not sure of the format?</span>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    saveText(DATASET_TEMPLATE_CSV, "daikon-studio-dataset-template.csv")
-                  }
+        {/* Fixed min-height so the panel never resizes between steps. */}
+        <Card>
+          <CardContent className="min-h-[22rem] py-6">
+            {step === 0 && (
+              <div {...getRootProps()} className="flex h-full flex-col">
+                <input {...getInputProps()} />
+                <button
+                  type="button"
+                  onClick={open}
+                  className={`flex flex-1 cursor-pointer flex-col items-center justify-center gap-3 rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
+                    isDragActive ? "border-primary bg-primary/5" : "border-border hover:bg-muted/40"
+                  }`}
                 >
-                  <Download className="size-4" />
-                  Download template
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {step === 1 && preview && (
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label htmlFor="dataset-name">Name</Label>
-                <Input
-                  id="dataset-name"
-                  value={draft.name}
-                  onChange={(event) => patch({ name: event.target.value })}
-                  placeholder="e.g. ESOL aqueous solubility"
-                />
-              </div>
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1.5">
-                  <Label>Structures</Label>
-                  <Select
-                    value={draft.structureColumn}
-                    onValueChange={(value) =>
-                      setDraft((prev) => withColumns(prev, { structureColumn: value }))
+                  <FileUp className="size-8 text-muted-foreground" />
+                  <span className="text-sm font-medium">
+                    Drop a CSV here, or click to choose one
+                  </span>
+                  <span className="max-w-sm text-xs text-muted-foreground">
+                    A SMILES column and at least one target column are required. Other columns are
+                    not used for training.
+                  </span>
+                </button>
+                <div className="mt-4 flex items-center justify-between">
+                  <span className="text-xs text-muted-foreground">Not sure of the format?</span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() =>
+                      saveText(DATASET_TEMPLATE_CSV, "daikon-studio-dataset-template.csv")
                     }
                   >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {preview.columns.map((column) => (
-                        <SelectItem key={column} value={column}>
-                          {column}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <Download className="size-4" />
+                    Download template
+                  </Button>
                 </div>
+              </div>
+            )}
+
+            {step === 1 && preview && (
+              <div className="space-y-4">
                 <div className="space-y-1.5">
-                  <Label>Target columns</Label>
-                  <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border p-2">
-                    {preview.columns.map((column, index) =>
-                      column === draft.structureColumn ? null : (
-                        <div key={column} className="flex items-center gap-2">
-                          <Checkbox
-                            id={`target-${index}`}
-                            checked={draft.targets.some((target) => target.column === column)}
-                            onCheckedChange={(checked) =>
-                              setDraft((prev) =>
-                                toggleTarget(prev, column, checked === true, preview.rows),
-                              )
-                            }
-                          />
-                          <Label htmlFor={`target-${index}`} className="font-mono font-normal">
-                            {column}
-                          </Label>
-                        </div>
-                      ),
-                    )}
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    Choose one or more. Every compound needs a value in each.
-                  </p>
+                  <Label htmlFor="dataset-name">Name</Label>
+                  <Input
+                    id="dataset-name"
+                    value={draft.name}
+                    onChange={(event) => patch({ name: event.target.value })}
+                    placeholder="e.g. ESOL aqueous solubility"
+                  />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Identifier (optional)</Label>
-                  <Select
-                    value={draft.idColumn ?? NO_ID}
-                    onValueChange={(value) => patch({ idColumn: value === NO_ID ? null : value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={NO_ID}>None</SelectItem>
-                      {preview.columns
-                        .filter(
-                          (column) =>
-                            column !== draft.structureColumn &&
-                            !draft.targets.some((target) => target.column === column),
-                        )
-                        .map((column) => (
+                <div className="grid gap-4 sm:grid-cols-3">
+                  <div className="space-y-1.5">
+                    <Label>Structures</Label>
+                    <Select
+                      value={draft.structureColumn}
+                      onValueChange={(value) =>
+                        setDraft((prev) => withColumns(prev, { structureColumn: value }))
+                      }
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {preview.columns.map((column) => (
                           <SelectItem key={column} value={column}>
                             {column}
                           </SelectItem>
                         ))}
-                    </SelectContent>
-                  </Select>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Target columns</Label>
+                    <div className="max-h-48 space-y-1.5 overflow-y-auto rounded-md border p-2">
+                      {preview.columns.map((column, index) =>
+                        column === draft.structureColumn ? null : (
+                          <div key={column} className="flex items-center gap-2">
+                            <Checkbox
+                              id={`target-${index}`}
+                              checked={draft.targets.some((target) => target.column === column)}
+                              onCheckedChange={(checked) =>
+                                setDraft((prev) =>
+                                  toggleTarget(prev, column, checked === true, preview.rows),
+                                )
+                              }
+                            />
+                            <Label htmlFor={`target-${index}`} className="font-mono font-normal">
+                              {column}
+                            </Label>
+                          </div>
+                        ),
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      Choose one or more. Every compound needs a value in each.
+                    </p>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label>Identifier (optional)</Label>
+                    <Select
+                      value={draft.idColumn ?? NO_ID}
+                      onValueChange={(value) => patch({ idColumn: value === NO_ID ? null : value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={NO_ID}>None</SelectItem>
+                        {preview.columns
+                          .filter(
+                            (column) =>
+                              column !== draft.structureColumn &&
+                              !draft.targets.some((target) => target.column === column),
+                          )
+                          .map((column) => (
+                            <SelectItem key={column} value={column}>
+                              {column}
+                            </SelectItem>
+                          ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </div>
-              </div>
-              <div className="overflow-x-auto rounded-lg border">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b bg-muted/40 text-left">
-                      {preview.columns.map((column) => (
-                        <th key={column} className="whitespace-nowrap px-3 py-2 font-medium">
-                          {column}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.rows.slice(0, 4).map((row, index) => (
-                      // biome-ignore lint/suspicious/noArrayIndexKey: preview rows have no id and never reorder
-                      <tr key={index} className="border-b last:border-0">
+                <div className="overflow-x-auto rounded-lg border">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b bg-muted/40 text-left">
                         {preview.columns.map((column) => (
-                          <td
-                            key={column}
-                            className="max-w-56 truncate px-3 py-1.5 font-mono text-muted-foreground"
-                          >
-                            {row[column]}
-                          </td>
+                          <th key={column} className="whitespace-nowrap px-3 py-2 font-medium">
+                            {column}
+                          </th>
                         ))}
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-
-          {step === 2 && (
-            <div className="space-y-6">
-              {draft.targets.map((target) => (
-                <div key={target.column} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label>
-                      What kind of value is <span className="font-mono">{target.column}</span>?
-                    </Label>
-                    <div className="grid gap-2 sm:grid-cols-2">
-                      {(["numeric", "binary"] as const).map((kind) => (
-                        <button
-                          key={kind}
-                          type="button"
-                          onClick={() => patchTarget(target.column, { kind })}
-                          className={`h-full rounded-lg border p-3 text-left transition-colors ${
-                            target.kind === kind
-                              ? "border-primary bg-primary/5"
-                              : "border-border hover:bg-muted/40"
-                          }`}
-                        >
-                          <span className="text-sm font-medium">
-                            {TARGET_KIND_COPY[kind].title}
-                          </span>
-                          <span className="mt-1 block text-xs text-muted-foreground">
-                            {TARGET_KIND_COPY[kind].detail}
-                          </span>
-                        </button>
+                    </thead>
+                    <tbody>
+                      {preview.rows.slice(0, 4).map((row, index) => (
+                        // biome-ignore lint/suspicious/noArrayIndexKey: preview rows have no id and never reorder
+                        <tr key={index} className="border-b last:border-0">
+                          {preview.columns.map((column) => (
+                            <td
+                              key={column}
+                              className="max-w-56 truncate px-3 py-1.5 font-mono text-muted-foreground"
+                            >
+                              {row[column]}
+                            </td>
+                          ))}
+                        </tr>
                       ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {step === 2 && (
+              <div className="space-y-6">
+                {draft.targets.map((target) => (
+                  <div key={target.column} className="space-y-4">
+                    <div className="space-y-2">
+                      <Label>
+                        What kind of value is <span className="font-mono">{target.column}</span>?
+                      </Label>
+                      <div className="grid gap-2 sm:grid-cols-2">
+                        {(["numeric", "binary"] as const).map((kind) => (
+                          <button
+                            key={kind}
+                            type="button"
+                            onClick={() => patchTarget(target.column, { kind })}
+                            className={`h-full rounded-lg border p-3 text-left transition-colors ${
+                              target.kind === kind
+                                ? "border-primary bg-primary/5"
+                                : "border-border hover:bg-muted/40"
+                            }`}
+                          >
+                            <span className="text-sm font-medium">
+                              {TARGET_KIND_COPY[kind].title}
+                            </span>
+                            <span className="mt-1 block text-xs text-muted-foreground">
+                              {TARGET_KIND_COPY[kind].detail}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
                     </div>
+                    {target.kind === "numeric" && (
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <div className="space-y-1.5">
+                          <Label htmlFor={`unit-${target.column}`}>Unit</Label>
+                          <Input
+                            id={`unit-${target.column}`}
+                            value={target.unit}
+                            onChange={(event) =>
+                              patchTarget(target.column, { unit: event.target.value })
+                            }
+                            placeholder="µM, log mol/L, kcal/mol…"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Shown with every predicted value.
+                          </p>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Preferred direction</Label>
+                          <Select
+                            value={target.direction || "high"}
+                            onValueChange={(value) =>
+                              patchTarget(target.column, { direction: value as "high" | "low" })
+                            }
+                          >
+                            <SelectTrigger>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="high">Higher is better</SelectItem>
+                              <SelectItem value="low">Lower is better</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <p className="text-xs text-muted-foreground">
+                            Used when ranking triage results and when judging a model against its
+                            baseline.
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  {target.kind === "numeric" && (
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-1.5">
-                        <Label htmlFor={`unit-${target.column}`}>Unit</Label>
-                        <Input
-                          id={`unit-${target.column}`}
-                          value={target.unit}
-                          onChange={(event) =>
-                            patchTarget(target.column, { unit: event.target.value })
-                          }
-                          placeholder="µM, log mol/L, kcal/mol…"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          Shown with every predicted value.
-                        </p>
-                      </div>
-                      <div className="space-y-1.5">
-                        <Label>Preferred direction</Label>
-                        <Select
-                          value={target.direction || "high"}
-                          onValueChange={(value) =>
-                            patchTarget(target.column, { direction: value as "high" | "low" })
-                          }
-                        >
-                          <SelectTrigger>
-                            <SelectValue />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="high">Higher is better</SelectItem>
-                            <SelectItem value="low">Lower is better</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <p className="text-xs text-muted-foreground">
-                          Used when ranking triage results and when judging a model against its
-                          baseline.
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          )}
+                ))}
+              </div>
+            )}
 
-          {step === 3 && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label>How should the test set be held out?</Label>
-                <div className="grid gap-2">
-                  {(["scaffold", "random"] as const).map((strategy) => (
-                    <button
-                      key={strategy}
-                      type="button"
-                      onClick={() => patch({ strategy })}
-                      className={`h-full rounded-lg border p-3 text-left transition-colors ${
-                        draft.strategy === strategy
-                          ? "border-primary bg-primary/5"
-                          : "border-border hover:bg-muted/40"
-                      }`}
-                    >
-                      <span className="text-sm font-medium">
-                        {SPLIT_COPY[strategy].title}
-                        {strategy === "scaffold" && (
-                          <span className="ml-2 text-xs font-normal text-muted-foreground">
-                            Recommended
-                          </span>
-                        )}
-                      </span>
-                      <span className="mt-1 block text-xs text-muted-foreground">
-                        {SPLIT_COPY[strategy].detail}
-                      </span>
-                    </button>
-                  ))}
+            {step === 3 && (
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <Label>How should the test set be held out?</Label>
+                  <div className="grid gap-2">
+                    {(["scaffold", "random"] as const).map((strategy) => (
+                      <button
+                        key={strategy}
+                        type="button"
+                        onClick={() => patch({ strategy })}
+                        className={`h-full rounded-lg border p-3 text-left transition-colors ${
+                          draft.strategy === strategy
+                            ? "border-primary bg-primary/5"
+                            : "border-border hover:bg-muted/40"
+                        }`}
+                      >
+                        <span className="text-sm font-medium">
+                          {SPLIT_COPY[strategy].title}
+                          {strategy === "scaffold" && (
+                            <span className="ml-2 text-xs font-normal text-muted-foreground">
+                              Recommended
+                            </span>
+                          )}
+                        </span>
+                        <span className="mt-1 block text-xs text-muted-foreground">
+                          {SPLIT_COPY[strategy].detail}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <Explainer
+                  id="split"
+                  durationMs={SPLIT_MS}
+                  caption={splitCaption(draft.strategy)}
+                  replayKey={draft.strategy}
+                >
+                  {(t) => <SplitFigure t={t} strategy={draft.strategy} />}
+                </Explainer>
+                <div className="w-40 space-y-1.5">
+                  <Label htmlFor="seed">Seed</Label>
+                  <Input
+                    id="seed"
+                    type="number"
+                    value={draft.seed}
+                    onChange={(event) => patch({ seed: Number(event.target.value) })}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Frozen with the dataset, so the split is reproducible and citable.
+                  </p>
                 </div>
               </div>
-              <Explainer
-                id="split"
-                durationMs={SPLIT_MS}
-                caption={splitCaption(draft.strategy)}
-                replayKey={draft.strategy}
-              >
-                {(t) => <SplitFigure t={t} strategy={draft.strategy} />}
-              </Explainer>
-              <div className="w-40 space-y-1.5">
-                <Label htmlFor="seed">Seed</Label>
-                <Input
-                  id="seed"
-                  type="number"
-                  value={draft.seed}
-                  onChange={(event) => patch({ seed: Number(event.target.value) })}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Frozen with the dataset, so the split is reproducible and citable.
-                </p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+            )}
+          </CardContent>
+        </Card>
 
-      <div className="flex items-center justify-between">
-        <Button
-          variant="ghost"
-          onClick={() => (step === 0 ? router.push("/datasets") : setStep(step - 1))}
-          disabled={busy}
-        >
-          {step === 0 ? "Cancel" : "Back"}
-        </Button>
-        {step < STEPS.length - 1 ? (
-          <Button onClick={() => setStep(step + 1)} disabled={!canContinue || busy}>
-            Continue
+        <div className="flex items-center justify-between">
+          <Button
+            variant="ghost"
+            onClick={() => (step === 0 ? router.push("/datasets") : setStep(step - 1))}
+            disabled={busy}
+          >
+            {step === 0 ? "Cancel" : "Back"}
           </Button>
-        ) : (
-          <Button onClick={submit} disabled={!canContinue || busy}>
-            {busy ? "Validating…" : "Validate and freeze"}
-          </Button>
-        )}
+          {step < STEPS.length - 1 ? (
+            <Button onClick={() => setStep(step + 1)} disabled={!canContinue || busy}>
+              Continue
+            </Button>
+          ) : (
+            <Button onClick={submit} disabled={!canContinue || busy}>
+              {busy ? "Validating…" : "Validate and freeze"}
+            </Button>
+          )}
+        </div>
       </div>
     </div>
   );

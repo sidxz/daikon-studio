@@ -1,6 +1,8 @@
 "use client";
 
 import { RUN_STATUS_COPY } from "@/features/runs";
+import { PageHeader } from "@/shared/components/page-header";
+import { QueryError } from "@/shared/components/query-error";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -40,37 +42,33 @@ function SweepRow({ sweep }: { sweep: Sweep }) {
 }
 
 export function SweepList() {
-  const { data, isLoading, isError } = useSweeps();
+  const { data, isLoading, isError, refetch, isFetching } = useSweeps();
   const items = data?.items ?? [];
 
   return (
-    <div className="mx-auto w-full max-w-4xl space-y-4 p-2">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-lg font-semibold">Sweeps</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Compare engine configurations on one dataset, target by target.
-          </p>
-        </div>
-        <Button asChild>
-          <Link href="/sweeps/new">
-            <Plus className="size-4" />
-            New sweep
-          </Link>
-        </Button>
-      </div>
+    <div className="w-full min-w-0 space-y-4">
+      <PageHeader
+        title="Sweeps"
+        description="Compare engine configurations on one dataset, target by target."
+        action={
+          <Button asChild>
+            <Link href="/sweeps/new">
+              <Plus className="size-4" />
+              New sweep
+            </Link>
+          </Button>
+        }
+      />
 
       {isLoading && (
-        <div className="grid gap-3 sm:grid-cols-2">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           <Skeleton className="h-20 w-full" />
           <Skeleton className="h-20 w-full" />
         </div>
       )}
 
       {isError && (
-        <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-4">
-          <p className="text-sm font-medium text-destructive">Could not load sweeps</p>
-        </div>
+        <QueryError title="Could not load sweeps" retry={() => refetch()} retrying={isFetching} />
       )}
 
       {data && items.length === 0 && (
@@ -89,7 +87,7 @@ export function SweepList() {
       )}
 
       {items.length > 0 && (
-        <div className="grid items-stretch gap-3 sm:grid-cols-2">
+        <div className="grid items-stretch gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {items.map((sweep) => (
             <SweepRow key={sweep.sweep_id} sweep={sweep} />
           ))}

@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from datetime import datetime
 from typing import Protocol
 
-from daikonstudio.domain.catalog.protocol import InSilicoProtocol
+from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatus
 
 
 class ProtocolRepository(Protocol):
@@ -39,6 +39,9 @@ class ProtocolRepository(Protocol):
         only_ids: frozenset[uuid.UUID] | None = None,
         created_by: uuid.UUID | None = None,
         folder_id: uuid.UUID | None = None,
+        q: str | None = None,
+        engine_id: str | None = None,
+        status: ProtocolStatus | None = None,
     ) -> list[InSilicoProtocol]: ...
 
     async def set_folder(

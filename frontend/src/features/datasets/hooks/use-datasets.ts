@@ -16,6 +16,8 @@ import type {
   PaginatedResponseDatasetResponse,
   PaginatedResponseProtocolResponse,
   ProfileComputingResponse,
+  SplitStrategy,
+  TargetKind,
   UploadResponse,
 } from "@/shared/lib/api/model";
 import { showSuccess } from "@/shared/lib/toast";
@@ -33,7 +35,14 @@ import {
  * A picker passes `limit: 200`, the server's cap, to see past the default page of 50.
  * ponytail: a picker sees the newest 200; past that it needs search, not a bigger page.
  */
-export function useDatasets(cursor?: string, limit?: number, filters?: { folderId?: string }) {
+export interface DatasetFilters {
+  folderId?: string;
+  q?: string;
+  targetKind?: TargetKind;
+  splitStrategy?: SplitStrategy;
+}
+
+export function useDatasets(cursor?: string, limit?: number, filters?: DatasetFilters) {
   return useQuery({
     queryKey: [...DATASETS_KEY, cursor ?? null, limit ?? null, filters ?? null],
     queryFn: () =>
@@ -42,7 +51,14 @@ export function useDatasets(cursor?: string, limit?: number, filters?: { folderI
         method: "GET",
         // URLSearchParams percent-encodes, which is what keeps an opaque
         // base64 cursor intact through the round trip.
-        params: { cursor, limit, folder_id: filters?.folderId },
+        params: {
+          cursor,
+          limit,
+          folder_id: filters?.folderId,
+          q: filters?.q,
+          target_kind: filters?.targetKind,
+          split_strategy: filters?.splitStrategy,
+        },
       }),
   });
 }
