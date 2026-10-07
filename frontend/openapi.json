@@ -5011,7 +5011,14 @@
             ]
           },
           "scaffolds": {
-            "$ref": "#/components/schemas/ScaffoldProfileResponse"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScaffoldProfileResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "descriptors": {
             "items": {
@@ -5065,7 +5072,7 @@
           "cliffs_sampled_from"
         ],
         "title": "DatasetProfileResponse",
-        "description": "What the Dataset is made of -- see `domain/data/profile.py` for what each\nsection means and why it is here.\n\n`target_distribution` and `class_balance` are mutually exclusive: a numeric\ntarget populates the first and a binary one the second, so a consumer must\nbranch on `target_kind` rather than render whichever is non-empty.\n\n`similarity` is `null` only when there was no train/test pair to compare,\nnever an all-zero histogram. `cliffs_sampled_from` is non-null when the\npair scan ran on a subsample -- \"no cliffs found among 3000 of 12000\ncompounds\" is a different claim from \"no cliffs\", and this is which one\nwas made."
+        "description": "What the Dataset is made of -- see `domain/data/profile.py` for what each\nsection means and why it is here.\n\n`target_distribution` and `class_balance` are mutually exclusive: a numeric\ntarget populates the first and a binary one the second, so a consumer must\nbranch on `target_kind` rather than render whichever is non-empty.\n\n`similarity` is `null` only when there was no train/test pair to compare,\nnever an all-zero histogram. `cliffs_sampled_from` is non-null when the\npair scan ran on a subsample -- \"no cliffs found among 3000 of 12000\ncompounds\" is a different claim from \"no cliffs\", and this is which one\nwas made.\n\nOn a dataset whose structure column holds amino-acid sequences, every\nchemistry section is absent: `scaffolds` and `similarity` are `null` and\n`descriptors` and `activity_cliffs` are empty. A sequence has no ring\nsystem and no Tanimoto neighbour, so a consumer must omit those sections\nrather than render a zero -- which would read as a measurement."
       },
       "DatasetReadinessResponse": {
         "properties": {

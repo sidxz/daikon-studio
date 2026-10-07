@@ -195,6 +195,10 @@ function SplitHonestySection({
 }) {
   const similarity = profile.similarity;
   const scaffolds = profile.scaffolds;
+  // Absent for a sequence dataset: a Bemis-Murcko scaffold is a ring system, so there is
+  // no scaffold leakage to report and no honest sentence to write about it. The section
+  // goes away rather than printing a zero that would read as "checked, none found".
+  if (!scaffolds) return null;
   const leaked = scaffolds.cross_split_scaffolds > 0;
   const shared = `${scaffolds.cross_split_compounds.toLocaleString()} compounds have a scaffold present in both training and test sets.`;
   // Three cases, not two. A scaffold split is the only one that promises to
@@ -280,7 +284,9 @@ function SplitHonestySection({
 /** What chemistry is in here: congeneric series or diverse deck? */
 function ScaffoldSection({ profile }: { profile: DatasetProfile }) {
   const scaffolds = profile.scaffolds;
-  if (scaffolds.unique_count === 0) return null;
+  // `null` for a sequence dataset, which has no scaffolds to distribute. See
+  // `SplitHonestySection`.
+  if (!scaffolds || scaffolds.unique_count === 0) return null;
 
   const singletonShare = scaffolds.singleton_count / Math.max(scaffolds.unique_count, 1);
 

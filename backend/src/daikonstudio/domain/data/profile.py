@@ -220,7 +220,12 @@ class DatasetProfile:
     # partition -- never an all-zero histogram, which would read as "every test
     # compound is confirmed unlike anything trained on".
     similarity: SimilarityProfile | None = None
-    scaffolds: ScaffoldProfile
+    # `None` for a sequence dataset. A Bemis-Murcko scaffold is a ring system, which an
+    # amino-acid sequence does not have, so the honest profile omits the section rather
+    # than reporting that every sequence is its own singleton family -- a true sentence
+    # about a question that was never meaningful. Same reasoning for `similarity`,
+    # `descriptors` and `activity_cliffs` below, all of which key off Tanimoto or RDKit.
+    scaffolds: ScaffoldProfile | None = None
     descriptors: list[DescriptorProfile] = field(default_factory=list)
     best_descriptor: str | None = None
     activity_cliffs: list[ActivityCliff] = field(default_factory=list)
@@ -297,15 +302,19 @@ def profile_to_dict(profile: DatasetProfile) -> dict[str, Any]:
             if profile.similarity
             else None
         ),
-        "scaffolds": {
-            "unique_count": profile.scaffolds.unique_count,
-            "singleton_count": profile.scaffolds.singleton_count,
-            "largest_fraction": profile.scaffolds.largest_fraction,
-            "cumulative_coverage": profile.scaffolds.cumulative_coverage,
-            "top": [{"smiles": e.smiles, "count": e.count} for e in profile.scaffolds.top],
-            "cross_split_scaffolds": profile.scaffolds.cross_split_scaffolds,
-            "cross_split_compounds": profile.scaffolds.cross_split_compounds,
-        },
+        "scaffolds": (
+            {
+                "unique_count": profile.scaffolds.unique_count,
+                "singleton_count": profile.scaffolds.singleton_count,
+                "largest_fraction": profile.scaffolds.largest_fraction,
+                "cumulative_coverage": profile.scaffolds.cumulative_coverage,
+                "top": [{"smiles": e.smiles, "count": e.count} for e in profile.scaffolds.top],
+                "cross_split_scaffolds": profile.scaffolds.cross_split_scaffolds,
+                "cross_split_compounds": profile.scaffolds.cross_split_compounds,
+            }
+            if profile.scaffolds
+            else None
+        ),
         "descriptors": [
             {
                 "name": d.name,
@@ -349,7 +358,8 @@ def profile_from_dict(data: dict[str, Any]) -> DatasetProfile:
 
     distribution = data.get("target_distribution")
     similarity = data.get("similarity")
-    scaffolds = data["scaffolds"]
+    # `.get`, not `[...]`: a sequence dataset has no scaffold section at all.
+    scaffolds = data.get("scaffolds")
     return DatasetProfile(
         compounds=data["compounds"],
         partition_counts=data["partition_counts"],
@@ -381,14 +391,20 @@ def profile_from_dict(data: dict[str, Any]) -> DatasetProfile:
             if similarity
             else None
         ),
-        scaffolds=ScaffoldProfile(
-            unique_count=scaffolds["unique_count"],
-            singleton_count=scaffolds["singleton_count"],
-            largest_fraction=scaffolds["largest_fraction"],
-            cumulative_coverage=scaffolds["cumulative_coverage"],
-            top=[ScaffoldEntry(smiles=e["smiles"], count=e["count"]) for e in scaffolds["top"]],
-            cross_split_scaffolds=scaffolds["cross_split_scaffolds"],
-            cross_split_compounds=scaffolds["cross_split_compounds"],
+        scaffolds=(
+            ScaffoldProfile(
+                unique_count=scaffolds["unique_count"],
+                singleton_count=scaffolds["singleton_count"],
+                largest_fraction=scaffolds["largest_fraction"],
+                cumulative_coverage=scaffolds["cumulative_coverage"],
+                top=[
+                    ScaffoldEntry(smiles=e["smiles"], count=e["count"]) for e in scaffolds["top"]
+                ],
+                cross_split_scaffolds=scaffolds["cross_split_scaffolds"],
+                cross_split_compounds=scaffolds["cross_split_compounds"],
+            )
+            if scaffolds
+            else None
         ),
         descriptors=[
             DescriptorProfile(

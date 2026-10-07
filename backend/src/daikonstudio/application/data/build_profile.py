@@ -31,6 +31,7 @@ from daikonstudio.domain.data.profile import (
     SplitHistogram,
     TargetDistribution,
 )
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 
 _HISTOGRAM_BINS = 24
@@ -89,6 +90,7 @@ def build_profile(
     structure_column: str,
     target: TargetSpec,
     normalizer: StructureNormalizer,
+    structure_kind: StructureKind = StructureKind.MOLECULE,
 ) -> DatasetProfile:
     structures = [str(value) for value in frame[structure_column].to_list()]
     splits = [str(value) for value in frame["split"].to_list()]
@@ -103,7 +105,17 @@ def build_profile(
     targets = frame[target.column].to_numpy()
     is_numeric = target.kind is TargetKind.NUMERIC
 
-    descriptors = _descriptors(structures, targets, train_index, test_index, normalizer)
+    # Every chemistry section below reads the structure column as SMILES -- Tanimoto
+    # similarity, Bemis-Murcko scaffolds, RDKit descriptors, and the cliff scan that is
+    # built on the similarity. On a sequence column each would still return a
+    # well-formed answer, and every one of those answers would be meaningless: a
+    # fingerprint of unparseable text, a scaffold that does not exist. The profile omits
+    # them instead, which is the difference between "not applicable" and a fabricated
+    # number that reads as a measurement.
+    chemistry = structure_kind is StructureKind.MOLECULE
+    descriptors = (
+        _descriptors(structures, targets, train_index, test_index, normalizer) if chemistry else []
+    )
 
     return DatasetProfile(
         compounds=frame.height,
@@ -113,15 +125,21 @@ def build_profile(
             _target_distribution(targets, train_index, test_index) if is_numeric else None
         ),
         class_balance=[] if is_numeric else _class_balance(targets, splits),
-        similarity=_similarity(structures, train_index, test_index, normalizer),
-        scaffolds=_scaffolds(structures, splits, normalizer),
+        similarity=(
+            _similarity(structures, train_index, test_index, normalizer) if chemistry else None
+        ),
+        scaffolds=_scaffolds(structures, splits, normalizer) if chemistry else None,
         descriptors=descriptors,
-        best_descriptor=_best_descriptor(descriptors),
-        activity_cliffs=_activity_cliffs(structures, targets, target, normalizer),
+        best_descriptor=_best_descriptor(descriptors) if chemistry else None,
+        activity_cliffs=(
+            _activity_cliffs(structures, targets, target, normalizer) if chemistry else []
+        ),
         # Reported whenever the scan was subsampled, including when it found
         # nothing: "no cliffs among 3000 of your 12000 compounds" and "no cliffs"
         # are different claims, and only one of them is true here.
-        cliffs_sampled_from=(frame.height if frame.height > _MAX_CLIFF_COMPOUNDS else None),
+        cliffs_sampled_from=(
+            frame.height if chemistry and frame.height > _MAX_CLIFF_COMPOUNDS else None
+        ),
     )
 
 

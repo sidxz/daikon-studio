@@ -182,6 +182,7 @@ class GetDatasetProfile:
                 structure_column=dataset.structure_column,
                 target=dataset.targets[key[2]],
                 normalizer=self._normalizer,
+                structure_kind=dataset.validation_report.structure_kind,
             )
             if not self._store.exists(snapshot_key(dataset.workspace_id, dataset.id)):
                 # Deleted while this ran: saving would recreate its folder.

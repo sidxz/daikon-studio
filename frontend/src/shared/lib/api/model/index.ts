@@ -73,6 +73,7 @@ export * from './datasetProfileResponse';
 export * from './datasetProfileResponseBestDescriptor';
 export * from './datasetProfileResponseCliffsSampledFrom';
 export * from './datasetProfileResponsePartitionCounts';
+export * from './datasetProfileResponseScaffolds';
 export * from './datasetProfileResponseSimilarity';
 export * from './datasetProfileResponseTargetDistribution';
 export * from './datasetReadinessResponse';

@@ -6,7 +6,7 @@ import type { DatasetProfileResponsePartitionCounts } from './datasetProfileResp
 import type { DatasetProfileResponseTargetDistribution } from './datasetProfileResponseTargetDistribution';
 import type { ClassBalanceResponse } from './classBalanceResponse';
 import type { DatasetProfileResponseSimilarity } from './datasetProfileResponseSimilarity';
-import type { ScaffoldProfileResponse } from './scaffoldProfileResponse';
+import type { DatasetProfileResponseScaffolds } from './datasetProfileResponseScaffolds';
 import type { DescriptorProfileResponse } from './descriptorProfileResponse';
 import type { DatasetProfileResponseBestDescriptor } from './datasetProfileResponseBestDescriptor';
 import type { ActivityCliffResponse } from './activityCliffResponse';
@@ -25,6 +25,12 @@ never an all-zero histogram. `cliffs_sampled_from` is non-null when the
 pair scan ran on a subsample -- "no cliffs found among 3000 of 12000
 compounds" is a different claim from "no cliffs", and this is which one
 was made.
+
+On a dataset whose structure column holds amino-acid sequences, every
+chemistry section is absent: `scaffolds` and `similarity` are `null` and
+`descriptors` and `activity_cliffs` are empty. A sequence has no ring
+system and no Tanimoto neighbour, so a consumer must omit those sections
+rather than render a zero -- which would read as a measurement.
  */
 export interface DatasetProfileResponse {
   compounds: number;
@@ -33,7 +39,7 @@ export interface DatasetProfileResponse {
   target_distribution: DatasetProfileResponseTargetDistribution;
   class_balance: ClassBalanceResponse[];
   similarity: DatasetProfileResponseSimilarity;
-  scaffolds: ScaffoldProfileResponse;
+  scaffolds: DatasetProfileResponseScaffolds;
   descriptors: DescriptorProfileResponse[];
   best_descriptor: DatasetProfileResponseBestDescriptor;
   activity_cliffs: ActivityCliffResponse[];
