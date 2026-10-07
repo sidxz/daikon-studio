@@ -20,6 +20,7 @@ import pytest
 
 from daikonstudio.application.engines.context import RunInterrupted
 from daikonstudio.application.execution.train_protocol import RunTraining
+from daikonstudio.domain.data.validation import ValidationReport
 from daikonstudio.domain.execution.run import Run, RunKind
 
 
@@ -188,7 +189,14 @@ def _mapping_training(rows: _Rows, store: _Store, layout: _Layout) -> RunTrainin
 
 
 _FRAME = pl.DataFrame({"smiles": ["CCO", "CCN", "CCC", "CCCl", "CCBr"], "split": ["train"] * 5})
-_DATASET = SimpleNamespace(structure_column="smiles", split=SimpleNamespace(seed=1))
+# `validation_report` is read for the structure kind: the map is refused outright for a
+# sequence dataset, because the layout succeeds on protein rather than failing and draws
+# a convincing cloud of nothing.
+_DATASET = SimpleNamespace(
+    structure_column="smiles",
+    split=SimpleNamespace(seed=1),
+    validation_report=ValidationReport(total_rows=1, valid_rows=1),
+)
 
 
 async def test_a_deadline_past_during_the_last_fit_skips_the_map_instead_of_failing_the_run():
@@ -287,3 +295,32 @@ async def test_a_refusal_still_ends_the_fit() -> None:
 
     with pytest.raises(ConcurrencyConflictError):
         await asyncio.to_thread(report, 0.5, "epoch 1")
+
+
+async def test_a_sequence_dataset_gets_no_chemical_space_map():
+    """Refused up front, not left to fail, because it does not fail.
+
+    RDKit cannot fingerprint a protein, and UMAP spreads whatever it gets: measured on 39
+    variants of one real protein, the layout returned 39 distinct, well-separated points.
+    A map that looks exactly like a real map but means nothing is worse than no map, since
+    nothing about it invites doubt -- and the broad `except Exception` around the map would
+    never see it, because there is no exception.
+    """
+    from daikonstudio.domain.data.structure_kind import StructureKind
+
+    run = _running_run()
+    layout = _Layout()
+    store = _Store()
+    training = _mapping_training(_Rows(run), store, layout)
+    sequences = SimpleNamespace(
+        structure_column="sequence",
+        split=SimpleNamespace(seed=1),
+        validation_report=ValidationReport(
+            total_rows=1, valid_rows=1, structure_kind=StructureKind.SEQUENCE
+        ),
+    )
+
+    await training._map_chemical_space(run, uuid.uuid4(), _FRAME, sequences)
+
+    assert layout.calls == 0
+    assert store.keys == []

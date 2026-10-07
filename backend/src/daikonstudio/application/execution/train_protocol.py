@@ -1255,6 +1255,19 @@ class RunTraining:
         """
         if self._layout is None:
             return
+        # No map for a sequence dataset, and this one has to be refused up front rather
+        # than left to fail: the layout does not raise on protein, it succeeds. RDKit
+        # cannot fingerprint a sequence, and UMAP spreads the resulting garbage into a
+        # perfectly plausible cloud -- measured at 39 distinct, well-separated points for
+        # 39 variants of one protein. A map that looks like a real map of nothing is worse
+        # than no map, because nothing about it invites doubt.
+        if dataset.validation_report.structure_kind is StructureKind.SEQUENCE:
+            logger.info(
+                "No chemical-space map for protocol %s: its structure column holds "
+                "sequences, which have no chemical space to lay out.",
+                protocol_id,
+            )
+            return
         if self._deadline_at is not None and time.monotonic() > self._deadline_at:
             logger.info(
                 "Skipped the chemical-space map for protocol %s: the run is past its "
