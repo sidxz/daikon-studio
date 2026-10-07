@@ -459,22 +459,28 @@ def deadline_scale(
     baseline: EngineManifest,
     baseline_conditions: dict[str, object],
 ) -> int:
-    """How many times over its lane's deadline a training Run may take.
+    """How many times over its lane's deadline a training Run may take: one lane budget
+    per model fitted inside it.
 
-    A fan-out engine fits once per target in each of its legs -- the model and the
-    random-split comparison -- so four targets take about four times as long as one
-    against a budget sized for one. A joint engine fits once regardless. An ensemble
-    fits once per model, so the larger ensemble -- the model's or the baseline's, since
-    either may be one -- multiplies that.
+    The chosen engine fits in each of its legs -- the model, and on a scaffold split
+    the random-split comparison too -- and the baseline fits once. In each, a fan-out
+    engine fits once per target and a joint engine once regardless, and an ensemble
+    fits once per member. A chemprop ensemble of four on a scaffold split is eight
+    chemprop fits plus the baseline: the prod run that hit an 8 h limit at 80% needed
+    about 11.5 h.
 
-    ponytail: the per-target factor ignores the baseline, which fans out too -- a joint
-    chemprop run on four targets still fits four random forests. Cheap next to chemprop's
-    own fit today; scale by the baseline as well if one ever dominates.
+    ponytail: a cheap baseline costs a whole lane budget here, so the limit is loose
+    rather than tight. It is a ceiling for a hung fit, not an estimate.
     """
-    fits = 1 if manifest.supports_multitask else len(dataset.targets)
-    return fits * max(
-        _ensemble_size(manifest, conditions), _ensemble_size(baseline, baseline_conditions)
+    legs = 2 if dataset.split.strategy is SplitStrategy.SCAFFOLD else 1
+    return legs * _fits(manifest, dataset, conditions) + _fits(
+        baseline, dataset, baseline_conditions
     )
+
+
+def _fits(manifest: EngineManifest, dataset: Dataset, conditions: dict[str, object]) -> int:
+    per_target = 1 if manifest.supports_multitask else len(dataset.targets)
+    return per_target * _ensemble_size(manifest, conditions)
 
 
 def _ensemble_size(manifest: EngineManifest, conditions: dict[str, object]) -> int:

@@ -45,10 +45,11 @@ class Settings(BaseSettings):
     # lane that has no entry below.
     worker_job_timeout: int = 1800
     # Per-lane overrides, keyed by lane name, as JSON in the environment:
-    #   STUDIO_WORKER_JOB_TIMEOUT_BY_LANE='{"gpu": 7200}'
+    #   STUDIO_WORKER_JOB_TIMEOUT_BY_LANE='{"gpu": 432000}'
     # A chemprop fit on a real dataset does not finish in the default-lane budget,
     # and raising the global number for it would let a hung ECFP4 fit hold a runner
-    # for two hours too.
+    # for days too. 432000 is 120 h per fit, and a training run gets one per fit it
+    # holds (`deadline_scale`); a chemprop ensemble of four on 404k rows needs ~11.5 h.
     worker_job_timeout_by_lane: dict[str, int] = {}
 
     # Duar (authz mode) — same realm as prot-cellar, chem-cellar, daikon-gen3,

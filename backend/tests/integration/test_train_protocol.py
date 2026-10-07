@@ -1050,7 +1050,7 @@ async def test_a_mixed_kind_dataset_trains_one_model_per_target(studio: Studio) 
     assert all(0.0 <= value <= 1.0 for value in inputs.targets[1].predicted)
     assert set(inputs.targets[1].actual) <= {0.0, 1.0}
     assert [h["column"] for h in run.metrics["targets"]] == ["y", "active"]
-    assert run.params["deadline_scale"] == 2
+    assert run.params["deadline_scale"] == 2 + 2  # the model and the baseline, per target
     stored = studio.store.get_bytes(artifact_key(studio.auth.workspace_id, protocol.id))
     assert stored.startswith(b"\xfd7zXZ\x00")
     assert zipfile.is_zipfile(io.BytesIO(unpack_artifact(stored)))
