@@ -149,8 +149,16 @@ class GetScorecard:
         return await asyncio.shield(pending)
 
     async def _compute_and_store(self, key: str, inputs: ScorecardInputs) -> HeldOutChemistry:
+        # No structure kind passed, so this takes the molecule default -- which is correct
+        # by construction rather than by assumption. This path only runs for a Protocol
+        # whose chemistry was never stored at training time, meaning one trained before
+        # 0.5.1, and sequence datasets could not be ingested at all until long after that.
+        # A sequence Protocol always has its chemistry stored and never reaches here.
         chemistry = await asyncio.to_thread(
-            held_out_chemistry, inputs.structures, inputs.train_structures, self._normalizer
+            held_out_chemistry,
+            inputs.structures,
+            inputs.train_structures,
+            self._normalizer,
         )
         await asyncio.to_thread(self._store.put_bytes, key, chemistry.to_json())
         return chemistry

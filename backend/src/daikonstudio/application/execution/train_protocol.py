@@ -892,7 +892,11 @@ class RunTraining:
             scorecard_inputs_key(run.workspace_id, protocol_id), inputs.to_json()
         )
         chemistry = await asyncio.to_thread(
-            held_out_chemistry, inputs.structures, inputs.train_structures, self._normalizer
+            held_out_chemistry,
+            inputs.structures,
+            inputs.train_structures,
+            self._normalizer,
+            dataset.validation_report.structure_kind,
         )
         self._store.put_bytes(
             scorecard_chemistry_key(run.workspace_id, protocol_id), chemistry.to_json()
