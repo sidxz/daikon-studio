@@ -296,6 +296,69 @@ export function useGetRunApiV1RunsRunIdGet<TData = Awaited<ReturnType<typeof get
 
 
 /**
+ * Delete a failed or cancelled training run that produced no protocol, with its
+saved progress; 409 for any other run.
+ * @summary Delete Run
+ */
+export const deleteRunApiV1RunsRunIdDelete = (
+    runId: string,
+ ) => {
+      
+      
+      return customInstance<void>(
+      {url: `/api/v1/runs/${runId}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteRunApiV1RunsRunIdDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRunApiV1RunsRunIdDelete>>, TError,{runId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteRunApiV1RunsRunIdDelete>>, TError,{runId: string}, TContext> => {
+
+const mutationKey = ['deleteRunApiV1RunsRunIdDelete'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteRunApiV1RunsRunIdDelete>>, {runId: string}> = (props) => {
+          const {runId} = props ?? {};
+
+          return  deleteRunApiV1RunsRunIdDelete(runId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteRunApiV1RunsRunIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteRunApiV1RunsRunIdDelete>>>
+    
+    export type DeleteRunApiV1RunsRunIdDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Run
+ */
+export const useDeleteRunApiV1RunsRunIdDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRunApiV1RunsRunIdDelete>>, TError,{runId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteRunApiV1RunsRunIdDelete>>,
+        TError,
+        {runId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteRunApiV1RunsRunIdDeleteMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
  * @summary Get Run Epochs
  */
 export const getRunEpochsApiV1RunsRunIdEpochsGet = (

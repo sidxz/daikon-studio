@@ -27,6 +27,7 @@ from daikonstudio.application.catalog.get_chemical_space import (
     GetRunChemicalSpaceCompoundsQuery,
     GetRunChemicalSpaceQuery,
 )
+from daikonstudio.application.execution.delete_run import DeleteRun, DeleteRunCommand
 from daikonstudio.application.execution.export_results import (
     XLSX_MEDIA_TYPE,
     ExportPredictionResults,
@@ -71,6 +72,7 @@ GetPredictionResultRangesDep = Annotated[
 ]
 ListRunsDep = Annotated[ListRuns, Depends(use_case(ListRuns))]
 RetryRunDep = Annotated[RetryRun, Depends(use_case(RetryRun))]
+DeleteRunDep = Annotated[DeleteRun, Depends(use_case(DeleteRun))]
 
 
 class PredictBody(BaseModel):
@@ -565,6 +567,14 @@ async def retry_run(
     saved progress unless `fresh` is set; 409 for any other status."""
     fresh = body.fresh if body is not None else False
     result_to_response(await service(RetryRunCommand(run_id=run_id, fresh=fresh), auth=auth))
+    return Response(status_code=204)
+
+
+@router.delete("/{run_id}", status_code=204)
+async def delete_run(run_id: uuid.UUID, auth: AuthDep, service: DeleteRunDep) -> Response:
+    """Delete a failed or cancelled training run that produced no protocol, with its
+    saved progress; 409 for any other run."""
+    result_to_response(await service(DeleteRunCommand(run_id=run_id), auth=auth))
     return Response(status_code=204)
 
 

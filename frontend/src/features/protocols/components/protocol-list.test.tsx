@@ -51,9 +51,13 @@ function trainingRun(overrides: Partial<RunResponse>): RunResponse {
 
 /** The runs list is whatever the test supplies; so is the protocols list, empty by default. */
 function serve(runs: RunResponse[], protocols: unknown[] = []) {
-  vi.mocked(customInstance).mockImplementation(async ({ url }) => {
+  vi.mocked(customInstance).mockImplementation(async ({ url, params }) => {
     if (url.endsWith("/engines")) return [{ id: "xgb", name: "XGBoost" }];
-    if (url.endsWith("/runs")) return { items: runs, next_cursor: null };
+    if (url.endsWith("/runs")) {
+      const statuses = params?.status as string[] | undefined;
+      const items = statuses ? runs.filter((run) => statuses.includes(run.status)) : runs;
+      return { items, next_cursor: null };
+    }
     if (url.endsWith("/protocols")) return { items: protocols, next_cursor: null };
     return { items: [], next_cursor: null };
   });
@@ -85,7 +89,7 @@ describe("the In training section", () => {
     expect(link).toHaveTextContent("Queued");
   });
 
-  it("leaves out runs that have finished", async () => {
+  it("leaves out finished runs and lists stopped ones to resume or delete", async () => {
     serve([
       trainingRun({ id: "run-live", name: "still going" }),
       trainingRun({ id: "run-done", status: "ready", name: "finished model" }),
@@ -96,8 +100,10 @@ describe("the In training section", () => {
 
     expect(await screen.findByText("still going")).toBeInTheDocument();
     expect(screen.queryByText("finished model")).not.toBeInTheDocument();
-    expect(screen.queryByText("failed model")).not.toBeInTheDocument();
-    expect(screen.queryByText("canceled model")).not.toBeInTheDocument();
+    const failed = await screen.findByRole("link", { name: /failed model/ });
+    expect(failed).toHaveAttribute("href", "/runs/run-bad");
+    expect(failed).toHaveTextContent("Failed · open to resume or delete");
+    expect(screen.getByRole("link", { name: /canceled model/ })).toHaveTextContent("Canceled");
   });
 
   it("renders no section when nothing is live", async () => {

@@ -199,6 +199,22 @@ export function useRetryRun() {
   });
 }
 
+/** A failed or cancelled training run that made no protocol, with its saved progress. */
+export function useDeleteRun() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      customInstance<void>({ url: `${API_V1}/runs/${id}`, method: "DELETE" }),
+    // The dialog shows the error; no second toast.
+    meta: { silent: true },
+    onSuccess: () => {
+      showSuccess("Run deleted.");
+      // Stale, not refetched: the page being left would refetch the run and flash a 404.
+      queryClient.invalidateQueries({ refetchType: "none" });
+    },
+  });
+}
+
 /**
  * One page of a run's results, each row carrying the server's `row_id`.
  *

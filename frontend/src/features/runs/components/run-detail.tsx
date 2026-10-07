@@ -38,7 +38,7 @@ import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { useCancelRun, useRetryRun, useRun, useRunEpochs } from "../hooks/use-runs";
+import { useCancelRun, useDeleteRun, useRetryRun, useRun, useRunEpochs } from "../hooks/use-runs";
 import { formatRunDate } from "../lib/chemcellar-runs";
 import { RUN_STATUS_COPY } from "../types";
 import { RunChemicalSpace } from "./run-chemical-space";
@@ -105,6 +105,8 @@ export function RunDetail({ runId }: { runId: string }) {
   }, [run?.status, run?.kind, run?.protocol_id, router]);
   const cancel = useCancelRun();
   const retry = useRetryRun();
+  const remove = useDeleteRun();
+  const [deleting, setDeleting] = useState(false);
   const createCollection = useCreateCollection();
 
   const [pendingRows, setPendingRows] = useState<number[] | null>(null);
@@ -288,6 +290,56 @@ export function RunDetail({ runId }: { runId: string }) {
                   </AlertDialogFooter>
                 </AlertDialogContent>
               </AlertDialog>
+              {/* A run that made a protocol is deleted with it, from the protocol's page. */}
+              {!run.protocol_id && (
+                <>
+                  <Button
+                    variant="ghost"
+                    disabled={retry.isPending}
+                    onClick={() => {
+                      remove.reset();
+                      setDeleting(true);
+                    }}
+                  >
+                    Delete
+                  </Button>
+                  <AlertDialog open={deleting} onOpenChange={setDeleting}>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>Delete this run?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          This permanently deletes the run, its training charts and its saved
+                          progress. This cannot be undone.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      {remove.error && (
+                        <p role="alert" className="text-sm text-destructive">
+                          {remove.error.message}
+                        </p>
+                      )}
+                      <AlertDialogFooter>
+                        <AlertDialogCancel disabled={remove.isPending}>Cancel</AlertDialogCancel>
+                        <AlertDialogAction
+                          className={buttonVariants({ variant: "destructive" })}
+                          disabled={remove.isPending}
+                          onClick={(event) => {
+                            // Radix would close before the mutation resolves.
+                            event.preventDefault();
+                            remove.mutate(runId, {
+                              onSuccess: () => {
+                                setDeleting(false);
+                                router.push("/protocols");
+                              },
+                            });
+                          }}
+                        >
+                          {remove.isPending ? "Deleting…" : "Delete permanently"}
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </>
+              )}
             </>
           ) : (
             <Button

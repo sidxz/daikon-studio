@@ -50,6 +50,7 @@ from daikonstudio.application.data.set_dataset_id_column import (
 )
 from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.application.execution.claim_run import ClaimRun
+from daikonstudio.application.execution.delete_run import DeleteRun
 from daikonstudio.application.execution.discard_abandoned_progress import (
     DiscardAbandonedProgress,
 )
@@ -365,6 +366,7 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         DiscardAbandonedProgress, lambda c: DiscardAbandonedProgress(_runs(c), c[BlobStore])
     )
+    container.define(DeleteRun, lambda c: DeleteRun(_runs(c), c[BlobStore], c[ProtocolAccess]))
     container.define(
         RetryRun,
         lambda c: RetryRun(

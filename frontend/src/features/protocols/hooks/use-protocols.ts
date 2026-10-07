@@ -293,6 +293,25 @@ export function useActiveTrainingRuns() {
 }
 
 /**
+ * Training runs that failed or were cancelled before producing a Protocol. Nothing
+ * else lists them, and their page is where they are resumed or deleted. Read on every
+ * visit (`staleTime: 0`), so a run resumed or deleted elsewhere is not shown here.
+ */
+export function useStoppedTrainingRuns() {
+  const { data } = useQuery({
+    queryKey: [...PROTOCOL_RUNS_KEY, "stopped-training"],
+    queryFn: () =>
+      customInstance<PaginatedResponseRunResponse>({
+        url: `${API_V1}/runs`,
+        method: "GET",
+        params: { kind: "training", status: ["failed", "cancelled"], limit: 200 },
+      }),
+    staleTime: 0,
+  });
+  return (data?.items ?? []).filter((run) => !run.protocol_id);
+}
+
+/**
  * Each protocol's headline scores, read off its training run: one request for the
  * whole list, keyed under the protocols list so a finished training refreshes both.
  * ponytail: the newest 200 training runs only; an older protocol shows no score.

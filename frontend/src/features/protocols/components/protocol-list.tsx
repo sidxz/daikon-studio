@@ -18,6 +18,7 @@ import {
   type ProtocolFilters as FilterValues,
   useActiveTrainingRuns,
   useProtocols,
+  useStoppedTrainingRuns,
   useTrainingHeadlines,
 } from "../hooks/use-protocols";
 import type { Protocol } from "../types";
@@ -27,17 +28,15 @@ import { ProtocolFilters } from "./protocol-filters";
 /** Runs that have not produced a Protocol yet. Lighter than the grid below: it is a status, not a result. */
 function InTraining() {
   const runs = useActiveTrainingRuns();
-  if (runs.length === 0) return null;
+  const stopped = useStoppedTrainingRuns();
+  if (runs.length === 0 && stopped.length === 0) return null;
   return (
     <section className="space-y-2">
       <h2 className="text-sm font-medium text-muted-foreground">In training</h2>
       <ul className="divide-y divide-border rounded-lg border border-border">
         {runs.map((run) => (
           <li key={run.id}>
-            <Link
-              href={`/runs/${run.id}`}
-              className="flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-            >
+            <Link href={`/runs/${run.id}`} className={ROW}>
               <StatusDot tone="active" />
               <span className="min-w-0 flex-1 truncate">
                 <span className="font-medium">{run.name ?? "Training run"}</span>
@@ -51,10 +50,26 @@ function InTraining() {
             </Link>
           </li>
         ))}
+        {stopped.map((run) => (
+          <li key={run.id}>
+            <Link href={`/runs/${run.id}`} className={ROW}>
+              <StatusDot tone={run.status === "failed" ? "failed" : "muted"} />
+              <span className="min-w-0 flex-1 truncate">
+                <span className="font-medium">{run.name ?? "Training run"}</span>
+                <span className="ml-2 text-muted-foreground">
+                  {run.status === "failed" ? "Failed" : "Canceled"} · open to resume or delete
+                </span>
+              </span>
+            </Link>
+          </li>
+        ))}
       </ul>
     </section>
   );
 }
+
+const ROW =
+  "flex items-center gap-3 px-3 py-2 text-sm transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring";
 
 function ProtocolGrid({ filters, onClear }: { filters: FilterValues; onClear: () => void }) {
   const { mine, folderId } = filters;

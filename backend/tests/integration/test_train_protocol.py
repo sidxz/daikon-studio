@@ -1336,3 +1336,38 @@ async def test_each_stages_epochs_are_stored_and_a_retry_starts_them_over(
         ("random-split", 1),
         ("random-split", 2),
     ]
+
+
+async def test_a_stopped_training_run_is_deleted_with_its_saved_progress(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failed run that made no protocol is listed nowhere else, so deleting it is the
+    only way to be rid of it; a run that made one goes with its protocol instead."""
+    import daikonstudio.application.execution.train_protocol as module
+    from daikonstudio.application.execution.delete_run import DeleteRun, DeleteRunCommand
+    from daikonstudio.domain.shared.errors import ConflictError
+
+    real = module.assign_split
+
+    def stop_at_the_random_split(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        if spec.strategy is SplitStrategy.RANDOM:
+            raise RunInterrupted("limit", cancelled=False)
+        return real(frame, structure_column, spec, normalizer)
+
+    monkeypatch.setattr(module, "assign_split", stop_at_the_random_split)
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD)
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    assert (await studio.reload(run)).status is RunStatus.FAILED
+    saved = studio.blobs / checkpoint_root(studio.auth.workspace_id, dataset.id, run.id)
+    assert saved.exists()
+
+    delete = DeleteRun(studio.runs, studio.store, FakeProtocolAccess())
+    (await delete(DeleteRunCommand(run_id=run.id), studio.auth)).unwrap()
+    assert await studio.runs.get(studio.auth.workspace_id, run.id) is None
+    assert not saved.exists()
+
+    monkeypatch.setattr(module, "assign_split", real)
+    finished = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    assert (await studio.reload(finished)).status is RunStatus.READY
+    refused = await delete(DeleteRunCommand(run_id=finished.id), studio.auth)
+    assert isinstance(refused.failure(), ConflictError)
