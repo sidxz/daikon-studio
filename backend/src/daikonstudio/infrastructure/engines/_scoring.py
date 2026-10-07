@@ -48,6 +48,7 @@ from daikonstudio.infrastructure.chem.featurize import (
     ecfp4,
     rdkit_descriptors,
 )
+from daikonstudio.infrastructure.protein.embed import esm2_650m
 
 #: How a fitted artifact names the representation it was trained on. `predict` reads the
 #: name off the bundle rather than taking it as an argument, because nothing at the
@@ -307,6 +308,18 @@ def _ecfp4_with_descriptors(smiles_list: list[str]) -> np.ndarray:
 
 _FEATURIZERS["ecfp4+rdkit_descriptors"] = _ecfp4_with_descriptors
 _FEATURE_NAMES["ecfp4+rdkit_descriptors"] = DESCRIPTOR_NAMES
+
+#: The one featurizer here that reads the structure column as an amino-acid sequence
+#: rather than as SMILES. Registered by name like the others so a fitted artifact can
+#: say which representation it was trained on and `predict` can rebuild it from bytes.
+#:
+#: Safe to import at module scope despite needing torch: `protein.embed` keeps every
+#: torch and transformers import inside a function, so this line costs an unused import
+#: on the API tier and nothing else. Do not "tidy" that by hoisting them.
+ESM2_FEATURIZER = "esm2-650m"
+_FEATURIZERS[ESM2_FEATURIZER] = esm2_650m
+# No entry in `_FEATURE_NAMES`: the 1280 embedding dimensions have no names that could
+# drift, exactly as ECFP4's hashed bits have none. Width is asserted at the forward pass.
 
 
 def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
