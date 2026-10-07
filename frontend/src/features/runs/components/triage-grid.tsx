@@ -212,7 +212,7 @@ export function TriageGrid({
               className="truncate text-left underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-ring"
               onClick={() => setInspected(data)}
             >
-              {data.compound_id ?? "—"}
+              {data.compound_id ?? "N/A"}
             </button>
           ) : null,
       }),

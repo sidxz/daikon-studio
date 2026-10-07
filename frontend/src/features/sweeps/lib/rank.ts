@@ -79,7 +79,7 @@ export function sortDirection(runs: SweepRun[], column: string): "ascending" | "
 
 /** The headline number, or why there isn't one. */
 export function formatMetric(headline: Headline | undefined): string {
-  if (!headline || !isRankable(headline)) return "—";
+  if (!headline || !isRankable(headline)) return "N/A";
   return `${headline.primary_metric.toUpperCase()} ${(headline.value as number).toFixed(3)}`;
 }
 

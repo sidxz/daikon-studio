@@ -165,7 +165,7 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
                   </TableCell>
                   {dataset.id_column && (
                     <TableCell className="font-mono text-xs">
-                      {compound.compound_id ?? "—"}
+                      {compound.compound_id ?? "N/A"}
                     </TableCell>
                   )}
                   <TableCell className="max-w-[1px] truncate font-mono text-xs text-muted-foreground">

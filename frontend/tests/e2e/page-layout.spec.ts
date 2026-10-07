@@ -33,6 +33,12 @@ const dataset: DatasetResponse = {
 };
 
 const scorecard = (target: string): ScorecardResponse => ({
+  test_count: 0,
+  regression_summary: null,
+  classification_summary: null,
+  ranked_high: [],
+  ranked_low: [],
+  classification_by_similarity: [],
   target,
   joint_model: false,
   primary_metric: "rmse",

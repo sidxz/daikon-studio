@@ -14,7 +14,7 @@ contract a consumer reads, so nothing is lost by not carrying the enum.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 
@@ -71,7 +71,10 @@ class ParityPoint:
 
 @dataclass(frozen=True, kw_only=True)
 class Bin:
-    """A half-open interval and what was measured in it.
+    """Bounds and what was measured in them.
+
+    For similarity groups, bounds are the inclusive observed minimum and
+    maximum. Calibration uses half-open probability intervals (last one closed).
 
     `count` is not decoration: a bin holding three compounds and a bin holding
     three hundred are drawn the same width, and without the count a reader has
@@ -113,6 +116,47 @@ class ScaffoldError:
     scaffold: str
     count: int
     median_error: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class RegressionSummary:
+    """Errors over every test row, before the parity plot is sampled."""
+
+    mean_signed_error: float
+    absolute_error_p90: float
+
+
+@dataclass(frozen=True, kw_only=True)
+class ClassificationSummary:
+    """Full-test counts at the model's recorded decision cutoff."""
+
+    true_positive: int
+    false_negative: int
+    false_positive: int
+    true_negative: int
+    precision: float | None
+    recall: float | None
+    cutoff_inclusive: bool
+
+
+@dataclass(frozen=True, kw_only=True)
+class RankedPrediction:
+    """A test row ranked only by its prediction, before any plot sampling."""
+
+    test_index: int
+    structure: str
+    actual: float
+    predicted: float
+    similarity: float | None
+    compound_id: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
+class ClassificationBin:
+    lower: float
+    upper: float
+    count: int
+    summary: ClassificationSummary
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -242,8 +286,8 @@ class Scorecard:
     #: Signed `predicted - actual`, regression only. Centred away from zero is
     #: bias -- a model that is uniformly optimistic, which RMSE cannot show.
     residual_histogram: Histogram | None
-    #: Mean absolute error against nearest-neighbour Tanimoto, in equal-count
-    #: bins. This is what turns `applicability_coverage` from an assertion into
+    #: Mean absolute error against nearest-neighbour Tanimoto, in roughly equal-count
+    #: bins that preserve similarity ties. This turns `applicability_coverage` into
     #: evidence: if error does not rise as similarity falls, the applicability
     #: domain is not buying this model anything and a reader should know.
     error_by_similarity: list[Bin]
@@ -253,3 +297,9 @@ class Scorecard:
     #: only. A model can rank compounds well and still be badly calibrated, and
     #: a probability that is not calibrated must not be read as one.
     calibration: list[Bin]
+    test_count: int = 0
+    regression_summary: RegressionSummary | None = None
+    classification_summary: ClassificationSummary | None = None
+    ranked_high: list[RankedPrediction] = field(default_factory=list)
+    ranked_low: list[RankedPrediction] = field(default_factory=list)
+    classification_by_similarity: list[ClassificationBin] = field(default_factory=list)

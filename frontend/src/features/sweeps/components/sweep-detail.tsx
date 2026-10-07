@@ -151,7 +151,7 @@ export function SweepDetail({ id }: { id: string }) {
                       multi-target sweep nobody has sorted) the configuration's own
                       number, matching the "#n" in its name. */}
                   <TableCell className="text-muted-foreground">
-                    {!active || isRankable(headlineFor(run, active)) ? index + 1 : "—"}
+                    {!active || isRankable(headlineFor(run, active)) ? index + 1 : "N/A"}
                   </TableCell>
                   {/* Wraps: a configuration's settings line grows with every setting an
                       engine declares, and on one line it pushed the metrics off-screen. */}

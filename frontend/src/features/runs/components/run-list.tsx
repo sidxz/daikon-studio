@@ -247,7 +247,7 @@ function RunRows({
                                 className="text-muted-foreground"
                                 aria-label="Compound count unavailable"
                               >
-                                —
+                                N/A
                               </span>
                             )}
                           </span>

@@ -141,7 +141,7 @@ export function SweepForm() {
                 id="sweep-name"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="e.g. Solubility — engine sweep"
+                placeholder="e.g. Solubility engine sweep"
               />
             </div>
 

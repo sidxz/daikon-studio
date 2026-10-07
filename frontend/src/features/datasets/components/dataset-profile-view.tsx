@@ -235,7 +235,7 @@ function SplitHonestySection({
             </>
           ) : (
             <p className="text-sm text-muted-foreground">
-              Not measurable — this dataset has no train or no test partition.
+              Not measurable because this dataset has no train or no test partition.
             </p>
           )}
           <Stat
@@ -275,7 +275,7 @@ function SplitHonestySection({
   );
 }
 
-/** What chemistry is in here — congeneric series or diverse deck? */
+/** What chemistry is in here: congeneric series or diverse deck? */
 function ScaffoldSection({ profile }: { profile: DatasetProfile }) {
   const scaffolds = profile.scaffolds;
   if (scaffolds.unique_count === 0) return null;

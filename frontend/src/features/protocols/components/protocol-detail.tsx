@@ -28,6 +28,7 @@ import { formatCutoff } from "../lib/format-cutoff";
 import { DeleteProtocolButton } from "./delete-protocol-button";
 import { ProtocolChemicalSpace } from "./protocol-chemical-space";
 import { ProtocolRuns } from "./protocol-runs";
+import { ScorecardCompounds } from "./scorecard-compounds";
 import { ScorecardView } from "./scorecard-view";
 
 /**
@@ -35,9 +36,25 @@ import { ScorecardView } from "./scorecard-view";
  * header that says whether one model learned them all or each has its own, so a
  * row of per-target numbers is never mistaken for joint learning.
  */
-export function Scorecards({ scorecards }: { scorecards: ScorecardResponse[] }) {
+export function Scorecards({
+  scorecards,
+  protocolId,
+  view = "performance",
+  selectedTarget,
+  onTargetChange,
+}: {
+  scorecards: ScorecardResponse[];
+  protocolId?: string;
+  view?: "performance" | "compounds";
+  selectedTarget?: string;
+  onTargetChange?: (target: string) => void;
+}) {
   const [first] = scorecards;
-  if (scorecards.length === 1) return <ScorecardView scorecard={first} />;
+  if (!first)
+    return <p className="text-sm text-muted-foreground">No test results are available yet.</p>;
+  const TargetView = view === "compounds" ? ScorecardCompounds : ScorecardView;
+  if (scorecards.length === 1)
+    return <TargetView key={first.target} scorecard={first} protocolId={protocolId} />;
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
@@ -45,7 +62,17 @@ export function Scorecards({ scorecards }: { scorecards: ScorecardResponse[] }) 
           ? `One model learned all ${scorecards.length} targets jointly. Each tab scores it on one target.`
           : `${scorecards.length} separate models, one per target, trained on the same compounds and split.`}
       </p>
-      <Tabs defaultValue={first.target}>
+      <Tabs
+        defaultValue={first.target}
+        value={
+          selectedTarget == null
+            ? undefined
+            : scorecards.some((card) => card.target === selectedTarget)
+              ? selectedTarget
+              : first.target
+        }
+        onValueChange={onTargetChange}
+      >
         <TabsList>
           {scorecards.map((card) => (
             <TabsTrigger key={card.target} value={card.target} className="font-mono">
@@ -55,7 +82,7 @@ export function Scorecards({ scorecards }: { scorecards: ScorecardResponse[] }) 
         </TabsList>
         {scorecards.map((card) => (
           <TabsContent key={card.target} value={card.target}>
-            <ScorecardView scorecard={card} />
+            <TargetView scorecard={card} protocolId={protocolId} />
           </TabsContent>
         ))}
       </Tabs>
@@ -70,6 +97,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
   const { data: dataset } = useDataset(protocol?.dataset_id);
   const publish = usePublishProtocol();
   const [confirming, setConfirming] = useState(false);
+  const [selectedTarget, setSelectedTarget] = useState<string>();
 
   useBreadcrumbTrail(
     protocol ? [{ label: "Protocols", href: "/protocols" }, { label: protocol.name }] : null,
@@ -170,13 +198,38 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
         </CardContent>
       </Card>
 
-      {scorecard.isLoading && <Skeleton className="h-64 w-full" />}
-      {scorecard.isError && <p className="text-sm text-destructive">Could not load scorecard</p>}
-      {scorecard.data && <Scorecards scorecards={scorecard.data} />}
-
-      <ProtocolChemicalSpace protocolId={protocol.id} />
-
-      <ProtocolRuns protocolId={protocol.id} />
+      <Tabs defaultValue="performance" className="gap-6">
+        <TabsList aria-label="Protocol details">
+          <TabsTrigger value="performance">Model performance</TabsTrigger>
+          <TabsTrigger value="compounds">Test compounds</TabsTrigger>
+          <TabsTrigger value="chemistry">Chemical space</TabsTrigger>
+          <TabsTrigger value="history">Run history</TabsTrigger>
+        </TabsList>
+        {(["performance", "compounds"] as const).map((view) => (
+          <TabsContent key={view} value={view}>
+            {scorecard.isLoading && <Skeleton className="h-64 w-full" />}
+            {scorecard.isError && (
+              <p className="text-sm text-destructive">Could not load scorecard</p>
+            )}
+            {scorecard.data && (
+              <Scorecards
+                key={protocol.id}
+                scorecards={scorecard.data}
+                protocolId={protocol.id}
+                view={view}
+                selectedTarget={selectedTarget ?? scorecard.data[0]?.target}
+                onTargetChange={setSelectedTarget}
+              />
+            )}
+          </TabsContent>
+        ))}
+        <TabsContent value="chemistry">
+          <ProtocolChemicalSpace protocolId={protocol.id} />
+        </TabsContent>
+        <TabsContent value="history">
+          <ProtocolRuns protocolId={protocol.id} />
+        </TabsContent>
+      </Tabs>
 
       <AlertDialog open={confirming} onOpenChange={setConfirming}>
         <AlertDialogContent>

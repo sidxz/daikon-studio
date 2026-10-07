@@ -70,7 +70,7 @@ describe("formatMetric and baselineDelta", () => {
     expect(formatMetric(headlineFor(a, "solubility"))).toBe("RMSE 0.500");
     expect(baselineDelta(headlineFor(a, "solubility"))).toBeCloseTo(0.2);
     expect(baselineDelta(headlineFor(b, "reactive"))).toBeCloseTo(0.3);
-    expect(formatMetric(headlineFor(pending, "reactive"))).toBe("—");
+    expect(formatMetric(headlineFor(pending, "reactive"))).toBe("N/A");
   });
 
   it("gives no delta when either side is missing", () => {

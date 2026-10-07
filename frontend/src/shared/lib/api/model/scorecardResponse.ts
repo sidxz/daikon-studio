@@ -26,6 +26,10 @@ import type { ScorecardResponseParitySampledFrom } from './scorecardResponsePari
 import type { ScorecardResponseResidualHistogram } from './scorecardResponseResidualHistogram';
 import type { BinResponse } from './binResponse';
 import type { ScaffoldErrorResponse } from './scaffoldErrorResponse';
+import type { ScorecardResponseRegressionSummary } from './scorecardResponseRegressionSummary';
+import type { ScorecardResponseClassificationSummary } from './scorecardResponseClassificationSummary';
+import type { RankedPredictionResponse } from './rankedPredictionResponse';
+import type { ClassificationBinResponse } from './classificationBinResponse';
 
 /**
  * One card per target; `joint_model` says whether one model learned them all.
@@ -85,4 +89,10 @@ export interface ScorecardResponse {
   error_by_similarity: BinResponse[];
   scaffold_errors: ScaffoldErrorResponse[];
   calibration: BinResponse[];
+  test_count: number;
+  regression_summary: ScorecardResponseRegressionSummary;
+  classification_summary: ScorecardResponseClassificationSummary;
+  ranked_high: RankedPredictionResponse[];
+  ranked_low: RankedPredictionResponse[];
+  classification_by_similarity: ClassificationBinResponse[];
 }

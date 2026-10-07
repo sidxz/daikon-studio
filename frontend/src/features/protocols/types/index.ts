@@ -32,3 +32,17 @@ export const METRIC_LABELS: Record<string, string> = {
 export function metricLabel(metric: string): string {
   return METRIC_LABELS[metric] ?? metric;
 }
+
+export const METRIC_DESCRIPTIONS: Record<string, string> = {
+  mae: "Average distance from the measured value.",
+  rmse: "Prediction error with extra weight on larger mistakes.",
+  r2: "How much variation is captured. 1 is perfect; 0 matches always predicting the test-set average.",
+  mcc: "Overall quality of binary decisions, accounting for both classes. 1 is perfect; 0 means no correlation.",
+  balanced_accuracy:
+    "Average share correctly identified within each class, giving both classes equal weight.",
+  auroc: "How well active compounds rank above inactive ones. 1 is perfect; 0.5 is random ranking.",
+  auprc:
+    "How well active compounds are retrieved across cutoffs. Interpret alongside the share of actives in the test set.",
+  precision: "Of compounds predicted active, the share that actually was active.",
+  recall: "Of all truly active compounds, the share the model found.",
+};

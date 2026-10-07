@@ -30,14 +30,19 @@ from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.execution.scorecard import (
     Bin,
+    ClassificationBin,
+    ClassificationSummary,
     Histogram,
     ParityPoint,
+    RankedPrediction,
+    RegressionSummary,
     ScaffoldError,
     Scorecard,
     WorstRow,
 )
 
 _WORST_ROWS_LIMIT = 20
+_RANKED_ROWS_LIMIT = 20
 _APPLICABILITY_THRESHOLD = 0.3
 
 #: Points carried to the client for the parity scatter. Above this the scatter
@@ -50,7 +55,7 @@ _RESIDUAL_BINS = 30
 #: Equal-*count* bins, not equal-width: ECFP4 similarities cluster low, so
 #: fixed-width bins put nearly every compound in one or two of them and leave
 #: the rest holding a handful of points whose mean error is noise. Equal-count
-#: bins give every point on the curve the same weight of evidence.
+#: bins aim for comparable counts; preserving ties can make group sizes differ.
 _SIMILARITY_BINS = 8
 
 #: Upper bound. The actual count scales with the test set, because ten equal-
@@ -65,6 +70,17 @@ _MIN_PER_CALIBRATION_BIN = 25
 #: the reading the section invites.
 _MIN_SCAFFOLD_GROUP = 3
 _SCAFFOLD_GROUP_LIMIT = 12
+
+# Untuned sklearn-style engines use model.predict, which assigns an exact
+# 0.5 tie to class 0. The neural engines and explicitly tuned cutoffs use >=.
+# Preserve that distinction for historical scorecards as well as new ones.
+_EXCLUSIVE_DEFAULT_CUTOFF_ENGINES = {
+    "ecfp4-randomforest",
+    "ecfp4-xgboost",
+    "ecfp4-lightgbm",
+    "descriptors-xgboost",
+    "tanimoto-gp",
+}
 
 
 def primary_metric_for(task: TaskType) -> str:
@@ -271,6 +287,23 @@ def build_scorecard(
         for i in worst_order[:_WORST_ROWS_LIMIT]
     ]
 
+    inclusive = cutoff is not None or engine_id not in _EXCLUSIVE_DEFAULT_CUTOFF_ENGINES
+    decision_cutoff = cutoff if cutoff is not None else 0.5
+
+    def ranked_rows(*, descending: bool) -> list[RankedPrediction]:
+        # Stable ties retain test-set order. Measured outcomes never affect selection.
+        order = sorted(range(len(predicted)), key=lambda i: predicted[i], reverse=descending)
+        return [
+            RankedPrediction(
+                test_index=i,
+                structure=structures[i],
+                actual=actual[i],
+                predicted=predicted[i],
+                similarity=similarities[i] if similarities is not None else None,
+            )
+            for i in order[:_RANKED_ROWS_LIMIT]
+        ]
+
     return Scorecard(
         target=target,
         joint_model=joint_model,
@@ -295,6 +328,8 @@ def build_scorecard(
         # can never present a meaningless floor as though it meant something.
         noise_floor=None if is_classification else duplicate_spread,
         worst_rows=worst_rows,
+        ranked_high=ranked_rows(descending=True),
+        ranked_low=ranked_rows(descending=False),
         applicability_coverage=applicability_coverage,
         target_unit=target_unit,
         target_direction=target_direction,
@@ -311,8 +346,75 @@ def build_scorecard(
         # curve below is the classification counterpart.
         residual_histogram=None if is_classification else _residual_histogram(actual, predicted),
         error_by_similarity=_error_by_similarity(residuals, similarities),
+        classification_by_similarity=(
+            [
+                ClassificationBin(
+                    lower=similarities[group[0]],
+                    upper=similarities[group[-1]],
+                    count=len(group),
+                    summary=_classification_summary(
+                        [actual[i] for i in group],
+                        [predicted[i] for i in group],
+                        decision_cutoff,
+                        inclusive=inclusive,
+                    ),
+                )
+                for group in similarity_groups(similarities)
+            ]
+            if is_classification and similarities is not None
+            else []
+        ),
         scaffold_errors=_scaffold_errors(residuals, scaffolds),
         calibration=_calibration(actual, predicted) if is_classification else [],
+        test_count=len(actual),
+        regression_summary=(
+            RegressionSummary(
+                mean_signed_error=statistics.fmean(
+                    p - a for a, p in zip(actual, predicted, strict=True)
+                ),
+                # Nearest rank: at least 90% of observed errors are <= this value,
+                # including on small test sets where interpolation can undercount.
+                absolute_error_p90=sorted(residuals)[math.ceil(0.9 * len(residuals)) - 1],
+            )
+            if actual and not is_classification
+            else None
+        ),
+        classification_summary=(
+            _classification_summary(
+                actual,
+                predicted,
+                decision_cutoff,
+                inclusive=inclusive,
+            )
+            if is_classification
+            else None
+        ),
+    )
+
+
+def _classification_summary(
+    actual: list[float], predicted: list[float], cutoff: float, *, inclusive: bool
+) -> ClassificationSummary:
+    tp = fn = fp = tn = 0
+    for a, p in zip(actual, predicted, strict=True):
+        positive = p >= cutoff if inclusive else p > cutoff
+        if a == 1:
+            if positive:
+                tp += 1
+            else:
+                fn += 1
+        elif positive:
+            fp += 1
+        else:
+            tn += 1
+    return ClassificationSummary(
+        true_positive=tp,
+        false_negative=fn,
+        false_positive=fp,
+        true_negative=tn,
+        precision=tp / (tp + fp) if tp + fp else None,
+        recall=tp / (tp + fn) if tp + fn else None,
+        cutoff_inclusive=inclusive,
     )
 
 
@@ -365,28 +467,40 @@ def _residual_histogram(actual: list[float], predicted: list[float]) -> Histogra
     return _histogram([p - a for a, p in zip(actual, predicted, strict=True)], _RESIDUAL_BINS)
 
 
-def _error_by_similarity(residuals: list[float], similarities: list[float] | None) -> list[Bin]:
-    if similarities is None or len(residuals) < _SIMILARITY_BINS * 2:
-        # Fewer than two compounds per bin is not a curve. Empty, so the
-        # consumer omits the section rather than drawing eight noisy points.
-        return []
-    order = sorted(range(len(residuals)), key=lambda i: similarities[i])
-    size = len(order) / _SIMILARITY_BINS
+def similarity_groups(similarities: list[float] | None) -> list[list[int]]:
+    """Roughly equal-count groups, keeping identical similarities together.
 
-    bins = []
+    Shared by average error, binary counts and user-chosen tolerance. Boundaries
+    depend only on similarity, never on outcomes or the chosen tolerance.
+    """
+    if similarities is None or len(similarities) < _SIMILARITY_BINS * 2:
+        return []
+    order = sorted(range(len(similarities)), key=lambda i: similarities[i])
+    size = len(order) / _SIMILARITY_BINS
+    groups = []
+    start = 0
     for index in range(_SIMILARITY_BINS):
-        group = order[int(index * size) : int((index + 1) * size)]
-        if not group:
-            continue
-        bins.append(
-            Bin(
-                lower=similarities[group[0]],
-                upper=similarities[group[-1]],
-                count=len(group),
-                value=sum(residuals[i] for i in group) / len(group),
-            )
+        end = int((index + 1) * size)
+        while end < len(order) and similarities[order[end - 1]] == similarities[order[end]]:
+            end += 1
+        if end > start:
+            groups.append(order[start:end])
+            start = end
+    return groups
+
+
+def _error_by_similarity(residuals: list[float], similarities: list[float] | None) -> list[Bin]:
+    if similarities is None:
+        return []
+    return [
+        Bin(
+            lower=similarities[group[0]],
+            upper=similarities[group[-1]],
+            count=len(group),
+            value=sum(residuals[i] for i in group) / len(group),
         )
-    return bins
+        for group in similarity_groups(similarities)
+    ]
 
 
 def _scaffold_errors(residuals: list[float], scaffolds: list[str]) -> list[ScaffoldError]:

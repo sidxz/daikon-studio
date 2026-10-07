@@ -24,6 +24,7 @@ from daikonstudio.application.catalog.get_chemical_space import (
     GetRunChemicalSpaceCompounds,
 )
 from daikonstudio.application.catalog.get_scorecard import GetScorecard
+from daikonstudio.application.catalog.get_scorecard_tolerance import GetScorecardTolerance
 from daikonstudio.application.catalog.list_protocols import GetProtocol, ListProtocols
 from daikonstudio.application.catalog.publish_protocol import PublishProtocol
 from daikonstudio.application.data.build_dataset import GetDatasetBuild, StartDatasetBuild
@@ -312,6 +313,10 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         DeleteProtocol,
         lambda c: DeleteProtocol(_protocols(c), _runs(c), c[BlobStore], c[ProtocolAccess]),
+    )
+    container.define(
+        GetScorecardTolerance,
+        lambda c: GetScorecardTolerance(_protocols(c), c[BlobStore], c[ProtocolAccess]),
     )
     container.define(
         GetScorecard,

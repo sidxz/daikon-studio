@@ -3,7 +3,7 @@ import Papa from "papaparse";
 export interface CsvPreview {
   columns: string[];
   rows: Record<string, string>[];
-  /** Columns whose sampled values all parse as numbers — a hint, not a rule. */
+  /** Columns whose sampled values all parse as numbers (a hint, not a rule). */
   numericColumns: Set<string>;
 }
 

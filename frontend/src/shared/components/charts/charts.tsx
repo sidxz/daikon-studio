@@ -648,7 +648,7 @@ export function EpochCurveChart({
                 ...lines.map((line) =>
                   line.label in row.values
                     ? `${format(row.values[line.label])}  ${line.label}`
-                    : `—  ${line.label}`,
+                    : `N/A  ${line.label}`,
                 ),
               ].join("\n"),
           }),

@@ -59,7 +59,7 @@ function Stack({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-const Absent = () => <span className="text-muted-foreground">—</span>;
+const Absent = () => <span className="text-muted-foreground">N/A</span>;
 
 /** P(class=1). A positive class does not imply a desirable compound. */
 export function ProbabilityCell({ value, cutoff }: { value: number | null; cutoff: number }) {

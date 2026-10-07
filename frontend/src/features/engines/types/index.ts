@@ -36,7 +36,7 @@ export const TASK_LABELS: Record<string, string> = {
  * for the same reason as TASK_FOR_TARGET_KIND: the manifest has no way to say
  * "this condition makes those two inert". Without it the form would accept a
  * `depth` the fit silently ignores, and the Scorecard would then report a
- * setting the model never used — the exact dishonesty the Scorecard exists to
+ * setting the model never used, the exact dishonesty the Scorecard exists to
  * prevent. The form submits these values, so the record stays true.
  *
  * ponytail: two constants for one weight set. If a second one lands, move this

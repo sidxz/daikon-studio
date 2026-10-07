@@ -39,6 +39,10 @@ from daikonstudio.application.catalog.get_chemical_space import (
     GetProtocolChemicalSpaceQuery,
 )
 from daikonstudio.application.catalog.get_scorecard import GetScorecard, GetScorecardQuery
+from daikonstudio.application.catalog.get_scorecard_tolerance import (
+    GetScorecardTolerance,
+    GetScorecardToleranceQuery,
+)
 from daikonstudio.application.catalog.list_protocols import (
     GetProtocol,
     GetProtocolQuery,
@@ -68,6 +72,9 @@ FileProtocolDep = Annotated[FileProtocol, Depends(use_case(FileProtocol))]
 ListProtocolsDep = Annotated[ListProtocols, Depends(use_case(ListProtocols))]
 GetProtocolDep = Annotated[GetProtocol, Depends(use_case(GetProtocol))]
 GetScorecardDep = Annotated[GetScorecard, Depends(use_case(GetScorecard))]
+GetScorecardToleranceDep = Annotated[
+    GetScorecardTolerance, Depends(use_case(GetScorecardTolerance))
+]
 GetChemicalSpaceDep = Annotated[
     GetProtocolChemicalSpace, Depends(use_case(GetProtocolChemicalSpace))
 ]
@@ -215,7 +222,10 @@ class ParityPointResponse(BaseModel):
 
 
 class BinResponse(BaseModel):
-    """A half-open interval, how many rows fell in it, and what was measured.
+    """Bounds, how many rows fell in them, and what was measured.
+
+    Similarity bounds are the inclusive observed minimum and maximum;
+    calibration intervals are half-open, except the last includes 1.
 
     `value` is mean absolute error in `error_by_similarity` and observed
     positive rate in `calibration` -- the owning field says which, the same way
@@ -254,6 +264,64 @@ class BootstrapHistogramResponse(BaseModel):
 
     edges: list[float]
     counts: list[int]
+
+
+class RegressionSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    mean_signed_error: float
+    absolute_error_p90: float
+
+
+class ClassificationSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    true_positive: int
+    false_negative: int
+    false_positive: int
+    true_negative: int
+    precision: float | None
+    recall: float | None
+    cutoff_inclusive: bool
+
+
+class RankedPredictionResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    test_index: int
+    structure: str
+    actual: float
+    predicted: float
+    similarity: float | None
+    compound_id: str | None
+
+
+class ClassificationBinResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    lower: float
+    upper: float
+    count: int
+    summary: ClassificationSummaryResponse
+
+
+class ToleranceBinResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    lower: float
+    upper: float
+    count: int
+    within_count: int
+
+
+class ScorecardToleranceResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    target: str
+    tolerance: float
+    within_count: int
+    test_count: int
+    by_similarity: list[ToleranceBinResponse]
 
 
 class ScorecardResponse(BaseModel):
@@ -327,10 +395,33 @@ class ScorecardResponse(BaseModel):
     error_by_similarity: list[BinResponse]
     scaffold_errors: list[ScaffoldErrorResponse]
     calibration: list[BinResponse]
+    test_count: int
+    regression_summary: RegressionSummaryResponse | None
+    classification_summary: ClassificationSummaryResponse | None
+    ranked_high: list[RankedPredictionResponse]
+    ranked_low: list[RankedPredictionResponse]
+    classification_by_similarity: list[ClassificationBinResponse]
 
     @classmethod
     def from_domain(cls, card: Scorecard) -> ScorecardResponse:
         return cls(
+            ranked_high=[RankedPredictionResponse.model_validate(row) for row in card.ranked_high],
+            ranked_low=[RankedPredictionResponse.model_validate(row) for row in card.ranked_low],
+            classification_by_similarity=[
+                ClassificationBinResponse.model_validate(item)
+                for item in card.classification_by_similarity
+            ],
+            test_count=card.test_count,
+            regression_summary=(
+                RegressionSummaryResponse.model_validate(card.regression_summary)
+                if card.regression_summary is not None
+                else None
+            ),
+            classification_summary=(
+                ClassificationSummaryResponse.model_validate(card.classification_summary)
+                if card.classification_summary is not None
+                else None
+            ),
             target=card.target,
             joint_model=card.joint_model,
             primary_metric=card.primary_metric,
@@ -481,6 +572,25 @@ async def get_scorecard(
         await service(GetScorecardQuery(protocol_id=protocol_id), auth=auth)
     )
     return [ScorecardResponse.from_domain(card) for card in cards]
+
+
+@router.get("/{protocol_id}/scorecard/tolerance", response_model=ScorecardToleranceResponse)
+async def get_scorecard_tolerance(
+    protocol_id: uuid.UUID,
+    auth: AuthDep,
+    service: GetScorecardToleranceDep,
+    target: Annotated[str, Query(min_length=1)],
+    tolerance: Annotated[float, Query(ge=0, allow_inf_nan=False)],
+) -> ScorecardToleranceResponse:
+    result = result_to_response(
+        await service(
+            GetScorecardToleranceQuery(
+                protocol_id=protocol_id, target=target, tolerance=tolerance
+            ),
+            auth=auth,
+        )
+    )
+    return ScorecardToleranceResponse.model_validate(result)
 
 
 class ChemicalSpacePointsResponse(BaseModel):

@@ -382,7 +382,7 @@ def test_error_by_similarity_needs_enough_rows_to_be_a_curve():
     assert regression_card().error_by_similarity == []
 
 
-def test_error_by_similarity_bins_by_equal_count_and_rises_with_distance():
+def test_error_by_similarity_keeps_tied_similarities_together_and_rises_with_distance():
     """The claim the applicability number makes, turned into evidence: error
     should grow as compounds get less like the training set."""
     # Twenty analogues of a training compound predicted well, twenty unrelated
@@ -396,7 +396,10 @@ def test_error_by_similarity_bins_by_equal_count_and_rises_with_distance():
         train_structures=["CCO", "CCCO"],
     )
     bins = card.error_by_similarity
-    assert len(bins) == 8
+    # There are four distinct similarity scores. Splitting the ties merely to
+    # fill eight bins would imply a distance trend within identical distances.
+    assert len(bins) == 4
+    assert bins[0].count == 20
     assert sum(entry.count for entry in bins) == 40
     # Bins are ordered by rising similarity, so the far compounds -- the badly
     # predicted ones -- are at the low-similarity end.

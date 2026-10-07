@@ -44,7 +44,7 @@ function RunCompoundTooltip({ runId, row }: { runId: string; row: number }) {
       ))}
       <p>
         <span className="text-muted-foreground">Similarity to nearest training compound</span>{" "}
-        {data.applicability == null ? "—" : data.applicability.toFixed(2)}
+        {data.applicability == null ? "N/A" : data.applicability.toFixed(2)}
       </p>
     </div>
   );

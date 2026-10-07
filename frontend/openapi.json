@@ -1868,6 +1868,69 @@
         }
       }
     },
+    "/api/v1/protocols/{protocol_id}/scorecard/tolerance": {
+      "get": {
+        "tags": [
+          "protocols"
+        ],
+        "summary": "Get Scorecard Tolerance",
+        "operationId": "get_scorecard_tolerance_api_v1_protocols__protocol_id__scorecard_tolerance_get",
+        "parameters": [
+          {
+            "name": "protocol_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Protocol Id"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "title": "Target"
+            }
+          },
+          {
+            "name": "tolerance",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "number",
+              "minimum": 0,
+              "title": "Tolerance"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScorecardToleranceResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/protocols/{protocol_id}/chemical-space": {
       "get": {
         "tags": [
@@ -3596,7 +3659,7 @@
           "value"
         ],
         "title": "BinResponse",
-        "description": "A half-open interval, how many rows fell in it, and what was measured.\n\n`value` is mean absolute error in `error_by_similarity` and observed\npositive rate in `calibration` -- the owning field says which, the same way\n`prediction_kind` says what `worst_rows.residual` means."
+        "description": "Bounds, how many rows fell in them, and what was measured.\n\nSimilarity bounds are the inclusive observed minimum and maximum;\ncalibration intervals are half-open, except the last includes 1.\n\n`value` is mean absolute error in `error_by_similarity` and observed\npositive rate in `calibration` -- the owning field says which, the same way\n`prediction_kind` says what `worst_rows.residual` means."
       },
       "BlobPutResponse": {
         "properties": {
@@ -3955,6 +4018,90 @@
           "negative"
         ],
         "title": "ClassBalanceResponse"
+      },
+      "ClassificationBinResponse": {
+        "properties": {
+          "lower": {
+            "type": "number",
+            "title": "Lower"
+          },
+          "upper": {
+            "type": "number",
+            "title": "Upper"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/ClassificationSummaryResponse"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lower",
+          "upper",
+          "count",
+          "summary"
+        ],
+        "title": "ClassificationBinResponse"
+      },
+      "ClassificationSummaryResponse": {
+        "properties": {
+          "true_positive": {
+            "type": "integer",
+            "title": "True Positive"
+          },
+          "false_negative": {
+            "type": "integer",
+            "title": "False Negative"
+          },
+          "false_positive": {
+            "type": "integer",
+            "title": "False Positive"
+          },
+          "true_negative": {
+            "type": "integer",
+            "title": "True Negative"
+          },
+          "precision": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Precision"
+          },
+          "recall": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recall"
+          },
+          "cutoff_inclusive": {
+            "type": "boolean",
+            "title": "Cutoff Inclusive"
+          }
+        },
+        "type": "object",
+        "required": [
+          "true_positive",
+          "false_negative",
+          "false_positive",
+          "true_negative",
+          "precision",
+          "recall",
+          "cutoff_inclusive"
+        ],
+        "title": "ClassificationSummaryResponse"
       },
       "CollectionResponse": {
         "properties": {
@@ -6487,6 +6634,58 @@
         ],
         "title": "ProvenanceResponse"
       },
+      "RankedPredictionResponse": {
+        "properties": {
+          "test_index": {
+            "type": "integer",
+            "title": "Test Index"
+          },
+          "structure": {
+            "type": "string",
+            "title": "Structure"
+          },
+          "actual": {
+            "type": "number",
+            "title": "Actual"
+          },
+          "predicted": {
+            "type": "number",
+            "title": "Predicted"
+          },
+          "similarity": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Similarity"
+          },
+          "compound_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Compound Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "test_index",
+          "structure",
+          "actual",
+          "predicted",
+          "similarity",
+          "compound_id"
+        ],
+        "title": "RankedPredictionResponse"
+      },
       "ReadoutResponse": {
         "properties": {
           "name": {
@@ -6613,6 +6812,24 @@
         ],
         "title": "ReadoutWire",
         "description": "Mirrors `Readout` (`domain/catalog/readout.py`)."
+      },
+      "RegressionSummaryResponse": {
+        "properties": {
+          "mean_signed_error": {
+            "type": "number",
+            "title": "Mean Signed Error"
+          },
+          "absolute_error_p90": {
+            "type": "number",
+            "title": "Absolute Error P90"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mean_signed_error",
+          "absolute_error_p90"
+        ],
+        "title": "RegressionSummaryResponse"
       },
       "RenameFolderBody": {
         "properties": {
@@ -7806,6 +8023,51 @@
             },
             "type": "array",
             "title": "Calibration"
+          },
+          "test_count": {
+            "type": "integer",
+            "title": "Test Count"
+          },
+          "regression_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RegressionSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "classification_summary": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ClassificationSummaryResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "ranked_high": {
+            "items": {
+              "$ref": "#/components/schemas/RankedPredictionResponse"
+            },
+            "type": "array",
+            "title": "Ranked High"
+          },
+          "ranked_low": {
+            "items": {
+              "$ref": "#/components/schemas/RankedPredictionResponse"
+            },
+            "type": "array",
+            "title": "Ranked Low"
+          },
+          "classification_by_similarity": {
+            "items": {
+              "$ref": "#/components/schemas/ClassificationBinResponse"
+            },
+            "type": "array",
+            "title": "Classification By Similarity"
           }
         },
         "type": "object",
@@ -7842,10 +8104,52 @@
           "residual_histogram",
           "error_by_similarity",
           "scaffold_errors",
-          "calibration"
+          "calibration",
+          "test_count",
+          "regression_summary",
+          "classification_summary",
+          "ranked_high",
+          "ranked_low",
+          "classification_by_similarity"
         ],
         "title": "ScorecardResponse",
         "description": "One card per target; `joint_model` says whether one model learned them all.\n\nEvery field here is load-bearing for honest rendering -- see\n`domain/execution/scorecard.py`'s docstring for what each one means and\nwhy it exists. In particular: `baseline_is_self` true means the chosen\nengine *is* the baseline (render \"this model is the baseline\", not a\nhead-to-head that never happened); `metrics_undefined` is why a metric in\n`metrics` reads `null` instead of a number; `random_split_unavailable`\ndistinguishes \"not applicable\" (`None`/`None`) from \"could not be\ncomputed\" (`None`/a reason) for `random_split_metrics`;\n`random_split_metrics_undefined` is `metrics_undefined`'s own counterpart\nfor `random_split_metrics` -- a *different* partition that can disagree\nwith the Dataset's own split about which metrics are undefined and why,\nso a renderer must not reuse `metrics_undefined` to explain a\n`random_split_metrics` null.\n\n`unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'\n`actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and\nwhich way is better. `split_strategy` (`\"random\"` or `\"scaffold\"`) is\nwhich split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this\ninstead of inferring it from `random_split_metrics`/\n`random_split_unavailable` both being `None`."
+      },
+      "ScorecardToleranceResponse": {
+        "properties": {
+          "target": {
+            "type": "string",
+            "title": "Target"
+          },
+          "tolerance": {
+            "type": "number",
+            "title": "Tolerance"
+          },
+          "within_count": {
+            "type": "integer",
+            "title": "Within Count"
+          },
+          "test_count": {
+            "type": "integer",
+            "title": "Test Count"
+          },
+          "by_similarity": {
+            "items": {
+              "$ref": "#/components/schemas/ToleranceBinResponse"
+            },
+            "type": "array",
+            "title": "By Similarity"
+          }
+        },
+        "type": "object",
+        "required": [
+          "target",
+          "tolerance",
+          "within_count",
+          "test_count",
+          "by_similarity"
+        ],
+        "title": "ScorecardToleranceResponse"
       },
       "SetIdColumnBody": {
         "properties": {
@@ -8510,6 +8814,34 @@
         ],
         "title": "TargetSpecWire",
         "description": "Mirrors `TargetSpec` (`domain/data/target.py`)."
+      },
+      "ToleranceBinResponse": {
+        "properties": {
+          "lower": {
+            "type": "number",
+            "title": "Lower"
+          },
+          "upper": {
+            "type": "number",
+            "title": "Upper"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "within_count": {
+            "type": "integer",
+            "title": "Within Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lower",
+          "upper",
+          "count",
+          "within_count"
+        ],
+        "title": "ToleranceBinResponse"
       },
       "TrainProtocolBody": {
         "properties": {

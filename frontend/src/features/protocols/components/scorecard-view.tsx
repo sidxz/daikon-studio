@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui
 import { Progress } from "@/shared/components/ui/progress";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
+import { useState } from "react";
 import { formatCutoff } from "../lib/format-cutoff";
 import {
   type Verdict,
@@ -18,9 +19,13 @@ import {
   describeBaseline,
   higherIsBetter,
 } from "../lib/verdict";
-import { metricLabel } from "../types";
-import { LargestErrors } from "./largest-errors";
+import { METRIC_DESCRIPTIONS, metricLabel } from "../types";
+import { BinaryMetricComparison } from "./binary-metric-comparison";
+import { ConfusionMatrix } from "./confusion-matrix";
 import { ScorecardDiagnostics, SplitComparison } from "./scorecard-diagnostics";
+import { ScorecardOverview } from "./scorecard-overview";
+import { ScorecardSection } from "./scorecard-section";
+import { ScorecardSimilarity } from "./scorecard-similarity";
 
 function HonestyStat({
   label,
@@ -65,14 +70,15 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
 
   return (
     <div className="mt-4 flex flex-wrap gap-x-8 gap-y-4 border-t border-current/15 pt-3">
-      <HonestyStat label="Optimism gap">
+      <HonestyStat label="Performance on unfamiliar chemistry">
         {gap.kind === "shown" ? (
           <>
             <ReadoutValue value={gap.gap} precision={3} className="text-xl font-semibold" />
             <p className="mt-1 text-xs text-muted-foreground">
-              {metric} was <ReadoutValue value={gap.random} precision={3} /> on a random split and{" "}
-              <ReadoutValue value={gap.scaffold} precision={3} /> on the scaffold split used for
-              scoring. The difference is split-induced optimism.
+              {metric} was <ReadoutValue value={gap.random} precision={3} /> when similar chemical
+              families could appear in training and testing, and{" "}
+              <ReadoutValue value={gap.scaffold} precision={3} /> when the test families were kept
+              separate. This difference is the optimism gap.
             </p>
           </>
         ) : (
@@ -83,7 +89,7 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
       {/* Absent, not empty, for a binary target: there are no replicate
           spreads to average, so the question does not arise. */}
       {scorecard.noise_floor != null && (
-        <HonestyStat label="Assay noise floor">
+        <HonestyStat label="Variation in repeated measurements">
           <ReadoutValue
             value={scorecard.noise_floor}
             unit={scorecard.unit}
@@ -91,13 +97,13 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
             className="text-xl font-semibold"
           />
           <p className="mt-1 text-xs text-muted-foreground">
-            Mean range of replicate measurements of the same compound. Errors below this are within
-            experimental error.
+            Average spread when the same compound was measured more than once. This gives context
+            for the model's errors.
           </p>
         </HonestyStat>
       )}
 
-      <HonestyStat label="Applicability domain">
+      <HonestyStat label="Test compounds similar to training">
         {coverage == null ? (
           <p className="text-xs text-muted-foreground">Could not be computed for this protocol.</p>
         ) : (
@@ -107,8 +113,8 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
             </span>
             <Progress value={coverage * 100} className="mt-1.5 h-1.5" />
             <p className="mt-1 text-xs text-muted-foreground">
-              of test compounds have NN similarity ≥ 0.3 to the training set. Predictions on the
-              rest are extrapolations.
+              have a training compound with a structural similarity score of at least 0.3. This
+              measures familiarity, not the percentage of correct predictions.
             </p>
           </>
         )}
@@ -173,6 +179,7 @@ function CutoffLine({
 }
 
 function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
+  const binary = scorecard.prediction_kind === "probability";
   const verdict = computeVerdict(scorecard);
   const bootstrap = bootstrapData(scorecard, verdict);
   const metric = metricLabel(scorecard.primary_metric);
@@ -188,8 +195,17 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
         : "border-border bg-muted/30";
 
   return (
-    <div className={cn("rounded-lg border p-5", tone)}>
-      <p className="text-lg font-semibold">{verdict.headline}</p>
+    <section aria-label="Comparison & reliability" className={cn("rounded-lg border p-5", tone)}>
+      <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+        Comparison & reliability
+      </p>
+      <p className="text-lg font-semibold">
+        {binary && verdict.kind !== "is-baseline"
+          ? verdict.kind === "unknown"
+            ? `${metric} comparison unavailable`
+            : `${verdict.headline} (${metric})`
+          : verdict.headline}
+      </p>
       {/* Which split produced these numbers -- `scorecard.py`'s own docstring
           calls this "the single most important fact about how flattering a
           number is allowed to be", and it was on the wire and unrendered. It
@@ -201,7 +217,22 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
           : ": no test scaffold appears in the training set"}
       </p>
 
-      {verdict.kind === "is-baseline" ? (
+      {binary ? (
+        <>
+          <BinaryMetricComparison scorecard={scorecard} />
+          <p className="mt-3 text-xs text-muted-foreground">
+            {scorecard.baseline_is_self
+              ? `This model is the baseline (${engineName}). There is no separate model to compare.`
+              : `The comparison model is ${describeBaseline(scorecard, engines)}, evaluated on the same test set. Differences above are observed scores, not proof that one model will perform better on new compounds.`}
+          </p>
+          {bootstrap && scorecard.metrics[scorecard.primary_metric] != null && (
+            <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+              <h4 className="font-medium">How is the {metric} range estimated?</h4>
+              <BootstrapExplainer data={bootstrap} />
+            </div>
+          )}
+        </>
+      ) : verdict.kind === "is-baseline" ? (
         <p className="mt-2 text-sm text-muted-foreground">
           The model and baseline are the same engine ({engineName}) with the same settings, so there
           is no comparison to report.
@@ -216,11 +247,19 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
           <div className="mt-3 flex flex-wrap items-baseline gap-x-6 gap-y-2">
             <span className="text-sm">
               <span className="text-muted-foreground">{metric}</span>{" "}
-              <ReadoutValue value={verdict.model} className="text-xl font-semibold" />
+              <ReadoutValue
+                value={verdict.model}
+                unit={higherIsBetter(scorecard.primary_metric) ? undefined : scorecard.unit}
+                className="text-xl font-semibold"
+              />
             </span>
             <span className="text-sm">
               <span className="text-muted-foreground">baseline</span>{" "}
-              <ReadoutValue value={verdict.baseline} className="text-xl font-semibold" />
+              <ReadoutValue
+                value={verdict.baseline}
+                unit={higherIsBetter(scorecard.primary_metric) ? undefined : scorecard.unit}
+                className="text-xl font-semibold"
+              />
             </span>
             {verdict.delta != null && (
               <span className="text-sm text-muted-foreground">
@@ -257,27 +296,20 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
             {/* This claim is specifically about fingerprint baselines -- it is
                 false about e.g. a chemprop baseline, and this page's whole
                 purpose is to tell a scientist the truth about their model. */}
-            {scorecard.baseline_engine_id.startsWith("ecfp4-") && (
-              <>
-                {" "}
-                Fingerprint baselines are competitive on many published benchmarks; a more complex
-                model should outperform one to justify its complexity.
-              </>
-            )}
           </p>
           {bootstrap && (
-            <div className="mt-3">
+            <div className="mt-3 space-y-2 text-xs text-muted-foreground">
+              <h4 className="font-medium">How is the likely range estimated?</h4>
               <BootstrapExplainer data={bootstrap} />
             </div>
           )}
         </>
       )}
 
-      {/* Outside the comparison branch, like the honesty stats: every metric on the page
-          was measured at this cutoff, whatever the verdict says about the baseline. */}
+      {/* MCC uses the saved decision cutoff; PR AUC is independent of that cutoff. */}
       <CutoffLine scorecard={scorecard} comparesBaseline={verdict.kind !== "is-baseline"} />
       <HonestyStats scorecard={scorecard} />
-    </div>
+    </section>
   );
 }
 
@@ -309,7 +341,7 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
           </p>
         )}
       </CardHeader>
-      <CardContent>
+      <CardContent className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -334,17 +366,24 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
               const isPrimary = name === scorecard.primary_metric;
               return (
                 <tr key={name} className="border-b last:border-0 align-top">
-                  <td className={cn("py-2 pr-4", isPrimary && "font-medium")}>
+                  <td className={cn("py-3 pr-4", isPrimary && "font-medium")}>
                     {metricLabel(name)}
                     {isPrimary && (
                       <span className="ml-2 text-xs font-normal text-muted-foreground">
                         primary
                       </span>
                     )}
+                    <p className="mt-1 max-w-sm text-xs font-normal text-muted-foreground">
+                      {METRIC_DESCRIPTIONS[name]} {higherIsBetter(name) ? "Higher" : "Lower"} is
+                      better.
+                    </p>
                   </td>
                   {validation && (
                     <td className="py-2 pr-4">
-                      <ReadoutValue value={validation[name]} />
+                      <ReadoutValue
+                        value={validation[name]}
+                        unit={higherIsBetter(name) ? undefined : scorecard.unit}
+                      />
                     </td>
                   )}
                   <td className="py-2 pr-4">
@@ -353,14 +392,21 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
                       // written for a scientist and says what to do about it.
                       <span className="text-xs text-warning">{reason}</span>
                     ) : (
-                      <ReadoutValue value={value} />
+                      <ReadoutValue
+                        value={value}
+                        unit={higherIsBetter(name) ? undefined : scorecard.unit}
+                      />
                     )}
                   </td>
                   <td className="py-2">
                     {scorecard.baseline_is_self ? (
                       <span className="text-xs text-muted-foreground">is the baseline</span>
                     ) : (
-                      <ReadoutValue value={baseline[name]} className="text-muted-foreground" />
+                      <ReadoutValue
+                        value={baseline[name]}
+                        unit={higherIsBetter(name) ? undefined : scorecard.unit}
+                        className="text-muted-foreground"
+                      />
                     )}
                   </td>
                 </tr>
@@ -373,22 +419,46 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
   );
 }
 
-export function ScorecardView({ scorecard }: { scorecard: ScorecardResponse }) {
+export function ScorecardView({
+  scorecard,
+  protocolId,
+}: { scorecard: ScorecardResponse; protocolId?: string }) {
+  const [tolerance, setTolerance] = useState<{ target: string; value: number | null } | null>(null);
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      <ScorecardOverview
+        scorecard={scorecard}
+        protocolId={protocolId}
+        onToleranceChange={(value) => setTolerance({ target: scorecard.target, value })}
+      />
       <VerdictBand scorecard={scorecard} />
-      {/* The parity plot sits directly under the verdict because it is the one
-          view that can contradict it: a model can beat its baseline and still
-          be predicting the dataset mean, and only the scatter shows that. */}
-      <ScorecardDiagnostics scorecard={scorecard} />
-      {/* Before the metric table: the ESOL run's most actionable finding was
-          that 8 of its 20 worst predictions had no ring system at all. An
-          aggregate cannot say that, and a table of aggregates should not
-          outrank it. */}
-      <LargestErrors scorecard={scorecard} />
-      <SplitComparison scorecard={scorecard} />
-      <MetricTable scorecard={scorecard} />
-      <Conditions scorecard={scorecard} />
+      <ConfusionMatrix scorecard={scorecard} />
+      <ScorecardDiagnostics scorecard={scorecard} mode="overview" />
+      <ScorecardSection
+        title="Where does the model struggle?"
+        description="Explore how performance changes with training similarity and chemical family."
+      >
+        <ScorecardSimilarity
+          key={scorecard.target}
+          scorecard={scorecard}
+          protocolId={protocolId}
+          tolerance={tolerance && tolerance.target === scorecard.target ? tolerance.value : null}
+        />
+        <ScorecardDiagnostics scorecard={scorecard} mode="detail" />
+      </ScorecardSection>
+      <ScorecardSection
+        title="All metrics and comparisons"
+        description="Validation and test scores, the comparison model, and the effect of the data split."
+      >
+        <MetricTable scorecard={scorecard} />
+        <SplitComparison scorecard={scorecard} />
+      </ScorecardSection>
+      <ScorecardSection
+        title="Training settings"
+        description="The model and comparison settings used for this protocol."
+      >
+        <Conditions scorecard={scorecard} />
+      </ScorecardSection>
     </div>
   );
 }
@@ -404,7 +474,8 @@ function Conditions({ scorecard }: { scorecard: ScorecardResponse }) {
   const conditions = (scorecard.conditions ?? {}) as Record<string, unknown>;
   const baseline = (scorecard.baseline_conditions ?? {}) as Record<string, unknown>;
   const names = [...new Set([...Object.keys(conditions), ...Object.keys(baseline)])].sort();
-  if (names.length === 0) return null;
+  if (names.length === 0)
+    return <p className="text-sm text-muted-foreground">No training settings were recorded.</p>;
 
   return (
     <Card>
@@ -415,7 +486,7 @@ function Conditions({ scorecard }: { scorecard: ScorecardResponse }) {
           engine, these settings and the cited dataset.
         </p>
       </CardHeader>
-      <CardContent>
+      <CardContent className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
@@ -432,7 +503,7 @@ function Conditions({ scorecard }: { scorecard: ScorecardResponse }) {
                 <td className="py-2 pr-4 font-mono text-xs">{name}</td>
                 <td className="py-2 pr-4 tabular-nums">{format(conditions[name])}</td>
                 <td className="py-2 tabular-nums text-muted-foreground">
-                  {scorecard.baseline_is_self ? "—" : format(baseline[name])}
+                  {scorecard.baseline_is_self ? "N/A" : format(baseline[name])}
                 </td>
               </tr>
             ))}
@@ -444,7 +515,7 @@ function Conditions({ scorecard }: { scorecard: ScorecardResponse }) {
 }
 
 function format(value: unknown): string {
-  if (value == null) return "—";
+  if (value == null) return "N/A";
   if (typeof value === "boolean") return value ? "yes" : "no";
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);

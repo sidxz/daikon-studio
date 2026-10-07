@@ -18,7 +18,12 @@ from typing import Any
 
 from daikonstudio.application.catalog import get_scorecard as module
 from daikonstudio.application.catalog.get_scorecard import GetScorecard, GetScorecardQuery
-from daikonstudio.application.execution.train_protocol import ScorecardInputs, TargetInputs
+from daikonstudio.application.execution.build_scorecard import HeldOutChemistry
+from daikonstudio.application.execution.train_protocol import (
+    ScorecardInputs,
+    TargetInputs,
+    scorecard_chemistry_key,
+)
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
 from daikonstudio.domain.execution.scorecard import Scorecard
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
@@ -105,6 +110,50 @@ def _inputs(protocol_id: uuid.UUID) -> ScorecardInputs:
 class _NoDatasets:
     async def get(self, workspace_id, dataset_id):
         return None
+
+
+async def test_ranked_compounds_resolve_identifiers_even_outside_the_largest_errors(monkeypatch):
+    auth = FakeAuth(workspace_role="admin")
+    protocol = _FakeProtocol(auth.workspace_id, uuid.uuid4())
+    structures = ["C" * (i + 1) for i in range(60)]
+    inputs = replace(
+        _inputs(protocol.id),
+        structures=structures,
+        targets=[
+            _target(
+                "y",
+                predicted=list(range(60)),
+                actual=[i + 1000 if 20 <= i < 40 else i for i in range(60)],
+            )
+        ],
+    )
+    store = _FakeStore(inputs.to_json())
+    store.put_bytes(
+        scorecard_chemistry_key(auth.workspace_id, protocol.id),
+        HeldOutChemistry(similarities=[0.5] * 60, scaffolds=[""] * 60).to_json(),
+    )
+
+    class Datasets:
+        async def get(self, workspace_id, dataset_id):
+            return object()
+
+    def identifiers(store, dataset, wanted):
+        # Largest errors occupy only the middle third of this population.
+        assert wanted == set(structures)
+        return {structure: f"compound-{i}" for i, structure in enumerate(structures)}
+
+    monkeypatch.setattr(module, "read_compound_ids", identifiers)
+    service = GetScorecard(
+        _FakeProtocols(protocol),
+        store,
+        RdkitStructureNormalizer(),
+        Datasets(),
+        FakeProtocolAccess(),
+    )
+    result = (await service(GetScorecardQuery(protocol_id=protocol.id), auth)).unwrap()[0]
+    assert result.ranked_high[0].compound_id == "compound-59"
+    assert result.ranked_low[0].compound_id == "compound-0"
+    assert {r.compound_id for r in result.worst_rows} == {f"compound-{i}" for i in range(20, 40)}
 
 
 async def test_build_scorecard_runs_off_the_main_thread(monkeypatch) -> None:

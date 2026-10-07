@@ -11,7 +11,7 @@ import { cn } from "@/shared/lib/utils";
  *
  * Absence renders as absence. XGBoost reports no uncertainty and it comes back
  * null; applicability is null when it cannot be computed, never 0.0. Both show
- * an em dash. A fabricated zero would be worse than no number at all.
+ * N/A. A fabricated zero would be worse than no number at all.
  */
 export function ReadoutValue({
   value,
@@ -29,7 +29,7 @@ export function ReadoutValue({
   showDirection?: boolean;
 }) {
   if (value == null || Number.isNaN(value)) {
-    return <span className={cn("text-muted-foreground", className)}>—</span>;
+    return <span className={cn("text-muted-foreground", className)}>N/A</span>;
   }
 
   const magnitude = Math.abs(value);

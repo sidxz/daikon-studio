@@ -1,7 +1,5 @@
 "use client";
 
-// Deep import on purpose: the runs barrel imports protocols, so going through it would make a cycle.
-import { IN_DOMAIN_FLOOR } from "@/features/runs/lib/result-query";
 import {
   BinnedCurveChart,
   HistogramChart,
@@ -10,12 +8,6 @@ import {
   type SplitBins,
   SplitHistogramChart,
 } from "@/shared/components/charts";
-import { Explainer } from "@/shared/components/explainers/explainer";
-import {
-  DOMAIN_MS,
-  DomainFigure,
-  domainCaption,
-} from "@/shared/components/explainers/figures/domain";
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
@@ -34,14 +26,18 @@ import { metricLabel } from "../types";
  * was already in the scorecard blob and was being discarded before it reached
  * the page.
  */
-export function ScorecardDiagnostics({ scorecard }: { scorecard: ScorecardResponse }) {
+export function ScorecardDiagnostics({
+  scorecard,
+  mode,
+}: { scorecard: ScorecardResponse; mode?: "overview" | "detail" }) {
   const isClassification = scorecard.prediction_kind === "probability";
 
   return (
     <>
-      <ParitySection scorecard={scorecard} isClassification={isClassification} />
-      <ApplicabilitySection scorecard={scorecard} />
-      <ScaffoldErrorSection scorecard={scorecard} />
+      {mode !== "detail" && (
+        <ParitySection scorecard={scorecard} isClassification={isClassification} />
+      )}
+      {mode !== "overview" && <ScaffoldErrorSection scorecard={scorecard} />}
     </>
   );
 }
@@ -63,8 +59,8 @@ function ParitySection({
         </CardTitle>
         <p className="text-sm text-muted-foreground">
           {isClassification
-            ? "Predicted probability of every test compound, split by true class. Clear separation means actives are ranked above inactives; overlap marks where any threshold will misclassify."
-            : "All test compounds. Points near the diagonal are accurate predictions; a cloud flattened toward the middle means predictions regress to the dataset mean."}
+            ? "How the model scores active and inactive compounds. Less overlap means it is easier to tell the two apart."
+            : "Each point is a test compound. The closer it is to the diagonal line, the closer the prediction is to the measured value."}
           {scorecard.parity_sampled_from
             ? ` Showing ${scorecard.parity.length.toLocaleString()} of ${scorecard.parity_sampled_from.toLocaleString()} test compounds.`
             : ""}
@@ -78,7 +74,7 @@ function ParitySection({
             series={["Active", "Inactive"]}
             yLabel="Fraction of class"
             height={220}
-            caption="Each class normalised to its own size, so the shapes stay comparable on an unbalanced test set. Two humps pushed to opposite ends is a model that separates the classes; overlap in the middle is the region where whatever threshold you pick will be wrong about something."
+            caption="Each group is shown as a share of its own class, so the shapes can be compared even when active compounds are rare."
           />
         ) : (
           <ParityChart
@@ -87,7 +83,7 @@ function ParitySection({
             noiseFloor={scorecard.noise_floor}
             caption={
               scorecard.noise_floor != null
-                ? "The dashed line is a perfect prediction; the shaded band is the assay noise floor. A point inside the band is as accurate as this data can prove anything is."
+                ? "The dashed line is a perfect prediction. The shaded band shows the average spread of repeated measurements as context for the errors."
                 : "The dashed line is a perfect prediction. Points are shaded by how similar the compound is to the training set."
             }
           />
@@ -96,14 +92,14 @@ function ParitySection({
         {scorecard.residual_histogram && scorecard.residual_histogram.counts.length > 0 && (
           <div>
             <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Residuals
+              How far off are the predictions?
             </p>
             <HistogramChart
               bins={scorecard.residual_histogram}
               xLabel={`predicted − measured${scorecard.unit ? ` (${scorecard.unit})` : ""}`}
               height={180}
               reference={{ at: 0, label: "no error" }}
-              caption="Centred on zero means the model is wrong in both directions equally. Centred to one side is bias — a model that is systematically optimistic or pessimistic, which no error metric on this page reports."
+              caption="Zero is a perfect prediction. Values to the right are predictions that were too high; values to the left were too low."
             />
           </div>
         )}
@@ -111,7 +107,7 @@ function ParitySection({
         {scorecard.calibration.length > 0 && (
           <div>
             <p className="mb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Calibration
+              Do the probability estimates match reality?
             </p>
             <BinnedCurveChart
               bins={scorecard.calibration}
@@ -119,7 +115,7 @@ function ParitySection({
               yLabel="observed active rate"
               diagonal
               height={200}
-              caption="On the diagonal, probabilities are calibrated: of compounds predicted at 0.8, 80% are active. Off it, outputs are scores rather than probabilities, though ranking may still be correct. Dot size shows compounds per bin."
+              caption="Near the diagonal, predicted chances match observed results: among compounds given an 80% chance, about 80% should be active. Bigger dots contain more compounds. Small groups give less certain estimates."
             />
           </div>
         )}
@@ -128,73 +124,7 @@ function ParitySection({
   );
 }
 
-/**
- * The applicability claim, checked.
- *
- * The verdict band states a single coverage percentage. This is the evidence for
- * or against it: error should rise as compounds get less like the training set,
- * and if it does not, the applicability domain is not buying this model anything.
- */
-function ApplicabilitySection({ scorecard }: { scorecard: ScorecardResponse }) {
-  const bins = scorecard.error_by_similarity;
-  if (bins.length === 0) return null;
-
-  const first = bins[0];
-  const last = bins[bins.length - 1];
-  const rises = first.value > last.value;
-  const ratio = last.value === 0 ? null : first.value / last.value;
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Does distance from training predict error?</CardTitle>
-        <p className="text-sm text-muted-foreground">
-          MAE of test compounds, binned by NN similarity (equal-count bins). Shows whether the
-          applicability-domain coverage above tracks error.
-        </p>
-      </CardHeader>
-      <CardContent className="space-y-3">
-        <Explainer
-          id="domain"
-          durationMs={DOMAIN_MS}
-          caption={domainCaption("diagnostics", IN_DOMAIN_FLOOR)}
-        >
-          {(t) => <DomainFigure t={t} threshold={IN_DOMAIN_FLOOR} />}
-        </Explainer>
-        <BinnedCurveChart
-          bins={bins}
-          xLabel="Tanimoto similarity to nearest training compound"
-          yLabel={`mean absolute error${scorecard.unit ? ` (${scorecard.unit})` : ""}`}
-          caption="Bins hold equal numbers of compounds, so no bin rests on fewer data than another."
-        />
-        <p className="text-sm">
-          {rises ? (
-            <>
-              MAE is{" "}
-              <span className="font-medium">
-                {ratio ? `${ratio.toFixed(1)}× higher` : "higher"}
-              </span>{" "}
-              in the lowest-similarity bin (
-              <ReadoutValue value={first.value} precision={3} />) than in the highest (
-              <ReadoutValue value={last.value} precision={3} />
-              ). Predictions on compounds dissimilar to the training set are less reliable for this
-              model.
-            </>
-          ) : (
-            <>
-              MAE is <span className="font-medium">not</span> higher in the lowest-similarity bin
-              than in the highest. Either the model generalizes beyond its training chemistry, or
-              Tanimoto similarity does not capture what makes these compounds difficult. Either way,
-              applicability-domain coverage is a weak guide to error here.
-            </>
-          )}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
-/** Which chemistry the model has not learned — systematically, not anecdotally. */
+/** Which chemistry the model has not learned, systematically rather than anecdotally. */
 function ScaffoldErrorSection({ scorecard }: { scorecard: ScorecardResponse }) {
   const families = scorecard.scaffold_errors;
   if (families.length === 0) return null;
@@ -211,7 +141,7 @@ function ScaffoldErrorSection({ scorecard }: { scorecard: ScorecardResponse }) {
         <CardTitle className="text-base">Error by scaffold family</CardTitle>
         <p className="text-sm text-muted-foreground">
           Median absolute error per Bemis–Murcko scaffold across the full test set, highest first.
-          The individual largest errors are listed above.
+          See individual errors in the Test compounds tab.
         </p>
       </CardHeader>
       <CardContent>

@@ -10,6 +10,7 @@ import type {
   ProtocolStatus,
   RunResponse,
   ScorecardResponse,
+  ScorecardToleranceResponse,
   TrainProtocolBody,
 } from "@/shared/lib/api/model";
 import { type Headline, headlines } from "@/shared/lib/headlines";
@@ -136,6 +137,21 @@ export function useScorecard(id: string | undefined) {
     enabled: Boolean(id),
     // A published Protocol is immutable, and a draft's scorecard is written
     // once at training time. Neither ever changes under us.
+    staleTime: STALE_TIME.LONG,
+  });
+}
+
+export function useScorecardTolerance(id: string, target: string, tolerance: number | null) {
+  return useQuery({
+    queryKey: [...SCORECARD_KEY, id, "tolerance", target, tolerance],
+    queryFn: ({ signal }) =>
+      customInstance<ScorecardToleranceResponse>({
+        url: `${API_V1}/protocols/${id}/scorecard/tolerance`,
+        method: "GET",
+        params: { target, tolerance },
+        signal,
+      }),
+    enabled: tolerance !== null,
     staleTime: STALE_TIME.LONG,
   });
 }

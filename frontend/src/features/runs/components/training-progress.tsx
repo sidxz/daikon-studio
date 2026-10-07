@@ -121,14 +121,14 @@ function SeriesView({
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
         <Stat label="Epoch" value={`${last.epoch} of ${last.epochs}`} />
-        <Stat label="Per epoch" value={pace === null ? "—" : durationLabel(pace)} />
+        <Stat label="Per epoch" value={pace === null ? "N/A" : durationLabel(pace)} />
         <Stat
           label="Left for this model"
-          value={left === null ? "—" : left === 0 ? "done" : `about ${durationLabel(left)}`}
+          value={left === null ? "N/A" : left === 0 ? "done" : `about ${durationLabel(left)}`}
         />
         <Stat
           label={live ? "Kept so far" : "Kept epoch"}
-          value={kept ? `epoch ${kept.epoch}` : "—"}
+          value={kept ? `epoch ${kept.epoch}` : "N/A"}
           hint={kept ? keptRule(series) : "no validation set"}
         />
       </div>
@@ -142,7 +142,7 @@ function SeriesView({
               <Stat
                 key={name}
                 label={`Validation ${SCORE_LABELS[name]}${name === "mcc" ? " (0.5 cutoff)" : ""}`}
-                value={value === undefined ? "—" : format(name, value)}
+                value={value === undefined ? "N/A" : format(name, value)}
                 hint={
                   best && best !== last
                     ? `best ${format(name, best.scores[name])} at epoch ${best.epoch}`
@@ -233,11 +233,11 @@ function SeriesTable({ series, names }: { series: EpochSeries[]; names: string[]
               </TableCell>
               <TableCell className="text-right tabular-nums">{kept.epoch}</TableCell>
               <TableCell className="text-right tabular-nums">
-                {kept.val_loss == null ? "—" : kept.val_loss.toFixed(3)}
+                {kept.val_loss == null ? "N/A" : kept.val_loss.toFixed(3)}
               </TableCell>
               {names.map((name) => (
                 <TableCell key={name} className="text-right tabular-nums">
-                  {kept.scores[name] === undefined ? "—" : format(name, kept.scores[name])}
+                  {kept.scores[name] === undefined ? "N/A" : format(name, kept.scores[name])}
                 </TableCell>
               ))}
             </TableRow>

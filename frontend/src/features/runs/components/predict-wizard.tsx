@@ -81,7 +81,7 @@ function ProtocolContext({ protocol }: { protocol: Protocol }) {
               <div key={condition.key} className="flex gap-1.5">
                 <dt className="text-muted-foreground">{condition.label}</dt>
                 <dd className="font-mono">
-                  {String(protocol.conditions?.[condition.key] ?? condition.default ?? "—")}
+                  {String(protocol.conditions?.[condition.key] ?? condition.default ?? "N/A")}
                 </dd>
               </div>
             ))}

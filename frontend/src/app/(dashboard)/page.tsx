@@ -169,7 +169,7 @@ export default function DashboardPage() {
               key={protocol.id}
               href={`/protocols/${protocol.id}`}
               name={protocol.name}
-              subtitle={`Predicts ${targetsOf(protocol.readouts ?? []).join(", ") || "—"}`}
+              subtitle={`Predicts ${targetsOf(protocol.readouts ?? []).join(", ") || "N/A"}`}
               draft={protocol.status === "draft"}
               footerStart={`Version ${protocol.protocol_version}`}
               creator={memberName(protocol.created_by)}

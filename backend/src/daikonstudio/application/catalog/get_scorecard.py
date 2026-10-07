@@ -94,7 +94,9 @@ class GetScorecard:
         scorecards = await asyncio.to_thread(_build_all, inputs, chemistry)
         # IDs are looked up now rather than stored with the inputs, so naming or
         # changing the dataset's identifier column shows here without retraining.
-        wanted = {row.structure for card in scorecards for row in card.worst_rows}
+        wanted = {row.structure for card in scorecards for row in card.worst_rows} | {
+            row.structure for card in scorecards for row in [*card.ranked_high, *card.ranked_low]
+        }
         ids = None
         if wanted:
             dataset = await self._datasets.get(protocol.workspace_id, protocol.dataset_id)
@@ -109,6 +111,13 @@ class GetScorecard:
                     card,
                     worst_rows=[
                         replace(row, compound_id=ids.get(row.structure)) for row in card.worst_rows
+                    ],
+                    ranked_high=[
+                        replace(row, compound_id=ids.get(row.structure))
+                        for row in card.ranked_high
+                    ],
+                    ranked_low=[
+                        replace(row, compound_id=ids.get(row.structure)) for row in card.ranked_low
                     ],
                 )
                 for card in scorecards

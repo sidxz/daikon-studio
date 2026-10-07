@@ -4,7 +4,10 @@
  */
 
 /**
- * A half-open interval, how many rows fell in it, and what was measured.
+ * Bounds, how many rows fell in them, and what was measured.
+
+Similarity bounds are the inclusive observed minimum and maximum;
+calibration intervals are half-open, except the last includes 1.
 
 `value` is mean absolute error in `error_by_similarity` and observed
 positive rate in `calibration` -- the owning field says which, the same way

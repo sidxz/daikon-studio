@@ -138,7 +138,7 @@ export function RunnerList() {
                         View run
                       </Link>
                     ) : (
-                      <span className="text-muted-foreground">—</span>
+                      <span className="text-muted-foreground">N/A</span>
                     )}
                   </TableCell>
                   <TableCell className="text-right">
