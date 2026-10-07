@@ -11,6 +11,7 @@ import {
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
+import { splitTitle } from "@/shared/lib/split";
 import { metricLabel } from "../types";
 
 /**
@@ -210,9 +211,11 @@ export function SplitComparison({ scorecard }: { scorecard: ScorecardResponse })
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Scaffold split versus random split</CardTitle>
+        <CardTitle className="text-base">
+          {splitTitle(scorecard.split_strategy)} split versus random split
+        </CardTitle>
         <p className="text-sm text-muted-foreground">
-          The same engine and settings, trained and scored on a random split of the same compounds.
+          The same engine and settings, trained and scored on a random split of the same data.
           Consistent differences across metrics indicate split-induced optimism.
         </p>
       </CardHeader>
@@ -221,7 +224,9 @@ export function SplitComparison({ scorecard }: { scorecard: ScorecardResponse })
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="pb-2 pr-4 font-medium">Metric</th>
-              <th className="pb-2 pr-4 font-medium">Scaffold split (scored)</th>
+              <th className="pb-2 pr-4 font-medium">
+                {splitTitle(scorecard.split_strategy)} split (scored)
+              </th>
               <th className="pb-2 font-medium">Random split</th>
             </tr>
           </thead>

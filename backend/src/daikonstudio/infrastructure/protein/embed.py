@@ -84,10 +84,19 @@ def _embed(sequences: tuple[str, ...]) -> np.ndarray:
     run twelve forward passes over the same sequences. Six entries at 10k sequences is
     about 300 MB of float32.
 
+    Keyed on the exact input tuple, which is why a *differently partitioned* view of the
+    same dataset misses entirely. That now has a price tag: a grouped split also trains
+    the random-split comparison behind the Scorecard's optimism gap, whose partitions
+    hold the same sequences in different groupings, so every protein run embeds the
+    dataset twice. Measured on 3,996 TEM-1 variants of 286 residues, embedding was 323 s
+    of a 465 s fit -- so the second fit is most of a second embedding pass.
+
     ponytail: an in-process LRU, sized for one fit. A dataset-scoped embedding cache in
     the blob store is the real answer if embeddings ever need to survive a retrain, and
     is the point of frozen features in the first place -- but it needs a cache key and
-    an eviction story, and this proves the pipeline first.
+    an eviction story, and this proves the pipeline first. The cheaper intermediate step,
+    if the double fit hurts first: embed the whole frame once and slice per partition,
+    which turns the comparison fit into just the tree refit.
     """
     import torch
 

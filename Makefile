@@ -239,9 +239,12 @@ publish-runner-gpu: ## Backend release: build the CUDA runner on atlantic, test 
 # A green build says nothing about whether the image works (docs/roadmap.md, Traps):
 # the CPU image built clean for two months while LightGBM could not import inside it.
 # This imports the app and every engine, so a missing shared library fails here.
-image-smoke: image-runner-cpu ## Build the CPU image and prove it can import the app and every engine
+# Then the one thing no import reaches: `mmseqs`, which the identity-clustered split
+# shells out to, so an apt package that stopped installing fails here and not in a run.
+image-smoke: image-runner-cpu ## Build the CPU image and prove it can import the app and every engine, and run mmseqs
 	docker run --rm -e STUDIO_DUAR_SERVICE_KEY=smoke -e STUDIO_IDP_AUDIENCE=smoke daikon-runner:cpu \
 		python -c "import daikonstudio.interface.app, daikonstudio.infrastructure.engines.registry as r; print('engines:', sorted(m.id for m in r.default_registry().manifests()))"
+	docker run --rm daikon-runner:cpu mmseqs version
 
 image-frontend: ## Build the daikon-frontend:local image (Next standalone + RDKit wasm)
 	$(call BUILD_INFO,frontend) && docker build -f frontend/Dockerfile -t daikon-frontend:local \

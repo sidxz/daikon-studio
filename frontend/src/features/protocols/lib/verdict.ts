@@ -1,5 +1,6 @@
 import type { Engine } from "@/features/engines";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
+import { isGroupedSplit } from "@/shared/lib/split";
 
 export type VerdictKind =
   | "beats"
@@ -211,7 +212,8 @@ export type GapKind = "shown" | "not-applicable" | "unavailable";
 
 export interface OptimismGap {
   kind: GapKind;
-  scaffold: number | null;
+  /** The score on the split the model was actually judged on, whichever it was. */
+  held: number | null;
   random: number | null;
   gap: number | null;
   message: string | null;
@@ -225,17 +227,24 @@ export interface OptimismGap {
  * non-null `random_split_unavailable` means the comparison was attempted and
  * could not be computed, and its message says why. Collapsing those two into
  * one blank is exactly the failure this product exists to prevent.
+ *
+ * The gap exists for *every* grouped split, not only `scaffold`: training fits
+ * the random-split comparison whenever the Dataset's own split groups related
+ * rows, so identity and position splits have one too. Reading a missing
+ * comparison as "it was a random split" would therefore print the wrong reason
+ * on a sequence dataset, which is why the strategy is consulted rather than
+ * inferred.
  */
 export function computeOptimismGap(scorecard: ScorecardResponse): OptimismGap {
   const metric = scorecard.primary_metric;
-  const scaffold = (scorecard.metrics as Record<string, number | null>)?.[metric] ?? null;
+  const held = (scorecard.metrics as Record<string, number | null>)?.[metric] ?? null;
   const random =
     (scorecard.random_split_metrics as Record<string, number | null> | null)?.[metric] ?? null;
 
   if (scorecard.random_split_unavailable) {
     return {
       kind: "unavailable",
-      scaffold,
+      held,
       random: null,
       gap: null,
       message: scorecard.random_split_unavailable,
@@ -243,19 +252,27 @@ export function computeOptimismGap(scorecard: ScorecardResponse): OptimismGap {
   }
 
   if (scorecard.random_split_metrics == null) {
-    return {
-      kind: "not-applicable",
-      scaffold,
-      random: null,
-      gap: null,
-      message: "Not applicable: the model was scored on a random split.",
-    };
+    return isGroupedSplit(scorecard.split_strategy)
+      ? {
+          kind: "unavailable",
+          held,
+          random: null,
+          gap: null,
+          message: "No random-split comparison was recorded for this run.",
+        }
+      : {
+          kind: "not-applicable",
+          held,
+          random: null,
+          gap: null,
+          message: "Not applicable: the model was scored on a random split.",
+        };
   }
 
-  if (scaffold == null || random == null) {
+  if (held == null || random == null) {
     return {
       kind: "unavailable",
-      scaffold,
+      held,
       random,
       gap: null,
       message: `The ${metric} was undefined on one of the two splits.`,
@@ -264,6 +281,6 @@ export function computeOptimismGap(scorecard: ScorecardResponse): OptimismGap {
 
   // Signed so it always means "how much the easy split flattered the model",
   // whichever way the metric points.
-  const gap = higherIsBetter(metric) ? random - scaffold : scaffold - random;
-  return { kind: "shown", scaffold, random, gap, message: null };
+  const gap = higherIsBetter(metric) ? random - held : held - random;
+  return { kind: "shown", held, random, gap, message: null };
 }

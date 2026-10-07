@@ -19,6 +19,7 @@ import {
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import type { ApiError } from "@/shared/lib/api/custom-instance";
 import { saveText } from "@/shared/lib/api/download";
+import { SPLIT_VOCABULARY, isGroupedSplit } from "@/shared/lib/split";
 import { showSuccess } from "@/shared/lib/toast";
 import { Check, ChevronRight, Download, FileUp, Pencil } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -43,6 +44,7 @@ import {
   type DraftTarget,
   EMPTY_DRAFT,
   SPLIT_COPY,
+  type SplitStrategy,
   type ValidationReport,
 } from "../types";
 import { DatasetBuildProgress } from "./dataset-build-progress";
@@ -50,6 +52,18 @@ import { DatasetReadinessView } from "./dataset-readiness-view";
 import { ValidationReportView } from "./validation-report-view";
 
 const STEPS = ["Upload", "Columns & targets", "Split", "Review & create"] as const;
+/**
+ * Which kind of data each split is for. Scaffold is the recommendation for
+ * small molecules, which is most datasets -- but a sequence dataset has no
+ * Bemis–Murcko scaffold to split on, so naming the data rather than ranking
+ * the strategies keeps "Recommended" from reading as "the others are worse".
+ */
+const SPLIT_BADGE: Record<SplitStrategy, string | null> = {
+  scaffold: "Recommended for molecules",
+  random: null,
+  identity: "For protein sequences",
+  position: "For variants of one protein",
+};
 const ROLES: Record<ColumnRole, string> = {
   structure: "Structure (SMILES)",
   identifier: "Identifier",
@@ -553,7 +567,7 @@ export function DatasetWizard() {
             </CardHeader>
             <CardContent className="space-y-5">
               <div aria-labelledby="split-strategy-label" className="grid gap-3 sm:grid-cols-2">
-                {(["scaffold", "random"] as const).map((strategy) => (
+                {(Object.keys(SPLIT_COPY) as SplitStrategy[]).map((strategy) => (
                   <label
                     key={strategy}
                     className={`cursor-pointer rounded-xl border p-4 ${draft.strategy === strategy ? "border-primary bg-primary/5" : "border-border"}`}
@@ -568,7 +582,9 @@ export function DatasetWizard() {
                         className="accent-primary"
                       />
                       <span className="text-sm font-medium">{SPLIT_COPY[strategy].title}</span>
-                      {strategy === "scaffold" && <Badge variant="secondary">Recommended</Badge>}
+                      {SPLIT_BADGE[strategy] && (
+                        <Badge variant="secondary">{SPLIT_BADGE[strategy]}</Badge>
+                      )}
                     </div>
                     <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
                       {SPLIT_COPY[strategy].detail}
@@ -581,8 +597,9 @@ export function DatasetWizard() {
                   Intended split: 80% training · 10% validation · 10% test
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Scaffold groups stay together, so actual counts can differ. The review shows the
-                  exact result.
+                  {isGroupedSplit(draft.strategy)
+                    ? `Each ${SPLIT_VOCABULARY[draft.strategy].group} stays on one side, so actual counts can differ. The review shows the exact result.`
+                    : "The review shows the exact result."}
                 </p>
               </div>
               <details className="rounded-lg border p-4">

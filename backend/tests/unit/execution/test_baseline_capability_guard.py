@@ -105,3 +105,57 @@ async def test_a_baseline_that_cannot_serve_the_task_fails_before_any_fit() -> N
     assert "regression-only" in message
     assert "binary classification" in message
     assert "chosen" not in message
+
+
+def test_an_engine_is_refused_on_a_structure_kind_it_cannot_read() -> None:
+    """The silent-nonsense guard, and the reason it has to exist at all.
+
+    A wrong-kind mismatch is not a crash. ESM-2 handed canonical SMILES still returns a
+    1280-column matrix, XGBoost still fits it, every metric still computes and the
+    Scorecard still renders -- on embeddings of text the protein model has never seen the
+    like of. Nothing downstream can notice, so this is the only place it can be stopped.
+    """
+    from daikonstudio.application.execution.train_protocol import _check_capable
+    from daikonstudio.domain.data.structure_kind import StructureKind
+
+    molecules = EngineManifest(
+        id="ecfp4-xgboost",
+        version="1.0.0",
+        name="ECFP4 + XGBoost",
+        description="",
+        tasks=(TaskType.REGRESSION,),
+    )
+    sequences = EngineManifest(
+        id="esm2-xgboost",
+        version="1.0.0",
+        name="ESM-2 embeddings + XGBoost",
+        description="",
+        tasks=(TaskType.REGRESSION,),
+        structure_kinds=(StructureKind.SEQUENCE,),
+    )
+
+    def dataset_of(kind: StructureKind) -> Dataset:
+        return Dataset(
+            workspace_id=uuid.uuid4(),
+            name="d",
+            structure_column="structure",
+            targets=(TargetSpec(column="y", kind=TargetKind.NUMERIC, unit=None),),
+            split=SplitSpec(strategy=SplitStrategy.RANDOM, seed=0),
+            content_hash="h",
+            snapshot_uri="s",
+            row_count=1,
+            validation_report=ValidationReport(total_rows=1, valid_rows=1, structure_kind=kind),
+        )
+
+    # The matching pairs are allowed.
+    _check_capable(molecules, dataset_of(StructureKind.MOLECULE))
+    _check_capable(sequences, dataset_of(StructureKind.SEQUENCE))
+
+    with pytest.raises(ValidationError) as sequence_engine_on_molecules:
+        _check_capable(sequences, dataset_of(StructureKind.MOLECULE))
+    assert "amino-acid sequences" in str(sequence_engine_on_molecules.value)
+    assert "small molecules" in str(sequence_engine_on_molecules.value)
+
+    with pytest.raises(ValidationError) as molecule_engine_on_sequences:
+        _check_capable(molecules, dataset_of(StructureKind.SEQUENCE))
+    assert "small molecules" in str(molecule_engine_on_sequences.value)

@@ -38,6 +38,7 @@ import {
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import { isTerminal } from "@/shared/lib/query-defaults";
+import { isGroupedSplit } from "@/shared/lib/split";
 import { showError } from "@/shared/lib/toast";
 import { Check, ChevronDownIcon, ClipboardCheck, Pencil } from "lucide-react";
 import Link from "next/link";
@@ -375,8 +376,8 @@ export function TrainProtocolForm() {
               finishes.
             </p>
             <p className="text-xs text-muted-foreground">
-              Training the selected engine and the baseline. On a scaffold split, the engine is also
-              trained on a random split to measure the optimism gap.
+              Training the selected engine and the baseline. Unless the dataset is split at random,
+              the engine is also trained on a random split to measure the optimism gap.
             </p>
           </CardContent>
         </Card>
@@ -687,11 +688,11 @@ export function TrainProtocolForm() {
                   <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
                 </div>
               )}
-              {dataset?.split.strategy === "scaffold" && (
+              {dataset != null && isGroupedSplit(dataset.split.strategy) && (
                 <p className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
                   Training also fits the selected engine on a random split, with the same seed and
-                  intended fractions. Its score is compared with the scaffold result to measure the
-                  optimism gap.
+                  intended fractions. Its score is compared with the {dataset.split.strategy}-split
+                  result to measure the optimism gap.
                 </p>
               )}
             </CardContent>
@@ -861,7 +862,7 @@ export function TrainProtocolForm() {
                         <span>Train {baselineEngine.name} as the comparison baseline.</span>
                       </li>
                     )}
-                    {dataset.split.strategy === "scaffold" && (
+                    {isGroupedSplit(dataset.split.strategy) && (
                       <li className="flex gap-2">
                         <Check className="mt-0.5 size-3 shrink-0" />
                         <span>Train {engine.name} again on a random split for comparison.</span>
@@ -874,7 +875,7 @@ export function TrainProtocolForm() {
                   </ol>
                   <div className="flex flex-wrap gap-1.5">
                     <Badge variant="outline" className="font-normal">
-                      {dataset.split.strategy === "scaffold"
+                      {isGroupedSplit(dataset.split.strategy)
                         ? selfCompare
                           ? 2
                           : 3

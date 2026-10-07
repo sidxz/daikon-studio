@@ -13,9 +13,20 @@ WORKDIR /app
 # `OSError: libgomp.so.1: cannot open shared object file`. Found 2026-10-02 by
 # booting the image, not by building it -- the same trap docs/roadmap.md records
 # for the GPU image. `make image-smoke` and CI now run that boot check.
+# mmseqs2 backs the identity-clustered split, which shells out to the binary
+# (`infrastructure/protein/cluster.py`). It belongs in this image and not in
+# Dockerfile.gpu: dataset preparation runs off-thread in the API, while the GPU runner's
+# only `assign_split` call hard-codes `strategy=RANDOM` for the optimism-gap comparison
+# and so never clusters.
+#
+# From apt rather than upstream's static tarball on purpose. Debian ships 15-6f452
+# against brew's 18-8cc5c, and the two produce byte-identical cluster assignments on
+# 33,069 real ProteinGym sequences -- so the version skew buys nothing, while a
+# hand-downloaded binary would be invisible to Trivy and unpatched, against the policy
+# that `make security-scan` is green before any release tag.
 RUN apt-get update \
  && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends libgomp1 \
+ && apt-get install -y --no-install-recommends libgomp1 mmseqs2 \
  && rm -rf /var/lib/apt/lists/*
 
 # uv owns the venv; the base image's pip (and the wheels ensurepip carries)

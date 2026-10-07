@@ -12,9 +12,10 @@ request runs up to three fits:
    fingerprint baselines placed around 20th of 66 teams, and a scientist whose
    sophisticated model cannot beat one needs to learn that on the first screen,
    not after ordering compounds.
-3. **The chosen engine again, on a random split**, but only when the Dataset's
-   split is a scaffold split. The difference between the two is the *optimism
-   gap*: how much of the flattering number came from near-duplicate analogues
+3. **The chosen engine again, on a random split**, whenever the Dataset's own
+   split is a grouped one (scaffold, identity or position). The difference
+   between the two is the *optimism gap*: how much of the flattering number came
+   from near-duplicate analogues, homologues or repeat mutations at one site
    straddling the split. Measured, not inferred. On a Dataset that is already
    randomly split there is nothing to compare against, so `random_split_metrics`
    is `None` rather than a repeat of the same figure.
@@ -113,6 +114,7 @@ from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.catalog.readout import ReadoutType
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.execution.run import (
     Run,
@@ -462,7 +464,7 @@ def deadline_scale(
     """How many times over its lane's deadline a training Run may take: one lane budget
     per model fitted inside it.
 
-    The chosen engine fits in each of its legs -- the model, and on a scaffold split
+    The chosen engine fits in each of its legs -- the model, and on any grouped split
     the random-split comparison too -- and the baseline fits once. In each, a fan-out
     engine fits once per target and a joint engine once regardless, and an ensemble
     fits once per member. A chemprop ensemble of four on a scaffold split is eight
@@ -472,7 +474,11 @@ def deadline_scale(
     ponytail: a cheap baseline costs a whole lane budget here, so the limit is loose
     rather than tight. It is a ceiling for a hung fit, not an estimate.
     """
-    legs = 2 if dataset.split.strategy is SplitStrategy.SCAFFOLD else 1
+    # Phrased as "is this a grouped strategy", i.e. anything but RANDOM, rather than as
+    # a list of members: `_optimism_gap` runs the second leg for every non-random
+    # strategy, and a new member added to that side but forgotten here would get half
+    # the budget it needs and die on the lane deadline at ~80% of a long run.
+    legs = 1 if dataset.split.strategy is SplitStrategy.RANDOM else 2
     return legs * _fits(manifest, dataset, conditions) + _fits(
         baseline, dataset, baseline_conditions
     )
@@ -940,23 +946,29 @@ class RunTraining:
     ]:
         """The chosen engine re-fitted on a random split of the same rows.
 
-        Only for a scaffold split: on a Dataset that is already randomly split
-        there is no second number to compare against, and reporting the same
-        figure twice would invent a gap of zero where none was measured.
+        Skipped only for a Dataset that is *already* randomly split: there is no
+        second number to compare against, and reporting the same figure twice
+        would invent a gap of zero where none was measured. Every other strategy
+        -- scaffold, identity, position -- gets the comparison, and the condition
+        below is written as "is it random" rather than "is it scaffold" for a
+        reason beyond tidiness: the Scorecard renders a missing gap as "not
+        applicable: trained on a random split", so skipping it for an
+        identity-split or position-split Protocol would print a plainly false
+        statement about how the model was trained.
 
         Returns `(per target: (metrics, metrics_undefined), unavailable_reason)`. The
         second element of each pair is this leg's own answer to the same question
         `metrics_undefined` answers for the Dataset's own split -- computed from the
-        *random* partition, not the scaffold one, because the two can disagree about
+        *random* partition, not the grouped one, because the two can disagree about
         which metrics are undefined and why: a class that survives the
-        scaffold split's test rows can still collapse to one class under a
-        random reshuffle, or vice versa. Reusing the scaffold split's reasons
+        grouped split's test rows can still collapse to one class under a
+        random reshuffle, or vice versa. Reusing the grouped split's reasons
         here would misattribute them to a different partition; leaving this
         undefined-but-unexplained would be a bare null on the exact number the
         optimism gap exists to justify. Both are the failure this field
         prevents.
         """
-        if dataset.split.strategy is not SplitStrategy.SCAFFOLD:
+        if dataset.split.strategy is SplitStrategy.RANDOM:
             return None, None
         # Outside the try on purpose: this writes to the Run row, and a failure
         # here is a persistence problem with the run itself, not a failure of the
@@ -978,6 +990,8 @@ class RunTraining:
                     seed=dataset.split.seed,
                     fractions=dataset.split.fractions,
                 ),
+                # No clusterer: this split is always RANDOM, which never groups by
+                # homology, so threading one here would be a dead parameter.
                 self._normalizer,
             )
             result = await self._train_off_thread(
@@ -1006,8 +1020,8 @@ class RunTraining:
             # let the run succeed after the user asked it not to.
             raise
         except Exception as exc:
-            # Deliberately broad, and deliberately not fatal. The scaffold number
-            # and the baseline are the primary result and they are already in
+            # Deliberately broad, and deliberately not fatal. The grouped-split
+            # number and the baseline are the primary result and they are already in
             # hand; the optimism gap is the nice-to-have. Failing the whole run
             # here would throw away an honest, fully-computed model to protect a
             # comparison -- exactly backwards. Anything that can go wrong in this
@@ -1407,6 +1421,19 @@ def _check_capable(manifest: EngineManifest, dataset: Dataset, *, baseline: bool
                 f"{subject} does not support {_task_label(task)}. "
                 f"Supported tasks: {', '.join(map(_task_label, manifest.tasks))}."
             )
+    kind = dataset.validation_report.structure_kind
+    if kind not in manifest.structure_kinds:
+        reads = " or ".join(_structure_kind_label(k) for k in manifest.structure_kinds)
+        raise ValidationError(
+            f"{subject} reads {reads}, but this dataset's structure column holds "
+            f"{_structure_kind_label(kind)}. Choose an engine built for this kind of "
+            "data. Nothing is caught later if this is allowed through: the model would "
+            "train, score and report as though the numbers meant something."
+        )
     refused = joint_kind_error(manifest, dataset)
     if refused is not None:
         raise refused
+
+
+def _structure_kind_label(kind: StructureKind) -> str:
+    return "amino-acid sequences" if kind is StructureKind.SEQUENCE else "small molecules"

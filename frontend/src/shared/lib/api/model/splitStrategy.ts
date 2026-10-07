@@ -10,4 +10,6 @@ export type SplitStrategy = typeof SplitStrategy[keyof typeof SplitStrategy];
 export const SplitStrategy = {
   random: 'random',
   scaffold: 'scaffold',
+  identity: 'identity',
+  position: 'position',
 } as const;

@@ -92,7 +92,7 @@ class TrainProtocolBody(BaseModel):
     # Worse than the other three fields this same review finding covers: the
     # worker, not this route, is what inserts the Protocol row -- so an
     # over-long name here would return 202, run all three fits (the chosen
-    # engine, the mandatory baseline, and -- on a scaffold split -- the
+    # engine, the mandatory baseline, and -- on a grouped split -- the
     # optimism-gap comparison), and only then fail on the insert, having
     # already paid for compute the request should never have accepted
     # (whole-branch review, Important 3).
@@ -343,7 +343,8 @@ class ScorecardResponse(BaseModel):
 
     `unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'
     `actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and
-    which way is better. `split_strategy` (`"random"` or `"scaffold"`) is
+    which way is better. `split_strategy` (`"random"`, or one of the grouped
+    strategies `"scaffold"`, `"identity"` and `"position"`) is
     which split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this
     instead of inferring it from `random_split_metrics`/
     `random_split_unavailable` both being `None`.

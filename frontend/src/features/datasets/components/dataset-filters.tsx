@@ -11,7 +11,7 @@ import {
 } from "@/shared/components/ui/select";
 import { Search, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { SplitStrategy, TargetKind } from "../types";
+import { SPLIT_COPY, type SplitStrategy, type TargetKind } from "../types";
 
 const ALL = "all";
 
@@ -89,8 +89,11 @@ export function DatasetFilters({
         </SelectTrigger>
         <SelectContent>
           <SelectItem value={ALL}>All splits</SelectItem>
-          <SelectItem value="scaffold">Scaffold split</SelectItem>
-          <SelectItem value="random">Random split</SelectItem>
+          {(Object.keys(SPLIT_COPY) as SplitStrategy[]).map((strategy) => (
+            <SelectItem key={strategy} value={strategy}>
+              {SPLIT_COPY[strategy].title} split
+            </SelectItem>
+          ))}
         </SelectContent>
       </Select>
       {(search || targetKind || splitStrategy) && (

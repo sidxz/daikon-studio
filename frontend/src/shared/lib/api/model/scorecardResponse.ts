@@ -50,7 +50,8 @@ so a renderer must not reuse `metrics_undefined` to explain a
 
 `unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'
 `actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and
-which way is better. `split_strategy` (`"random"` or `"scaffold"`) is
+which way is better. `split_strategy` (`"random"`, or one of the grouped
+strategies `"scaffold"`, `"identity"` and `"position"`) is
 which split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this
 instead of inferring it from `random_split_metrics`/
 `random_split_unavailable` both being `None`.

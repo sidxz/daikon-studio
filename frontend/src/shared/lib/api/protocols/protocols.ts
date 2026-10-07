@@ -519,15 +519,15 @@ export const getScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet 
     params: GetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGetParams,
  signal?: AbortSignal
 ) => {
-
-
+      
+      
       return customInstance<ScorecardToleranceResponse>(
       {url: `/api/v1/protocols/${protocolId}/scorecard/tolerance`, method: 'GET',
         params, signal
     },
       );
     }
-
+  
 
 
 
@@ -538,7 +538,7 @@ export const getGetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceG
     ] as const;
     }
 
-
+    
 export const getGetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGetQueryOptions = <TData = Awaited<ReturnType<typeof getScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet>>, TError = HTTPValidationError>(protocolId: string,
     params: GetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet>>, TError, TData>>, }
 ) => {
@@ -547,13 +547,13 @@ const {query: queryOptions} = options ?? {};
 
   const queryKey =  queryOptions?.queryKey ?? getGetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGetQueryKey(protocolId,params);
 
-
+  
 
     const queryFn: QueryFunction<Awaited<ReturnType<typeof getScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet>>> = ({ signal }) => getScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet(protocolId,params, signal);
 
+      
 
-
-
+      
 
    return  { queryKey, queryFn, enabled: !!(protocolId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
 }
@@ -596,7 +596,7 @@ export function useGetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleran
 export function useGetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet<TData = Awaited<ReturnType<typeof getScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet>>, TError = HTTPValidationError>(
  protocolId: string,
     params: GetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGetParams, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof getScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGet>>, TError, TData>>, }
- , queryClient?: QueryClient
+ , queryClient?: QueryClient 
  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
 
   const queryOptions = getGetScorecardToleranceApiV1ProtocolsProtocolIdScorecardToleranceGetQueryOptions(protocolId,params,options)

@@ -8148,7 +8148,7 @@
           "classification_by_similarity"
         ],
         "title": "ScorecardResponse",
-        "description": "One card per target; `joint_model` says whether one model learned them all.\n\nEvery field here is load-bearing for honest rendering -- see\n`domain/execution/scorecard.py`'s docstring for what each one means and\nwhy it exists. In particular: `baseline_is_self` true means the chosen\nengine *is* the baseline (render \"this model is the baseline\", not a\nhead-to-head that never happened); `metrics_undefined` is why a metric in\n`metrics` reads `null` instead of a number; `random_split_unavailable`\ndistinguishes \"not applicable\" (`None`/`None`) from \"could not be\ncomputed\" (`None`/a reason) for `random_split_metrics`;\n`random_split_metrics_undefined` is `metrics_undefined`'s own counterpart\nfor `random_split_metrics` -- a *different* partition that can disagree\nwith the Dataset's own split about which metrics are undefined and why,\nso a renderer must not reuse `metrics_undefined` to explain a\n`random_split_metrics` null.\n\n`unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'\n`actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and\nwhich way is better. `split_strategy` (`\"random\"` or `\"scaffold\"`) is\nwhich split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this\ninstead of inferring it from `random_split_metrics`/\n`random_split_unavailable` both being `None`."
+        "description": "One card per target; `joint_model` says whether one model learned them all.\n\nEvery field here is load-bearing for honest rendering -- see\n`domain/execution/scorecard.py`'s docstring for what each one means and\nwhy it exists. In particular: `baseline_is_self` true means the chosen\nengine *is* the baseline (render \"this model is the baseline\", not a\nhead-to-head that never happened); `metrics_undefined` is why a metric in\n`metrics` reads `null` instead of a number; `random_split_unavailable`\ndistinguishes \"not applicable\" (`None`/`None`) from \"could not be\ncomputed\" (`None`/a reason) for `random_split_metrics`;\n`random_split_metrics_undefined` is `metrics_undefined`'s own counterpart\nfor `random_split_metrics` -- a *different* partition that can disagree\nwith the Dataset's own split about which metrics are undefined and why,\nso a renderer must not reuse `metrics_undefined` to explain a\n`random_split_metrics` null.\n\n`unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'\n`actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and\nwhich way is better. `split_strategy` (`\"random\"`, or one of the grouped\nstrategies `\"scaffold\"`, `\"identity\"` and `\"position\"`) is\nwhich split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this\ninstead of inferring it from `random_split_metrics`/\n`random_split_unavailable` both being `None`."
       },
       "ScorecardToleranceResponse": {
         "properties": {
@@ -8364,7 +8364,9 @@
         "type": "string",
         "enum": [
           "random",
-          "scaffold"
+          "scaffold",
+          "identity",
+          "position"
         ],
         "title": "SplitStrategy"
       },
@@ -9081,6 +9083,11 @@
             "type": "object",
             "title": "Duplicate Spread",
             "default": {}
+          },
+          "structure_kind": {
+            "type": "string",
+            "title": "Structure Kind",
+            "default": "molecule"
           }
         },
         "additionalProperties": false,

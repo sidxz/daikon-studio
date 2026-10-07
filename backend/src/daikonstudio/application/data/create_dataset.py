@@ -27,9 +27,11 @@ from daikonstudio.application.data.prepare_frame import prepare_frame, read_csv_
 from daikonstudio.application.data.snapshot import write_snapshot
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.sequence_clusterer import SequenceClusterer
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.data.dataset import Dataset, DuplicateDatasetError, check_id_column
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import TargetKind, TargetSpec, check_targets
 from daikonstudio.domain.data.validation import InvalidDatasetError, ValidationReport
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
@@ -115,10 +117,12 @@ class CreateDataset:
         repository: DatasetRepository,
         store: BlobStore,
         normalizer: StructureNormalizer,
+        clusterer: SequenceClusterer | None = None,
     ) -> None:
         self._repository = repository
         self._store = store
         self._normalizer = normalizer
+        self._clusterer = clusterer
 
     async def __call__(
         self,
@@ -281,8 +285,21 @@ class CreateDataset:
                 report=report,
             )
 
+        # The split and the structure kind have to agree, and here is the only place that
+        # knows both. Catching it now costs milliseconds and names the real problem; letting
+        # it through means MMseqs2 clustering SMILES text as though it were protein, or a
+        # position holdout over molecules that happen to be the same length -- either way a
+        # split that looks ordinary and separates nothing.
+        mismatch = _split_kind_error(command.split.strategy, report.structure_kind)
+        if mismatch is not None:
+            return mismatch
+
         if command.split.strategy is SplitStrategy.SCAFFOLD:
             progress.begin("Grouping by scaffold", prepared.height)
+        elif command.split.strategy is SplitStrategy.IDENTITY:
+            progress.begin("Clustering sequences by identity", prepared.height)
+        elif command.split.strategy is SplitStrategy.POSITION:
+            progress.begin("Grouping by mutated position", prepared.height)
         try:
             split_frame = assign_split(
                 prepared,
@@ -290,6 +307,7 @@ class CreateDataset:
                 command.split,
                 self._normalizer,
                 on_row=progress.advance,
+                clusterer=self._clusterer,
             )
         except ValidationError as error:
             # A scaffold split that cannot honour the requested fractions is a real
@@ -405,5 +423,32 @@ def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> Validation
                 "Use a different split seed or a random split, or add compounds with "
                 "more varied measurements."
             ),
+        )
+    return None
+
+
+#: Which splits read which structure column. SCAFFOLD and RANDOM are left out of the
+#: sequence list on purpose: RANDOM groups nothing so it is always available, and SCAFFOLD
+#: needs a ring system, which a sequence does not have until HELM has turned it into a
+#: molecule.
+_SEQUENCE_SPLITS = (SplitStrategy.IDENTITY, SplitStrategy.POSITION)
+
+
+def _split_kind_error(strategy: SplitStrategy, kind: StructureKind) -> ValidationError | None:
+    """The split strategies that only make sense for one kind of structure column."""
+    if strategy in _SEQUENCE_SPLITS and kind is not StructureKind.SEQUENCE:
+        return ValidationError(
+            f"A {strategy.value} split groups amino-acid sequences, but this file's "
+            "structure column holds small molecules. Use a scaffold split to keep "
+            "related chemistry on one side, or a random split.",
+            detail=None,
+        )
+    if strategy is SplitStrategy.SCAFFOLD and kind is StructureKind.SEQUENCE:
+        return ValidationError(
+            "A scaffold split groups molecules by their ring system, which an "
+            "amino-acid sequence does not have. Use an identity split to hold out "
+            "whole protein families, or a position split to hold out mutated "
+            "positions.",
+            detail=None,
         )
     return None

@@ -22,4 +22,5 @@ export interface ValidationReportWire {
   duplicates_collapsed?: number;
   salts_flagged?: number;
   duplicate_spread?: ValidationReportWireDuplicateSpread;
+  structure_kind?: string;
 }

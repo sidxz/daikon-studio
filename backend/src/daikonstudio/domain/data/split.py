@@ -9,8 +9,15 @@ from typing import Any
 class SplitStrategy(StrEnum):
     RANDOM = "random"
     SCAFFOLD = "scaffold"
-    # ponytail: Butina, UMAP-cluster and temporal splits land in Phase 2. Two
-    # strategies is the minimum that makes the optimism gap on the Scorecard real.
+    #: Homology clustering (MMseqs2) -- the sequence counterpart of SCAFFOLD.
+    IDENTITY = "identity"
+    #: Mutated-position holdout, for variants of one parent protein, where every
+    #: sequence is homologous to every other and IDENTITY yields a single cluster.
+    POSITION = "position"
+    # ponytail: Butina, UMAP-cluster and temporal splits are still unimplemented.
+    # These four cover the two regimes that exist today -- distinct chemistry or
+    # distinct families (SCAFFOLD, IDENTITY) and variants of one parent (POSITION)
+    # -- and every one of them but RANDOM makes the Scorecard's optimism gap real.
 
 
 @dataclass(frozen=True, kw_only=True)

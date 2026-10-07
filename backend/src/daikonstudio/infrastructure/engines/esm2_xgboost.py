@@ -44,6 +44,7 @@ from daikonstudio.application.engines.manifest import (
     TaskType,
     validate_conditions,
 )
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.infrastructure.engines._options import POSITIVE_WEIGHTING, positive_weight
 from daikonstudio.infrastructure.engines._scoring import (
     ESM2_FEATURIZER,
@@ -100,6 +101,7 @@ _MANIFEST = EngineManifest(
     ),
     lane="gpu",
     is_baseline=False,
+    structure_kinds=(StructureKind.SEQUENCE,),
 )
 
 

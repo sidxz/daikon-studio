@@ -209,8 +209,9 @@ class Scorecard:
     predicted number reaches a consumer (prediction results, both export
     formats) already carries its unit and direction; this is the last one.
 
-    `split_strategy` is the Dataset's own `SplitSpec.strategy` (`"random"` or
-    `"scaffold"`, matching `domain.data.split.SplitStrategy`'s own string
+    `split_strategy` is the Dataset's own `SplitSpec.strategy` (`"random"`,
+    `"scaffold"`, `"identity"` or `"position"`, matching
+    `domain.data.split.SplitStrategy`'s own string
     values -- plain `str` here, not that enum, because the bounded-context
     independence contract forbids `domain.execution` from importing
     `domain.data`). Without it, a consumer can only *infer* "this metric came

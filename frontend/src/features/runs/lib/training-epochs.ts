@@ -3,7 +3,7 @@ import type { EpochResponse } from "@/shared/lib/api/model";
 /**
  * One neural fit's epochs: a model of a training run, as its page charts it.
  *
- * A training run fits the chosen engine, its baseline and (on a scaffold split) the
+ * A training run fits the chosen engine, its baseline and (on a grouped split) the
  * engine again on a random split; within each, one model per target unless the engine
  * fits every target at once, and one per ensemble member. Each of those is a series.
  */

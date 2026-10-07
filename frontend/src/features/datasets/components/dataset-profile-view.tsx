@@ -13,7 +13,8 @@ import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import type { TargetBody } from "@/shared/lib/api/model";
-import type { Dataset, DatasetProfile } from "../types";
+import { SPLIT_VOCABULARY } from "@/shared/lib/split";
+import type { Dataset, DatasetProfile, SplitStrategy } from "../types";
 import { descriptorLabel } from "../types";
 
 /**
@@ -78,12 +79,10 @@ export function DatasetProfileView({
   target: TargetBody;
   profile: DatasetProfile;
 }) {
-  const isScaffoldSplit = dataset.split.strategy === "scaffold";
-
   return (
     <div className="space-y-4">
       <TargetSection target={target} profile={profile} />
-      <SplitHonestySection profile={profile} isScaffoldSplit={isScaffoldSplit} />
+      <SplitHonestySection profile={profile} strategy={dataset.split.strategy} />
       <ScaffoldSection profile={profile} />
       <DescriptorSection profile={profile} />
       <CliffSection dataset={dataset} target={target} profile={profile} />
@@ -189,14 +188,27 @@ function TargetSection({ target, profile }: { target: TargetBody; profile: Datas
  */
 function SplitHonestySection({
   profile,
-  isScaffoldSplit,
+  strategy,
 }: {
   profile: DatasetProfile;
-  isScaffoldSplit: boolean;
+  strategy: SplitStrategy;
 }) {
   const similarity = profile.similarity;
   const scaffolds = profile.scaffolds;
   const leaked = scaffolds.cross_split_scaffolds > 0;
+  const shared = `${scaffolds.cross_split_compounds.toLocaleString()} compounds have a scaffold present in both training and test sets.`;
+  // Three cases, not two. A scaffold split is the only one that promises to
+  // separate scaffolds; identity and position group by something else
+  // entirely, so a shared scaffold is neither a failure nor a sign of
+  // optimism, and saying either would be false.
+  const scaffoldLeakDetail =
+    strategy === "scaffold"
+      ? leaked
+        ? `${shared} A scaffold split should prevent this.`
+        : "As expected for a scaffold split: the training and test sets share no Bemis–Murcko scaffold."
+      : strategy === "random"
+        ? `${shared} Expected for a random split, and one reason its scores are optimistic.`
+        : `${shared} This split groups by ${SPLIT_VOCABULARY[strategy].group}, so it does not separate scaffolds.`;
 
   return (
     <Card>
@@ -241,14 +253,8 @@ function SplitHonestySection({
           <Stat
             label="Scaffolds shared by training and test sets"
             value={scaffolds.cross_split_scaffolds.toLocaleString()}
-            tone={isScaffoldSplit && leaked ? "warning" : undefined}
-            detail={
-              isScaffoldSplit
-                ? leaked
-                  ? `${scaffolds.cross_split_compounds.toLocaleString()} compounds have a scaffold present in both training and test sets. A scaffold split should prevent this.`
-                  : "As expected for a scaffold split: the training and test sets share no Bemis–Murcko scaffold."
-                : `${scaffolds.cross_split_compounds.toLocaleString()} compounds have a scaffold present in both training and test sets. Expected for a random split, and one reason its scores are optimistic.`
-            }
+            tone={strategy === "scaffold" && leaked ? "warning" : undefined}
+            detail={scaffoldLeakDetail}
           />
         </div>
 
@@ -263,12 +269,8 @@ function SplitHonestySection({
             caption="Mass to the right indicates a test set similar to the training set, so the benchmark is easier than it appears. Mass to the left indicates extrapolation, where a lower score is more informative."
           />
         )}
-        <Explainer
-          id="split"
-          durationMs={SPLIT_MS}
-          caption={splitCaption(isScaffoldSplit ? "scaffold" : "random")}
-        >
-          {(t) => <SplitFigure t={t} strategy={isScaffoldSplit ? "scaffold" : "random"} />}
+        <Explainer id="split" durationMs={SPLIT_MS} caption={splitCaption(strategy)}>
+          {(t) => <SplitFigure t={t} strategy={strategy} />}
         </Explainer>
       </CardContent>
     </Card>

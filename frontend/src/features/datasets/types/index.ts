@@ -89,6 +89,11 @@ export const EMPTY_DRAFT: DatasetDraft = {
  * Plain-English consequences, shown at the point of choice. A split is a
  * scientific decision, not a setting, so the UI has to say what each one
  * actually simulates rather than just naming it.
+ *
+ * Key order is the order the wizard and the filter offer the strategies in,
+ * because both enumerate this record rather than keeping a second list that
+ * the next strategy could be left out of. Molecule splits first, sequence
+ * splits after.
  */
 export const SPLIT_COPY: Record<SplitStrategy, { title: string; detail: string }> = {
   scaffold: {
@@ -99,7 +104,17 @@ export const SPLIT_COPY: Record<SplitStrategy, { title: string; detail: string }
   random: {
     title: "Random",
     detail:
-      "Compounds are assigned at random, so close analogs of training compounds appear in the test set. Scores typically overestimate prospective performance.",
+      "Compounds or sequences are assigned at random, so close relatives of the training data appear in the test set. Scores typically overestimate prospective performance.",
+  },
+  identity: {
+    title: "Identity",
+    detail:
+      "Test sequences belong to protein families absent from training. This approximates prediction on a protein the model has not seen and gives a conservative estimate.",
+  },
+  position: {
+    title: "Position",
+    detail:
+      "Test variants are mutated at residue positions never mutated in training. This approximates prediction at a site in the protein that has not been tested and gives a conservative estimate.",
   },
 };
 
