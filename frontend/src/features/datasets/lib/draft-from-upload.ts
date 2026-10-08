@@ -46,7 +46,17 @@ export function withColumns(
   const clash =
     next.idColumn === next.structureColumn ||
     targets.some((target) => target.column === next.idColumn);
-  return { ...next, targets, idColumn: clash ? null : next.idColumn };
+  // The split assignment is subject to the same exclusivity: a column cannot both say
+  // which partition a row is in and be the structure or a value to predict.
+  const splitClash =
+    next.splitColumn === next.structureColumn ||
+    targets.some((target) => target.column === next.splitColumn);
+  return {
+    ...next,
+    targets,
+    idColumn: clash ? null : next.idColumn,
+    splitColumn: splitClash ? null : next.splitColumn,
+  };
 }
 
 /** Choose or unchoose one column to predict. New targets go last. */
@@ -62,11 +72,12 @@ export function toggleTarget(
   });
 }
 
-export type ColumnRole = "structure" | "identifier" | "target" | "unused";
+export type ColumnRole = "structure" | "identifier" | "target" | "split" | "unused";
 
 export function columnRole(draft: DatasetDraft, column: string): ColumnRole {
   if (draft.structureColumn === column) return "structure";
   if (draft.idColumn === column) return "identifier";
+  if (draft.splitColumn === column) return "split";
   return draft.targets.some((target) => target.column === column) ? "target" : "unused";
 }
 
@@ -82,10 +93,12 @@ export function setColumnRole(
     ...draft,
     structureColumn: draft.structureColumn === column ? "" : draft.structureColumn,
     idColumn: draft.idColumn === column ? null : draft.idColumn,
+    splitColumn: draft.splitColumn === column ? null : draft.splitColumn,
     targets: draft.targets.filter((candidate) => candidate.column !== column),
   };
   if (role === "structure") next.structureColumn = column;
   if (role === "identifier") next.idColumn = column;
+  if (role === "split") next.splitColumn = column;
   if (role === "target") next.targets = [...next.targets, target ?? draftTarget(column, rows)];
   return next;
 }
@@ -106,8 +119,21 @@ export function replaceUpload(
   );
   const idColumn =
     draft.idColumn && columns.includes(draft.idColumn) ? draft.idColumn : guessed.idColumn;
+  // Never guessed, unlike the structure and identifier columns: a split assignment is a
+  // deliberate choice about which experiment is being reproduced, and inventing one
+  // would silently change what the numbers mean.
+  const splitColumn =
+    draft.splitColumn && columns.includes(draft.splitColumn) ? draft.splitColumn : null;
   return withColumns(
-    { ...draft, file, name: draft.name || guessed.name, structureColumn, targets, idColumn },
+    {
+      ...draft,
+      file,
+      name: draft.name || guessed.name,
+      structureColumn,
+      targets,
+      idColumn,
+      splitColumn,
+    },
     {},
   );
 }

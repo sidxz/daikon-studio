@@ -118,3 +118,74 @@ describe("column roles and replacement", () => {
     expect(next.targets).toEqual([]);
   });
 });
+
+describe("the split-assignment role", () => {
+  const withSplit = ["smiles", "solubility", "reactive", "id", "split"];
+  const splitRows = rows.map((row, index) => ({
+    ...row,
+    split: index === 0 ? "train" : "test",
+  }));
+
+  it("reports the role of the designated column", () => {
+    const draft = setColumnRole(
+      draftFromUpload(withSplit, splitRows, "panel.csv"),
+      "split",
+      "split",
+      splitRows,
+    );
+    expect(draft.splitColumn).toBe("split");
+    expect(columnRole(draft, "split")).toBe("split");
+  });
+
+  it("is exclusive: a target that becomes the split column stops being a target", () => {
+    const draft = draftFromUpload(withSplit, splitRows, "panel.csv");
+    const next = setColumnRole(draft, "solubility", "split", splitRows);
+    expect(next.splitColumn).toBe("solubility");
+    expect(next.targets.map((target) => target.column)).not.toContain("solubility");
+  });
+
+  it("is exclusive the other way: reassigning the split column clears it", () => {
+    const draft = setColumnRole(
+      draftFromUpload(withSplit, splitRows, "panel.csv"),
+      "split",
+      "split",
+      splitRows,
+    );
+    const next = setColumnRole(draft, "split", "identifier", splitRows);
+    expect(next.idColumn).toBe("split");
+    expect(next.splitColumn).toBeNull();
+  });
+
+  it("drops a split column the replacement upload no longer has", () => {
+    const draft = setColumnRole(
+      draftFromUpload(withSplit, splitRows, "panel.csv"),
+      "split",
+      "split",
+      splitRows,
+    );
+    const next = replaceUpload(draft, columns, rows, new File([], "other.csv"));
+    expect(next.splitColumn).toBeNull();
+  });
+
+  it("keeps a split column the replacement upload still has", () => {
+    const draft = setColumnRole(
+      draftFromUpload(withSplit, splitRows, "panel.csv"),
+      "split",
+      "split",
+      splitRows,
+    );
+    const next = replaceUpload(draft, withSplit, splitRows, new File([], "again.csv"));
+    expect(next.splitColumn).toBe("split");
+  });
+
+  it("never lets the split column also be the structure column", () => {
+    const draft = setColumnRole(
+      draftFromUpload(withSplit, splitRows, "panel.csv"),
+      "split",
+      "split",
+      splitRows,
+    );
+    const next = withColumns(draft, { structureColumn: "split" });
+    expect(next.splitColumn).toBeNull();
+  });
+});

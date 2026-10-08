@@ -97,11 +97,7 @@ export function isGroupedSplit(strategy: string): boolean {
  * `leaked` is whether any scaffold is actually shared; `shared` is the sentence
  * counting the compounds, supplied by the caller that has the numbers.
  */
-export function scaffoldSeparationNote(
-  strategy: string,
-  shared: string,
-  leaked: boolean,
-): string {
+export function scaffoldSeparationNote(strategy: string, shared: string, leaked: boolean): string {
   if (strategy === "scaffold") {
     return leaked
       ? `${shared} A scaffold split should prevent this.`

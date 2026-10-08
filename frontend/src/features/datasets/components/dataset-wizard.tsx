@@ -73,6 +73,7 @@ const ROLES: Record<ColumnRole, string> = {
   identifier: "Identifier",
   target: "Target",
   unused: "Unused",
+  split: "Split assignment (train/validation/test)",
 };
 
 export function DatasetWizard() {
@@ -187,6 +188,7 @@ export function DatasetWizard() {
       })),
       strategy: preparation.split.strategy,
       seed: preparation.split.seed,
+      splitColumn: preparation.split.column ?? null,
     });
   }, [preparation, draft.structureColumn]);
 
@@ -214,7 +216,12 @@ export function DatasetWizard() {
         : !draft.targets.length
           ? "Choose at least one target column."
           : null;
-  const splitReason = !Number.isSafeInteger(draft.seed) ? "Enter a whole-number seed." : null;
+  const splitReason =
+    draft.strategy === "predefined" && !draft.splitColumn
+      ? "Go back and mark the column that holds each row's partition."
+      : !Number.isSafeInteger(draft.seed)
+        ? "Enter a whole-number seed."
+        : null;
   const reason =
     step === 0
       ? !draft.file
@@ -251,7 +258,11 @@ export function DatasetWizard() {
           unit: target.kind === "numeric" && target.unit.trim() ? target.unit.trim() : null,
           direction: target.kind === "numeric" && target.direction ? target.direction : null,
         })),
-        split: { strategy: draft.strategy, seed: draft.seed },
+        split: {
+          strategy: draft.strategy,
+          seed: draft.seed,
+          ...(draft.strategy === "predefined" ? { column: draft.splitColumn } : {}),
+        },
       });
       setReviewId(started.id);
       router.replace(`/datasets/new?review=${started.id}`, { scroll: false });
@@ -597,16 +608,30 @@ export function DatasetWizard() {
                   </label>
                 ))}
               </div>
-              <div className="rounded-lg bg-muted/30 p-4">
-                <p className="text-sm font-medium">
-                  Intended split: 80% training · 10% validation · 10% test
-                </p>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {isGroupedSplit(draft.strategy)
-                    ? `Each ${SPLIT_VOCABULARY[draft.strategy].group} stays on one side, so actual counts can differ. The review shows the exact result.`
-                    : "The review shows the exact result."}
-                </p>
-              </div>
+              {draft.strategy === "predefined" ? (
+                <div className="rounded-lg bg-muted/30 p-4">
+                  <p className="text-sm font-medium">
+                    Partitions come from{" "}
+                    <span className="font-mono">{draft.splitColumn ?? "a column you choose"}</span>
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Rows are assigned exactly as your file says. The review shows the exact counts.
+                    A validation partition is optional: many published benchmarks have only training
+                    and test rows.
+                  </p>
+                </div>
+              ) : (
+                <div className="rounded-lg bg-muted/30 p-4">
+                  <p className="text-sm font-medium">
+                    Intended split: 80% training · 10% validation · 10% test
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {isGroupedSplit(draft.strategy)
+                      ? `Each ${SPLIT_VOCABULARY[draft.strategy].group} stays on one side, so actual counts can differ. The review shows the exact result.`
+                      : "The review shows the exact result."}
+                  </p>
+                </div>
+              )}
               <details className="rounded-lg border p-4">
                 <summary className="cursor-pointer text-sm font-medium">
                   Why this split matters
@@ -622,28 +647,33 @@ export function DatasetWizard() {
                   </Explainer>
                 </div>
               </details>
-              <details className="rounded-lg border p-4">
-                <summary className="cursor-pointer text-sm font-medium">Advanced options</summary>
-                <div className="mt-4 max-w-xs space-y-1.5">
-                  <Label htmlFor="seed">Split seed</Label>
-                  <Input
-                    id="seed"
-                    type="number"
-                    step={1}
-                    value={Number.isNaN(draft.seed) ? "" : draft.seed}
-                    aria-invalid={Boolean(splitReason)}
-                    onChange={(event) =>
-                      patch({
-                        seed: event.target.value === "" ? Number.NaN : Number(event.target.value),
-                      })
-                    }
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    Saved with the dataset so the split is reproducible.
-                  </p>
-                  {splitReason && <p className="text-xs text-destructive">{splitReason}</p>}
-                </div>
-              </details>
+              {draft.strategy !== "predefined" && (
+                <details className="rounded-lg border p-4">
+                  <summary className="cursor-pointer text-sm font-medium">Advanced options</summary>
+                  <div className="mt-4 max-w-xs space-y-1.5">
+                    <Label htmlFor="seed">Split seed</Label>
+                    <Input
+                      id="seed"
+                      type="number"
+                      step={1}
+                      value={Number.isNaN(draft.seed) ? "" : draft.seed}
+                      aria-invalid={Boolean(splitReason)}
+                      onChange={(event) =>
+                        patch({
+                          seed: event.target.value === "" ? Number.NaN : Number(event.target.value),
+                        })
+                      }
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Saved with the dataset so the split is reproducible.
+                    </p>
+                    {splitReason && <p className="text-xs text-destructive">{splitReason}</p>}
+                  </div>
+                </details>
+              )}
+              {draft.strategy === "predefined" && splitReason && (
+                <p className="text-xs text-destructive">{splitReason}</p>
+              )}
             </CardContent>
           </Card>
         )}
@@ -764,8 +794,10 @@ export function DatasetWizard() {
                   </CardHeader>
                   <CardContent className="space-y-4">
                     <p className="text-xs text-muted-foreground">
-                      Seed {preparation.split.seed} ·{" "}
-                      {preparation.readiness.row_count.toLocaleString()} unique compounds
+                      {preparation.split.column
+                        ? `Partitions from "${preparation.split.column}"`
+                        : `Seed ${preparation.split.seed}`}{" "}
+                      · {preparation.readiness.row_count.toLocaleString()} unique compounds
                     </p>
                     <DatasetReadinessView readiness={preparation.readiness} />
                   </CardContent>

@@ -1,11 +1,6 @@
 import { SplitStrategy } from "@/shared/lib/api/model";
 import { describe, expect, it } from "vitest";
-import {
-  SPLIT_VOCABULARY,
-  isGroupedSplit,
-  scaffoldSeparationNote,
-  splitVocabulary,
-} from "./split";
+import { SPLIT_VOCABULARY, isGroupedSplit, scaffoldSeparationNote, splitVocabulary } from "./split";
 
 describe("split vocabulary", () => {
   it("covers every strategy the API can send", () => {
