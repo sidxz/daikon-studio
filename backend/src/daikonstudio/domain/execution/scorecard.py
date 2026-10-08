@@ -250,6 +250,16 @@ class Scorecard:
     random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None
     random_split_metrics_undefined: dict[str, str] | None
+    #: This target's metric values across the extra draws of the split, mapped from
+    #: metric name, in `replicate_seeds` order; `replicate_unavailable` says why any
+    #: requested draw is missing. All three defaulted: a Scorecard built from a blob
+    #: written before draws existed has none, and `None` means "not measured", never
+    #: "zero draws measured".
+    replicate_metrics: dict[str, list[float | None]] | None = None
+    #: Run-level in the blob, copied onto every target's card as
+    #: `random_split_unavailable` already is.
+    replicate_seeds: list[int] | None = None
+    replicate_unavailable: str | None = None
     noise_floor: float | None
     worst_rows: list[WorstRow]
     applicability_coverage: float | None

@@ -16,8 +16,14 @@ import uuid
 from dataclasses import replace
 from typing import Any
 
+import pytest
+
 from daikonstudio.application.catalog import get_scorecard as module
-from daikonstudio.application.catalog.get_scorecard import GetScorecard, GetScorecardQuery
+from daikonstudio.application.catalog.get_scorecard import (
+    GetScorecard,
+    GetScorecardQuery,
+    replicate_summary,
+)
 from daikonstudio.application.execution.build_scorecard import HeldOutChemistry
 from daikonstudio.application.execution.train_protocol import (
     ScorecardInputs,
@@ -373,3 +379,61 @@ async def test_simultaneous_first_views_share_one_computation(monkeypatch) -> No
 
     assert calls[0] == 1
     assert all(len(result.unwrap()) == 1 for result in results)
+
+
+def test_summary_reports_mean_spread_and_count() -> None:
+    summary = replicate_summary([0.40, 0.50, 0.60])
+
+    assert summary.n == 3
+    assert summary.mean == pytest.approx(0.50)
+    assert summary.sd == pytest.approx(0.1)
+
+
+def test_one_usable_draw_has_a_mean_and_no_spread() -> None:
+    """`statistics.stdev` raises below two points, and a NaN here would reach the
+    response, where NaN is not valid JSON."""
+    summary = replicate_summary([0.42, None])
+
+    assert summary.n == 1
+    assert summary.mean == pytest.approx(0.42)
+    assert summary.sd is None
+
+
+def test_a_metric_undefined_in_every_draw_reports_nothing_measured() -> None:
+    summary = replicate_summary([None, None, None])
+
+    assert summary.n == 0
+    assert summary.mean is None
+    assert summary.sd is None
+
+
+def test_identical_draws_have_a_measured_spread_of_zero() -> None:
+    """A real measurement, and weak evidence. Pinned so it stays 0.0 rather than
+    becoming None, which a reader would see as "not measured"."""
+    summary = replicate_summary([0.5, 0.5])
+
+    assert summary.n == 2
+    assert summary.sd == 0.0
+
+
+def test_no_draws_at_all_is_not_a_measurement() -> None:
+    summary = replicate_summary([])
+
+    assert summary.n == 0
+    assert summary.mean is None
+    assert summary.sd is None
+
+
+def test_a_blob_written_before_draws_existed_still_loads() -> None:
+    raw = json.loads(_inputs(uuid.uuid4()).to_json())
+    # Exactly what an older deploy wrote: the three keys simply absent.
+    del raw["replicate_seeds"]
+    del raw["replicate_unavailable"]
+    for target in raw["targets"]:
+        del target["replicate_metrics"]
+
+    inputs = ScorecardInputs.from_json(json.dumps(raw).encode())
+
+    assert inputs.replicate_seeds is None
+    assert inputs.replicate_unavailable is None
+    assert all(target.replicate_metrics is None for target in inputs.targets)

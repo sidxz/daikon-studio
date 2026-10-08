@@ -377,3 +377,45 @@ async def test_training_accepts_a_request_for_extra_split_draws(client, dataset_
 async def test_training_refuses_a_draw_count_out_of_range(client, dataset_id, value):
     response = await _train(client, dataset_id, split_replicates=value)
     assert response.status_code == 422, response.text
+
+
+async def test_scorecard_reports_no_draw_spread_when_none_were_asked_for(
+    client, trained_protocol_id
+):
+    """All three null, so the panel renders nothing rather than explaining something
+    the user never requested."""
+    card = (await client.get(f"/api/v1/protocols/{trained_protocol_id}/scorecard")).json()[0]
+    assert card["replicate_summary"] is None
+    assert card["replicate_seeds"] is None
+    assert card["replicate_unavailable"] is None
+
+
+async def test_scorecard_summarises_the_extra_draws(client, dataset_id):
+    response = await _train(client, dataset_id, split_replicates=2)
+    assert response.status_code == 202, response.text
+    listing = await client.get("/api/v1/protocols")
+    protocol_id = listing.json()["items"][0]["id"]
+
+    card = (await client.get(f"/api/v1/protocols/{protocol_id}/scorecard")).json()[0]
+    assert card["replicate_seeds"] == [2, 3]
+    assert card["replicate_unavailable"] is None
+    summary = card["replicate_summary"]
+    assert summary is not None
+    assert set(summary) == set(card["metrics"])
+    # This fixture's twenty rows leave a two-compound test set, which defines an error
+    # metric and not a rank correlation -- so the summary carries both the measured and
+    # the undefined case, and each must read differently.
+    assert summary["rmse"]["n"] == 2
+    assert summary["rmse"]["mean"] is not None
+    assert summary["rmse"]["sd"] is not None
+    for name, row in summary.items():
+        if row["n"] == 0:
+            # Undefined in every draw: nothing measured, rather than a fabricated
+            # zero -- and never NaN, which is not valid JSON.
+            assert row["mean"] is None, name
+            assert row["sd"] is None, name
+        else:
+            assert row["mean"] is not None, name
+        if row["n"] < 2:
+            # Below two usable draws there is no spread to report.
+            assert row["sd"] is None, name

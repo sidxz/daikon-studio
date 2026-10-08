@@ -17,7 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from statistics import fmean, stdev
 
 from returns.result import Failure, Result, Success
 
@@ -43,6 +45,41 @@ from daikonstudio.application.ports.protocol_repository import ProtocolRepositor
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.domain.execution.scorecard import Scorecard
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError
+
+
+@dataclass(frozen=True, kw_only=True)
+class ReplicateSummary:
+    """One metric across the extra split draws that defined it."""
+
+    mean: float | None
+    sd: float | None
+    n: int
+
+
+def replicate_summary(values: Sequence[float | None]) -> ReplicateSummary:
+    """Mean and spread over the draws where this metric was defined.
+
+    Nulls are skipped rather than counted, which is why `n` is per metric: a draw whose
+    test rows collapsed to one class defines no MCC while still defining its RMSE, so
+    one metric's `n` can sit below another's on the same run.
+
+    Derived here, on read, rather than stored at training time. The raw draws are
+    strictly more informative, there is no derived field to keep in step with them, and
+    arithmetic over at most ten numbers is free. Computed server-side so `verdict.ts`
+    does not grow a second implementation of a standard deviation.
+
+    `sd` is `None` below two points -- `statistics.stdev` raises there, and a NaN would
+    be invalid JSON in the response rather than an honest blank. Two identical draws
+    give 0.0, which is a measurement and not an absence.
+    """
+    measured = [value for value in values if value is not None]
+    if not measured:
+        return ReplicateSummary(mean=None, sd=None, n=0)
+    return ReplicateSummary(
+        mean=fmean(measured),
+        sd=stdev(measured) if len(measured) > 1 else None,
+        n=len(measured),
+    )
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -197,6 +234,10 @@ def _build_all(inputs: ScorecardInputs, chemistry: HeldOutChemistry) -> list[Sco
             random_split_metrics=target.random_split_metrics,
             random_split_unavailable=inputs.random_split_unavailable,
             random_split_metrics_undefined=target.random_split_metrics_undefined,
+            replicate_metrics=target.replicate_metrics,
+            # Run-level in the blob, fanned out onto each card.
+            replicate_seeds=inputs.replicate_seeds,
+            replicate_unavailable=inputs.replicate_unavailable,
             metrics_undefined=target.metrics_undefined,
             duplicate_spread=target.duplicate_spread,
             cutoff=target.cutoff,

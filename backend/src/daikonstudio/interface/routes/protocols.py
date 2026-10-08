@@ -22,6 +22,7 @@ no client comes to believe supplying one had any effect.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Annotated, Any, Literal
 
@@ -38,7 +39,11 @@ from daikonstudio.application.catalog.get_chemical_space import (
     GetProtocolChemicalSpaceCompoundsQuery,
     GetProtocolChemicalSpaceQuery,
 )
-from daikonstudio.application.catalog.get_scorecard import GetScorecard, GetScorecardQuery
+from daikonstudio.application.catalog.get_scorecard import (
+    GetScorecard,
+    GetScorecardQuery,
+    replicate_summary,
+)
 from daikonstudio.application.catalog.get_scorecard_tolerance import (
     GetScorecardTolerance,
     GetScorecardToleranceQuery,
@@ -336,6 +341,21 @@ class ScorecardToleranceResponse(BaseModel):
     by_similarity: list[ToleranceBinResponse]
 
 
+class ReplicateSummaryResponse(BaseModel):
+    """One metric's mean and spread across the extra split draws that defined it."""
+
+    mean: float | None
+    sd: float | None
+    n: int
+
+
+def _summary_response(values: Sequence[float | None]) -> ReplicateSummaryResponse:
+    """The derived summary on the wire. The arithmetic stays in one place in the
+    application layer; this only carries it across the boundary."""
+    summary = replicate_summary(values)
+    return ReplicateSummaryResponse(mean=summary.mean, sd=summary.sd, n=summary.n)
+
+
 class ScorecardResponse(BaseModel):
     """One card per target; `joint_model` says whether one model learned them all.
 
@@ -394,6 +414,15 @@ class ScorecardResponse(BaseModel):
     random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None
     random_split_metrics_undefined: dict[str, str] | None
+    #: Metric name -> mean, spread and count over the extra split draws that
+    #: defined it. `None` when no draw was requested or none completed;
+    #: `replicate_unavailable` tells those apart, and is set even alongside a
+    #: populated summary when some draws were lost. `n` is per metric and can sit
+    #: below `len(replicate_seeds)`, which means the metric was undefined in some
+    #: completed draws -- a different thing from a draw that never finished.
+    replicate_summary: dict[str, ReplicateSummaryResponse] | None = None
+    replicate_seeds: list[int] | None = None
+    replicate_unavailable: str | None = None
     noise_floor: float | None
     worst_rows: list[WorstRowResponse]
     applicability_coverage: float | None
@@ -481,6 +510,16 @@ class ScorecardResponse(BaseModel):
             random_split_metrics=card.random_split_metrics,
             random_split_unavailable=card.random_split_unavailable,
             random_split_metrics_undefined=card.random_split_metrics_undefined,
+            replicate_summary=(
+                {
+                    name: _summary_response(values)
+                    for name, values in card.replicate_metrics.items()
+                }
+                if card.replicate_metrics
+                else None
+            ),
+            replicate_seeds=card.replicate_seeds,
+            replicate_unavailable=card.replicate_unavailable,
             noise_floor=card.noise_floor,
             worst_rows=[WorstRowResponse.from_domain(row) for row in card.worst_rows],
             applicability_coverage=card.applicability_coverage,

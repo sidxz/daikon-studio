@@ -366,6 +366,9 @@ def build_scorecard(
     random_split_metrics: dict[str, float | None] | None = None,
     random_split_unavailable: str | None = None,
     random_split_metrics_undefined: dict[str, str] | None = None,
+    replicate_metrics: dict[str, list[float | None]] | None = None,
+    replicate_seeds: list[int] | None = None,
+    replicate_unavailable: str | None = None,
     metrics_undefined: dict[str, str] | None = None,
     duplicate_spread: float | None = None,
     baseline_conditions: dict[str, Any] | None = None,
@@ -466,6 +469,9 @@ def build_scorecard(
         random_split_metrics=random_split_metrics,
         random_split_unavailable=random_split_unavailable,
         random_split_metrics_undefined=random_split_metrics_undefined,
+        replicate_metrics=replicate_metrics,
+        replicate_seeds=replicate_seeds,
+        replicate_unavailable=replicate_unavailable,
         # Binary targets have no duplicate-spread equivalent; forced here rather
         # than trusted from the caller so a stale or mistaken `duplicate_spread`
         # can never present a meaningless floor as though it meant something.
