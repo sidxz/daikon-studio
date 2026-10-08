@@ -16,6 +16,7 @@ import {
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui/tabs";
 import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
+import { splitFacts } from "@/shared/lib/split";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -153,18 +154,13 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
                 {SPLIT_COPY[dataset.split.strategy].detail}
               </p>
               <dl className="grid gap-4 sm:grid-cols-3">
-                <Field
-                  label="Seed"
-                  value={<span className="font-mono">{dataset.split.seed}</span>}
-                />
-                <Field
-                  label="Train / validation / test"
-                  value={
-                    <span className="font-mono">
-                      {(dataset.split.fractions ?? [0.8, 0.1, 0.1]).join(" / ")}
-                    </span>
-                  }
-                />
+                {splitFacts(dataset.split).map((fact) => (
+                  <Field
+                    key={fact.label}
+                    label={fact.label}
+                    value={<span className="font-mono">{fact.value}</span>}
+                  />
+                ))}
                 <Field
                   label="Content hash"
                   value={

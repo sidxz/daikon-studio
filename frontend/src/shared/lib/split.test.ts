@@ -1,6 +1,12 @@
 import { SplitStrategy } from "@/shared/lib/api/model";
 import { describe, expect, it } from "vitest";
-import { SPLIT_VOCABULARY, isGroupedSplit, scaffoldSeparationNote, splitVocabulary } from "./split";
+import {
+  SPLIT_VOCABULARY,
+  isGroupedSplit,
+  scaffoldSeparationNote,
+  splitFacts,
+  splitVocabulary,
+} from "./split";
 
 describe("split vocabulary", () => {
   it("covers every strategy the API can send", () => {
@@ -63,5 +69,31 @@ describe("scaffoldSeparationNote", () => {
     const note = scaffoldSeparationNote("predefined", shared, true);
     expect(note).not.toContain("null");
     expect(note).toContain("from your file");
+  });
+});
+
+describe("splitFacts", () => {
+  it("describes a computed split by its seed and intended fractions", () => {
+    const facts = splitFacts({ strategy: "scaffold", seed: 42, fractions: [0.8, 0.1, 0.1] });
+    expect(facts.map((fact) => fact.label)).toEqual(["Seed", "Train / validation / test"]);
+    expect(facts[1].value).toBe("0.8 / 0.1 / 0.1");
+  });
+
+  it("describes a predefined split by its column, and never by fractions it ignored", () => {
+    // The bug this exists for: the detail page printed "0.8 / 0.1 / 0.1" for a split
+    // that was actually 2,651 / 0 / 666. Those fractions are inert for a predefined
+    // split, and stating them tells the reader a validation partition exists.
+    const facts = splitFacts({
+      strategy: "predefined",
+      seed: 42,
+      fractions: [0.8, 0.1, 0.1],
+      column: "split",
+    });
+    expect(facts).toEqual([{ label: "Partition column", value: "split" }]);
+  });
+
+  it("falls back to the default fractions when the API omits them", () => {
+    const facts = splitFacts({ strategy: "random", seed: 7 });
+    expect(facts[1].value).toBe("0.8 / 0.1 / 0.1");
   });
 });

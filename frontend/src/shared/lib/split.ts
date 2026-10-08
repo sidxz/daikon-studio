@@ -116,6 +116,33 @@ export function scaffoldSeparationNote(strategy: string, shared: string, leaked:
   return `${shared} This split groups by ${group}, so it does not separate scaffolds.`;
 }
 
+/**
+ * The facts worth printing about a split, as label/value pairs.
+ *
+ * A computed split is described by the seed and the fractions it was asked for. A
+ * predefined split is described by the column it read, because its seed decides
+ * nothing and its fractions were never applied -- printing "0.8 / 0.1 / 0.1" beside a
+ * split that is actually 2,651 / 0 / 666 tells the reader a validation partition
+ * exists when it does not.
+ */
+export function splitFacts(split: {
+  strategy: string;
+  seed: number;
+  fractions?: readonly number[] | null;
+  column?: string | null;
+}): { label: string; value: string }[] {
+  if (split.column) {
+    return [{ label: "Partition column", value: split.column }];
+  }
+  return [
+    { label: "Seed", value: String(split.seed) },
+    {
+      label: "Train / validation / test",
+      value: (split.fractions ?? [0.8, 0.1, 0.1]).join(" / "),
+    },
+  ];
+}
+
 /** "scaffold" -> "Scaffold", for the places that need a label and not a sentence. */
 export function splitTitle(strategy: string): string {
   return strategy.charAt(0).toUpperCase() + strategy.slice(1);
