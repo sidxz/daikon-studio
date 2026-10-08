@@ -259,3 +259,105 @@ def test_prepare_frame_reports_progress_every_thousand_rows_and_at_the_end():
     )
 
     assert seen == [1000, 2000, 2500]
+
+
+# --- The designated split column -----------------------------------------------------
+#
+# A predefined split reads each row's partition out of an uploaded column. Two things
+# have to happen here rather than in `assign_split`: a bad cell must be reported against
+# its position in the *uploaded* file, which only this layer still knows, and replicate
+# rows that disagree about their partition must be rejected rather than collapsed to
+# whichever row came first -- `keep_others` narrows every other extra column with
+# `.first()`, and for a split assignment that would silently put a compound on the wrong
+# side of the split.
+
+
+def test_a_split_column_value_that_is_not_a_partition_is_an_invalid_row():
+    from daikonstudio.domain.data.validation import InvalidRow
+
+    frame = pl.DataFrame(
+        {"smiles": ["CCO", "CCC"], "y": [1.0, 2.0], "split": ["train", "holdout"]}
+    )
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, split_column="split")
+    assert prepared.height == 1
+    assert report.invalid == [
+        InvalidRow(
+            row_number=2,
+            value="holdout",
+            reason="Column 'split' must say train, validation or test (found 'holdout')",
+        )
+    ]
+
+
+def test_a_bad_split_cell_is_reported_against_its_uploaded_row_not_a_filtered_position():
+    # Row 2 is dropped for an unreadable structure, so the bad split cell on uploaded
+    # row 3 sits at position 2 of the filtered frame. The report must say 3.
+    frame = pl.DataFrame(
+        {
+            "smiles": ["CCO", "not-a-molecule", "CCC"],
+            "y": [1.0, 2.0, 3.0],
+            "split": ["train", "train", "holdout"],
+        }
+    )
+    _, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, split_column="split")
+    reasons = {row.row_number: row.reason for row in report.invalid}
+    assert 3 in reasons
+    assert "split" in reasons[3]
+
+
+def test_replicates_that_agree_about_their_partition_collapse_normally():
+    frame = pl.DataFrame(
+        {"smiles": ["CCO", "OCC", "CCC"], "y": [1.0, 2.0, 3.0], "split": ["train"] * 3}
+    )
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, split_column="split")
+    assert prepared.height == 2
+    assert report.conflicting == []
+
+
+def test_replicates_that_disagree_about_their_partition_are_rejected():
+    """Taking the first row's label would put the compound on an arbitrary side."""
+    frame = pl.DataFrame(
+        {"smiles": ["CCO", "OCC", "CCC"], "y": [1.0, 2.0, 3.0], "split": ["train", "test", "test"]}
+    )
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, split_column="split")
+    assert prepared.height == 1
+    assert len(report.conflicting) == 1
+    conflict = report.conflicting[0]
+    assert conflict.column == "split"
+    assert sorted(conflict.values) == ["test", "train"]
+    assert conflict.row_numbers == [1, 2]
+
+
+def test_a_partition_spelling_is_normalised_before_replicates_are_compared():
+    # "Train " and "train" are the same partition, so these replicates agree.
+    frame = pl.DataFrame(
+        {
+            "smiles": ["CCO", "OCC", "CCC"],
+            "y": [1.0, 2.0, 3.0],
+            "split": ["Train ", "train", "test"],
+        }
+    )
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, split_column="split")
+    assert report.conflicting == []
+    assert prepared.height == 2
+
+
+def test_no_split_column_leaves_preparation_exactly_as_it_was():
+    frame = pl.DataFrame({"smiles": ["CCO", "OCC"], "y": [1.0, 2.0], "split": ["train", "test"]})
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER)
+    assert prepared.height == 1
+    assert report.conflicting == []
+    assert report.invalid == []
+
+
+def test_an_empty_split_cell_is_a_missing_value_not_a_partition():
+    # A partially-labelled file is a real upload: the scientist filtered in Excel and
+    # left blanks. Reading a blank as some partition would be worse than saying so.
+    from daikonstudio.domain.data.validation import InvalidRow
+
+    frame = pl.DataFrame({"smiles": ["CCO", "CCC"], "y": [1.0, 2.0], "split": ["train", ""]})
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, split_column="split")
+    assert prepared.height == 1
+    assert report.invalid == [
+        InvalidRow(row_number=2, value="", reason="Missing value for column 'split'")
+    ]

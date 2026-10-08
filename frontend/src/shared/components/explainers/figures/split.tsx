@@ -22,6 +22,7 @@ const CAPTION: Record<SplitStrategy, string> = {
   scaffold: `Scaffold split: ${HELD_OUT} This approximates predicting a new chemical series. Each cluster stands for one Bemis–Murcko scaffold; similarity here is computed from on-screen distance.`,
   identity: `Identity split: ${HELD_OUT} This approximates predicting a protein the model has never seen. Each cluster stands for one protein family; the distances on screen stand in for sequence identity, not chemical similarity.`,
   position: `Position split: ${HELD_OUT} This approximates predicting a site in the protein that has not been tested. Each cluster stands for one mutated residue position; the distances on screen stand in for how closely two variants are related, not chemical similarity.`,
+  predefined: "The partitions are read from your file, not computed."
 };
 
 export function splitCaption(strategy: SplitStrategy): string {

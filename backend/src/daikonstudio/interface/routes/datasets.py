@@ -113,6 +113,9 @@ class SplitBody(BaseModel):
     strategy: SplitStrategy
     seed: int
     fractions: tuple[float, float, float] = (0.8, 0.1, 0.1)
+    #: Only for a predefined split: the uploaded column holding each row's partition.
+    #: `max_length` matches the `String(128)` columns other column names are held in.
+    column: str | None = Field(default=None, max_length=128)
 
 
 class CreateDatasetBody(BaseModel):
@@ -512,7 +515,10 @@ async def upload_dataset_file(
 def _create_command(body: CreateDatasetBody) -> CreateDatasetCommand:
     try:
         split = SplitSpec(
-            strategy=body.split.strategy, seed=body.split.seed, fractions=body.split.fractions
+            strategy=body.split.strategy,
+            seed=body.split.seed,
+            fractions=body.split.fractions,
+            column=body.split.column,
         )
     except ValueError as error:
         # SplitSpec enforces its own invariants (fractions sum to 1, none negative).

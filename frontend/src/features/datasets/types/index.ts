@@ -70,6 +70,8 @@ export interface DatasetDraft {
   seed: number;
   /** The column holding compound IDs, or null for none. */
   idColumn: string | null;
+  /** For a predefined split: the column holding each row's partition. */
+  splitColumn: string | null;
 }
 
 export const EMPTY_DRAFT: DatasetDraft = {
@@ -83,6 +85,7 @@ export const EMPTY_DRAFT: DatasetDraft = {
   strategy: "scaffold",
   seed: 42,
   idColumn: null,
+  splitColumn: null,
 };
 
 /**
@@ -115,6 +118,13 @@ export const SPLIT_COPY: Record<SplitStrategy, { title: string; detail: string }
     title: "Position",
     detail:
       "Test variants are mutated at residue positions never mutated in training. This approximates prediction at a site in the protein that has not been tested and gives a conservative estimate.",
+  },
+  // Last on purpose: key order is presentation order, and this is the specialist
+  // option. A scientist reaching for it already knows which column holds the answer.
+  predefined: {
+    title: "From a column in your file",
+    detail:
+      "Each row's partition is read from a column you choose, exactly as your file declares it. Use this to reproduce a published benchmark on its own training and test sets, so your result can be compared with theirs.",
   },
 };
 

@@ -12,4 +12,5 @@ export const SplitStrategy = {
   scaffold: 'scaffold',
   identity: 'identity',
   position: 'position',
+  predefined: 'predefined',
 } as const;

@@ -3,6 +3,7 @@
  * daikon-studio
  */
 import type { SplitStrategy } from './splitStrategy';
+import type { SplitBodyColumn } from './splitBodyColumn';
 
 export interface SplitBody {
   strategy: SplitStrategy;
@@ -12,4 +13,5 @@ export interface SplitBody {
    * @maxItems 3
    */
   fractions?: [number, number, number];
+  column?: SplitBodyColumn;
 }

@@ -21,6 +21,7 @@ from collections.abc import Callable, Sequence
 import polars as pl
 
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.domain.data.split import normalize_partition
 from daikonstudio.domain.data.structure_kind import (
     StructureKind,
     looks_like_sequence,
@@ -123,12 +124,51 @@ def _validate_target(
     return kept, kept_rows, invalid
 
 
+def _validate_split_column(
+    frame: pl.DataFrame, column: str, row_numbers: list[int]
+) -> tuple[pl.DataFrame, list[int], list[InvalidRow]]:
+    """Gate a predefined split's column, and canonicalize what survives.
+
+    Deliberately shaped like `_validate_target`, and here rather than in `assign_split`
+    for two reasons. This layer still knows each row's position in the *uploaded* file,
+    so a bad cell can be reported against the number the scientist can actually find;
+    by split time the frame has been filtered and deduplicated and those positions are
+    gone. And normalizing the surviving cells here means the duplicate comparison below
+    sees "Train " and "train" as one partition rather than two.
+    """
+    raw = frame[column].cast(pl.String, strict=False).fill_null("")
+    text = raw.to_list()
+    normalized = [normalize_partition(str(value)) for value in text]
+    ok = pl.Series([label is not None for label in normalized])
+    invalid = [
+        InvalidRow(
+            row_number=row_numbers[index],
+            value=str(text[index]),
+            reason=(
+                f"Missing value for column '{column}'"
+                if not str(text[index]).strip()
+                else f"Column '{column}' must say train, validation or test "
+                f"(found '{text[index]}')"
+            ),
+        )
+        for index in range(frame.height)
+        if normalized[index] is None
+    ]
+    kept = frame.filter(ok).with_columns(
+        pl.Series(column, [label for label in normalized if label is not None])
+    )
+    kept_rows = [number for number, keep in zip(row_numbers, ok.to_list(), strict=True) if keep]
+    return kept, kept_rows, invalid
+
+
 def prepare_frame(
     frame: pl.DataFrame,
     structure_column: str,
     targets: Sequence[TargetSpec],
     normalizer: StructureNormalizer,
     on_row: RowProgress | None = None,
+    *,
+    split_column: str | None = None,
 ) -> tuple[pl.DataFrame, ValidationReport]:
     total_rows = frame.height
     if total_rows == 0:
@@ -200,6 +240,13 @@ def prepare_frame(
     for target in targets:
         valid_frame, row_numbers, bad_targets = _validate_target(valid_frame, target, row_numbers)
         invalid.extend(bad_targets)
+    # Last, after the targets: a row with an unreadable structure and a bad partition is
+    # reported for its structure, which is the thing the scientist fixes first.
+    if split_column is not None and split_column in valid_frame.columns:
+        valid_frame, row_numbers, bad_split = _validate_split_column(
+            valid_frame, split_column, row_numbers
+        )
+        invalid.extend(bad_split)
     invalid.sort(key=lambda row: row.row_number)
     valid_rows = valid_frame.height
 
@@ -270,12 +317,37 @@ def prepare_frame(
                 values.first().alias(target.column),
             ]
             helpers += [f"_n_unique_{index}", f"_values_{index}"]
+    # A designated split column must not be narrowed by `.first()` like any other extra
+    # column: replicate rows that disagree about their partition would put the compound
+    # on an arbitrary side of the split, which is the one error a split can make that
+    # nothing downstream can detect. Count the distinct values so the group can be
+    # rejected below, exactly as a disagreeing BINARY target already is.
+    split_aggregations: list[pl.Expr] = []
+    if split_column is not None and split_column in valid_frame.columns:
+        split_aggregations = [
+            pl.col(split_column).n_unique().alias("_split_n_unique"),
+            pl.col(split_column).alias("_split_values"),
+        ]
+        helpers += ["_split_n_unique", "_split_values"]
     grouped = valid_frame.group_by(structure_column, maintain_order=True).agg(
-        *aggregations, *keep_others
+        *aggregations, *split_aggregations, *keep_others
     )
 
     conflicting: list[ConflictRow] = []
     is_conflict = pl.Series([False] * grouped.height)
+    if "_split_n_unique" in grouped.columns:
+        assert split_column is not None  # set together with the aggregation above
+        split_clash = grouped["_split_n_unique"] > 1
+        conflicting += [
+            ConflictRow(
+                structure=str(row[structure_column]),
+                column=split_column,
+                values=sorted({str(value) for value in row["_split_values"]}),
+                row_numbers=sorted(row_numbers_by_structure[str(row[structure_column])]),
+            )
+            for row in grouped.filter(split_clash).iter_rows(named=True)
+        ]
+        is_conflict = is_conflict | split_clash
     for index, target in enumerate(targets):
         if target.kind is not TargetKind.BINARY:
             continue

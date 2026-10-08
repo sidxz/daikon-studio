@@ -21,7 +21,11 @@ class ConflictRow:
     # A compound can conflict in one binary target and agree in another, and the
     # file is fixed in that column, so a conflict has to say which one it is in.
     column: str
-    values: list[int]
+    # Binary labels are ints; a disagreement about a predefined split's partition
+    # carries the partition names as text. Both are display-only, and
+    # `report_from_dict`'s `ConflictRow(**row)` reads either shape back, so widening
+    # costs nothing and avoids a second near-identical type.
+    values: list[int] | list[str]
     # 1-indexed positions in the *uploaded* file, matching `InvalidRow.row_number`'s
     # own convention -- a conflict spans several rows (the replicate measurements
     # that disagree), so this is a collection rather than a single int. Without it,

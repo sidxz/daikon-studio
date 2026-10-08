@@ -5,7 +5,12 @@ import polars as pl
 import pytest
 
 from daikonstudio.application.data.assign_split import assign_split
-from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
+from daikonstudio.domain.data.split import (
+    SplitSpec,
+    SplitStrategy,
+    split_from_dict,
+    split_to_dict,
+)
 from daikonstudio.domain.data.target import RESERVED_TARGET_COLUMNS
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
@@ -386,19 +391,31 @@ def test_every_split_strategy_is_dispatched_explicitly():
     Scorecard and the UI all reported the strategy the scientist asked for. Adding a
     member now fails here -- `assign_split`'s `assert_never` raises for an unhandled
     one, and the equality below refuses to let this test fall behind the enum."""
-    inputs: dict[SplitStrategy, tuple[pl.DataFrame, str, dict[str, object]]] = {
-        SplitStrategy.RANDOM: (frame(), "smiles", {}),
-        SplitStrategy.SCAFFOLD: (frame(), "smiles", {}),
+    import itertools as _it
+
+    _base = frame()
+    predefined_frame = _base.with_columns(
+        pl.Series(
+            "split",
+            list(_it.islice(_it.cycle(["train", "test", "validation"]), _base.height)),
+        )
+    )
+    # Each entry is (frame, structure column, assign_split kwargs, SplitSpec kwargs).
+    inputs: dict[SplitStrategy, tuple[pl.DataFrame, str, dict[str, object], dict[str, object]]] = {
+        SplitStrategy.RANDOM: (frame(), "smiles", {}, {}),
+        SplitStrategy.SCAFFOLD: (frame(), "smiles", {}, {}),
         SplitStrategy.IDENTITY: (
             variant_frame(),
             "sequence",
             {"clusterer": FixedClusterer(list(range(variant_frame().height)))},
+            {},
         ),
-        SplitStrategy.POSITION: (variant_frame(), "sequence", {}),
+        SplitStrategy.POSITION: (variant_frame(), "sequence", {}, {}),
+        SplitStrategy.PREDEFINED: (predefined_frame, "smiles", {}, {"column": "split"}),
     }
     assert set(inputs) == set(SplitStrategy)
-    for strategy, (rows, column, extra) in inputs.items():
-        spec = SplitSpec(strategy=strategy, seed=7)
+    for strategy, (rows, column, extra, spec_extra) in inputs.items():
+        spec = SplitSpec(strategy=strategy, seed=7, **spec_extra)  # type: ignore[arg-type]
         result = assign_split(rows, column, spec, NORMALIZER, **extra)  # type: ignore[arg-type]
         assert result["split"].null_count() == 0, strategy
         assert set(result["split"].unique()) <= {"train", "validation", "test"}, strategy
@@ -434,3 +451,135 @@ def test_identity_split_runs_end_to_end_against_the_real_clusterer():
     for cluster, label in zip(ids, result["split"].to_list(), strict=True):
         per_cluster.setdefault(cluster, set()).add(label)
     assert all(len(labels) == 1 for labels in per_cluster.values())
+
+
+# --- PREDEFINED: the partitions the file declares ------------------------------------
+#
+# A published benchmark ships its own train/test assignment, and reproducing its number
+# means using that assignment rather than one we computed. Everything below is about
+# refusing to pretend: a spec that claims PREDEFINED without naming a column, or names a
+# column while claiming a strategy that computes its own partitions, is not a split this
+# app can honour.
+
+
+def test_predefined_requires_a_column():
+    with pytest.raises(ValueError, match="needs the name of the column"):
+        SplitSpec(strategy=SplitStrategy.PREDEFINED, seed=42)
+
+
+def test_other_strategies_refuse_a_column():
+    with pytest.raises(ValueError, match="computes its own partitions"):
+        SplitSpec(strategy=SplitStrategy.SCAFFOLD, seed=42, column="split")
+
+
+def test_predefined_refuses_non_default_fractions():
+    # Fractions mean nothing when the partitions are given, and an inert non-default
+    # value would sit on the Dataset looking like it had done something.
+    with pytest.raises(ValueError, match="do not apply"):
+        SplitSpec(
+            strategy=SplitStrategy.PREDEFINED,
+            seed=42,
+            column="split",
+            fractions=(0.7, 0.2, 0.1),
+        )
+
+
+def test_predefined_round_trips_through_the_jsonb_shape():
+    spec = SplitSpec(strategy=SplitStrategy.PREDEFINED, seed=42, column="Set")
+    assert split_to_dict(spec)["column"] == "Set"
+    assert split_from_dict(split_to_dict(spec)) == spec
+
+
+def test_a_split_frozen_before_this_feature_still_loads():
+    # Every split ever written lacks the key; a KeyError here would break loading
+    # every existing dataset in the workspace.
+    spec = split_from_dict({"strategy": "scaffold", "seed": 7, "fractions": [0.8, 0.1, 0.1]})
+    assert spec.strategy is SplitStrategy.SCAFFOLD
+    assert spec.column is None
+
+
+class _NeverNormalizer:
+    """PREDEFINED reads a column; it must never look at a structure."""
+
+    def canonicalize(self, smiles):  # pragma: no cover - asserted not to run
+        raise AssertionError("a predefined split must not canonicalize")
+
+    def has_multiple_components(self, smiles):  # pragma: no cover
+        raise AssertionError("a predefined split must not inspect components")
+
+    def murcko_scaffold(self, smiles):  # pragma: no cover
+        raise AssertionError("a predefined split must not scaffold")
+
+
+def _predefined(values, column="split"):
+    spec = SplitSpec(strategy=SplitStrategy.PREDEFINED, seed=42, column=column)
+    rows = pl.DataFrame({"smiles": [f"C{'C' * i}O" for i in range(len(values))], column: values})
+    return assign_split(rows, "smiles", spec, _NeverNormalizer())  # type: ignore[arg-type]
+
+
+def test_predefined_reads_the_partitions_in_file_order():
+    result = _predefined(["train", "test", "validation", "train"])
+    assert result["split"].to_list() == ["train", "test", "validation", "train"]
+
+
+def test_predefined_accepts_case_and_surrounding_whitespace():
+    # Excel and hand-editing produce these constantly; rejecting them would be a
+    # worse answer than reading them.
+    result = _predefined(["Train ", "TEST", " Validation", "train"])
+    assert result["split"].to_list() == ["train", "test", "validation", "train"]
+
+
+@pytest.mark.parametrize(
+    ("spelling", "expected"),
+    [
+        ("training", "train"),
+        ("valid", "validation"),
+        ("val", "validation"),
+        ("dev", "validation"),
+        ("testing", "test"),
+    ],
+)
+def test_predefined_accepts_common_synonyms(spelling, expected):
+    result = _predefined(["train", "test", spelling])
+    assert result["split"].to_list()[2] == expected
+
+
+def test_predefined_rejects_an_unrecognised_value_naming_the_column_and_value():
+    with pytest.raises(ValidationError) as caught:
+        _predefined(["train", "holdout", "test"])
+    message = caught.value.message
+    assert "split" in message
+    assert "holdout" in message
+
+
+def test_predefined_rejects_numeric_fold_indices_and_says_what_it_wants():
+    # TDC ships five numbered splits and QMAP five test sets, so a scientist will try
+    # this. k-fold columns are out of scope, and the message has to say so.
+    with pytest.raises(ValidationError) as caught:
+        _predefined(["0", "1", "2"])
+    assert "train" in caught.value.message
+
+
+def test_predefined_rejects_a_file_with_no_training_rows():
+    with pytest.raises(ValidationError, match="no training rows"):
+        _predefined(["test", "test", "test"])
+
+
+def test_predefined_rejects_a_file_with_no_test_rows():
+    with pytest.raises(ValidationError, match="no test rows"):
+        _predefined(["train", "train"])
+
+
+def test_predefined_allows_a_two_partition_split():
+    # MoleculeACE, Polaris and CardioTox are all train/test only. Carving a validation
+    # partition out of train here would make our training set smaller than the one the
+    # published number came from.
+    result = _predefined(["train", "train", "test"])
+    assert set(result["split"].to_list()) == {"train", "test"}
+
+
+def test_predefined_reads_a_column_that_is_not_called_split():
+    result = _predefined(["train", "test"], column="Set")
+    assert result["split"].to_list() == ["train", "test"]
+    # The source column is left alone; only the canonical "split" column is injected.
+    assert result["Set"].to_list() == ["train", "test"]

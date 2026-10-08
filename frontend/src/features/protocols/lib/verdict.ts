@@ -1,6 +1,6 @@
 import type { Engine } from "@/features/engines";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
-import { isGroupedSplit } from "@/shared/lib/split";
+import { isGroupedSplit, splitVocabulary } from "@/shared/lib/split";
 
 export type VerdictKind =
   | "beats"
@@ -252,21 +252,17 @@ export function computeOptimismGap(scorecard: ScorecardResponse): OptimismGap {
   }
 
   if (scorecard.random_split_metrics == null) {
-    return isGroupedSplit(scorecard.split_strategy)
-      ? {
-          kind: "unavailable",
-          held,
-          random: null,
-          gap: null,
-          message: "No random-split comparison was recorded for this run.",
-        }
-      : {
-          kind: "not-applicable",
-          held,
-          random: null,
-          gap: null,
-          message: "Not applicable: the model was scored on a random split.",
-        };
+    // The sentence comes from the vocabulary rather than from a branch here, because
+    // "no group" used to imply "random split" and that is no longer true: a predefined
+    // split groups nothing either, and telling its reader they were scored on a random
+    // split would be plainly false.
+    return {
+      kind: isGroupedSplit(scorecard.split_strategy) ? "unavailable" : "not-applicable",
+      held,
+      random: null,
+      gap: null,
+      message: splitVocabulary(scorecard.split_strategy).noGap,
+    };
   }
 
   if (held == null || random == null) {

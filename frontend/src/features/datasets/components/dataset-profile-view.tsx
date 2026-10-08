@@ -13,7 +13,7 @@ import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import type { TargetBody } from "@/shared/lib/api/model";
-import { SPLIT_VOCABULARY } from "@/shared/lib/split";
+import { scaffoldSeparationNote } from "@/shared/lib/split";
 import type { Dataset, DatasetProfile, SplitStrategy } from "../types";
 import { descriptorLabel } from "../types";
 import { SubstitutionMap, VariantPositions } from "./variant-positions";
@@ -206,18 +206,12 @@ function SplitHonestySection({
   if (!scaffolds) return null;
   const leaked = scaffolds.cross_split_scaffolds > 0;
   const shared = `${scaffolds.cross_split_compounds.toLocaleString()} compounds have a scaffold present in both training and test sets.`;
-  // Three cases, not two. A scaffold split is the only one that promises to
-  // separate scaffolds; identity and position group by something else
-  // entirely, so a shared scaffold is neither a failure nor a sign of
-  // optimism, and saying either would be false.
-  const scaffoldLeakDetail =
-    strategy === "scaffold"
-      ? leaked
-        ? `${shared} A scaffold split should prevent this.`
-        : "As expected for a scaffold split: the training and test sets share no Bemis–Murcko scaffold."
-      : strategy === "random"
-        ? `${shared} Expected for a random split, and one reason its scores are optimistic.`
-        : `${shared} This split groups by ${SPLIT_VOCABULARY[strategy].group}, so it does not separate scaffolds.`;
+  // More cases than this component should know about: a scaffold split is the only one
+  // that promises to separate scaffolds, identity and position group by something else
+  // entirely, and a predefined split groups nothing at all. The sentence lives in
+  // `shared/lib/split` with the rest of the per-strategy vocabulary, which is what
+  // keeps a null group from reaching a reader as the word "null".
+  const scaffoldLeakDetail = scaffoldSeparationNote(strategy, shared, leaked);
 
   return (
     <Card>

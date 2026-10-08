@@ -112,6 +112,7 @@ async def test_a_scientist_can_walk_the_whole_loop(client, csv_upload):
         "strategy": "scaffold",
         "seed": 42,
         "fractions": [0.8, 0.1, 0.1],
+        "column": None,
     }
     # Freezing produced a real, content-addressed snapshot -- not just a
     # database row referencing the caller's original upload.

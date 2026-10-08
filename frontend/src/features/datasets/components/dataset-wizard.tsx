@@ -63,6 +63,7 @@ const SPLIT_BADGE: Record<SplitStrategy, string | null> = {
   random: null,
   identity: "For protein sequences",
   position: "For variants of one protein",
+  predefined: "For reproducing a published benchmark",
 };
 const ROLES: Record<ColumnRole, string> = {
   // Neutral on purpose: this role is chosen before the file is read, and the kind

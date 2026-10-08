@@ -48,7 +48,7 @@ import polars as pl
 from daikonstudio.application.data.prepare_frame import RowProgress, map_rows
 from daikonstudio.application.ports.sequence_clusterer import SequenceClusterer
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
-from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
+from daikonstudio.domain.data.split import SplitSpec, SplitStrategy, normalize_partition
 from daikonstudio.domain.shared.errors import ValidationError
 
 _SINGLETON_PREFIX = "\0singleton-"
@@ -59,6 +59,54 @@ _SINGLETON_PREFIX = "\0singleton-"
 #: fragments, which is the failure that looks fine and leaks.
 _MIN_IDENTITY = 0.3
 _COVERAGE = 0.8
+
+
+def _column_labels(frame: pl.DataFrame, spec: SplitSpec) -> list[str]:
+    """The partitions the uploaded file declares, read rather than computed.
+
+    This is the one strategy that groups nothing and looks at no structure: a published
+    benchmark already decided which rows are test, and reproducing its number means
+    honouring that decision instead of making a better one.
+
+    Per-cell validation lives earlier, in `prepare_frame`, which still knows each row's
+    position in the *uploaded* file and reports a bad cell against that number. By the
+    time this runs the frame has been filtered and deduplicated, so its indices are no
+    longer uploaded-file rows -- which is why the rejection below names the value and
+    not a row. It should be unreachable in the normal path.
+    """
+    if spec.column is None:  # pragma: no cover - SplitSpec.__post_init__ guarantees it
+        raise ValidationError("A predefined split needs a column.", detail=None)
+    column = spec.column
+    labels: list[str] = []
+    for value in frame[column].cast(pl.String, strict=False).fill_null("").to_list():
+        label = normalize_partition(str(value))
+        if label is None:
+            shown = str(value).strip() or "(empty)"
+            raise ValidationError(
+                f"Column '{column}' holds '{shown}', which is not a partition name. "
+                f"Use train, validation or test. If your file numbers folds instead, "
+                f"split it into one column per fold first.",
+                detail=None,
+            )
+        labels.append(label)
+
+    present = set(labels)
+    # An absent validation partition is allowed: published benchmarks are often
+    # train/test only, and carving validation out of train here would leave our
+    # training set smaller than the one the published number came from. Train and test
+    # are not optional -- without them there is nothing to learn from, or nothing to
+    # evaluate on, and a split that says so is better than a run that discovers it.
+    if "train" not in present:
+        raise ValidationError(
+            f"Column '{column}' marks no training rows, so there is nothing to learn from.",
+            detail=None,
+        )
+    if "test" not in present:
+        raise ValidationError(
+            f"Column '{column}' marks no test rows, so there is nothing to evaluate on.",
+            detail=None,
+        )
+    return labels
 
 
 def _tie_break_key(seed: int, group_key: str) -> int:
@@ -94,6 +142,8 @@ def assign_split(
             labels = _identity_labels(frame, structure_column, spec, clusterer)
         case SplitStrategy.POSITION:
             labels = _position_labels(frame, structure_column, spec)
+        case SplitStrategy.PREDEFINED:
+            labels = _column_labels(frame, spec)
         case _:  # pragma: no cover - unreachable while the match stays exhaustive
             assert_never(spec.strategy)
     # "split" is one of `domain.data.target.RESERVED_TARGET_COLUMNS` (C1,

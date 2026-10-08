@@ -514,7 +514,14 @@ async def test_a_dataset_survives_the_round_trip_to_the_database(client, csv_upl
     assert fetched["targets"] == [
         {"column": "y", "kind": "numeric", "unit": "logS", "direction": "high"}
     ]
-    assert fetched["split"] == {"strategy": "random", "seed": 99, "fractions": [0.6, 0.2, 0.2]}
+    assert fetched["split"] == {
+        "strategy": "random",
+        "seed": 99,
+        "fractions": [0.6, 0.2, 0.2],
+        # Present and null for every strategy but `predefined`, which is the only one
+        # that reads its partitions out of a column.
+        "column": None,
+    }
 
 
 TWO_TARGET_CSV = (
@@ -594,3 +601,117 @@ async def test_compounds_carry_every_target_and_sort_by_any_one(client, csv_uplo
         f"/api/v1/datasets/{dataset_id}/compounds", params={"sort": "target", "target": 2}
     )
     assert out_of_range.status_code == 422
+
+
+# --- A predefined split: the partitions the file declares -----------------------------
+
+PREDEFINED_CSV = (
+    b"smiles,y,split\n"
+    b"CCO,1.0,train\nc1ccccc1,5.0,train\nCCN,2.0,train\nc1ccncc1,6.0,test\nCCCC,3.0,test\n"
+)
+PREDEFINED_SPLIT = {"strategy": "predefined", "seed": 1, "column": "split"}
+
+
+async def test_a_predefined_split_uses_the_partitions_the_file_declares(client, csv_upload):
+    upload_ref = await csv_upload(PREDEFINED_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, name="predefined", split=PREDEFINED_SPLIT),
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["split"]["strategy"] == "predefined"
+    assert body["split"]["column"] == "split"
+    assert body["row_count"] == 5
+
+
+async def test_a_predefined_split_without_a_column_is_rejected(client, csv_upload):
+    upload_ref = await csv_upload(PREDEFINED_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, split={"strategy": "predefined", "seed": 1}),
+    )
+    assert response.status_code == 422
+    assert "column" in response.text
+
+
+async def test_a_split_column_missing_from_the_file_names_the_available_columns(
+    client, csv_upload
+):
+    upload_ref = await csv_upload(PREDEFINED_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref,
+            split={"strategy": "predefined", "seed": 1, "column": "partition"},
+        ),
+    )
+    assert response.status_code == 422
+    assert "partition" in response.text
+
+
+async def test_the_split_column_cannot_also_be_a_target(client, csv_upload):
+    upload_ref = await csv_upload(PREDEFINED_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, split={"strategy": "predefined", "seed": 1, "column": "y"}),
+    )
+    assert response.status_code == 422
+    assert "predict" in response.text
+
+
+async def test_the_split_column_cannot_also_be_the_structure_column(client, csv_upload):
+    upload_ref = await csv_upload(PREDEFINED_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref, split={"strategy": "predefined", "seed": 1, "column": "smiles"}
+        ),
+    )
+    assert response.status_code == 422
+    assert "structure" in response.text
+
+
+async def test_the_split_column_cannot_also_be_the_identifier(client, csv_upload):
+    upload_ref = await csv_upload(
+        b"smiles,y,name\nCCO,1.0,a\nc1ccccc1,5.0,b\nCCN,2.0,c\nc1ccncc1,6.0,d\n"
+    )
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref,
+            id_column="name",
+            split={"strategy": "predefined", "seed": 1, "column": "name"},
+        ),
+    )
+    assert response.status_code == 422
+    assert "identifier" in response.text
+
+
+async def test_a_non_default_fraction_with_a_predefined_split_is_rejected(client, csv_upload):
+    upload_ref = await csv_upload(PREDEFINED_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref,
+            split={
+                "strategy": "predefined",
+                "seed": 1,
+                "column": "split",
+                "fractions": [0.7, 0.2, 0.1],
+            },
+        ),
+    )
+    assert response.status_code == 422
+    assert "do not apply" in response.text
+
+
+async def test_a_split_column_literally_named_split_round_trips(client, csv_upload):
+    """The most natural name, and it collides with the column assign_split injects."""
+    upload_ref = await csv_upload(PREDEFINED_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, name="named-split", split=PREDEFINED_SPLIT),
+    )
+    assert response.status_code == 201, response.text
+    assert response.json()["split"]["column"] == "split"

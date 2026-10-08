@@ -238,11 +238,14 @@ class CreateDataset:
         except ValidationError as error:
             return error
 
+        split_column = command.split.column
         missing = [
             column
             for column in (command.structure_column, *target_columns)
             if column not in frame.columns
         ]
+        if split_column is not None and split_column not in frame.columns:
+            missing.append(split_column)
         if missing:
             return ValidationError(
                 f"Columns not found in the uploaded file: {', '.join(missing)}.",
@@ -260,6 +263,25 @@ class CreateDataset:
             except ValidationError as error:
                 return error
 
+        # A column can hold the split assignment or play one of the other roles, never
+        # both: `assign_split` would read partitions out of a target, or the identifier
+        # picker would offer the split column as a compound ID.
+        if split_column is not None:
+            if split_column == command.structure_column:
+                return ValidationError(
+                    "The structure column cannot also hold the split assignment."
+                )
+            if split_column in target_columns:
+                return ValidationError(
+                    f"Column '{split_column}' is a column to predict, so it cannot also "
+                    "hold the split assignment."
+                )
+            if split_column == command.id_column:
+                return ValidationError(
+                    f"Column '{split_column}' is the identifier, so it cannot also hold "
+                    "the split assignment."
+                )
+
         progress.begin("Checking structures", frame.height)
         try:
             prepared, report = prepare_frame(
@@ -268,6 +290,7 @@ class CreateDataset:
                 command.targets,
                 self._normalizer,
                 on_row=progress.advance,
+                split_column=split_column,
             )
         except pl.exceptions.PolarsError as error:
             # The target gate inside prepare_frame catches what we know about; this
@@ -300,6 +323,8 @@ class CreateDataset:
             progress.begin("Clustering sequences by identity", prepared.height)
         elif command.split.strategy is SplitStrategy.POSITION:
             progress.begin("Grouping by mutated position", prepared.height)
+        elif command.split.strategy is SplitStrategy.PREDEFINED:
+            progress.begin("Reading the split from your file", prepared.height)
         try:
             split_frame = assign_split(
                 prepared,

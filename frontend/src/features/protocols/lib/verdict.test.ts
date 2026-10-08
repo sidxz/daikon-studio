@@ -194,6 +194,17 @@ describe("optimism gap", () => {
     // Two nulls mean the question does not arise. A message means it was tried
     // and failed. These must never render the same way.
     expect(computeOptimismGap(scorecard({ split_strategy: "random" })).kind).toBe("not-applicable");
+  });
+
+  it("does not tell a predefined split it was scored on a random one", () => {
+    // The old copy said "Not applicable: the model was scored on a random split" for
+    // every strategy whose vocabulary has no group. That is flatly false here: the
+    // partitions came out of the user's file.
+    const gap = computeOptimismGap(
+      scorecard({ split_strategy: "predefined", random_split_metrics: null }),
+    );
+    expect(gap.message).not.toContain("random split");
+    expect(gap.message).toContain("from your file");
     expect(
       computeOptimismGap(scorecard({ random_split_unavailable: "the split had one class" })).kind,
     ).toBe("unavailable");
