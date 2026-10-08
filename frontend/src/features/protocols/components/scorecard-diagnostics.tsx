@@ -85,7 +85,13 @@ function ParitySection({
             caption={
               scorecard.noise_floor != null
                 ? "The dashed line is a perfect prediction. The shaded band shows the average spread of repeated measurements as context for the errors."
-                : "The dashed line is a perfect prediction. Points are shaded by how similar the compound is to the training set."
+                : scorecard.parity.some((point) => point.similarity != null)
+                  ? "The dashed line is a perfect prediction. Points are shaded by how similar the compound is to the training set."
+                  : // No similarity to shade by -- a sequence dataset has no Tanimoto
+                    // neighbour. `ParityChart` already drops the shading and its legend
+                    // in that case; promising it in the caption was the last place the
+                    // card still claimed a measurement it never made.
+                    "The dashed line is a perfect prediction."
             }
           />
         )}
