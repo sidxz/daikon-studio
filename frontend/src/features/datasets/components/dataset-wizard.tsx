@@ -7,6 +7,7 @@ import { QueryError } from "@/shared/components/query-error";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import { Input } from "@/shared/components/ui/input";
 import { Label } from "@/shared/components/ui/label";
 import {
@@ -258,6 +259,7 @@ export function DatasetWizard() {
         file_name: draft.file.name,
         structure_column: draft.structureColumn,
         id_column: draft.idColumn,
+        deduplicate: draft.deduplicate,
         targets: draft.targets.map((target) => ({
           column: target.column,
           kind: target.kind,
@@ -680,6 +682,29 @@ export function DatasetWizard() {
               {draft.strategy === "predefined" && splitReason && (
                 <p className="text-xs text-destructive">{splitReason}</p>
               )}
+              <details className="rounded-lg border p-4">
+                <summary className="cursor-pointer text-sm font-medium">
+                  Repeated measurements
+                </summary>
+                <div className="mt-4 space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="deduplicate"
+                      checked={draft.deduplicate}
+                      onCheckedChange={(value) => patch({ deduplicate: value !== false })}
+                    />
+                    <Label htmlFor="deduplicate" className="font-normal">
+                      Combine repeated measurements of the same compound
+                    </Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    On by default. Switching it off keeps your file's rows exactly as they are,
+                    which is what reproducing a published row count needs. The cost is that one
+                    compound can then appear in both training and test, and a compound measured as
+                    both active and inactive will no longer be caught.
+                  </p>
+                </div>
+              </details>
             </CardContent>
           </Card>
         )}

@@ -91,7 +91,7 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
 
       {/* Absent, not empty, for a binary target: there are no replicate
           spreads to average, so the question does not arise. */}
-      {scorecard.noise_floor != null && (
+      {scorecard.noise_floor != null ? (
         <HonestyStat label="Variation in repeated measurements">
           <ReadoutValue
             value={scorecard.noise_floor}
@@ -104,7 +104,19 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
             for the model's errors.
           </p>
         </HonestyStat>
-      )}
+      ) : scorecard.deduplicated === false ? (
+        /* Three cases, not two. A binary target has no spread to measure and a silent
+           absence is right for it; a dataset built without deduplication has no
+           replicate groups at all, and the same silence there reads as a missing
+           number rather than as the consequence of a choice. `null` is a scorecard
+           written before the toggle existed, which claims nothing. */
+        <HonestyStat label="Variation in repeated measurements">
+          <p className="text-sm text-muted-foreground">
+            Not measured: deduplication was switched off for this dataset, so repeated measurements
+            of one compound were kept as separate rows rather than compared.
+          </p>
+        </HonestyStat>
+      ) : null}
 
       <HonestyStat label="Test compounds similar to training">
         {coverage == null ? (

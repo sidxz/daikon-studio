@@ -5106,6 +5106,11 @@
               }
             ],
             "title": "File Name"
+          },
+          "deduplicate": {
+            "type": "boolean",
+            "title": "Deduplicate",
+            "default": true
           }
         },
         "additionalProperties": false,
@@ -8793,6 +8798,17 @@
             "type": "string",
             "title": "Split Strategy"
           },
+          "deduplicated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deduplicated"
+          },
           "cutoff": {
             "anyOf": [
               {
@@ -9903,6 +9919,11 @@
             "type": "string",
             "title": "Structure Kind",
             "default": "molecule"
+          },
+          "deduplicated": {
+            "type": "boolean",
+            "title": "Deduplicated",
+            "default": true
           }
         },
         "type": "object",

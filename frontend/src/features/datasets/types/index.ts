@@ -72,6 +72,8 @@ export interface DatasetDraft {
   idColumn: string | null;
   /** For a predefined split: the column holding each row's partition. */
   splitColumn: string | null;
+  /** Collapse replicate rows of one structure. Off reproduces a published row count. */
+  deduplicate: boolean;
 }
 
 export const EMPTY_DRAFT: DatasetDraft = {
@@ -86,6 +88,7 @@ export const EMPTY_DRAFT: DatasetDraft = {
   seed: 42,
   idColumn: null,
   splitColumn: null,
+  deduplicate: true,
 };
 
 /**

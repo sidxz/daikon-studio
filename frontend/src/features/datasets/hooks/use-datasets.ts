@@ -9,6 +9,7 @@ import {
 } from "@/shared/lib/api/custom-instance";
 import type {
   CompoundPageResponse,
+  CreateDatasetBody,
   DatasetBuildResponse,
   DatasetColumnsResponse,
   DatasetPreviewResponse,
@@ -106,15 +107,15 @@ export function useUploadDatasetFile() {
   });
 }
 
-export interface CreateDatasetInput {
-  name: string;
-  upload_ref: string;
-  structure_column: string;
-  targets: { column: string; kind: string; unit?: string | null; direction?: string | null }[];
-  split: { strategy: string; seed: number };
-  id_column?: string | null;
-  file_name?: string | null;
-}
+/**
+ * The create/preview request body.
+ *
+ * Aliased to the generated `CreateDatasetBody` rather than restated by hand: the
+ * hand-written version drifted twice -- it never gained `split.column` when the
+ * predefined split shipped, and an object spread is exempt from excess-property
+ * checking, so the field reached the API while the type denied it existed.
+ */
+export type CreateDatasetInput = CreateDatasetBody;
 
 export function useStartDatasetPreview() {
   return useMutation({

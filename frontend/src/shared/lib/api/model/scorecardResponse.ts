@@ -18,6 +18,7 @@ import type { WorstRowResponse } from './worstRowResponse';
 import type { ScorecardResponseApplicabilityCoverage } from './scorecardResponseApplicabilityCoverage';
 import type { ScorecardResponseUnit } from './scorecardResponseUnit';
 import type { ScorecardResponseDirection } from './scorecardResponseDirection';
+import type { ScorecardResponseDeduplicated } from './scorecardResponseDeduplicated';
 import type { ScorecardResponseCutoff } from './scorecardResponseCutoff';
 import type { ScorecardResponseBaselineCutoff } from './scorecardResponseBaselineCutoff';
 import type { ScorecardResponseCutoffNote } from './scorecardResponseCutoffNote';
@@ -81,6 +82,7 @@ export interface ScorecardResponse {
   unit: ScorecardResponseUnit;
   direction: ScorecardResponseDirection;
   split_strategy: string;
+  deduplicated?: ScorecardResponseDeduplicated;
   cutoff: ScorecardResponseCutoff;
   baseline_cutoff: ScorecardResponseBaselineCutoff;
   cutoff_note: ScorecardResponseCutoffNote;

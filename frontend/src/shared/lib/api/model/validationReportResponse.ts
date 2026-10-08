@@ -27,4 +27,5 @@ export interface ValidationReportResponse {
   salts_flagged: number;
   duplicate_spread: ValidationReportResponseDuplicateSpread;
   structure_kind?: string;
+  deduplicated?: boolean;
 }

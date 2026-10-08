@@ -18,4 +18,5 @@ export interface CreateDatasetBody {
   split: SplitBody;
   id_column?: CreateDatasetBodyIdColumn;
   file_name?: CreateDatasetBodyFileName;
+  deduplicate?: boolean;
 }
