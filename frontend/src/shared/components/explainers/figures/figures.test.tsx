@@ -123,6 +123,22 @@ describe("BootstrapFigure", () => {
       screen.getByText(/Every likely difference favors the model, so its lead holds up/),
     ).toBeInTheDocument();
   });
+  it("keeps the range label off the zero line, and signs it as the card does", () => {
+    // From a real BBBP card: zero sits just inside the band's right edge, where a
+    // right-aligned label put the dashed line through the numbers.
+    const real: BootstrapData = {
+      ...DIFF,
+      interval: [-0.123, 0.049],
+      redraws: {
+        edges: [-0.2, -0.15, -0.1, -0.05, 0, 0.05, 0.1],
+        counts: [10, 60, 250, 400, 250, 30],
+      },
+    };
+    render(<BootstrapFigure t={1} data={real} />);
+    const label = screen.getByText("likely range of the difference").closest("text");
+    expect(label).toHaveAttribute("text-anchor", "start");
+    expect(screen.getByText("-0.123 to +0.049 (95% interval)")).toBeInTheDocument();
+  });
   it("says this test cannot tell when zero is inside the difference's range", () => {
     render(<BootstrapFigure t={1} data={{ ...DIFF, interval: [-0.1, 0.05] }} />);
     expect(

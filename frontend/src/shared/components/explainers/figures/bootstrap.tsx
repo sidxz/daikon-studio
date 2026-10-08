@@ -54,6 +54,14 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
   const diff = data.mode === "difference";
   const reference = diff ? "no difference" : `baseline model: ${fmt(baseline)}`;
   const better = data.higherIsBetter ? "higher" : "lower";
+  // A difference is signed, as the card prints it.
+  const show = (v: number) => `${diff && v > 0 ? "+" : ""}${fmt(v)}`;
+  // The range label is about 200 wide and hangs from the band's right edge. A zero line
+  // usually falls inside the band, often under that label, so on a difference it moves
+  // to the left edge whenever the line would cross it. Score-mode cards keep their layout.
+  const labelEnd = Math.max(X(hi) - 6, 266);
+  const flip = diff && X(baseline) > labelEnd - 206 && X(baseline) < labelEnd + 6;
+  const labelX = flip ? Math.min(X(lo) + 6, 370) : labelEnd;
 
   return (
     <div className="space-y-2">
@@ -63,7 +71,7 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
         role="img"
         aria-label={
           diff
-            ? `Model minus baseline ${metric} on ${L.total.toLocaleString()} reshuffled tests, shown as a pile of dots. The likely range of the difference, ${fmt(lo)} to ${fmt(hi)}, is shaded. Zero, where the two models tie, is marked against it.`
+            ? `Model minus baseline ${metric} on ${L.total.toLocaleString()} reshuffled tests, shown as a pile of dots. The likely range of the difference, ${show(lo)} to ${show(hi)}, is shaded. Zero, where the two models tie, is marked against it.`
             : `The model's ${metric} on ${L.total.toLocaleString()} reshuffled tests, shown as a pile of dots. The likely range of the model's score, ${fmt(lo)} to ${fmt(hi)}, is shaded. The baseline model's ${fmt(baseline)} is marked against it.`
         }
       >
@@ -182,12 +190,16 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
             </text>
           )}
         </g>
-        <text textAnchor="end" opacity={seg(t, 0.8, 0.88)} className={S.textStrong}>
-          <tspan x={Math.max(X(hi) - 6, 266)} y={102}>
+        <text
+          textAnchor={flip ? "start" : "end"}
+          opacity={seg(t, 0.8, 0.88)}
+          className={S.textStrong}
+        >
+          <tspan x={labelX} y={102}>
             {diff ? "likely range of the difference" : "likely range of the model's score"}
           </tspan>
-          <tspan x={Math.max(X(hi) - 6, 266)} y={115}>
-            {fmt(lo)} to {fmt(hi)} (95% interval)
+          <tspan x={labelX} y={115}>
+            {show(lo)} to {show(hi)} (95% interval)
           </tspan>
         </text>
       </svg>
