@@ -143,6 +143,23 @@ class VariantPosition:
 
 
 @dataclass(frozen=True, kw_only=True)
+class Substitution:
+    """One cell of a deep-mutational-scanning map: what this residue became, and what
+    happened when it did.
+
+    `value` is the mean target value across rows carrying this exact substitution, which
+    is almost always one row -- a DMS measures each substitution once. `split` is the
+    partition it landed in, so the map can mark what the model never saw.
+    """
+
+    position: int
+    wild_type: str
+    variant: str
+    value: float
+    split: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class VariantProfile:
     """Where a single-parent variant series actually varies.
 
@@ -166,6 +183,15 @@ class VariantProfile:
     #: Positions held out of training entirely. The number the position split exists to
     #: make non-zero, and the one worth reading next to the headline metric.
     held_out_positions: int
+    #: Every measured substitution, for the position-by-residue map that is how this
+    #: field reads a variant experiment. Bounded by positions x 20 rather than by row
+    #: count, because a map has one cell per substitution however many times it was
+    #: measured.
+    substitutions: list[Substitution] = field(default_factory=list)
+    #: Non-null when `positions` was truncated to the most-varied ones, carrying the
+    #: true total -- the same promise `cliffs_sampled_from` makes, and for the same
+    #: reason: a partial map that presents as complete is the failure to avoid.
+    positions_sampled_from: int | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -288,12 +314,13 @@ class DatasetProfile:
 #: number with nothing to indicate it was stale. A shape change would have been
 #: caught by `profile_from_dict` raising; a *value* change is invisible without
 #: this.
+# 4: per-substitution values, for the mutational map.
 # 3: the variant-position section. A bump is needed for an added section and not just a
 # changed number -- a cached v2 profile is still internally correct, but it has no
 # `variants` key and never will, so the map would stay blank forever on every dataset
 # profiled before this. Making `scaffolds` optional in the same branch did *not* need
 # one: that only removed a section, and an old profile that still carries it reads fine.
-PROFILE_VERSION = 3
+PROFILE_VERSION = 4
 
 
 def profile_to_dict(profile: DatasetProfile) -> dict[str, Any]:
@@ -378,6 +405,17 @@ def profile_to_dict(profile: DatasetProfile) -> dict[str, Any]:
                 "unchanged_rows": profile.variants.unchanged_rows,
                 "multi_mutant_rows": profile.variants.multi_mutant_rows,
                 "held_out_positions": profile.variants.held_out_positions,
+                "positions_sampled_from": profile.variants.positions_sampled_from,
+                "substitutions": [
+                    {
+                        "position": sub.position,
+                        "wild_type": sub.wild_type,
+                        "variant": sub.variant,
+                        "value": sub.value,
+                        "split": sub.split,
+                    }
+                    for sub in profile.variants.substitutions
+                ],
             }
             if profile.variants
             else None
@@ -489,6 +527,17 @@ def profile_from_dict(data: dict[str, Any]) -> DatasetProfile:
                 unchanged_rows=variants["unchanged_rows"],
                 multi_mutant_rows=variants["multi_mutant_rows"],
                 held_out_positions=variants["held_out_positions"],
+                positions_sampled_from=variants.get("positions_sampled_from"),
+                substitutions=[
+                    Substitution(
+                        position=sub["position"],
+                        wild_type=sub["wild_type"],
+                        variant=sub["variant"],
+                        value=sub["value"],
+                        split=sub["split"],
+                    )
+                    for sub in variants.get("substitutions", [])
+                ],
             )
             if variants
             else None

@@ -3,6 +3,8 @@
  * daikon-studio
  */
 import type { VariantPositionResponse } from './variantPositionResponse';
+import type { SubstitutionResponse } from './substitutionResponse';
+import type { VariantProfileResponsePositionsSampledFrom } from './variantProfileResponsePositionsSampledFrom';
 
 /**
  * Where a single-parent variant series varies. Present only for sequences.
@@ -17,4 +19,6 @@ export interface VariantProfileResponse {
   unchanged_rows: number;
   multi_mutant_rows: number;
   held_out_positions: number;
+  substitutions?: SubstitutionResponse[];
+  positions_sampled_from?: VariantProfileResponsePositionsSampledFrom;
 }

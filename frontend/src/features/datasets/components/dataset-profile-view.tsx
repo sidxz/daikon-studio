@@ -16,7 +16,7 @@ import type { TargetBody } from "@/shared/lib/api/model";
 import { SPLIT_VOCABULARY } from "@/shared/lib/split";
 import type { Dataset, DatasetProfile, SplitStrategy } from "../types";
 import { descriptorLabel } from "../types";
-import { VariantPositions } from "./variant-positions";
+import { SubstitutionMap, VariantPositions } from "./variant-positions";
 
 /**
  * What the Dataset is made of, and whether the benchmark it defines is honest.
@@ -88,6 +88,7 @@ export function DatasetProfileView({
       {/* The sequence counterpart of the two sections above, and it renders itself
           away for a molecule dataset. */}
       <VariantPositions profile={profile} />
+      <SubstitutionMap profile={profile} />
       <DescriptorSection profile={profile} />
       <CliffSection dataset={dataset} target={target} profile={profile} />
     </div>

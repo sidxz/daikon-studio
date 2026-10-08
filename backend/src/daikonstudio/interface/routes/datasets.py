@@ -381,6 +381,14 @@ class VariantPositionResponse(BaseModel):
     test: int
 
 
+class SubstitutionResponse(BaseModel):
+    position: int
+    wild_type: str
+    variant: str
+    value: float
+    split: str
+
+
 class VariantProfileResponse(BaseModel):
     """Where a single-parent variant series varies. Present only for sequences.
 
@@ -394,6 +402,8 @@ class VariantProfileResponse(BaseModel):
     unchanged_rows: int
     multi_mutant_rows: int
     held_out_positions: int
+    substitutions: list[SubstitutionResponse] = []
+    positions_sampled_from: int | None = None
 
 
 class DescriptorProfileResponse(BaseModel):

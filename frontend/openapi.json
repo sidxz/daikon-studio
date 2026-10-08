@@ -8447,6 +8447,39 @@
         ],
         "title": "SubmitSweepBody"
       },
+      "SubstitutionResponse": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "wild_type": {
+            "type": "string",
+            "title": "Wild Type"
+          },
+          "variant": {
+            "type": "string",
+            "title": "Variant"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "split": {
+            "type": "string",
+            "title": "Split"
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "wild_type",
+          "variant",
+          "value",
+          "split"
+        ],
+        "title": "SubstitutionResponse"
+      },
       "SweepConfigBody": {
         "properties": {
           "engine_id": {
@@ -9181,6 +9214,25 @@
           "held_out_positions": {
             "type": "integer",
             "title": "Held Out Positions"
+          },
+          "substitutions": {
+            "items": {
+              "$ref": "#/components/schemas/SubstitutionResponse"
+            },
+            "type": "array",
+            "title": "Substitutions",
+            "default": []
+          },
+          "positions_sampled_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Positions Sampled From"
           }
         },
         "type": "object",

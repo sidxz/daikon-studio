@@ -29,6 +29,7 @@ from daikonstudio.domain.data.profile import (
     ScaffoldProfile,
     SimilarityProfile,
     SplitHistogram,
+    Substitution,
     TargetDistribution,
     VariantPosition,
     VariantProfile,
@@ -83,6 +84,11 @@ _CLIFF_RESULTS = 8
 # did -- a truncated search must never present as an exhaustive one.
 _MAX_CLIFF_COMPOUNDS = 3000
 
+#: Positions a mutational map will draw. Twenty residues each, so this is the cell
+#: budget as much as the position budget; a 1022-residue protein varying everywhere
+#: would otherwise put 20,440 cells through the blob store and into a browser.
+_MAX_MAP_POSITIONS = 400
+
 _TOP_SCAFFOLDS = 8
 
 
@@ -131,7 +137,7 @@ def build_profile(
             _similarity(structures, train_index, test_index, normalizer) if chemistry else None
         ),
         scaffolds=_scaffolds(structures, splits, normalizer) if chemistry else None,
-        variants=None if chemistry else _variants(structures, splits),
+        variants=None if chemistry else _variants(structures, splits, targets),
         descriptors=descriptors,
         best_descriptor=_best_descriptor(descriptors) if chemistry else None,
         activity_cliffs=(
@@ -403,7 +409,9 @@ def _activity_cliffs(
     return cliffs[:_CLIFF_RESULTS]
 
 
-def _variants(sequences: list[str], splits: list[str]) -> VariantProfile | None:
+def _variants(
+    sequences: list[str], splits: list[str], targets: np.ndarray
+) -> VariantProfile | None:
     """Which residue positions vary, and how their variants fall across partitions.
 
     `None` for a ragged series. Equal length is what makes "position 31" mean the same
@@ -426,9 +434,13 @@ def _variants(sequences: list[str], splits: list[str]) -> VariantProfile | None:
     )
 
     counts: dict[int, dict[str, int]] = {}
+    # Keyed by the cell a mutational map draws: one position, one replacement residue.
+    # Several rows measuring the same substitution average, which is what the map shows.
+    cells: dict[tuple[int, str], list[float]] = {}
+    splits_by_cell: dict[tuple[int, str], str] = {}
     unchanged = 0
     multi = 0
-    for sequence, split in zip(sequences, splits, strict=True):
+    for sequence, split, value in zip(sequences, splits, targets, strict=True):
         differing = [i for i, (a, b) in enumerate(zip(sequence, consensus, strict=True)) if a != b]
         if not differing:
             unchanged += 1
@@ -438,6 +450,17 @@ def _variants(sequences: list[str], splits: list[str]) -> VariantProfile | None:
             tally = counts.setdefault(index, {"train": 0, "validation": 0, "test": 0})
             if split in tally:
                 tally[split] += 1
+            if np.isfinite(value):
+                cells.setdefault((index, sequence[index]), []).append(float(value))
+                splits_by_cell[(index, sequence[index])] = split
+
+    # Most-varied positions first when there are more than the map can show, so a
+    # truncated map keeps the part of the experiment that was actually explored. The
+    # count is reported either way; a partial map that presents as whole is the failure.
+    ordered = sorted(counts.items(), key=lambda item: (-sum(item[1].values()), item[0]))
+    total_positions = len(ordered)
+    truncated = total_positions > _MAX_MAP_POSITIONS
+    kept = {index for index, _ in ordered[:_MAX_MAP_POSITIONS]}
 
     positions = [
         VariantPosition(
@@ -447,6 +470,18 @@ def _variants(sequences: list[str], splits: list[str]) -> VariantProfile | None:
             test=tally["test"],
         )
         for index, tally in sorted(counts.items())
+        if index in kept
+    ]
+    substitutions = [
+        Substitution(
+            position=index + 1,
+            wild_type=consensus[index],
+            variant=residue,
+            value=sum(values) / len(values),
+            split=splits_by_cell[(index, residue)],
+        )
+        for (index, residue), values in sorted(cells.items())
+        if index in kept
     ]
     return VariantProfile(
         consensus=consensus,
@@ -454,4 +489,6 @@ def _variants(sequences: list[str], splits: list[str]) -> VariantProfile | None:
         unchanged_rows=unchanged,
         multi_mutant_rows=multi,
         held_out_positions=sum(1 for p in positions if p.train == 0),
+        substitutions=substitutions,
+        positions_sampled_from=total_positions if truncated else None,
     )

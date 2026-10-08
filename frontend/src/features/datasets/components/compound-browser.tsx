@@ -14,10 +14,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { cn } from "@/shared/lib/utils";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useDatasetProfile } from "../hooks/use-datasets";
 import { useDatasetCompounds } from "../hooks/use-datasets";
+import { PROPERTY_CLASS, residueProperty } from "../lib/residues";
 import type { Dataset } from "../types";
 
 const PAGE_SIZE = 25;
@@ -268,17 +270,41 @@ function MutationInContext({ sequence, consensus }: { sequence: string; consensu
             {index > flank ? "…" : ""}
             {consensus.slice(Math.max(0, index - flank), index)}
           </span>
-          <span className="rounded bg-primary/10 px-1 font-semibold text-foreground">
-            {consensus[index]}
-            {index + 1}
-            {sequence[index]}
-          </span>
+          <Substitution from={consensus[index]} at={index + 1} to={sequence[index]} />
           <span className="text-muted-foreground">
             {consensus.slice(index + 1, index + 1 + flank)}
             {index + 1 + flank < consensus.length ? "…" : ""}
           </span>
         </span>
       ))}
+    </span>
+  );
+}
+
+/**
+ * One substitution, colored and named by what it changes.
+ *
+ * The property is what predicts whether a substitution matters -- swapping one
+ * hydrophobic residue for another is usually tolerated, turning it basic usually is not
+ * -- so it is the thing worth seeing without reading. Spelled out as well as colored,
+ * because the standard protein palettes assume a key the reader has memorised.
+ */
+function Substitution({ from, at, to }: { from: string; at: number; to: string }) {
+  const before = residueProperty(from);
+  const after = residueProperty(to);
+  const changed = before !== after;
+  return (
+    <span
+      className="whitespace-nowrap rounded px-1 font-semibold"
+      title={
+        before && after
+          ? `${from}${at}${to}: ${before} → ${after}${changed ? "" : " (same property)"}`
+          : `${from}${at}${to}`
+      }
+    >
+      <span className={cn("rounded px-0.5", before && PROPERTY_CLASS[before])}>{from}</span>
+      <span className="text-muted-foreground">{at}</span>
+      <span className={cn("rounded px-0.5", after && PROPERTY_CLASS[after])}>{to}</span>
     </span>
   );
 }
