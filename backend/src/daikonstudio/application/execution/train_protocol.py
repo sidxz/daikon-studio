@@ -1143,6 +1143,55 @@ class RunTraining:
         await self._map_chemical_space(run, protocol_id, frame, dataset)
         return result_uri
 
+    async def _comparison_fit(
+        self,
+        run: Run,
+        engine: Engine,
+        dataset: Dataset,
+        targets: dict[str, TaskType],
+        conditions: dict[str, object],
+        frame: pl.DataFrame,
+        *,
+        spec: SplitSpec,
+        scope: str,
+        span: tuple[float, float],
+    ) -> dict[str, tuple[dict[str, float | None], dict[str, str] | None]]:
+        """The chosen engine refitted on one re-split of the same rows.
+
+        Shared by the optimism gap, which varies the split *strategy*, and the extra
+        draws, which vary its *seed*. Both want the identical thing in the middle --
+        re-split in memory, fit, measure, discard the artifact -- and both need the
+        undefined-metric reasons computed from the partition that produced them rather
+        than from the Dataset's own. A second copy of that last part is how the two
+        legs would start attributing one partition's reasons to another.
+
+        Raises on any failure. The callers own the gating and the degradation, because
+        what a failure means differs between them: the gap has one reason for the whole
+        run, a draw has one of several.
+        """
+        split_frame = assign_split(
+            frame,
+            dataset.structure_column,
+            spec,
+            # No clusterer: the gap leg is always RANDOM, which never groups by
+            # homology, and `is_replicable` excludes the one strategy that would need
+            # one -- so threading it here would be a dead parameter.
+            self._normalizer,
+        )
+        result = await self._train_off_thread(
+            run, engine, dataset, targets, conditions, split_frame, span, scope=scope
+        )
+        train_rows = split_frame.filter(pl.col("split") == "train")
+        test_rows = split_frame.filter(pl.col("split") == "test")
+        measured: dict[str, tuple[dict[str, float | None], dict[str, str] | None]] = {}
+        for column in targets:
+            metrics, undefined = _measured(result.metrics[column])
+            measured[column] = (
+                metrics,
+                _undefined_reasons(undefined, column, train_rows, test_rows),
+            )
+        return measured
+
     async def _optimism_gap(
         self,
         run: Run,
@@ -1201,38 +1250,24 @@ class RunTraining:
             # which is the entire claim the optimism gap makes. For a predefined split
             # those sizes come from the file rather than from `fractions`, which there
             # are inert (see `comparison_fractions`).
-            random_frame = assign_split(
-                frame,
-                dataset.structure_column,
-                SplitSpec(
-                    strategy=SplitStrategy.RANDOM,
-                    seed=dataset.split.seed,
-                    fractions=comparison_fractions(frame, dataset.split),
+            return (
+                await self._comparison_fit(
+                    run,
+                    engine,
+                    dataset,
+                    targets,
+                    conditions,
+                    frame,
+                    spec=SplitSpec(
+                        strategy=SplitStrategy.RANDOM,
+                        seed=dataset.split.seed,
+                        fractions=comparison_fractions(frame, dataset.split),
+                    ),
+                    scope="random-split",
+                    span=_RANDOM_SPLIT_SPAN,
                 ),
-                # No clusterer: this split is always RANDOM, which never groups by
-                # homology, so threading one here would be a dead parameter.
-                self._normalizer,
+                None,
             )
-            result = await self._train_off_thread(
-                run,
-                engine,
-                dataset,
-                targets,
-                conditions,
-                random_frame,
-                _RANDOM_SPLIT_SPAN,
-                scope="random-split",
-            )
-            train_rows = random_frame.filter(pl.col("split") == "train")
-            test_rows = random_frame.filter(pl.col("split") == "test")
-            gap: dict[str, tuple[dict[str, float | None], dict[str, str] | None]] = {}
-            for column in targets:
-                metrics, undefined = _measured(result.metrics[column])
-                gap[column] = (
-                    metrics,
-                    _undefined_reasons(undefined, column, train_rows, test_rows),
-                )
-            return gap, None
         except RunInterrupted:
             # Not degradable, unlike every other failure in this leg. A cancellation or
             # a deadline means stop, and recording it as an unavailable comparison would
