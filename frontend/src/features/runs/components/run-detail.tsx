@@ -1,6 +1,7 @@
 "use client";
 
 import { useCreateCollection } from "@/features/collections";
+import { NotebookPanel } from "@/features/pages";
 import { useProtocol } from "@/features/protocols";
 import { LANE_LABELS, useRunners } from "@/features/runners";
 import {
@@ -111,7 +112,9 @@ export function RunDetail({ runId }: { runId: string }) {
 
   const [pendingRows, setPendingRows] = useState<number[] | null>(null);
   const [collectionName, setCollectionName] = useState("");
-  const [resultTab, setResultTab] = useState("results");
+  const [resultTab, setResultTab] = useState(() =>
+    params.get("tab") === "notebook" ? "notebook" : "results",
+  );
   const [mapOpened, setMapOpened] = useState(false);
 
   const title = run?.name ?? protocol?.name;
@@ -427,7 +430,11 @@ export function RunDetail({ runId }: { runId: string }) {
             <TabsTrigger value="results">Results</TabsTrigger>
             <TabsTrigger value="space">Chemical space</TabsTrigger>
             <TabsTrigger value="details">Run details</TabsTrigger>
+            <TabsTrigger value="notebook">Notebook</TabsTrigger>
           </TabsList>
+          <TabsContent value="notebook">
+            <NotebookPanel kind="run" ownerId={runId} />
+          </TabsContent>
           <TabsContent value="results" forceMount className="min-w-0 data-[state=inactive]:hidden">
             <TriageGrid
               key={runId}
@@ -521,6 +528,15 @@ export function RunDetail({ runId }: { runId: string }) {
             </Card>
           </TabsContent>
         </Tabs>
+      )}
+
+      {!(run.kind === "prediction" && run.status === "ready" && protocol) && (
+        // Only a finished prediction run has a tab strip; every other run still
+        // keeps a notebook, as its own section.
+        <section id="notebook" className="space-y-3">
+          <h2 className="text-lg font-medium">Notebook</h2>
+          <NotebookPanel kind="run" ownerId={runId} />
+        </section>
       )}
 
       <Dialog open={pendingRows !== null} onOpenChange={(open) => !open && setPendingRows(null)}>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useDataset } from "@/features/datasets";
+import { NotebookPanel } from "@/features/pages";
 import { PageHeader } from "@/shared/components/page-header";
 import {
   AlertDialog,
@@ -22,6 +23,7 @@ import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { useProtocol, usePublishProtocol, useScorecard } from "../hooks/use-protocols";
 import { formatCutoff } from "../lib/format-cutoff";
@@ -91,6 +93,7 @@ export function Scorecards({
 }
 
 export function ProtocolDetail({ protocolId }: { protocolId: string }) {
+  const tab = useSearchParams().get("tab");
   const { data: protocol, isLoading, isError, error } = useProtocol(protocolId);
   const creator = useMemberName()(protocol?.created_by);
   const scorecard = useScorecard(protocolId);
@@ -198,12 +201,13 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="performance" className="gap-6">
+      <Tabs defaultValue={tab === "notebook" ? "notebook" : "performance"} className="gap-6">
         <TabsList aria-label="Protocol details">
           <TabsTrigger value="performance">Model performance</TabsTrigger>
           <TabsTrigger value="compounds">Test compounds</TabsTrigger>
           <TabsTrigger value="chemistry">Chemical space</TabsTrigger>
           <TabsTrigger value="history">Run history</TabsTrigger>
+          <TabsTrigger value="notebook">Notebook</TabsTrigger>
         </TabsList>
         {(["performance", "compounds"] as const).map((view) => (
           <TabsContent key={view} value={view}>
@@ -228,6 +232,9 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
         </TabsContent>
         <TabsContent value="history">
           <ProtocolRuns protocolId={protocol.id} />
+        </TabsContent>
+        <TabsContent value="notebook">
+          <NotebookPanel kind="protocol" ownerId={protocol.id} />
         </TabsContent>
       </Tabs>
 

@@ -29,6 +29,7 @@ from daikonstudio.interface.routes.collections import router as collections_rout
 from daikonstudio.interface.routes.datasets import router as datasets_router
 from daikonstudio.interface.routes.engines import router as engines_router
 from daikonstudio.interface.routes.folders import router as folders_router
+from daikonstudio.interface.routes.pages import router as pages_router
 from daikonstudio.interface.routes.protocols import router as protocols_router
 from daikonstudio.interface.routes.runner_api import router as runner_api_router
 from daikonstudio.interface.routes.runners import router as runners_router
@@ -196,6 +197,7 @@ def create_app() -> FastAPI:
     app.include_router(datasets_router)
     app.include_router(engines_router)
     app.include_router(folders_router)
+    app.include_router(pages_router)
     app.include_router(protocols_router)
     app.include_router(runner_api_router)
     app.include_router(runners_router)

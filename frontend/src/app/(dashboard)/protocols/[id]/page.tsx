@@ -1,4 +1,5 @@
 import { ProtocolDetail } from "@/features/protocols";
+import { Suspense } from "react";
 
 export default async function ProtocolDetailPage({
   params,
@@ -6,5 +7,10 @@ export default async function ProtocolDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  return <ProtocolDetail protocolId={id} />;
+  // useSearchParams (the ?tab= deep link) needs a suspense boundary in the app router.
+  return (
+    <Suspense fallback={null}>
+      <ProtocolDetail protocolId={id} />
+    </Suspense>
+  );
 }

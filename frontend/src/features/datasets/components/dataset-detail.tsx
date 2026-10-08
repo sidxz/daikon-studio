@@ -1,5 +1,6 @@
 "use client";
 
+import { NotebookPanel } from "@/features/pages";
 import { PageHeader } from "@/shared/components/page-header";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
@@ -17,6 +18,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/components/ui
 import { useMemberName } from "@/shared/lib/auth/use-workspace-members";
 import { useBreadcrumbTrail } from "@/shared/lib/stores/breadcrumb-store";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { isComputing, useDataset, useDatasetProfile } from "../hooks/use-datasets";
 import { SPLIT_COPY } from "../types";
@@ -37,6 +39,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
 }
 
 export function DatasetDetail({ datasetId }: { datasetId: string }) {
+  const tab = useSearchParams().get("tab");
   const { data: dataset, isLoading, isError, error } = useDataset(datasetId);
   const creator = useMemberName()(dataset?.created_by);
   // Fetched alongside the Dataset rather than on tab activation: the first ever
@@ -93,11 +96,12 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
         }
       />
 
-      <Tabs defaultValue="overview">
+      <Tabs defaultValue={tab === "notebook" ? "notebook" : "overview"}>
         <TabsList>
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="diversity">Diversity</TabsTrigger>
           <TabsTrigger value="compounds">Compounds</TabsTrigger>
+          <TabsTrigger value="notebook">Notebook</TabsTrigger>
         </TabsList>
 
         <TabsContent value="overview" className="space-y-4">
@@ -227,6 +231,10 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
 
         <TabsContent value="compounds">
           <CompoundBrowser dataset={dataset} />
+        </TabsContent>
+
+        <TabsContent value="notebook">
+          <NotebookPanel kind="dataset" ownerId={dataset.id} canCreate={dataset.can_edit} />
         </TabsContent>
       </Tabs>
     </div>

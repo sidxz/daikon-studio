@@ -73,6 +73,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.data.repository import (
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
 )
+from daikonstudio.infrastructure.persistence.sqlalchemy.pages import SqlAlchemyPageRepository
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
 from tests.fakes.auth import FakeAuth
 from tests.fakes.protocol_access import FakeProtocolAccess
@@ -1361,7 +1362,9 @@ async def test_a_stopped_training_run_is_deleted_with_its_saved_progress(
     saved = studio.blobs / checkpoint_root(studio.auth.workspace_id, dataset.id, run.id)
     assert saved.exists()
 
-    delete = DeleteRun(studio.runs, studio.store, FakeProtocolAccess())
+    delete = DeleteRun(
+        studio.runs, studio.store, FakeProtocolAccess(), SqlAlchemyPageRepository(studio.sessions)
+    )
     (await delete(DeleteRunCommand(run_id=run.id), studio.auth)).unwrap()
     assert await studio.runs.get(studio.auth.workspace_id, run.id) is None
     assert not saved.exists()

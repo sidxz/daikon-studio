@@ -2,8 +2,8 @@
 
 Only a draft. A published Protocol is citable, and predictions and collections
 may depend on it. A draft has neither (a prediction needs a published Protocol,
-and `new_version` needs a published parent), so its training run and its folder
-of files are everything that depends on it.
+and `new_version` needs a published parent), so its training run, its folder of
+files and the pages on both are everything that depends on it.
 
 Rows go first, then files: a failed file delete leaves an orphan folder, which is
 harmless, where the reverse order could leave a row pointing at files that are
@@ -26,11 +26,13 @@ from daikonstudio.application.auth import (
 )
 from daikonstudio.application.catalog.visibility import visible_protocol
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.page_repository import PageRepository
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import RunStatus
 from daikonstudio.domain.shared.errors import ConflictError, DomainError, NotFoundError
+from daikonstudio.domain.shared.page import PageOwnerKind
 
 logger = logging.getLogger(__name__)
 
@@ -56,11 +58,13 @@ class DeleteProtocol:
         runs: RunRepository,
         store: BlobStore,
         access: ProtocolAccess,
+        pages: PageRepository,
     ) -> None:
         self._access = access
         self._protocols = protocols
         self._runs = runs
         self._store = store
+        self._pages = pages
 
     async def __call__(
         self, command: DeleteProtocolCommand, auth: AuthContext | None = None
@@ -86,7 +90,12 @@ class DeleteProtocol:
                 )
             )
 
-        await self._runs.delete_many(auth.workspace_id, [run.id for run in runs])
+        run_ids = [run.id for run in runs]
+        await self._pages.delete_for_owners(auth.workspace_id, PageOwnerKind.RUN, run_ids)
+        await self._pages.delete_for_owners(
+            auth.workspace_id, PageOwnerKind.PROTOCOL, [protocol.id]
+        )
+        await self._runs.delete_many(auth.workspace_id, run_ids)
         await self._protocols.delete(auth.workspace_id, protocol.id)
         folder = protocol_folder(auth.workspace_id, protocol.id)
         try:

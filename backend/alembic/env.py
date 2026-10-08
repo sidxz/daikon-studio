@@ -17,6 +17,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.catalog import (
 )
 from daikonstudio.infrastructure.persistence.sqlalchemy.data import models  # noqa: F401
 from daikonstudio.infrastructure.persistence.sqlalchemy import folders  # noqa: F401
+from daikonstudio.infrastructure.persistence.sqlalchemy import pages  # noqa: F401
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution import (
     models as execution_models,  # noqa: F401
 )

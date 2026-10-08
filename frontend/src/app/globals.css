@@ -247,3 +247,228 @@
   --color-icon-runners: var(--icon-runners);
   --animate-status-breathe: status-breathe 2.4s ease-in-out infinite;
 }
+
+/* pdbe-molstar's viewport buttons are hardcoded for a dark canvas — the library
+   exposes no theming hooks (zero CSS custom properties, latest version included),
+   so there's nothing to configure. Their chip is `background:#111318; opacity:.35`,
+   which over a light page reads as a grey box with a washed-out icon. Repainting
+   them from our own tokens fixes both themes at once, since the tokens already
+   flip with data-theme. Scoped to our embed container so no other Mol* usage is
+   touched, and !important only where theirs uses it (the hover outline). */
+[data-structure-embed] .msp-plugin .msp-btn {
+  background: color-mix(in oklab, var(--background) 75%, transparent);
+  opacity: 1;
+}
+/* Mol* frames its own content in a dark 1px border meant for a dark app chrome;
+   in a page embed the figure should sit on the page, not in a box. Carries
+   .msp-layout-standard to out-specify their own rule (runtime-injected CSS). */
+[data-structure-embed] .msp-plugin .msp-plugin-content.msp-layout-standard {
+  border: none;
+}
+
+/* Their chip backdrop is a separate element (#111318 at .5) sitting behind the
+   button group, which is what read as a grey slab over a light page. The button's
+   own background above is the chip now. `.msp-plugin` is in the selector for
+   specificity, not decoration: Mol*'s stylesheet is injected at runtime, so it
+   wins any tie on source order. */
+[data-structure-embed] .msp-plugin .msp-semi-transparent-background {
+  background: transparent;
+}
+
+/* A page embed is a figure, not a workbench: the controls stay out of the way
+   until the reader reaches for them. Focus-within keeps them keyboard-reachable. */
+[data-structure-embed] .msp-viewport-controls {
+  opacity: 0;
+  transition: opacity 0.15s ease-out;
+}
+[data-structure-embed]:hover .msp-viewport-controls,
+[data-structure-embed]:focus-within .msp-viewport-controls {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-structure-embed] .msp-viewport-controls {
+    transition: none;
+  }
+}
+
+/* Only "expand" survives — see structure-viewer.tsx, which hides the four Mol*
+   exposes as attributes. These two have no attribute, so they go by title; if a
+   Mol* release renames them the buttons merely reappear (nothing breaks). */
+[data-structure-embed] .msp-plugin .msp-viewport-controls button[title="Reset Zoom"],
+[data-structure-embed]
+  .msp-plugin
+  .msp-viewport-controls
+  button[title="Screenshot / State Snapshot"],
+/* Reset Zoom's fly-out (fit / lay flat / align axes) is a sibling of its button,
+   so hiding the button alone leaves the panel reachable on hover. */
+  [data-structure-embed]
+  .msp-plugin
+  .msp-viewport-controls
+  .msp-hover-box-wrapper,
+[data-structure-embed] .msp-plugin .msp-viewport-top-left-controls {
+  display: none;
+}
+/* Their toggle-off/hover colours carry !important, so matching them is the only
+   way to win — this is not defensive !important, it's parity. */
+[data-structure-embed] .msp-plugin .msp-btn,
+[data-structure-embed] .msp-plugin .msp-btn-link-toggle-off,
+[data-structure-embed] .msp-plugin .msp-btn-link-toggle-off:active,
+[data-structure-embed] .msp-plugin .msp-btn-link-toggle-off:focus,
+[data-structure-embed] .msp-plugin .msp-btn-link-toggle-on,
+[data-structure-embed] .msp-plugin .msp-btn-link-toggle-on:active,
+[data-structure-embed] .msp-plugin .msp-btn-link-toggle-on:focus {
+  color: var(--muted-foreground) !important;
+}
+[data-structure-embed] .msp-plugin .msp-btn:hover,
+[data-structure-embed] .msp-plugin .msp-btn-link-toggle-off:hover,
+[data-structure-embed] .msp-plugin .msp-btn-link-toggle-on:hover {
+  background: var(--muted);
+  color: var(--foreground) !important;
+  outline: none !important;
+}
+
+/* TipTap card editor (lab-notebook content). Headless editor -> style the
+   rendered ProseMirror doc. Scoped to .tiptap so it never leaks to app prose. */
+@layer components {
+  .tiptap :where(p):not(:first-child) {
+    margin-top: 0.4rem;
+  }
+  .tiptap h1 {
+    @apply mt-3 mb-1 text-xl font-semibold;
+  }
+  .tiptap h2 {
+    @apply mt-3 mb-1 text-lg font-semibold;
+  }
+  .tiptap h3 {
+    @apply mt-2 mb-0.5 text-base font-semibold;
+  }
+  .tiptap ul {
+    @apply my-1 list-disc pl-5;
+  }
+  .tiptap ol {
+    @apply my-1 list-decimal pl-5;
+  }
+  .tiptap blockquote {
+    @apply my-1.5 border-l-2 border-border pl-3 text-muted-foreground;
+  }
+  .tiptap code {
+    @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+  }
+  .tiptap pre {
+    @apply my-1.5 overflow-x-auto rounded-lg bg-muted p-3 font-mono text-sm;
+  }
+  .tiptap pre code {
+    @apply bg-transparent p-0;
+  }
+  .tiptap a {
+    @apply text-primary underline underline-offset-2;
+  }
+  .tiptap ul[data-type="taskList"] {
+    @apply list-none pl-1;
+  }
+  .tiptap ul[data-type="taskList"] li {
+    @apply flex items-start gap-2;
+  }
+  .tiptap ul[data-type="taskList"] li > label {
+    @apply mt-1 select-none;
+  }
+  .tiptap ul[data-type="taskList"] li > div {
+    @apply flex-1;
+  }
+  .tiptap .mention {
+    @apply rounded bg-accent px-1 py-0.5 font-medium text-accent-foreground;
+  }
+  .tiptap p.is-editor-empty:first-child::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none float-left h-0 text-muted-foreground;
+  }
+
+  /* Tables. TipTap's Table extension ships no CSS of its own — without these an
+     inserted table is genuinely invisible: browsers default table cells to zero
+     border and zero padding, and the empty 3x3 collapses to ~75px wide. */
+  .tiptap .tableWrapper {
+    @apply my-2 overflow-x-auto;
+  }
+  .tiptap table {
+    /* table-layout:fixed is what makes the resizable columns' widths apply;
+       without it the browser re-sizes columns from content and drags don't stick. */
+    @apply w-full table-fixed border-collapse;
+  }
+  .tiptap :where(td, th) {
+    /* position:relative anchors the column-resize handle and the selected-cell
+       overlay below, both of which are absolutely positioned. */
+    @apply relative min-w-[3rem] border border-border px-2 py-1 align-top;
+  }
+  .tiptap th {
+    @apply bg-muted text-left font-semibold;
+  }
+  /* A tint rather than a border, so selecting cells never shifts the layout. */
+  .tiptap .selectedCell::after {
+    content: "";
+    @apply pointer-events-none absolute inset-0 bg-primary/15;
+  }
+  .tiptap .column-resize-handle {
+    @apply absolute top-0 -right-px bottom-0 w-0.5 cursor-col-resize bg-primary;
+  }
+  .tiptap.resize-cursor {
+    @apply cursor-col-resize;
+  }
+
+  /* Collapsible sections (Details extension). Headless like Table — ships no
+     CSS, and its toggle button renders empty, so ::before draws the marker.
+     The content div's visibility is native: the extension toggles `hidden`. */
+  .tiptap [data-type="details"] {
+    @apply my-2 flex gap-1 rounded-md border border-border px-3 py-2;
+  }
+  .tiptap [data-type="details"] > button {
+    @apply mt-0.5 flex size-5 shrink-0 cursor-pointer items-center justify-center rounded text-[0.625rem] text-muted-foreground hover:bg-muted;
+  }
+  .tiptap [data-type="details"] > button::before {
+    content: "▸";
+    @apply transition-transform;
+  }
+  .tiptap [data-type="details"].is-open > button::before {
+    @apply rotate-90;
+  }
+  .tiptap [data-type="details"] > div {
+    @apply min-w-0 flex-1;
+  }
+  .tiptap [data-type="details"] summary {
+    @apply list-none font-semibold;
+  }
+
+  /* Version-compare highlights: color-mix over transparent tracks both themes. */
+  .diff-ins {
+    background-color: color-mix(in oklab, #10b981 28%, transparent);
+    border-radius: 2px;
+  }
+  .diff-del {
+    background-color: color-mix(in oklab, #f43f5e 28%, transparent);
+    border-radius: 2px;
+  }
+  .diff-block-ins {
+    outline: 2px solid color-mix(in oklab, #10b981 55%, transparent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+  .diff-block-del {
+    outline: 2px solid color-mix(in oklab, #f43f5e 55%, transparent);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  /* Per-page "Small text" setting (doc attr textSize) — body and headings one
+     step down. Wrapper class comes from pageSettingsClasses(). */
+  .tiptap-small .tiptap {
+    font-size: 0.875rem;
+  }
+  .tiptap-small .tiptap h1 {
+    @apply text-lg;
+  }
+  .tiptap-small .tiptap h2 {
+    @apply text-base;
+  }
+  .tiptap-small .tiptap h3 {
+    @apply text-sm;
+  }
+}

@@ -4,7 +4,8 @@ A Dataset is immutable and cited by id, which is why one that anything still
 depends on cannot be deleted: any Protocol trained on it (a published one reads
 its training compounds on every prediction run, to measure applicability
 domain), and any training run on it still pending or running. Training runs that
-failed or were cancelled have no Protocol, and are deleted with it.
+failed or were cancelled have no Protocol, and are deleted with it, as are the
+pages on it and on them.
 
 Rows go first, then files, for the reason given in `delete_protocol.py`.
 """
@@ -24,10 +25,12 @@ from daikonstudio.application.auth import (
 )
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
+from daikonstudio.application.ports.page_repository import PageRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import RunStatus
 from daikonstudio.domain.shared.errors import ConflictError, DomainError, NotFoundError
+from daikonstudio.domain.shared.page import PageOwnerKind
 
 logger = logging.getLogger(__name__)
 
@@ -58,11 +61,13 @@ class DeleteDataset:
         protocols: ProtocolRepository,
         runs: RunRepository,
         store: BlobStore,
+        pages: PageRepository,
     ) -> None:
         self._datasets = datasets
         self._protocols = protocols
         self._runs = runs
         self._store = store
+        self._pages = pages
 
     async def __call__(
         self, command: DeleteDatasetCommand, auth: AuthContext | None = None
@@ -83,7 +88,10 @@ class DeleteDataset:
         # ponytail: a training run submitted between the check above and the
         # delete below fails when it reads the missing snapshot. Rare (it needs
         # two people acting on one dataset in the same second), and loud.
-        await self._runs.delete_many(auth.workspace_id, [run.id for run in runs])
+        run_ids = [run.id for run in runs]
+        await self._pages.delete_for_owners(auth.workspace_id, PageOwnerKind.RUN, run_ids)
+        await self._pages.delete_for_owners(auth.workspace_id, PageOwnerKind.DATASET, [dataset.id])
+        await self._runs.delete_many(auth.workspace_id, run_ids)
         await self._datasets.delete(auth.workspace_id, dataset.id)
         folder = dataset_folder(auth.workspace_id, dataset.id)
         try:

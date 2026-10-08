@@ -8,6 +8,7 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import text
 
+from daikonstudio.infrastructure.persistence.sqlalchemy import pages as _pages  # noqa: F401
 from daikonstudio.infrastructure.persistence.sqlalchemy.base import Base
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog import (
     models as _catalog_models,  # noqa: F401

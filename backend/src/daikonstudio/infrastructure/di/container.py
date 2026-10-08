@@ -79,11 +79,26 @@ from daikonstudio.application.folders.manage import (
     ListFolders,
     RenameFolder,
 )
+from daikonstudio.application.pages.manage import (
+    ArchivePage,
+    CreatePage,
+    DeletePage,
+    GetPage,
+    GetPageBlob,
+    GetPageContent,
+    ListPageRevisions,
+    ListPages,
+    PageOwners,
+    RetitlePage,
+    RevisePage,
+    UploadPageBlob,
+)
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.chemcellar import ChemCellar
 from daikonstudio.application.ports.dataset_build_repository import DatasetBuildRepository
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.folder_repository import FolderRepository
+from daikonstudio.application.ports.page_repository import PageRepository
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
@@ -115,6 +130,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository imp
     SqlAlchemyRunRepository,
 )
 from daikonstudio.infrastructure.persistence.sqlalchemy.folders import SqlAlchemyFolderRepository
+from daikonstudio.infrastructure.persistence.sqlalchemy.pages import SqlAlchemyPageRepository
 from daikonstudio.infrastructure.persistence.sqlalchemy.runners.repository import (
     SqlAlchemyRunnerRepository,
 )
@@ -190,6 +206,28 @@ def create_container(settings: Settings | None = None) -> Container:
         FileProtocol, lambda c: FileProtocol(_protocols(c), c[FolderRepository], c[ProtocolAccess])
     )
 
+    container.define(
+        PageRepository,  # type: ignore[type-abstract]
+        lambda c: SqlAlchemyPageRepository(c[async_sessionmaker]),
+    )
+    container.define(
+        PageOwners,
+        lambda c: PageOwners(_datasets(c), _protocols(c), _runs(c), c[ProtocolAccess]),
+    )
+    container.define(ListPages, lambda c: ListPages(c[PageRepository], c[PageOwners]))
+    container.define(CreatePage, lambda c: CreatePage(c[PageRepository], c[PageOwners]))
+    container.define(GetPage, lambda c: GetPage(c[PageRepository], c[PageOwners]))
+    container.define(RevisePage, lambda c: RevisePage(c[PageRepository], c[PageOwners]))
+    container.define(RetitlePage, lambda c: RetitlePage(c[PageRepository], c[PageOwners]))
+    container.define(ArchivePage, lambda c: ArchivePage(c[PageRepository], c[PageOwners]))
+    container.define(DeletePage, lambda c: DeletePage(c[PageRepository], c[PageOwners]))
+    container.define(
+        ListPageRevisions, lambda c: ListPageRevisions(c[PageRepository], c[PageOwners])
+    )
+    container.define(GetPageContent, lambda c: GetPageContent(c[PageRepository], c[PageOwners]))
+    container.define(UploadPageBlob, lambda c: UploadPageBlob(c[PageRepository], c[BlobStore]))
+    container.define(GetPageBlob, lambda c: GetPageBlob(c[PageRepository], c[BlobStore]))
+
     def _collections(c: Container) -> SqlAlchemyCollectionRepository:
         return SqlAlchemyCollectionRepository(c[async_sessionmaker])
 
@@ -238,7 +276,9 @@ def create_container(settings: Settings | None = None) -> Container:
     )
     container.define(
         DeleteDataset,
-        lambda c: DeleteDataset(_datasets(c), _protocols(c), _runs(c), c[BlobStore]),
+        lambda c: DeleteDataset(
+            _datasets(c), _protocols(c), _runs(c), c[BlobStore], c[PageRepository]
+        ),
     )
     container.define(SetDatasetIdColumn, lambda c: SetDatasetIdColumn(_datasets(c), c[BlobStore]))
     container.define(GetDatasetColumns, lambda c: GetDatasetColumns(_datasets(c), c[BlobStore]))
@@ -313,7 +353,9 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(PublishProtocol, lambda c: PublishProtocol(_protocols(c), c[ProtocolAccess]))
     container.define(
         DeleteProtocol,
-        lambda c: DeleteProtocol(_protocols(c), _runs(c), c[BlobStore], c[ProtocolAccess]),
+        lambda c: DeleteProtocol(
+            _protocols(c), _runs(c), c[BlobStore], c[ProtocolAccess], c[PageRepository]
+        ),
     )
     container.define(
         GetScorecardTolerance,
@@ -366,7 +408,10 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         DiscardAbandonedProgress, lambda c: DiscardAbandonedProgress(_runs(c), c[BlobStore])
     )
-    container.define(DeleteRun, lambda c: DeleteRun(_runs(c), c[BlobStore], c[ProtocolAccess]))
+    container.define(
+        DeleteRun,
+        lambda c: DeleteRun(_runs(c), c[BlobStore], c[ProtocolAccess], c[PageRepository]),
+    )
     container.define(
         RetryRun,
         lambda c: RetryRun(

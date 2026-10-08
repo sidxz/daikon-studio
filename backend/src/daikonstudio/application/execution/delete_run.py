@@ -1,7 +1,7 @@
 """Delete a stopped training run that never produced a Protocol.
 
 Such a run is listed nowhere else and owns nothing but its row, its epochs (which
-cascade) and its saved progress. A run that produced a Protocol is deleted with that
+cascade), its pages and its saved progress. A run that produced a Protocol is deleted with that
 Protocol (`DeleteProtocol`); a prediction is not deletable at all.
 
 Files first, then the row: a failed file delete leaves the run listed and deletable
@@ -22,10 +22,12 @@ from daikonstudio.application.auth import AuthContext, require_authenticated, re
 from daikonstudio.application.engines.checkpoints import checkpoint_root
 from daikonstudio.application.execution.visibility import run_visible
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.page_repository import PageRepository
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.domain.execution.run import RunKind, RunStatus
 from daikonstudio.domain.shared.errors import ConflictError, DomainError, NotFoundError
+from daikonstudio.domain.shared.page import PageOwnerKind
 
 logger = logging.getLogger(__name__)
 
@@ -38,10 +40,13 @@ class DeleteRunCommand:
 
 
 class DeleteRun:
-    def __init__(self, runs: RunRepository, store: BlobStore, access: ProtocolAccess) -> None:
+    def __init__(
+        self, runs: RunRepository, store: BlobStore, access: ProtocolAccess, pages: PageRepository
+    ) -> None:
         self._runs = runs
         self._store = store
         self._access = access
+        self._pages = pages
 
     async def __call__(
         self, command: DeleteRunCommand, auth: AuthContext | None = None
@@ -66,6 +71,7 @@ class DeleteRun:
                 self._store.delete_prefix,
                 checkpoint_root(run.workspace_id, uuid.UUID(str(dataset_id)), run.id),
             )
+        await self._pages.delete_for_owners(auth.workspace_id, PageOwnerKind.RUN, [run.id])
         await self._runs.delete_many(auth.workspace_id, [run.id])
         logger.info("Run %s deleted by %s", run.id, auth.user_id)
         return Success(None)

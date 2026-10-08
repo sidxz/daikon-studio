@@ -1491,6 +1491,532 @@
         }
       }
     },
+    "/api/v1/pages": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "List Pages",
+        "description": "The owner's pages, newest-updated first. `archived=true` lists only archived ones.",
+        "operationId": "list_pages_api_v1_pages_get",
+        "parameters": [
+          {
+            "name": "owner_kind",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/PageOwnerKind"
+            }
+          },
+          {
+            "name": "owner_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Owner Id"
+            }
+          },
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Archived"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PageResponse"
+                  },
+                  "title": "Response List Pages Api V1 Pages Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Create Page",
+        "operationId": "create_page_api_v1_pages_post",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePageBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pages/blobs": {
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Upload Page Blob",
+        "description": "An image to embed in a page: PNG, JPEG, GIF, WebP or SVG.",
+        "operationId": "upload_page_blob_api_v1_pages_blobs_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_page_blob_api_v1_pages_blobs_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageBlobResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pages/blobs/{sha256}": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Get Page Blob",
+        "description": "Served as a download in a sandbox, so a file that slipped through as something\nelse cannot run in the studio's origin when opened directly.",
+        "operationId": "get_page_blob_api_v1_pages_blobs__sha256__get",
+        "parameters": [
+          {
+            "name": "sha256",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sha256"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pages/{page_id}": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Get Page",
+        "operationId": "get_page_api_v1_pages__page_id__get",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Page Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Revise Page",
+        "description": "Save a new body. 409 if the page moved past `expected_version`; saving the body it\nalready has changes nothing.",
+        "operationId": "revise_page_api_v1_pages__page_id__patch",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Page Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevisePageBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Delete Page",
+        "operationId": "delete_page_api_v1_pages__page_id__delete",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Page Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pages/{page_id}/title": {
+      "put": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Retitle Page",
+        "operationId": "retitle_page_api_v1_pages__page_id__title_put",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Page Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RetitlePageBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pages/{page_id}/archive": {
+      "post": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Archive Page",
+        "operationId": "archive_page_api_v1_pages__page_id__archive_post",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Page Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArchivePageBody"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PageResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pages/{page_id}/revisions": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "List Page Revisions",
+        "description": "Oldest first.",
+        "operationId": "list_page_revisions_api_v1_pages__page_id__revisions_get",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Page Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RevisionResponse"
+                  },
+                  "title": "Response List Page Revisions Api V1 Pages  Page Id  Revisions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/pages/{page_id}/content/{sha256}": {
+      "get": {
+        "tags": [
+          "pages"
+        ],
+        "summary": "Get Page Content",
+        "description": "One revision's document, by the sha256 the revision list names.",
+        "operationId": "get_page_content_api_v1_pages__page_id__content__sha256__get",
+        "parameters": [
+          {
+            "name": "page_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Page Id"
+            }
+          },
+          {
+            "name": "sha256",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Sha256"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": true,
+                  "title": "Response Get Page Content Api V1 Pages  Page Id  Content  Sha256  Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/protocols": {
       "post": {
         "tags": [
@@ -3667,6 +4193,18 @@
         ],
         "title": "ActivityCliffResponse"
       },
+      "ArchivePageBody": {
+        "properties": {
+          "restore": {
+            "type": "boolean",
+            "title": "Restore",
+            "default": false
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ArchivePageBody"
+      },
       "BinResponse": {
         "properties": {
           "lower": {
@@ -3723,6 +4261,20 @@
           "file"
         ],
         "title": "Body_upload_dataset_file_api_v1_datasets_uploads_post"
+      },
+      "Body_upload_page_blob_api_v1_pages_blobs_post": {
+        "properties": {
+          "file": {
+            "type": "string",
+            "contentMediaType": "application/octet-stream",
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_page_blob_api_v1_pages_blobs_post"
       },
       "BootstrapHistogramResponse": {
         "properties": {
@@ -4564,6 +5116,30 @@
           "name"
         ],
         "title": "CreateFolderBody"
+      },
+      "CreatePageBody": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "owner_kind": {
+            "$ref": "#/components/schemas/PageOwnerKind"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "owner_kind",
+          "owner_id"
+        ],
+        "title": "CreatePageBody"
       },
       "CreateRunnerBody": {
         "properties": {
@@ -5907,6 +6483,138 @@
         ],
         "title": "NumericSummaryResponse"
       },
+      "PageBlobResponse": {
+        "properties": {
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "mime": {
+            "type": "string",
+            "title": "Mime"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "sha256",
+          "mime",
+          "size"
+        ],
+        "title": "PageBlobResponse"
+      },
+      "PageOwnerKind": {
+        "type": "string",
+        "enum": [
+          "dataset",
+          "protocol",
+          "run"
+        ],
+        "title": "PageOwnerKind"
+      },
+      "PageResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "owner_kind": {
+            "$ref": "#/components/schemas/PageOwnerKind"
+          },
+          "owner_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Owner Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "head_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Sha256"
+          },
+          "author_id": {
+            "type": "string",
+            "title": "Author Id"
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived"
+          },
+          "revision_count": {
+            "type": "integer",
+            "title": "Revision Count"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "last_edited_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Edited By"
+          },
+          "can_edit": {
+            "type": "boolean",
+            "title": "Can Edit"
+          },
+          "can_archive": {
+            "type": "boolean",
+            "title": "Can Archive"
+          },
+          "can_delete": {
+            "type": "boolean",
+            "title": "Can Delete"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "owner_kind",
+          "owner_id",
+          "title",
+          "head_sha256",
+          "author_id",
+          "archived",
+          "revision_count",
+          "version",
+          "created_at",
+          "updated_at",
+          "last_edited_by",
+          "can_edit",
+          "can_archive",
+          "can_delete"
+        ],
+        "title": "PageResponse"
+      },
       "PaginatedResponse_CollectionResponse_": {
         "properties": {
           "items": {
@@ -6905,6 +7613,20 @@
         "title": "ResidualHistogramResponse",
         "description": "`edges` is one longer than `counts`.\n\nNamed for what it holds rather than for its shape, because `datasets.py`\nalso declares a `HistogramResponse` and two identically-named schemas in one\nOpenAPI document generate a client with both of them renamed to their fully\nqualified module paths."
       },
+      "RetitlePageBody": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "title": "Title"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "title": "RetitlePageBody"
+      },
       "RetryRunBody": {
         "properties": {
           "fresh": {
@@ -6916,6 +7638,55 @@
         "additionalProperties": false,
         "type": "object",
         "title": "RetryRunBody"
+      },
+      "RevisePageBody": {
+        "properties": {
+          "body": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Body"
+          },
+          "expected_version": {
+            "type": "integer",
+            "title": "Expected Version"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "body",
+          "expected_version"
+        ],
+        "title": "RevisePageBody"
+      },
+      "RevisionResponse": {
+        "properties": {
+          "revision_no": {
+            "type": "integer",
+            "title": "Revision No"
+          },
+          "sha256": {
+            "type": "string",
+            "title": "Sha256"
+          },
+          "author_id": {
+            "type": "string",
+            "title": "Author Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "revision_no",
+          "sha256",
+          "author_id",
+          "created_at"
+        ],
+        "title": "RevisionResponse"
       },
       "RunChemicalSpaceResponse": {
         "properties": {
