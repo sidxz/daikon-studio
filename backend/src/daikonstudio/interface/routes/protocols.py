@@ -381,6 +381,7 @@ class ScorecardResponse(BaseModel):
     unit: str | None
     direction: str | None
     split_strategy: str
+    deduplicated: bool | None = None
     # The decision cutoffs MCC and balanced accuracy were measured at, for the model and
     # its baseline. Null means 0.5. `cutoff_note` says why a requested tuning did not
     # happen; null when it did or was not requested.
@@ -454,6 +455,7 @@ class ScorecardResponse(BaseModel):
             unit=card.target_unit,
             direction=card.target_direction,
             split_strategy=card.split_strategy,
+            deduplicated=card.deduplicated,
             cutoff=card.cutoff,
             baseline_cutoff=card.baseline_cutoff,
             cutoff_note=card.cutoff_note,

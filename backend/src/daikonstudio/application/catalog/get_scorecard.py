@@ -190,6 +190,7 @@ def _build_all(inputs: ScorecardInputs, chemistry: HeldOutChemistry) -> list[Sco
             target_unit=target.target_unit,
             target_direction=target.target_direction,
             split_strategy=inputs.split_strategy,
+            deduplicated=inputs.deduplicated,
             random_split_metrics=target.random_split_metrics,
             random_split_unavailable=inputs.random_split_unavailable,
             random_split_metrics_undefined=target.random_split_metrics_undefined,

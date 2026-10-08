@@ -109,6 +109,9 @@ class CreateDatasetCommand:
     split: SplitSpec
     id_column: str | None = None
     file_name: str | None = None
+    #: False keeps the uploaded rows as they are. A published benchmark's row count is
+    #: part of what a reproduction reproduces.
+    deduplicate: bool = True
 
 
 class CreateDataset:
@@ -291,6 +294,7 @@ class CreateDataset:
                 self._normalizer,
                 on_row=progress.advance,
                 split_column=split_column,
+                deduplicate=command.deduplicate,
             )
         except pl.exceptions.PolarsError as error:
             # The target gate inside prepare_frame catches what we know about; this

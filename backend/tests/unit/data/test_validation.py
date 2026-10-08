@@ -376,3 +376,51 @@ def test_a_split_column_survives_every_row_being_rejected_first():
     assert prepared.height == 0
     assert report.valid_rows == 0
     assert len(report.invalid) == 2
+
+
+# --- Deduplication as a choice ---------------------------------------------------------
+#
+# Collapsing replicate rows is the right default and the wrong one for a reproduction: a
+# published benchmark's row count is part of what is being reproduced, and averaging two
+# measurements into one row makes our dataset a different dataset from theirs.
+
+
+def test_deduplication_off_keeps_every_row_and_says_so():
+    frame = pl.DataFrame({"smiles": ["CCO", "OCC", "CCC"], "y": [1.0, 3.0, 5.0]})
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, deduplicate=False)
+    assert prepared.height == 3
+    assert report.duplicates_collapsed == 0
+    assert report.deduplicated is False
+    # No groups means no replicate spread, which is the noise floor's only source.
+    assert report.duplicate_spread == {}
+
+
+def test_deduplication_off_does_not_reject_conflicting_binary_labels():
+    """The cost of the toggle, pinned so it cannot change silently: one structure
+    labelled both ways now reaches training, and can land on both sides of the split."""
+    frame = pl.DataFrame({"smiles": ["CCO", "OCC"], "y": [0, 1]})
+    prepared, report = prepare_frame(frame, "smiles", (BINARY,), NORMALIZER, deduplicate=False)
+    assert prepared.height == 2
+    assert report.conflicting == []
+
+
+def test_deduplication_on_remains_the_default():
+    frame = pl.DataFrame({"smiles": ["CCO", "OCC"], "y": [1.0, 3.0]})
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER)
+    assert prepared.height == 1
+    assert report.deduplicated is True
+
+
+def test_a_report_written_before_the_toggle_reads_back_as_deduplicated():
+    from daikonstudio.domain.data.validation import report_from_dict
+
+    report = report_from_dict({"total_rows": 5, "valid_rows": 5})
+    assert report.deduplicated is True
+
+
+def test_deduplication_off_still_rejects_invalid_rows():
+    """Only the grouping is skipped; the structure and target gates still run."""
+    frame = pl.DataFrame({"smiles": ["CCO", "nope"], "y": [1.0, 2.0]})
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, deduplicate=False)
+    assert prepared.height == 1
+    assert len(report.invalid) == 1

@@ -136,6 +136,8 @@ class CreateDatasetBody(BaseModel):
     split: SplitBody
     id_column: str | None = Field(default=None, max_length=128)
     file_name: str | None = Field(default=None, max_length=256)
+    #: False keeps replicate rows of one structure as separate rows.
+    deduplicate: bool = True
 
 
 class UploadResponse(BaseModel):
@@ -220,6 +222,9 @@ class ValidationReportResponse(BaseModel):
     # depiction of one -- there is no other signal for it on a Dataset, since the
     # column role is deliberately one modality-agnostic "structure".
     structure_kind: str = StructureKind.MOLECULE.value
+    # Whether replicate rows of one structure were collapsed. Defaulted to True so a
+    # report written before the toggle reads back as what it was.
+    deduplicated: bool = True
 
 
 class DatasetResponse(BaseModel):
@@ -540,6 +545,7 @@ def _create_command(body: CreateDatasetBody) -> CreateDatasetCommand:
         split=split,
         id_column=body.id_column,
         file_name=body.file_name,
+        deduplicate=body.deduplicate,
     )
 
 

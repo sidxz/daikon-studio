@@ -347,6 +347,11 @@ class ScorecardInputs:
     baseline_is_self: bool
     random_split_unavailable: str | None
     split_strategy: str
+    #: Whether the Dataset's rows were deduplicated, copied here at training time for
+    #: the same reason `split_strategy` is: the Scorecard is built from this blob and
+    #: never reads the Dataset. None, not True, for a scorecard written before the
+    #: toggle existed -- "unknown" rather than a claim.
+    deduplicated: bool | None = None
     # True when one model learned every target; False for one model per target --
     # and for every Protocol trained before targets could be several, which had one
     # target and one model either way. Recorded here rather than read off the
@@ -889,6 +894,7 @@ class RunTraining:
             baseline_is_self=baseline_is_self,
             random_split_unavailable=random_split_unavailable,
             split_strategy=dataset.split.strategy.value,
+            deduplicated=dataset.validation_report.deduplicated,
             joint_model=manifest.supports_multitask,
             targets=per_target,
         )

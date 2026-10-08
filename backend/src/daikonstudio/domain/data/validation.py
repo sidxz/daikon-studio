@@ -53,6 +53,14 @@ class ValidationReport:
     # row above was validated. Defaulting to MOLECULE is what makes every dataset frozen
     # before this existed read back correctly.
     structure_kind: StructureKind = StructureKind.MOLECULE
+    #: Whether replicate rows of one structure were collapsed into one. False is the
+    #: reproduction case: a published benchmark's row count is part of what is being
+    #: reproduced, and averaging two measurements into one row makes this a different
+    #: dataset from theirs. It belongs here for the same reason `structure_kind` does --
+    #: it is a finding about how the uploaded file was read -- and defaulting to True is
+    #: what makes every dataset frozen before the toggle read back correctly, because
+    #: every one of them was deduplicated.
+    deduplicated: bool = True
 
 
 def report_to_dict(report: ValidationReport) -> dict[str, Any]:
@@ -75,6 +83,7 @@ def report_from_dict(data: Mapping[str, Any]) -> ValidationReport:
         salts_flagged=data.get("salts_flagged", 0),
         duplicate_spread=dict(data.get("duplicate_spread") or {}),
         structure_kind=StructureKind(data.get("structure_kind", StructureKind.MOLECULE)),
+        deduplicated=data.get("deduplicated", True),
     )
 
 

@@ -175,6 +175,7 @@ def prepare_frame(
     on_row: RowProgress | None = None,
     *,
     split_column: str | None = None,
+    deduplicate: bool = True,
 ) -> tuple[pl.DataFrame, ValidationReport]:
     total_rows = frame.height
     if total_rows == 0:
@@ -277,6 +278,25 @@ def prepare_frame(
             invalid=invalid,
             salts_flagged=salts_flagged,
             structure_kind=kind,
+        )
+
+    if not deduplicate:
+        # Everything above still ran: the structure gate, the target gates and the split
+        # gate all reject rows the same way. Only the grouping is skipped, so the frame
+        # keeps the rows the file declared -- which is the point, and also the cost.
+        # Without groups there is no replicate spread (the noise floor's only source)
+        # and no conflict detection, so one structure labelled two ways now reaches
+        # training and can land on both sides of the split.
+        return valid_frame, ValidationReport(
+            total_rows=total_rows,
+            valid_rows=valid_rows,
+            invalid=invalid,
+            conflicting=[],
+            duplicates_collapsed=0,
+            salts_flagged=salts_flagged,
+            duplicate_spread={},
+            structure_kind=kind,
+            deduplicated=False,
         )
 
     target_columns = {target.column for target in targets}
@@ -394,4 +414,5 @@ def prepare_frame(
         salts_flagged=salts_flagged,
         duplicate_spread=duplicate_spread,
         structure_kind=kind,
+        deduplicated=True,
     )

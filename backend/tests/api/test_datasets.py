@@ -769,3 +769,34 @@ async def test_numbered_folds_in_a_split_column_say_what_the_app_expects(client,
     assert "No usable compounds" not in detail
     # ...and says what to do about a numbered column.
     assert "one column per fold" in detail
+
+
+async def test_creating_a_dataset_without_deduplication_keeps_the_row_count(client, csv_upload):
+    """CCO and OCC are the same molecule. With deduplication on they collapse to one
+    row; with it off the file's four rows survive, which is what reproducing a
+    published row count requires."""
+    upload_ref = await csv_upload(
+        b"smiles,y\nCCO,1.0\nOCC,3.0\nCCN,2.0\nc1ccccc1,6.0\nc1ccncc1,4.5\n"
+        b"CCCC,7.1\nCCCCC,8.2\nCCOC,5.3\nCCNC,2.7\nc1ccsc1,9.4\nCC(C)O,3.8\n"
+    )
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, name="no-dedup", deduplicate=False),
+    )
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["row_count"] == 11
+    assert body["validation_report"]["deduplicated"] is False
+    assert body["validation_report"]["duplicates_collapsed"] == 0
+
+
+async def test_deduplication_is_on_unless_asked_otherwise(client, csv_upload):
+    upload_ref = await csv_upload(
+        b"smiles,y\nCCO,1.0\nOCC,3.0\nCCN,2.0\nc1ccccc1,6.0\nc1ccncc1,4.5\n"
+        b"CCCC,7.1\nCCCCC,8.2\nCCOC,5.3\nCCNC,2.7\nc1ccsc1,9.4\nCC(C)O,3.8\n"
+    )
+    response = await client.post("/api/v1/datasets", json=create_body(upload_ref, name="dedup"))
+    assert response.status_code == 201, response.text
+    body = response.json()
+    assert body["row_count"] == 10
+    assert body["validation_report"]["deduplicated"] is True
