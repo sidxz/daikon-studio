@@ -22,12 +22,15 @@ export function EnginePicker({
   value,
   onChange,
   targetCount,
+  structureKind,
 }: {
   engines: Engine[];
   eligible: Engine[];
   value: string;
   onChange: (id: string) => void;
   targetCount: number;
+  /** What the dataset's structure column holds, so an unavailable engine says why. */
+  structureKind?: string;
 }) {
   return (
     <RadioGroup
@@ -84,7 +87,20 @@ export function EnginePicker({
               )}
               {!compatible && (
                 <p className="text-xs">
-                  Unavailable: this engine cannot train all selected target types together.
+                  {/* Two different reasons an engine is unavailable, and saying the wrong
+                      one is worse than saying nothing: a fingerprint engine on a protein
+                      dataset is not a multi-target problem. */}
+                  {structureKind !== undefined &&
+                  engine.structure_kinds !== undefined &&
+                  !engine.structure_kinds.includes(structureKind)
+                    ? `Unavailable: this engine reads ${
+                        engine.structure_kinds.includes("sequence")
+                          ? "amino-acid sequences"
+                          : "small molecules"
+                      }, and this dataset's structure column holds ${
+                        structureKind === "sequence" ? "amino-acid sequences" : "small molecules"
+                      }.`
+                    : "Unavailable: this engine cannot train all selected target types together."}
                 </p>
               )}
             </div>

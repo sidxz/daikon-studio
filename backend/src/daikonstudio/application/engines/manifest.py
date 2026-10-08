@@ -11,6 +11,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import StrEnum
 
+from daikonstudio.domain.data.structure_kind import StructureKind
+
 # The lane an engine runs in when it does not ask for anything special. A lane is a
 # requirement ("this needs a GPU"), not a machine: a deployment satisfies it by running
 # a registered runner for that lane, on whatever hardware it has.
@@ -76,6 +78,13 @@ class EngineManifest:
     # not decide which engines a Dataset may use -- every engine accepts every
     # Dataset, the rest through `FanOut`.
     supports_multitask: bool = False
+    # What the engine can read in the structure column. Unlike `supports_multitask`
+    # this *does* decide which Datasets an engine may use, because the mismatch is
+    # silent: a featurizer handed the wrong kind still returns a matrix of the right
+    # shape, the fit still converges, and the Scorecard still renders -- on numbers
+    # that mean nothing. Molecules only by default, so an engine that says nothing
+    # keeps the behaviour every engine had before sequences existed.
+    structure_kinds: tuple[StructureKind, ...] = (StructureKind.MOLECULE,)
 
 
 def _coerce(label: str, condition_type: ConditionType, value: object) -> object:

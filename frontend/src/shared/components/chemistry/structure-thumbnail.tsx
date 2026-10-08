@@ -28,6 +28,12 @@ const DARK_PALETTE = {
   53: [0.7, 0.5, 0.9],
 };
 
+//: Residues a sequence may contain, matching the backend's alphabet in
+//: `domain/data/structure_kind.py`. The floor is high for the same reason it is there:
+//: `NOTAMOLECULE` is spelled entirely from residue letters, and a short unparseable
+//: SMILES must stay a failure rather than become a protein.
+const RESIDUES = /^[ACDEFGHIKLMNPQRSTVWYBXZUO*]{25,}$/;
+
 /**
  * A SMILES rendered as an SVG.
  *
@@ -99,12 +105,24 @@ export const StructureThumbnail = memo(function StructureThumbnail({
     return (
       <div
         className={cn(
-          "flex items-center justify-center rounded border border-dashed border-border text-[10px] text-muted-foreground",
+          "flex flex-col items-center justify-center gap-0.5 rounded border border-dashed border-border text-[10px] text-muted-foreground",
           className,
         )}
         style={{ width: size, height: size }}
       >
-        Cannot render
+        {/* An amino-acid sequence is not a failed molecule. RDKit cannot draw one and
+            never will, so "Cannot render" reads as something went wrong with a structure
+            that is perfectly fine -- it just is not a small molecule. Guarded here rather
+            than at each of the ten call sites: every table that shows a structure gets
+            this, including the ones not written yet. */}
+        {RESIDUES.test(smiles.trim().toUpperCase()) ? (
+          <>
+            <span className="font-medium">{smiles.trim().length} aa</span>
+            <span>sequence</span>
+          </>
+        ) : (
+          "Cannot render"
+        )}
       </div>
     );
   }

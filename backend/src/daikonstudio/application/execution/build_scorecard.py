@@ -28,6 +28,7 @@ import numpy as np
 
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.execution.scorecard import (
     Bin,
     ClassificationBin,
@@ -204,8 +205,24 @@ class HeldOutChemistry:
 
 
 def held_out_chemistry(
-    structures: list[str], train_structures: list[str], normalizer: StructureNormalizer
+    structures: list[str],
+    train_structures: list[str],
+    normalizer: StructureNormalizer,
+    structure_kind: StructureKind = StructureKind.MOLECULE,
 ) -> HeldOutChemistry:
+    # A sequence column has no chemistry to measure, and asking anyway does not fail --
+    # it answers. RDKit cannot read a protein, so every fingerprint comes back empty,
+    # every nearest-neighbour Tanimoto is 0.0, and `applicability_coverage` then reports
+    # that 0% of the test set is within the applicability domain: a fabricated,
+    # alarming number with the same shape as a real one. `None` is the honest answer and
+    # already means "there was nothing to compare" everywhere downstream.
+    #
+    # `scaffolds` stays the same length because `_scaffold_errors` zips it against the
+    # residuals with `strict=True`. Empty strings are already the value for a molecule
+    # with no ring system, so they collapse to a single family and that section drops
+    # out through the existing fewer-than-two-families guard.
+    if structure_kind is StructureKind.SEQUENCE:
+        return HeldOutChemistry(similarities=None, scaffolds=[""] * len(structures))
     # `nearest_neighbour_tanimoto([], []) -> []` returns zeros for an empty
     # reference set rather than raising, which would silently read as "every test
     # structure is confirmed 0.0 similar to nothing" -- a fabricated answer, not a

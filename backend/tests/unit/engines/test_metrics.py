@@ -18,13 +18,51 @@ from daikonstudio.infrastructure.engines._scoring import (
 )
 
 
-def test_regression_reports_exactly_rmse_mae_and_r2() -> None:
+def test_regression_reports_exactly_rmse_mae_r2_and_spearman() -> None:
     metrics = regression_metrics(np.array([1.0, 2.0, 3.0]), np.array([1.0, 2.0, 3.0]))
 
-    assert sorted(metrics) == ["mae", "r2", "rmse"]
+    assert sorted(metrics) == ["mae", "r2", "rmse", "spearman"]
     assert metrics["rmse"] == 0.0
     assert metrics["mae"] == 0.0
     assert metrics["r2"] == 1.0
+    assert metrics["spearman"] == 1.0
+
+
+def test_spearman_reads_a_monotonic_fit_that_r2_calls_poor() -> None:
+    """Why the metric is here at all.
+
+    Variant-effect work ranks designs rather than reading absolute values, and
+    a model can order every variant correctly while sitting far off the
+    diagonal. R2 scores that model as worthless; Spearman scores it perfect.
+    Reporting only R2 would hide the one number this domain compares on.
+    """
+    measured = np.array([1.0, 2.0, 3.0, 4.0, 5.0])
+    predicted = measured * 10.0 + 100.0
+
+    metrics = regression_metrics(measured, predicted)
+
+    assert metrics["spearman"] == 1.0
+    assert metrics["r2"] < 0.0
+
+
+def test_spearman_needs_three_points_because_two_are_always_perfect() -> None:
+    """Two points rank [1,2] against [1,2] or [2,1], so the correlation is +1 or
+    -1 by construction and says nothing about the model. A 20-row upload splits
+    80/10/10 into a two-row test set, so this is a real card, not a contrived
+    one, and it would read "Spearman 1.000 -- a perfect ranking"."""
+    metrics = regression_metrics(np.array([1.0, 2.0]), np.array([9.0, 4.0]))
+
+    assert math.isnan(metrics["spearman"])
+    assert not math.isnan(metrics["rmse"])
+
+
+def test_spearman_is_nan_when_one_side_is_constant() -> None:
+    """A constant has no rank order. NaN, not 0.0, which would read as
+    "measured, and unrelated" -- the same convention the undefined
+    classification metrics already use."""
+    metrics = regression_metrics(np.array([1.0, 2.0, 3.0]), np.array([2.0, 2.0, 2.0]))
+
+    assert math.isnan(metrics["spearman"])
 
 
 def test_regression_never_reports_accuracy() -> None:

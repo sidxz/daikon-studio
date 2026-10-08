@@ -21,6 +21,11 @@ from collections.abc import Callable, Sequence
 import polars as pl
 
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.domain.data.structure_kind import (
+    StructureKind,
+    looks_like_sequence,
+    normalize_sequence,
+)
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ConflictRow, InvalidRow, ValidationReport
 from daikonstudio.domain.shared.errors import ValidationError
@@ -136,12 +141,36 @@ def prepare_frame(
     raw_structures = [str(value) for value in frame[structure_column].to_list()]
     canonical = map_rows(normalizer.canonicalize, raw_structures, on_row)
 
+    # SMILES first, sequences only as a fallback, and the switch needs *every* row to have
+    # failed RDKit. That ordering is the whole safety argument: a column holding even one
+    # readable molecule takes exactly the path it took before this existed, so no dataset
+    # that works today can be re-read as protein tomorrow. It also resolves the real
+    # ambiguity the right way -- `CCN` is both ethylamine and Cys-Cys-Asn, and a chemistry
+    # app should answer ethylamine.
+    kind = StructureKind.MOLECULE
+    if not any(smiles is not None for smiles in canonical):
+        sequence_like = sum(looks_like_sequence(value) for value in raw_structures)
+        if sequence_like * 2 > total_rows:
+            kind = StructureKind.SEQUENCE
+
+    if kind is StructureKind.SEQUENCE:
+        # Normalized, not canonicalized: there is no second spelling of a sequence to
+        # resolve. Rows that are not sequences stay invalid, exactly as unreadable SMILES
+        # does in a molecule dataset.
+        canonical = [
+            normalize_sequence(value) if looks_like_sequence(value) else None
+            for value in raw_structures
+        ]
+
+    reason = (
+        "Not an amino-acid sequence"
+        if kind is StructureKind.SEQUENCE
+        else "SMILES could not be parsed"
+    )
     invalid = [
-        InvalidRow(
-            row_number=index + 1, value=raw_structures[index], reason="SMILES could not be parsed"
-        )
-        for index, smiles in enumerate(canonical)
-        if smiles is None
+        InvalidRow(row_number=index + 1, value=raw_structures[index], reason=reason)
+        for index, structure in enumerate(canonical)
+        if structure is None
     ]
 
     is_valid = pl.Series([smiles is not None for smiles in canonical])
@@ -174,9 +203,16 @@ def prepare_frame(
     invalid.sort(key=lambda row: row.row_number)
     valid_rows = valid_frame.height
 
-    salts_flagged = sum(
-        normalizer.has_multiple_components(smiles)
-        for smiles in valid_frame[structure_column].to_list()
+    # A salt or mixture is a molecule idea, and `has_multiple_components` parses its
+    # argument as SMILES -- on a sequence column it would ask RDKit to read protein and
+    # count every row as clean, which is a true number arrived at for a false reason.
+    salts_flagged = (
+        sum(
+            normalizer.has_multiple_components(smiles)
+            for smiles in valid_frame[structure_column].to_list()
+        )
+        if kind is StructureKind.MOLECULE
+        else 0
     )
 
     if valid_rows == 0:
@@ -187,6 +223,7 @@ def prepare_frame(
             valid_rows=0,
             invalid=invalid,
             salts_flagged=salts_flagged,
+            structure_kind=kind,
         )
 
     target_columns = {target.column for target in targets}
@@ -278,4 +315,5 @@ def prepare_frame(
         duplicates_collapsed=sum(n - 1 for n in group_sizes),
         salts_flagged=salts_flagged,
         duplicate_spread=duplicate_spread,
+        structure_kind=kind,
     )

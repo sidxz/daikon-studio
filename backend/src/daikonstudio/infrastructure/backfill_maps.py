@@ -44,6 +44,7 @@ from daikonstudio.application.ports.chemical_space_layout import (
     TooFewCompounds,
 )
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.execution.run import RunKind, RunStatus
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.models import (
     InSilicoProtocolModel,
@@ -61,6 +62,9 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.execution.models import 
 class BackfillReport:
     maps_built: int = 0
     maps_current: int = 0
+    # Sequence datasets, which have no chemical space to map. Counted apart from
+    # failures so a run over a mixed workspace does not read as partly broken.
+    maps_skipped: int = 0
     neighbours_built: int = 0
     neighbours_current: int = 0
     failures: list[str] = field(default_factory=list)
@@ -99,6 +103,13 @@ async def backfill(
                 dataset = await datasets.get(workspace_id, protocol.dataset_id)
                 if dataset is None:
                     raise LookupError(f"dataset {protocol.dataset_id} not found")
+                if dataset.validation_report.structure_kind is StructureKind.SEQUENCE:
+                    # Same refusal as the training path: the layout does not fail on
+                    # sequences, it returns a convincing cloud of nothing. Counted as
+                    # skipped rather than failed -- there is nothing wrong here to fix.
+                    report.maps_skipped += 1
+                    log(f"skipped {label}: sequence dataset has no chemical space")
+                    continue
                 frame = pl.read_parquet(
                     io.BytesIO(store.get_bytes(snapshot_key(workspace_id, dataset.id)))
                 )
@@ -196,7 +207,8 @@ async def main() -> None:
     store = FsspecBlobStore(settings.blob_base_url, settings.blob_storage_options)
     report = await backfill(session_factory, store, UmapLayout(), RdkitStructureNormalizer())
     print(
-        f"maps: {report.maps_built} built, {report.maps_current} current; "
+        f"maps: {report.maps_built} built, {report.maps_current} current, "
+        f"{report.maps_skipped} skipped (sequences); "
         f"run neighbours: {report.neighbours_built} built, {report.neighbours_current} current; "
         f"{len(report.failures)} failed"
     )

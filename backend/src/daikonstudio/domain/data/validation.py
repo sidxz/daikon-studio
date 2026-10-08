@@ -4,6 +4,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.shared.errors import ValidationError
 
 
@@ -42,11 +43,22 @@ class ValidationReport:
     # appear: a binary target has no spread, and a column with no replicates has
     # nothing to measure, which is different from a spread of zero.
     duplicate_spread: dict[str, float] = field(default_factory=dict)
+    # What the structure column turned out to hold. It belongs here rather than on a
+    # column of its own because it is a finding *about the uploaded file* -- in the same
+    # family as how many rows were unreadable -- and because it is what decided how every
+    # row above was validated. Defaulting to MOLECULE is what makes every dataset frozen
+    # before this existed read back correctly.
+    structure_kind: StructureKind = StructureKind.MOLECULE
 
 
 def report_to_dict(report: ValidationReport) -> dict[str, Any]:
     """Flatten a report for JSONB storage and for the HTTP error body."""
-    return asdict(report)
+    data = asdict(report)
+    # `asdict` leaves the enum member in place. It is a `str` subclass so most encoders
+    # cope, but what lands in JSONB should be the plain value rather than whichever
+    # encoder happens to serialize it.
+    data["structure_kind"] = report.structure_kind.value
+    return data
 
 
 def report_from_dict(data: Mapping[str, Any]) -> ValidationReport:
@@ -58,6 +70,7 @@ def report_from_dict(data: Mapping[str, Any]) -> ValidationReport:
         duplicates_collapsed=data.get("duplicates_collapsed", 0),
         salts_flagged=data.get("salts_flagged", 0),
         duplicate_spread=dict(data.get("duplicate_spread") or {}),
+        structure_kind=StructureKind(data.get("structure_kind", StructureKind.MOLECULE)),
     )
 
 

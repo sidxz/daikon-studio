@@ -197,3 +197,50 @@ def test_acyclic_compounds_do_not_read_as_one_leaking_scaffold() -> None:
     # genuinely useful fact about a dataset and a different question.
     assert profile.scaffolds.top[0].smiles == ""
     assert profile.scaffolds.top[0].count == len(acyclic)
+
+
+def test_a_sequence_dataset_omits_every_chemistry_section() -> None:
+    """The fifth way this profile could tell a scientist something false.
+
+    Every chemistry section reads the structure column as SMILES. Point them at protein
+    and none of them fail -- a fingerprint of unparseable text is still a fingerprint, a
+    sequence with no ring system is still "its own singleton scaffold family", and a
+    Tanimoto of zero against every neighbour still renders as a histogram. Each number
+    would be arithmetically correct and scientifically meaningless, and would appear on
+    the page in exactly the same shape as a real measurement. So they are absent instead.
+    """
+    from daikonstudio.domain.data.structure_kind import StructureKind
+
+    # TEM-1's first 81 residues, three single-substitution variants of it.
+    parent = "MSIQHFRVALIPFFAAFCLPVFAHPETLVKVKDAEDQLGARVGYIELDLNSGKILESFRPEERFPMMSTFKVLLCGAVLSR"
+    frame = pl.DataFrame(
+        {
+            "sequence": [parent, f"{parent[:-1]}A", f"{parent[:-2]}AA", f"{parent[:-3]}AAA"],
+            "y": [1.0, 2.0, 3.0, 4.0],
+            "split": ["train", "train", "validation", "test"],
+        }
+    )
+    target = TargetSpec(column="y", kind=TargetKind.NUMERIC, unit=None)
+
+    profile = build_profile(
+        frame=frame,
+        structure_column="sequence",
+        target=target,
+        normalizer=RdkitStructureNormalizer(),
+        structure_kind=StructureKind.SEQUENCE,
+    )
+
+    assert profile.similarity is None
+    assert profile.scaffolds is None
+    assert profile.descriptors == []
+    assert profile.best_descriptor is None
+    assert profile.activity_cliffs == []
+    assert profile.cliffs_sampled_from is None
+
+    # What does not depend on chemistry is still there -- the profile is reduced, not empty.
+    assert profile.compounds == 4
+    assert profile.partition_counts == {"train": 2, "validation": 1, "test": 1}
+    assert profile.target_distribution is not None
+
+    # And the reduced shape survives the blob store, where `scaffolds` used to be required.
+    assert profile_from_dict(profile_to_dict(profile)).scaffolds is None

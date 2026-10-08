@@ -217,6 +217,7 @@ export function DatasetDetail({ datasetId }: { datasetId: string }) {
             </div>
           ) : isComputing(profile.data) ? (
             <ProfileComputing
+              structureKind={dataset?.validation_report?.structure_kind}
               startedAt={profile.data.started_at}
               compounds={profile.data.compounds}
             />

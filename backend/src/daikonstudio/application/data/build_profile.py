@@ -29,8 +29,12 @@ from daikonstudio.domain.data.profile import (
     ScaffoldProfile,
     SimilarityProfile,
     SplitHistogram,
+    Substitution,
     TargetDistribution,
+    VariantPosition,
+    VariantProfile,
 )
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 
 _HISTOGRAM_BINS = 24
@@ -80,6 +84,11 @@ _CLIFF_RESULTS = 8
 # did -- a truncated search must never present as an exhaustive one.
 _MAX_CLIFF_COMPOUNDS = 3000
 
+#: Positions a mutational map will draw. Twenty residues each, so this is the cell
+#: budget as much as the position budget; a 1022-residue protein varying everywhere
+#: would otherwise put 20,440 cells through the blob store and into a browser.
+_MAX_MAP_POSITIONS = 400
+
 _TOP_SCAFFOLDS = 8
 
 
@@ -89,6 +98,7 @@ def build_profile(
     structure_column: str,
     target: TargetSpec,
     normalizer: StructureNormalizer,
+    structure_kind: StructureKind = StructureKind.MOLECULE,
 ) -> DatasetProfile:
     structures = [str(value) for value in frame[structure_column].to_list()]
     splits = [str(value) for value in frame["split"].to_list()]
@@ -103,7 +113,17 @@ def build_profile(
     targets = frame[target.column].to_numpy()
     is_numeric = target.kind is TargetKind.NUMERIC
 
-    descriptors = _descriptors(structures, targets, train_index, test_index, normalizer)
+    # Every chemistry section below reads the structure column as SMILES -- Tanimoto
+    # similarity, Bemis-Murcko scaffolds, RDKit descriptors, and the cliff scan that is
+    # built on the similarity. On a sequence column each would still return a
+    # well-formed answer, and every one of those answers would be meaningless: a
+    # fingerprint of unparseable text, a scaffold that does not exist. The profile omits
+    # them instead, which is the difference between "not applicable" and a fabricated
+    # number that reads as a measurement.
+    chemistry = structure_kind is StructureKind.MOLECULE
+    descriptors = (
+        _descriptors(structures, targets, train_index, test_index, normalizer) if chemistry else []
+    )
 
     return DatasetProfile(
         compounds=frame.height,
@@ -113,15 +133,22 @@ def build_profile(
             _target_distribution(targets, train_index, test_index) if is_numeric else None
         ),
         class_balance=[] if is_numeric else _class_balance(targets, splits),
-        similarity=_similarity(structures, train_index, test_index, normalizer),
-        scaffolds=_scaffolds(structures, splits, normalizer),
+        similarity=(
+            _similarity(structures, train_index, test_index, normalizer) if chemistry else None
+        ),
+        scaffolds=_scaffolds(structures, splits, normalizer) if chemistry else None,
+        variants=None if chemistry else _variants(structures, splits, targets),
         descriptors=descriptors,
-        best_descriptor=_best_descriptor(descriptors),
-        activity_cliffs=_activity_cliffs(structures, targets, target, normalizer),
+        best_descriptor=_best_descriptor(descriptors) if chemistry else None,
+        activity_cliffs=(
+            _activity_cliffs(structures, targets, target, normalizer) if chemistry else []
+        ),
         # Reported whenever the scan was subsampled, including when it found
         # nothing: "no cliffs among 3000 of your 12000 compounds" and "no cliffs"
         # are different claims, and only one of them is true here.
-        cliffs_sampled_from=(frame.height if frame.height > _MAX_CLIFF_COMPOUNDS else None),
+        cliffs_sampled_from=(
+            frame.height if chemistry and frame.height > _MAX_CLIFF_COMPOUNDS else None
+        ),
     )
 
 
@@ -380,3 +407,88 @@ def _activity_cliffs(
     else:
         cliffs.sort(key=lambda cliff: cliff.delta, reverse=True)
     return cliffs[:_CLIFF_RESULTS]
+
+
+def _variants(
+    sequences: list[str], splits: list[str], targets: np.ndarray
+) -> VariantProfile | None:
+    """Which residue positions vary, and how their variants fall across partitions.
+
+    `None` for a ragged series. Equal length is what makes "position 31" mean the same
+    thing in every row, and without it a position map would be lining up residues that
+    are not comparable -- a picture that reads as a measurement and is not one.
+    """
+    if not sequences:
+        return None
+    length = len(sequences[0])
+    if length == 0 or any(len(sequence) != length for sequence in sequences):
+        return None
+
+    # The parent is the per-position modal residue, with the tie broken on the residue
+    # letter so the consensus is a pure function of the data and not of row order --
+    # the same rule `assign_split._consensus` uses, and for the same reason.
+    columns = list(zip(*sequences, strict=True))
+    consensus = "".join(
+        max(set(column), key=lambda residue: (column.count(residue), residue))
+        for column in columns
+    )
+
+    counts: dict[int, dict[str, int]] = {}
+    # Keyed by the cell a mutational map draws: one position, one replacement residue.
+    # Several rows measuring the same substitution average, which is what the map shows.
+    cells: dict[tuple[int, str], list[float]] = {}
+    splits_by_cell: dict[tuple[int, str], str] = {}
+    unchanged = 0
+    multi = 0
+    for sequence, split, value in zip(sequences, splits, targets, strict=True):
+        differing = [i for i, (a, b) in enumerate(zip(sequence, consensus, strict=True)) if a != b]
+        if not differing:
+            unchanged += 1
+        elif len(differing) > 1:
+            multi += 1
+        for index in differing:
+            tally = counts.setdefault(index, {"train": 0, "validation": 0, "test": 0})
+            if split in tally:
+                tally[split] += 1
+            if np.isfinite(value):
+                cells.setdefault((index, sequence[index]), []).append(float(value))
+                splits_by_cell[(index, sequence[index])] = split
+
+    # Most-varied positions first when there are more than the map can show, so a
+    # truncated map keeps the part of the experiment that was actually explored. The
+    # count is reported either way; a partial map that presents as whole is the failure.
+    ordered = sorted(counts.items(), key=lambda item: (-sum(item[1].values()), item[0]))
+    total_positions = len(ordered)
+    truncated = total_positions > _MAX_MAP_POSITIONS
+    kept = {index for index, _ in ordered[:_MAX_MAP_POSITIONS]}
+
+    positions = [
+        VariantPosition(
+            position=index + 1,
+            train=tally["train"],
+            validation=tally["validation"],
+            test=tally["test"],
+        )
+        for index, tally in sorted(counts.items())
+        if index in kept
+    ]
+    substitutions = [
+        Substitution(
+            position=index + 1,
+            wild_type=consensus[index],
+            variant=residue,
+            value=sum(values) / len(values),
+            split=splits_by_cell[(index, residue)],
+        )
+        for (index, residue), values in sorted(cells.items())
+        if index in kept
+    ]
+    return VariantProfile(
+        consensus=consensus,
+        positions=positions,
+        unchanged_rows=unchanged,
+        multi_mutant_rows=multi,
+        held_out_positions=sum(1 for p in positions if p.train == 0),
+        substitutions=substitutions,
+        positions_sampled_from=total_positions if truncated else None,
+    )

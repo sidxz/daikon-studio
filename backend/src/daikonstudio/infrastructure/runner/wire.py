@@ -28,6 +28,7 @@ from daikonstudio.domain.catalog.protocol import InSilicoProtocol, ProtocolStatu
 from daikonstudio.domain.catalog.readout import Readout, ReadoutType
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec
 from daikonstudio.domain.data.validation import ConflictRow, InvalidRow, ValidationReport
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
@@ -134,6 +135,12 @@ class ValidationReportWire(BaseModel):
     duplicates_collapsed: int = 0
     salts_flagged: int = 0
     duplicate_spread: dict[str, float] = {}
+    # Load-bearing on this side of the wire, not just informational: the runner is where
+    # training happens, so `_check_capable` reads this to decide whether the chosen engine
+    # can read the structure column at all. Dropped from the envelope, every dataset would
+    # arrive looking like molecules and ESM-2 would be refused on every real run. A plain
+    # `str` with a default, so an envelope from an older API still deserializes.
+    structure_kind: str = StructureKind.MOLECULE.value
 
     @classmethod
     def from_domain(cls, report: ValidationReport) -> ValidationReportWire:
@@ -145,6 +152,7 @@ class ValidationReportWire(BaseModel):
             duplicates_collapsed=report.duplicates_collapsed,
             salts_flagged=report.salts_flagged,
             duplicate_spread=report.duplicate_spread,
+            structure_kind=report.structure_kind.value,
         )
 
     def to_domain(self) -> ValidationReport:
@@ -156,6 +164,7 @@ class ValidationReportWire(BaseModel):
             duplicates_collapsed=self.duplicates_collapsed,
             salts_flagged=self.salts_flagged,
             duplicate_spread=self.duplicate_spread,
+            structure_kind=StructureKind(self.structure_kind),
         )
 
 

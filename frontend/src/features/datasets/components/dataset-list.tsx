@@ -26,7 +26,7 @@ import {
   useDatasetCompounds,
   useDatasets,
 } from "../hooks/use-datasets";
-import { type Dataset, SPLIT_COPY } from "../types";
+import { type Dataset, SPLIT_COPY, type SplitStrategy } from "../types";
 import { DatasetFilters } from "./dataset-filters";
 
 /** Fetch structures only when requested; opening a list never reads every snapshot. */
@@ -249,12 +249,14 @@ export function DatasetList() {
   const folderId = params.get("folder") ?? undefined;
   const q = params.get("q") ?? "";
   const kind = params.get("target_kind");
-  const split = params.get("split_strategy");
+  // Validated against the copy table, which is keyed by the generated enum, so
+  // a new strategy is filterable the day it ships instead of being dropped here.
+  const split = params.get("split_strategy") as SplitStrategy | null;
   const filters: DatasetFilterValues = {
     folderId,
     q: q || undefined,
     targetKind: kind === "numeric" || kind === "binary" ? kind : undefined,
-    splitStrategy: split === "scaffold" || split === "random" ? split : undefined,
+    splitStrategy: split != null && SPLIT_COPY[split] != null ? split : undefined,
   };
   const clear = () => set({ q: undefined, target_kind: undefined, split_strategy: undefined });
 

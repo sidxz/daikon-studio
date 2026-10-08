@@ -9,6 +9,7 @@ import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import { Progress } from "@/shared/components/ui/progress";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
+import { splitVocabulary } from "@/shared/lib/split";
 import { cn } from "@/shared/lib/utils";
 import { useState } from "react";
 import { formatCutoff } from "../lib/format-cutoff";
@@ -55,7 +56,7 @@ function HonestyStat({
  *
  * Rendered on every verdict, including `is-baseline` and `unknown`, not just
  * the head-to-head branch: the optimism gap compares the model's own
- * random-split score to its own scaffold-split score, and applicability
+ * random-split score to its own grouped-split score, and applicability
  * coverage compares training set to test set -- neither involves the
  * baseline, so neither has anything to do with whether a comparison exists.
  * Only the noise floor is comparison-adjacent, and it already degrades on its
@@ -67,18 +68,20 @@ function HonestyStats({ scorecard }: { scorecard: ScorecardResponse }) {
   const gap = computeOptimismGap(scorecard);
   const coverage = scorecard.applicability_coverage;
   const metric = metricLabel(scorecard.primary_metric);
+  const vocabulary = splitVocabulary(scorecard.split_strategy);
+  const group = vocabulary.group ?? "group of related rows";
 
   return (
     <div className="mt-4 flex flex-wrap gap-x-8 gap-y-4 border-t border-current/15 pt-3">
-      <HonestyStat label="Performance on unfamiliar chemistry">
+      <HonestyStat label={`Performance on ${vocabulary.unfamiliar}`}>
         {gap.kind === "shown" ? (
           <>
             <ReadoutValue value={gap.gap} precision={3} className="text-xl font-semibold" />
             <p className="mt-1 text-xs text-muted-foreground">
-              {metric} was <ReadoutValue value={gap.random} precision={3} /> when similar chemical
-              families could appear in training and testing, and{" "}
-              <ReadoutValue value={gap.scaffold} precision={3} /> when the test families were kept
-              separate. This difference is the optimism gap.
+              {metric} was <ReadoutValue value={gap.random} precision={3} /> when one {group} could
+              appear in both training and testing, and{" "}
+              <ReadoutValue value={gap.held} precision={3} /> when each {group} was kept to one
+              side. This difference is the optimism gap.
             </p>
           </>
         ) : (
@@ -211,10 +214,8 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
           number is allowed to be", and it was on the wire and unrendered. It
           goes directly under the headline because it qualifies the headline. */}
       <p className="mt-1 text-xs uppercase tracking-wide text-muted-foreground">
-        scored on a {scorecard.split_strategy} split
-        {scorecard.split_strategy === "random"
-          ? ": the test set contains close analogs of training compounds, so scores are likely optimistic"
-          : ": no test scaffold appears in the training set"}
+        scored on a {scorecard.split_strategy} split:{" "}
+        {splitVocabulary(scorecard.split_strategy).held}
       </p>
 
       {binary ? (

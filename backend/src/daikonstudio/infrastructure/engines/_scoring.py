@@ -48,6 +48,13 @@ from daikonstudio.infrastructure.chem.featurize import (
     ecfp4,
     rdkit_descriptors,
 )
+from daikonstudio.infrastructure.protein.descriptors import (
+    DESCRIPTOR_NAMES as PROTEIN_DESCRIPTOR_NAMES,
+)
+from daikonstudio.infrastructure.protein.descriptors import (
+    protein_descriptors,
+)
+from daikonstudio.infrastructure.protein.embed import esm2_650m
 
 #: How a fitted artifact names the representation it was trained on. `predict` reads the
 #: name off the bundle rather than taking it as an argument, because nothing at the
@@ -95,17 +102,52 @@ def _undefined_classification_metrics() -> dict[str, float]:
     }
 
 
+def _spearman(y_true: np.ndarray, predicted: np.ndarray) -> float:
+    """Rank correlation between measured and predicted, or NaN when undefined.
+
+    NaN rather than 0.0 for the undefined cases -- fewer than three points, or
+    a constant on either side -- because 0.0 reads as "measured, and
+    unrelated". That is the convention `_undefined_classification_metrics`
+    already uses. Polars rather than scipy: polars is a declared dependency and
+    scipy is only present transitively through scikit-learn.
+
+    Three, not two, and the floor matters. Two points rank [1,2] against [1,2]
+    or [2,1], so the correlation is forced to +1 or -1 and carries nothing about
+    the model -- a constant dressed as a perfect score, on a card whose own
+    description reads "1 is a perfect ranking". An 80/10/10 split of a 20-row
+    upload has a two-row test set, so that card is reachable by uploading a
+    small file. `application/data/build_profile.py` sets the same floor for the
+    same statistic and the same reason.
+    """
+    usable = np.isfinite(y_true) & np.isfinite(predicted)
+    left, right = y_true[usable], predicted[usable]
+    if left.size < 3 or np.unique(left).size < 2 or np.unique(right).size < 2:
+        return float("nan")
+    correlation = pl.DataFrame({"measured": left, "predicted": right}).select(
+        pl.corr("measured", "predicted", method="spearman")
+    )[0, 0]
+    return float("nan") if correlation is None else float(correlation)
+
+
 def regression_metrics(y_true: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
-    """RMSE, MAE and R2 -- the regression half of the shared vocabulary.
+    """RMSE, MAE, R2 and Spearman -- the regression half of the shared vocabulary.
 
     Engine-agnostic on purpose: this is the code a chemprop model and the ECFP4
     baseline are both measured by, which is what makes a Scorecard's comparison mean
     anything.
+
+    Spearman is here because the error metrics alone cannot answer the question
+    variant-effect and ranking work actually asks. A model that orders every
+    candidate correctly but sits off the diagonal scores a negative R2 and a
+    perfect Spearman, and it is the useful model. It is also the metric the
+    protein literature reports, so without it a Scorecard cannot be compared
+    against a published number.
     """
     return {
         "rmse": float(root_mean_squared_error(y_true, predicted)),
         "mae": float(mean_absolute_error(y_true, predicted)),
         "r2": float(r2_score(y_true, predicted)),
+        "spearman": _spearman(y_true, predicted),
     }
 
 
@@ -307,6 +349,25 @@ def _ecfp4_with_descriptors(smiles_list: list[str]) -> np.ndarray:
 
 _FEATURIZERS["ecfp4+rdkit_descriptors"] = _ecfp4_with_descriptors
 _FEATURE_NAMES["ecfp4+rdkit_descriptors"] = DESCRIPTOR_NAMES
+
+#: The one featurizer here that reads the structure column as an amino-acid sequence
+#: rather than as SMILES. Registered by name like the others so a fitted artifact can
+#: say which representation it was trained on and `predict` can rebuild it from bytes.
+#:
+#: Safe to import at module scope despite needing torch: `protein.embed` keeps every
+#: torch and transformers import inside a function, so this line costs an unused import
+#: on the API tier and nothing else. Do not "tidy" that by hoisting them.
+#: The sequence baseline's representation. Unlike ESM-2 this one has names for its
+#: columns, so the Scorecard can attribute a prediction to "hydropathy" rather than to
+#: dimension 412 -- which is most of why a baseline is readable at all.
+PROTEIN_DESCRIPTOR_FEATURIZER = "protein-descriptors"
+_FEATURIZERS[PROTEIN_DESCRIPTOR_FEATURIZER] = protein_descriptors
+_FEATURE_NAMES[PROTEIN_DESCRIPTOR_FEATURIZER] = PROTEIN_DESCRIPTOR_NAMES
+
+ESM2_FEATURIZER = "esm2-650m"
+_FEATURIZERS[ESM2_FEATURIZER] = esm2_650m
+# No entry in `_FEATURE_NAMES`: the 1280 embedding dimensions have no names that could
+# drift, exactly as ECFP4's hashed bits have none. Width is asserted at the forward pass.
 
 
 def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:

@@ -117,6 +117,28 @@ def _csv(values: tuple[float, ...] | None = None) -> bytes:
     return f"smiles,y\n{rows}\n".encode()
 
 
+#: Twenty more acyclic molecules, each its own scaffold group, so both splits
+#: behave the same way they do on `_STRUCTURES`. None of them collides with it:
+#: that tuple's chains stop at five carbons.
+_WIDER_STRUCTURES = _STRUCTURES + tuple(
+    f"{'C' * length}{terminus}" for terminus in "ON" for length in range(6, 16)
+)
+
+
+def _wider_csv() -> bytes:
+    """Forty rows, so an 80/10/10 split leaves a four-row test partition.
+
+    `_csv`'s twenty give a two-row one, and two points cannot define a rank
+    correlation -- their ranks are [1,2] against [1,2] or [2,1], so Spearman is
+    forced to +/-1 and `regression_metrics` returns NaN instead. A test about
+    every metric being defined needs a test set big enough to define them.
+    """
+    rows = "\n".join(
+        f"{smiles},{1.0 + 0.37 * index}" for index, smiles in enumerate(_WIDER_STRUCTURES)
+    )
+    return f"smiles,y\n{rows}\n".encode()
+
+
 def _two_target_csv() -> bytes:
     numbers = tuple(1.0 + 0.37 * index for index in range(len(_STRUCTURES)))
     labels = _alternating_values()
@@ -328,7 +350,7 @@ async def test_training_always_also_trains_the_baseline(studio: Studio) -> None:
 
 async def test_a_scaffold_split_also_reports_the_random_split_number(studio: Studio) -> None:
     """The optimism gap must be visible rather than inferred."""
-    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD)
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD, csv=_wider_csv())
     run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
     await studio.wait(run)
 
@@ -719,7 +741,7 @@ async def test_the_task_comes_from_the_target_spec_not_from_the_values(
 
     scorecard = await studio.scorecard_for(run)
     assert scorecard.targets[0].task == "regression"
-    assert set(scorecard.targets[0].metrics) == {"rmse", "mae", "r2"}
+    assert set(scorecard.targets[0].metrics) == {"rmse", "mae", "r2", "spearman"}
     protocol = await studio.protocol_for(run)
     assert [readout.type.value for readout in protocol.readouts] == ["numeric"]
 
@@ -944,7 +966,7 @@ async def test_the_stored_scorecard_is_valid_json_even_when_a_metric_is_undefine
 
 
 async def test_a_defined_metric_carries_no_undefined_reason(studio: Studio) -> None:
-    dataset = await studio.dataset()
+    dataset = await studio.dataset(csv=_wider_csv())
     run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
     await studio.wait(run)
 

@@ -99,7 +99,7 @@ def test_regression_reports_the_shared_metric_vocabulary() -> None:
         _context(_frame([float(i) for i in range(12)]), TaskType.REGRESSION)
     )
 
-    assert sorted(result.metrics["y"]) == ["mae", "r2", "rmse"]
+    assert sorted(result.metrics["y"]) == ["mae", "r2", "rmse", "spearman"]
     assert result.artifact
 
 
@@ -379,6 +379,49 @@ def test_predict_refuses_a_target_count_the_bundle_was_not_trained_for() -> None
 
 def test_molformer_declares_that_it_learns_targets_jointly() -> None:
     assert MolformerXL.manifest().supports_multitask is True
+
+
+def test_a_structure_over_the_context_limit_is_refused_not_truncated() -> None:
+    """The peptide guard. MoLFormer was pretrained on 202 tokens of SMILES, which a
+    peptide passes at roughly eighteen residues, so without this the fit would run on
+    a structure outside the model's distribution and report a Scorecard for it. (It
+    would not even have been clipped: the tokenizer declares no `model_max_length`, so
+    the old `truncation=True` never fired.) The check is in `_collate`, the one
+    tokenizer call both training and predicting go through.
+
+    A stand-in tokenizer, so this runs without the 179 MB checkpoint: one token per
+    character, which is roughly what a peptide SMILES costs.
+    """
+    import torch
+
+    from daikonstudio.domain.shared.errors import ValidationError
+    from daikonstudio.infrastructure.engines.molformer_xl import _MAX_TOKENS, _collate
+
+    def tokenizer(smiles: list[str], **_kwargs: object) -> dict[str, object]:
+        width = max(len(text) for text in smiles)
+        return {
+            "input_ids": torch.zeros((len(smiles), width), dtype=torch.long),
+            "attention_mask": torch.tensor(
+                [[1] * len(text) + [0] * (width - len(text)) for text in smiles]
+            ),
+        }
+
+    collate = _collate(tokenizer)
+    peptide = "C" * (_MAX_TOKENS + 1)
+
+    input_ids, _mask, targets = collate([("CCO", (0.5,))])
+    assert input_ids.shape == (1, 3)
+    assert targets.shape == (1, 1)
+
+    with pytest.raises(ValidationError) as caught:
+        collate([("CCO", (0.5,)), (peptide, (1.0,))])
+
+    message = str(caught.value)
+    assert f"at most {_MAX_TOKENS} tokens" in message
+    assert f"needs {_MAX_TOKENS + 1}" in message
+    # Names the structure that is too long, and where to go instead.
+    assert peptide[:60] in message
+    assert "fingerprint or descriptor engine" in message
 
 
 # --- positive weighting and tuned cutoffs -------------------------------------------

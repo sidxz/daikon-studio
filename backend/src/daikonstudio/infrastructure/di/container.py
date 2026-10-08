@@ -104,6 +104,7 @@ from daikonstudio.application.ports.protocol_repository import ProtocolRepositor
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.runner_repository import RunnerRepository
+from daikonstudio.application.ports.sequence_clusterer import SequenceClusterer
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
 from daikonstudio.application.runners.manage import CreateRunner, ListRunners, RevokeRunner
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
@@ -134,6 +135,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.pages import SqlAlchemyP
 from daikonstudio.infrastructure.persistence.sqlalchemy.runners.repository import (
     SqlAlchemyRunnerRepository,
 )
+from daikonstudio.infrastructure.protein.cluster import Mmseqs2Clusterer
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
 from daikonstudio.settings import Settings
 
@@ -153,6 +155,12 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         StructureNormalizer,  # type: ignore[type-abstract]
         Singleton(RdkitStructureNormalizer),
+    )
+    # Stateless, and it shells out to `mmseqs` per call -- so one instance, and a
+    # missing binary is reported when a split actually asks for it, not at boot.
+    container.define(
+        SequenceClusterer,  # type: ignore[type-abstract]
+        Singleton(Mmseqs2Clusterer),
     )
     # One pooled client for the process's lifetime. It is not closed explicitly,
     # which is harmless at exit.
@@ -242,6 +250,7 @@ def create_container(settings: Settings | None = None) -> Container:
             _datasets(c),
             c[BlobStore],
             c[StructureNormalizer],
+            c[SequenceClusterer],
         ),
     )
     container.define(

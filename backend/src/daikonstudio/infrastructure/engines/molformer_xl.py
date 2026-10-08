@@ -29,6 +29,18 @@ guarded below and neither fails loudly:
    set, resampling happens only in training mode and the final draw is carried in the
    `weight` buffer, which `state_dict()` saves -- so a reloaded artifact reproduces the
    numbers its own Scorecard reported.
+
+Peptides are out of scope here, and now loudly so. A peptide SMILES runs past the
+202-token context the model was pretrained on -- a dipeptide alone is 23 tokens, about
+eleven per residue, so roughly eighteen residues exhaust it and anything longer is out
+of distribution. `_collate` refuses an over-long structure instead of truncating it;
+those datasets belong on a fingerprint or descriptor engine.
+
+What this tokenizer does **not** do, against a claim repeated in our own research notes
+and checked here on the pinned snapshot: it does not collapse stereochemistry. `[C@H]`
+and `[C@@H]` are separate tokens (ids 15 and 16) and the pre-tokenizer keeps bracket
+atoms whole, so a D- and an L-residue tokenize differently. Length is the real
+limitation; do not justify this guard with stereochemistry.
 """
 
 from __future__ import annotations
@@ -79,10 +91,10 @@ _MODEL_ID = "ibm-research/MoLFormer-XL-both-10pct"
 #: diff -- that is the whole point of it being here.
 _REVISION = "361063d0ad524ef77cf39b08469f6be770dc550f"
 
-#: `max_position_embeddings` from the checkpoint's own config. Longer SMILES are
-#: truncated, which is lossy but bounded -- the alternative is a shape error at the
-#: embedding table. Reached only by genuinely large molecules; most drug-like SMILES
-#: tokenize well under half of this.
+#: `max_position_embeddings` from the checkpoint's own config. A longer SMILES is
+#: refused, not truncated -- see `_collate`. Most drug-like SMILES tokenize well under
+#: half of this; what reaches the limit is a peptide or another large molecule, which
+#: this engine is the wrong tool for in the first place.
 _MAX_TOKENS = 202
 
 _PREDICT_BATCH_SIZE = 64
@@ -214,6 +226,9 @@ def _collate(tokenizer: Any) -> Any:
     entire fit -- hundreds of megabytes on a large assay, most of it padding. Batching
     it also pads to the longest SMILES *in the batch* instead of the longest in the
     dataset, which is the bulk of the saving.
+
+    Also the one place a structure's length is checked, for both training and predicting,
+    so neither can accept a molecule the other would refuse.
     """
     import torch
 
@@ -221,13 +236,26 @@ def _collate(tokenizer: Any) -> Any:
         smiles = [item[0] for item in batch]
         # (batch, n_tasks): one column per target.
         targets = torch.tensor([list(item[1]) for item in batch], dtype=torch.float32)
-        encoded = tokenizer(
-            smiles,
-            padding=True,
-            truncation=True,
-            max_length=_MAX_TOKENS,
-            return_tensors="pt",
-        )
+        # No `truncation=True`: truncating cuts the tail off the structure without
+        # saying so, and a peptide is almost all tail. (It would not have fired anyway --
+        # this tokenizer declares no `model_max_length`, so `truncation=True` alone was
+        # always a no-op and the 202-token ceiling was never actually enforced.) The mask
+        # counts each row's real tokens, so the error can name the structure that is long.
+        #
+        # ponytail: checked per batch, so a single over-long row in a large assay fails
+        # the fit partway through the first epoch rather than before it starts. A pass
+        # over the whole structure column up front would buy a few minutes, at the cost
+        # of tokenizing every molecule twice.
+        encoded = tokenizer(smiles, padding=True, return_tensors="pt")
+        lengths = encoded["attention_mask"].sum(dim=1)
+        if int(lengths.max()) > _MAX_TOKENS:
+            raise ValidationError(
+                f"MoLFormer-XL was pretrained on at most {_MAX_TOKENS} tokens of a SMILES "
+                f"string, and one structure here needs {int(lengths.max())}. Anything "
+                "longer is outside what the model has seen, so this engine is a poor fit "
+                "for peptides and other large molecules. Train a fingerprint or descriptor "
+                f"engine instead. The structure begins: {smiles[int(lengths.argmax())][:60]}"
+            )
         return encoded["input_ids"], encoded["attention_mask"], targets
 
     return collate

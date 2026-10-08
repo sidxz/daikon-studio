@@ -20,6 +20,8 @@ async def test_engines_are_listed_with_their_conditions(client):
         "tanimoto-gp",
         "chemprop-dmpnn",
         "molformer-xl",
+        "esm2-xgboost",
+        "protein-descriptors-randomforest",
     }
     xgb = next(e for e in engines if e["id"] == "ecfp4-xgboost")
     keys = {c["key"] for c in xgb["conditions"]}
@@ -51,14 +53,30 @@ async def test_engines_are_listed_with_their_conditions(client):
     assert molformer_weighting["tasks"] == ["binary_classification"]
 
 
-async def test_exactly_one_engine_is_marked_as_the_baseline(client):
-    """Verify exactly one engine is flagged as baseline."""
+async def test_exactly_one_engine_is_the_baseline_for_each_structure_kind(client):
+    """The baseline is per structure kind, not global.
+
+    It used to be global, and that was the bug: the molecule baseline is mandatory, so a
+    sequence dataset hit `_check_capable` on an engine that cannot read it and *every*
+    sequence run failed. One baseline per kind is the invariant that has to hold -- none
+    means runs fail, two means the registry cannot choose.
+    """
     response = await client.get("/api/v1/engines")
     assert response.status_code == 200, response.text
     engines = response.json()
-    assert sum(1 for e in engines if e["is_baseline"]) == 1
-    baseline = next(e for e in engines if e["is_baseline"])
-    assert baseline["id"] == "ecfp4-randomforest"
+
+    kinds = {kind for e in engines for kind in e["structure_kinds"]}
+    assert kinds == {"molecule", "sequence"}
+    for kind in kinds:
+        baselines = [e["id"] for e in engines if e["is_baseline"] and kind in e["structure_kinds"]]
+        assert len(baselines) == 1, f"{kind} has baselines {baselines}"
+
+    assert [
+        e["id"] for e in engines if e["is_baseline"] and "molecule" in e["structure_kinds"]
+    ] == ["ecfp4-randomforest"]
+    assert [
+        e["id"] for e in engines if e["is_baseline"] and "sequence" in e["structure_kinds"]
+    ] == ["protein-descriptors-randomforest"]
 
 
 async def test_every_manifest_says_whether_it_learns_targets_jointly(client):

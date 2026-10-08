@@ -18,6 +18,7 @@ function engine(id: string, tasks: string[]): Engine {
     conditions: [],
     is_baseline: false,
     supports_multitask: false,
+    structure_kinds: ["molecule"],
     lane: "default",
   };
 }
@@ -54,10 +55,12 @@ describe("engines for several targets", () => {
   const rf = {
     ...engine("rf", ["regression", "binary_classification"]),
     supports_multitask: false,
+    structure_kinds: ["molecule"],
   };
   const chemprop = {
     ...engine("chemprop", ["regression", "binary_classification"]),
     supports_multitask: true,
+    structure_kinds: ["molecule"],
   };
   const regressor = engine("gp-reg", ["regression"]);
 

@@ -14,9 +14,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/shared/components/ui/table";
+import { cn } from "@/shared/lib/utils";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useDatasetProfile } from "../hooks/use-datasets";
 import { useDatasetCompounds } from "../hooks/use-datasets";
+import { PROPERTY_CLASS, residueProperty } from "../lib/residues";
 import type { Dataset } from "../types";
 
 const PAGE_SIZE = 25;
@@ -32,6 +35,15 @@ const PARTITIONS = ["train", "validation", "test"] as const;
  * backend refuses it for the same reason.
  */
 export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
+  // A sequence dataset has no 2D depiction to draw and no SMILES to name. Drawing
+  // one anyway hands RDKit a protein and renders whatever comes back.
+  const isSequence = dataset.validation_report?.structure_kind === "sequence";
+  // The parent sequence, so a row can show what it changed instead of 286 characters
+  // truncated at the same place for every variant. Shares react-query's cache with the
+  // Diversity tab, so this costs no extra request.
+  const profile = useDatasetProfile(isSequence ? dataset.id : undefined);
+  const consensus =
+    profile.data && "variants" in profile.data ? profile.data.variants?.consensus : undefined;
   const [offset, setOffset] = useState(0);
   const [descending, setDescending] = useState(false);
   const [sortTarget, setSortTarget] = useState(0);
@@ -137,9 +149,9 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[120px]">Structure</TableHead>
+            {!isSequence && <TableHead className="w-[120px]">Structure</TableHead>}
             {dataset.id_column && <TableHead>{dataset.id_column}</TableHead>}
-            <TableHead>SMILES</TableHead>
+            <TableHead>{isSequence ? "Sequence" : "SMILES"}</TableHead>
             {dataset.targets.map((target) => (
               <TableHead key={target.column} className="text-right">
                 {target.column}
@@ -153,23 +165,34 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
             ? Array.from({ length: 6 }, (_, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length skeleton, no identity
                 <TableRow key={index}>
-                  <TableCell colSpan={3 + dataset.targets.length + (dataset.id_column ? 1 : 0)}>
+                  <TableCell
+                    colSpan={
+                      // structure thumbnail (molecules only) + text + partition
+                      (isSequence ? 2 : 3) + dataset.targets.length + (dataset.id_column ? 1 : 0)
+                    }
+                  >
                     <Skeleton className="h-16 w-full" />
                   </TableCell>
                 </TableRow>
               ))
             : data?.items.map((compound) => (
                 <TableRow key={compound.structure}>
-                  <TableCell>
-                    <StructureThumbnail smiles={compound.structure} size={96} />
-                  </TableCell>
+                  {!isSequence && (
+                    <TableCell>
+                      <StructureThumbnail smiles={compound.structure} size={96} />
+                    </TableCell>
+                  )}
                   {dataset.id_column && (
                     <TableCell className="font-mono text-xs">
                       {compound.compound_id ?? "N/A"}
                     </TableCell>
                   )}
                   <TableCell className="max-w-[1px] truncate font-mono text-xs text-muted-foreground">
-                    {compound.structure}
+                    {consensus ? (
+                      <MutationInContext sequence={compound.structure} consensus={consensus} />
+                    ) : (
+                      compound.structure
+                    )}
                   </TableCell>
                   {dataset.targets.map((target) => (
                     <TableCell key={target.column} className="text-right">
@@ -216,5 +239,72 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A variant shown as what it changed, not as its first forty residues.
+ *
+ * Every variant of one parent is identical for hundreds of characters, so a truncated
+ * sequence column renders every row the same -- technically the data, and useless. This
+ * diffs against the parent and shows the substitution in context. Falling back to the
+ * raw text matters: a row differing at many positions has no single mutation to point
+ * at, and inventing one would be worse than showing the sequence.
+ */
+function MutationInContext({ sequence, consensus }: { sequence: string; consensus: string }) {
+  if (sequence.length !== consensus.length) return <>{sequence}</>;
+  const differing: number[] = [];
+  for (let i = 0; i < sequence.length && differing.length < 3; i++) {
+    if (sequence[i] !== consensus[i]) differing.push(i);
+  }
+  if (differing.length === 0) return <span className="text-muted-foreground">parent sequence</span>;
+  if (differing.length > 2) return <>{sequence}</>;
+
+  const flank = 6;
+  return (
+    <span className="whitespace-nowrap">
+      {differing.map((index, order) => (
+        <span key={index}>
+          {order > 0 && <span className="px-1 text-muted-foreground">·</span>}
+          <span className="text-muted-foreground">
+            {index > flank ? "…" : ""}
+            {consensus.slice(Math.max(0, index - flank), index)}
+          </span>
+          <Substitution from={consensus[index]} at={index + 1} to={sequence[index]} />
+          <span className="text-muted-foreground">
+            {consensus.slice(index + 1, index + 1 + flank)}
+            {index + 1 + flank < consensus.length ? "…" : ""}
+          </span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One substitution, colored and named by what it changes.
+ *
+ * The property is what predicts whether a substitution matters -- swapping one
+ * hydrophobic residue for another is usually tolerated, turning it basic usually is not
+ * -- so it is the thing worth seeing without reading. Spelled out as well as colored,
+ * because the standard protein palettes assume a key the reader has memorised.
+ */
+function Substitution({ from, at, to }: { from: string; at: number; to: string }) {
+  const before = residueProperty(from);
+  const after = residueProperty(to);
+  const changed = before !== after;
+  return (
+    <span
+      className="whitespace-nowrap rounded px-1 font-semibold"
+      title={
+        before && after
+          ? `${from}${at}${to}: ${before} → ${after}${changed ? "" : " (same property)"}`
+          : `${from}${at}${to}`
+      }
+    >
+      <span className={cn("rounded px-0.5", before && PROPERTY_CLASS[before])}>{from}</span>
+      <span className="text-muted-foreground">{at}</span>
+      <span className={cn("rounded px-0.5", after && PROPERTY_CLASS[after])}>{to}</span>
+    </span>
   );
 }

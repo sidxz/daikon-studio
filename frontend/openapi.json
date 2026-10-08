@@ -5587,7 +5587,24 @@
             ]
           },
           "scaffolds": {
-            "$ref": "#/components/schemas/ScaffoldProfileResponse"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScaffoldProfileResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "variants": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariantProfileResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "descriptors": {
             "items": {
@@ -5641,7 +5658,7 @@
           "cliffs_sampled_from"
         ],
         "title": "DatasetProfileResponse",
-        "description": "What the Dataset is made of -- see `domain/data/profile.py` for what each\nsection means and why it is here.\n\n`target_distribution` and `class_balance` are mutually exclusive: a numeric\ntarget populates the first and a binary one the second, so a consumer must\nbranch on `target_kind` rather than render whichever is non-empty.\n\n`similarity` is `null` only when there was no train/test pair to compare,\nnever an all-zero histogram. `cliffs_sampled_from` is non-null when the\npair scan ran on a subsample -- \"no cliffs found among 3000 of 12000\ncompounds\" is a different claim from \"no cliffs\", and this is which one\nwas made."
+        "description": "What the Dataset is made of -- see `domain/data/profile.py` for what each\nsection means and why it is here.\n\n`target_distribution` and `class_balance` are mutually exclusive: a numeric\ntarget populates the first and a binary one the second, so a consumer must\nbranch on `target_kind` rather than render whichever is non-empty.\n\n`similarity` is `null` only when there was no train/test pair to compare,\nnever an all-zero histogram. `cliffs_sampled_from` is non-null when the\npair scan ran on a subsample -- \"no cliffs found among 3000 of 12000\ncompounds\" is a different claim from \"no cliffs\", and this is which one\nwas made.\n\nOn a dataset whose structure column holds amino-acid sequences, every\nchemistry section is absent: `scaffolds` and `similarity` are `null` and\n`descriptors` and `activity_cliffs` are empty. A sequence has no ring\nsystem and no Tanimoto neighbour, so a consumer must omit those sections\nrather than render a zero -- which would read as a measurement."
       },
       "DatasetReadinessResponse": {
         "properties": {
@@ -5882,6 +5899,13 @@
             "type": "boolean",
             "title": "Supports Multitask"
           },
+          "structure_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Structure Kinds"
+          },
           "lane": {
             "type": "string",
             "title": "Lane"
@@ -5897,6 +5921,7 @@
           "conditions",
           "is_baseline",
           "supports_multitask",
+          "structure_kinds",
           "lane"
         ],
         "title": "EngineManifestResponse",
@@ -8919,7 +8944,7 @@
           "classification_by_similarity"
         ],
         "title": "ScorecardResponse",
-        "description": "One card per target; `joint_model` says whether one model learned them all.\n\nEvery field here is load-bearing for honest rendering -- see\n`domain/execution/scorecard.py`'s docstring for what each one means and\nwhy it exists. In particular: `baseline_is_self` true means the chosen\nengine *is* the baseline (render \"this model is the baseline\", not a\nhead-to-head that never happened); `metrics_undefined` is why a metric in\n`metrics` reads `null` instead of a number; `random_split_unavailable`\ndistinguishes \"not applicable\" (`None`/`None`) from \"could not be\ncomputed\" (`None`/a reason) for `random_split_metrics`;\n`random_split_metrics_undefined` is `metrics_undefined`'s own counterpart\nfor `random_split_metrics` -- a *different* partition that can disagree\nwith the Dataset's own split about which metrics are undefined and why,\nso a renderer must not reuse `metrics_undefined` to explain a\n`random_split_metrics` null.\n\n`unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'\n`actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and\nwhich way is better. `split_strategy` (`\"random\"` or `\"scaffold\"`) is\nwhich split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this\ninstead of inferring it from `random_split_metrics`/\n`random_split_unavailable` both being `None`."
+        "description": "One card per target; `joint_model` says whether one model learned them all.\n\nEvery field here is load-bearing for honest rendering -- see\n`domain/execution/scorecard.py`'s docstring for what each one means and\nwhy it exists. In particular: `baseline_is_self` true means the chosen\nengine *is* the baseline (render \"this model is the baseline\", not a\nhead-to-head that never happened); `metrics_undefined` is why a metric in\n`metrics` reads `null` instead of a number; `random_split_unavailable`\ndistinguishes \"not applicable\" (`None`/`None`) from \"could not be\ncomputed\" (`None`/a reason) for `random_split_metrics`;\n`random_split_metrics_undefined` is `metrics_undefined`'s own counterpart\nfor `random_split_metrics` -- a *different* partition that can disagree\nwith the Dataset's own split about which metrics are undefined and why,\nso a renderer must not reuse `metrics_undefined` to explain a\n`random_split_metrics` null.\n\n`unit`/`direction` are the target's own -- what `metrics`, `worst_rows`'\n`actual`/`predicted`/`residual`, and `noise_floor` are all measured in, and\nwhich way is better. `split_strategy` (`\"random\"`, or one of the grouped\nstrategies `\"scaffold\"`, `\"identity\"` and `\"position\"`) is\nwhich split produced `metrics`/`baseline_metrics`/`worst_rows` -- read this\ninstead of inferring it from `random_split_metrics`/\n`random_split_unavailable` both being `None`."
       },
       "ScorecardToleranceResponse": {
         "properties": {
@@ -9135,7 +9160,9 @@
         "type": "string",
         "enum": [
           "random",
-          "scaffold"
+          "scaffold",
+          "identity",
+          "position"
         ],
         "title": "SplitStrategy"
       },
@@ -9190,6 +9217,39 @@
           "configs"
         ],
         "title": "SubmitSweepBody"
+      },
+      "SubstitutionResponse": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "wild_type": {
+            "type": "string",
+            "title": "Wild Type"
+          },
+          "variant": {
+            "type": "string",
+            "title": "Variant"
+          },
+          "value": {
+            "type": "number",
+            "title": "Value"
+          },
+          "split": {
+            "type": "string",
+            "title": "Split"
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "wild_type",
+          "variant",
+          "value",
+          "split"
+        ],
+        "title": "SubstitutionResponse"
       },
       "SweepConfigBody": {
         "properties": {
@@ -9794,6 +9854,11 @@
             },
             "type": "object",
             "title": "Duplicate Spread"
+          },
+          "structure_kind": {
+            "type": "string",
+            "title": "Structure Kind",
+            "default": "molecule"
           }
         },
         "type": "object",
@@ -9852,6 +9917,11 @@
             "type": "object",
             "title": "Duplicate Spread",
             "default": {}
+          },
+          "structure_kind": {
+            "type": "string",
+            "title": "Structure Kind",
+            "default": "molecule"
           }
         },
         "additionalProperties": false,
@@ -9862,6 +9932,90 @@
         ],
         "title": "ValidationReportWire",
         "description": "Mirrors `ValidationReport` (`domain/data/validation.py`).\n\n`invalid`/`conflicting` type straight to the domain's own `InvalidRow`/\n`ConflictRow` frozen dataclasses -- pydantic validates and serializes\nplain dataclasses natively, so a dedicated wire mirror for each would be\npure duplication of fields that carry no enum and need no cast."
+      },
+      "VariantPositionResponse": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "train": {
+            "type": "integer",
+            "title": "Train"
+          },
+          "validation": {
+            "type": "integer",
+            "title": "Validation"
+          },
+          "test": {
+            "type": "integer",
+            "title": "Test"
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "train",
+          "validation",
+          "test"
+        ],
+        "title": "VariantPositionResponse"
+      },
+      "VariantProfileResponse": {
+        "properties": {
+          "consensus": {
+            "type": "string",
+            "title": "Consensus"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/VariantPositionResponse"
+            },
+            "type": "array",
+            "title": "Positions"
+          },
+          "unchanged_rows": {
+            "type": "integer",
+            "title": "Unchanged Rows"
+          },
+          "multi_mutant_rows": {
+            "type": "integer",
+            "title": "Multi Mutant Rows"
+          },
+          "held_out_positions": {
+            "type": "integer",
+            "title": "Held Out Positions"
+          },
+          "substitutions": {
+            "items": {
+              "$ref": "#/components/schemas/SubstitutionResponse"
+            },
+            "type": "array",
+            "title": "Substitutions",
+            "default": []
+          },
+          "positions_sampled_from": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Positions Sampled From"
+          }
+        },
+        "type": "object",
+        "required": [
+          "consensus",
+          "positions",
+          "unchanged_rows",
+          "multi_mutant_rows",
+          "held_out_positions"
+        ],
+        "title": "VariantProfileResponse",
+        "description": "Where a single-parent variant series varies. Present only for sequences.\n\nThe sequence counterpart of `scaffolds`, and read the same way: `positions` is the\ncomposition of the dataset, and a position appearing in both training and test is\nthe same integrity failure a scaffold spanning partitions would be."
       },
       "WorstRowResponse": {
         "properties": {

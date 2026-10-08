@@ -8,7 +8,7 @@ import { DomainFigure } from "./domain";
 import { ForestFigure } from "./forest";
 import { GaussianProcessFigure } from "./gaussian-process";
 import { MessagePassingFigure } from "./message-passing";
-import { SplitFigure } from "./split";
+import { SplitFigure, splitCaption } from "./split";
 
 /** RMSE redraws around 0.72, the shape of a real scaffold-split card. */
 const RMSE: BootstrapData = {
@@ -46,6 +46,8 @@ const FIGURES: [string, (t: number) => ReactElement][] = [
   ["attention", (t) => <AttentionFigure t={t} />],
   ["split, scaffold", (t) => <SplitFigure t={t} strategy="scaffold" />],
   ["split, random", (t) => <SplitFigure t={t} strategy="random" />],
+  ["split, identity", (t) => <SplitFigure t={t} strategy="identity" />],
+  ["split, position", (t) => <SplitFigure t={t} strategy="position" />],
   ["bootstrap, regression", (t) => <BootstrapFigure t={t} data={RMSE} />],
   ["bootstrap, classification", (t) => <BootstrapFigure t={t} data={MCC} />],
   ["bootstrap, off scale", (t) => <BootstrapFigure t={t} data={{ ...RMSE, baseline: 9 }} />],
@@ -57,6 +59,23 @@ describe.each(FIGURES)("%s figure", (_, draw) => {
     const { container } = render(draw(t));
     expect(screen.getByRole("img").getAttribute("aria-label")).toBeTruthy();
     expect(container.innerHTML).not.toMatch(/NaN|Infinity|undefined/);
+  });
+});
+
+describe("SplitFigure", () => {
+  it("labels the grouped split actually in play, not scaffold by default", () => {
+    render(<SplitFigure t={1} strategy="identity" />);
+    expect(screen.getByText("Identity split")).toBeInTheDocument();
+    expect(screen.getByText("Random split")).toBeInTheDocument();
+    expect(screen.queryByText("Scaffold split")).not.toBeInTheDocument();
+  });
+
+  it("tells each split what its clusters are, and never calls a sequence a scaffold", () => {
+    expect(splitCaption("scaffold")).toContain("Bemis–Murcko scaffold");
+    expect(splitCaption("identity")).toContain("one protein family");
+    expect(splitCaption("position")).toContain("one mutated residue position");
+    expect(splitCaption("identity")).not.toContain("Bemis–Murcko");
+    expect(splitCaption("position")).not.toContain("Bemis–Murcko");
   });
 });
 

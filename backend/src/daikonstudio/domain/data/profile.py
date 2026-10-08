@@ -129,6 +129,72 @@ class ScaffoldEntry:
 
 
 @dataclass(frozen=True, kw_only=True)
+class VariantPosition:
+    """One residue position that varies, and how its variants fall across partitions.
+
+    `position` is 1-indexed, the way a mutation is written and read (V31H is position
+    31, not 30).
+    """
+
+    position: int
+    train: int
+    validation: int
+    test: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class Substitution:
+    """One cell of a deep-mutational-scanning map: what this residue became, and what
+    happened when it did.
+
+    `value` is the mean target value across rows carrying this exact substitution, which
+    is almost always one row -- a DMS measures each substitution once. `split` is the
+    partition it landed in, so the map can mark what the model never saw.
+    """
+
+    position: int
+    wild_type: str
+    variant: str
+    value: float
+    split: str
+
+
+@dataclass(frozen=True, kw_only=True)
+class VariantProfile:
+    """Where a single-parent variant series actually varies.
+
+    The sequence answer to the question the scaffold section answers for molecules:
+    what is this dataset made of, and did the split do what it claims? A position
+    appearing in two partitions is the same integrity failure as a scaffold spanning
+    them -- train on V31H and test on V31D and the model has already seen that site vary.
+
+    Only positions that differ from the consensus appear. `consensus` is the parent
+    sequence, taken as the per-position modal residue, which is what a reader needs to
+    say what a variant changed *to* and *from*.
+    """
+
+    consensus: str
+    positions: list[VariantPosition]
+    #: Rows identical to the consensus -- the wild type, if it was measured.
+    unchanged_rows: int
+    #: Rows differing at more than one position. A series of these is still a valid
+    #: dataset, but "the mutation" stops being a single thing a reader can point at.
+    multi_mutant_rows: int
+    #: Positions held out of training entirely. The number the position split exists to
+    #: make non-zero, and the one worth reading next to the headline metric.
+    held_out_positions: int
+    #: Every measured substitution, for the position-by-residue map that is how this
+    #: field reads a variant experiment. Bounded by positions x 20 rather than by row
+    #: count, because a map has one cell per substitution however many times it was
+    #: measured.
+    substitutions: list[Substitution] = field(default_factory=list)
+    #: Non-null when `positions` was truncated to the most-varied ones, carrying the
+    #: true total -- the same promise `cliffs_sampled_from` makes, and for the same
+    #: reason: a partial map that presents as complete is the failure to avoid.
+    positions_sampled_from: int | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class ScaffoldProfile:
     """Bemis-Murcko scaffold composition.
 
@@ -220,7 +286,15 @@ class DatasetProfile:
     # partition -- never an all-zero histogram, which would read as "every test
     # compound is confirmed unlike anything trained on".
     similarity: SimilarityProfile | None = None
-    scaffolds: ScaffoldProfile
+    # `None` for a sequence dataset. A Bemis-Murcko scaffold is a ring system, which an
+    # amino-acid sequence does not have, so the honest profile omits the section rather
+    # than reporting that every sequence is its own singleton family -- a true sentence
+    # about a question that was never meaningful. Same reasoning for `similarity`,
+    # `descriptors` and `activity_cliffs` below, all of which key off Tanimoto or RDKit.
+    scaffolds: ScaffoldProfile | None = None
+    #: Present only for a sequence dataset whose rows are variants of one parent, and
+    #: `None` for molecules or for sequences too ragged to share a consensus.
+    variants: VariantProfile | None = None
     descriptors: list[DescriptorProfile] = field(default_factory=list)
     best_descriptor: str | None = None
     activity_cliffs: list[ActivityCliff] = field(default_factory=list)
@@ -240,7 +314,13 @@ class DatasetProfile:
 #: number with nothing to indicate it was stale. A shape change would have been
 #: caught by `profile_from_dict` raising; a *value* change is invisible without
 #: this.
-PROFILE_VERSION = 2
+# 4: per-substitution values, for the mutational map.
+# 3: the variant-position section. A bump is needed for an added section and not just a
+# changed number -- a cached v2 profile is still internally correct, but it has no
+# `variants` key and never will, so the map would stay blank forever on every dataset
+# profiled before this. Making `scaffolds` optional in the same branch did *not* need
+# one: that only removed a section, and an old profile that still carries it reads fine.
+PROFILE_VERSION = 4
 
 
 def profile_to_dict(profile: DatasetProfile) -> dict[str, Any]:
@@ -297,15 +377,49 @@ def profile_to_dict(profile: DatasetProfile) -> dict[str, Any]:
             if profile.similarity
             else None
         ),
-        "scaffolds": {
-            "unique_count": profile.scaffolds.unique_count,
-            "singleton_count": profile.scaffolds.singleton_count,
-            "largest_fraction": profile.scaffolds.largest_fraction,
-            "cumulative_coverage": profile.scaffolds.cumulative_coverage,
-            "top": [{"smiles": e.smiles, "count": e.count} for e in profile.scaffolds.top],
-            "cross_split_scaffolds": profile.scaffolds.cross_split_scaffolds,
-            "cross_split_compounds": profile.scaffolds.cross_split_compounds,
-        },
+        "scaffolds": (
+            {
+                "unique_count": profile.scaffolds.unique_count,
+                "singleton_count": profile.scaffolds.singleton_count,
+                "largest_fraction": profile.scaffolds.largest_fraction,
+                "cumulative_coverage": profile.scaffolds.cumulative_coverage,
+                "top": [{"smiles": e.smiles, "count": e.count} for e in profile.scaffolds.top],
+                "cross_split_scaffolds": profile.scaffolds.cross_split_scaffolds,
+                "cross_split_compounds": profile.scaffolds.cross_split_compounds,
+            }
+            if profile.scaffolds
+            else None
+        ),
+        "variants": (
+            {
+                "consensus": profile.variants.consensus,
+                "positions": [
+                    {
+                        "position": entry.position,
+                        "train": entry.train,
+                        "validation": entry.validation,
+                        "test": entry.test,
+                    }
+                    for entry in profile.variants.positions
+                ],
+                "unchanged_rows": profile.variants.unchanged_rows,
+                "multi_mutant_rows": profile.variants.multi_mutant_rows,
+                "held_out_positions": profile.variants.held_out_positions,
+                "positions_sampled_from": profile.variants.positions_sampled_from,
+                "substitutions": [
+                    {
+                        "position": sub.position,
+                        "wild_type": sub.wild_type,
+                        "variant": sub.variant,
+                        "value": sub.value,
+                        "split": sub.split,
+                    }
+                    for sub in profile.variants.substitutions
+                ],
+            }
+            if profile.variants
+            else None
+        ),
         "descriptors": [
             {
                 "name": d.name,
@@ -349,7 +463,9 @@ def profile_from_dict(data: dict[str, Any]) -> DatasetProfile:
 
     distribution = data.get("target_distribution")
     similarity = data.get("similarity")
-    scaffolds = data["scaffolds"]
+    # `.get`, not `[...]`: a sequence dataset has no scaffold section at all.
+    scaffolds = data.get("scaffolds")
+    variants = data.get("variants")
     return DatasetProfile(
         compounds=data["compounds"],
         partition_counts=data["partition_counts"],
@@ -381,14 +497,50 @@ def profile_from_dict(data: dict[str, Any]) -> DatasetProfile:
             if similarity
             else None
         ),
-        scaffolds=ScaffoldProfile(
-            unique_count=scaffolds["unique_count"],
-            singleton_count=scaffolds["singleton_count"],
-            largest_fraction=scaffolds["largest_fraction"],
-            cumulative_coverage=scaffolds["cumulative_coverage"],
-            top=[ScaffoldEntry(smiles=e["smiles"], count=e["count"]) for e in scaffolds["top"]],
-            cross_split_scaffolds=scaffolds["cross_split_scaffolds"],
-            cross_split_compounds=scaffolds["cross_split_compounds"],
+        scaffolds=(
+            ScaffoldProfile(
+                unique_count=scaffolds["unique_count"],
+                singleton_count=scaffolds["singleton_count"],
+                largest_fraction=scaffolds["largest_fraction"],
+                cumulative_coverage=scaffolds["cumulative_coverage"],
+                top=[
+                    ScaffoldEntry(smiles=e["smiles"], count=e["count"]) for e in scaffolds["top"]
+                ],
+                cross_split_scaffolds=scaffolds["cross_split_scaffolds"],
+                cross_split_compounds=scaffolds["cross_split_compounds"],
+            )
+            if scaffolds
+            else None
+        ),
+        variants=(
+            VariantProfile(
+                consensus=variants["consensus"],
+                positions=[
+                    VariantPosition(
+                        position=entry["position"],
+                        train=entry["train"],
+                        validation=entry["validation"],
+                        test=entry["test"],
+                    )
+                    for entry in variants["positions"]
+                ],
+                unchanged_rows=variants["unchanged_rows"],
+                multi_mutant_rows=variants["multi_mutant_rows"],
+                held_out_positions=variants["held_out_positions"],
+                positions_sampled_from=variants.get("positions_sampled_from"),
+                substitutions=[
+                    Substitution(
+                        position=sub["position"],
+                        wild_type=sub["wild_type"],
+                        variant=sub["variant"],
+                        value=sub["value"],
+                        split=sub["split"],
+                    )
+                    for sub in variants.get("substitutions", [])
+                ],
+            )
+            if variants
+            else None
         ),
         descriptors=[
             DescriptorProfile(

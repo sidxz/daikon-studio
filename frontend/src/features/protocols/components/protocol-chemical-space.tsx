@@ -30,9 +30,9 @@ export function MapCompoundTooltip({ protocolId, index }: { protocolId: string; 
 
 /**
  * The dataset behind a protocol, laid out by structure: where the training,
- * validation and test compounds sit relative to one another. On a scaffold
- * split the test compounds form their own regions; on a random split they are
- * scattered among the training compounds.
+ * validation and test compounds sit relative to one another. On a grouped
+ * split -- scaffold, identity or position -- the test compounds form their own
+ * regions; on a random split they are scattered among the training compounds.
  */
 export function ProtocolChemicalSpace({ protocolId }: { protocolId: string }) {
   const map = useProtocolChemicalSpace(protocolId);

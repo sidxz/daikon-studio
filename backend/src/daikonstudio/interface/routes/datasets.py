@@ -64,6 +64,7 @@ from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.dataset_build import DatasetBuild
 from daikonstudio.domain.data.profile import DatasetProfile, profile_to_dict
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy, split_to_dict
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec, target_to_dict
 from daikonstudio.domain.data.validation import report_to_dict
 from daikonstudio.domain.shared.errors import ValidationError
@@ -206,6 +207,11 @@ class ValidationReportResponse(BaseModel):
     salts_flagged: int
     # Keyed by target column; numeric targets with replicates only.
     duplicate_spread: dict[str, float]
+    # `"molecule"` or `"sequence"`: what the structure column was found to hold. The
+    # browser needs it to avoid saying SMILES about a protein, or drawing a 2D
+    # depiction of one -- there is no other signal for it on a Dataset, since the
+    # column role is deliberately one modality-agnostic "structure".
+    structure_kind: str = StructureKind.MOLECULE.value
 
 
 class DatasetResponse(BaseModel):
@@ -368,6 +374,38 @@ class ScaffoldProfileResponse(BaseModel):
     cross_split_compounds: int
 
 
+class VariantPositionResponse(BaseModel):
+    position: int
+    train: int
+    validation: int
+    test: int
+
+
+class SubstitutionResponse(BaseModel):
+    position: int
+    wild_type: str
+    variant: str
+    value: float
+    split: str
+
+
+class VariantProfileResponse(BaseModel):
+    """Where a single-parent variant series varies. Present only for sequences.
+
+    The sequence counterpart of `scaffolds`, and read the same way: `positions` is the
+    composition of the dataset, and a position appearing in both training and test is
+    the same integrity failure a scaffold spanning partitions would be.
+    """
+
+    consensus: str
+    positions: list[VariantPositionResponse]
+    unchanged_rows: int
+    multi_mutant_rows: int
+    held_out_positions: int
+    substitutions: list[SubstitutionResponse] = []
+    positions_sampled_from: int | None = None
+
+
 class DescriptorProfileResponse(BaseModel):
     name: str
     histogram: SplitHistogramResponse
@@ -397,6 +435,12 @@ class DatasetProfileResponse(BaseModel):
     pair scan ran on a subsample -- "no cliffs found among 3000 of 12000
     compounds" is a different claim from "no cliffs", and this is which one
     was made.
+
+    On a dataset whose structure column holds amino-acid sequences, every
+    chemistry section is absent: `scaffolds` and `similarity` are `null` and
+    `descriptors` and `activity_cliffs` are empty. A sequence has no ring
+    system and no Tanimoto neighbour, so a consumer must omit those sections
+    rather than render a zero -- which would read as a measurement.
     """
 
     compounds: int
@@ -405,7 +449,8 @@ class DatasetProfileResponse(BaseModel):
     target_distribution: TargetDistributionResponse | None
     class_balance: list[ClassBalanceResponse]
     similarity: SimilarityProfileResponse | None
-    scaffolds: ScaffoldProfileResponse
+    scaffolds: ScaffoldProfileResponse | None
+    variants: VariantProfileResponse | None = None
     descriptors: list[DescriptorProfileResponse]
     best_descriptor: str | None
     activity_cliffs: list[ActivityCliffResponse]

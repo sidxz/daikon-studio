@@ -434,3 +434,38 @@ def test_scaffold_errors_rank_the_worst_family_first():
     # can read "it is worse on the benzenes" off it.
     assert worst.scaffold == NORMALIZER.murcko_scaffold("c1ccccc1C")
     assert best.scaffold == NORMALIZER.murcko_scaffold("c1ccncc1C")
+
+
+def test_a_sequence_dataset_reports_no_applicability_domain_rather_than_zero() -> None:
+    """Chemistry on a sequence column does not fail -- it answers, wrongly.
+
+    RDKit cannot read a protein, so every fingerprint comes back empty and every
+    nearest-neighbour Tanimoto is 0.0. `applicability_coverage` then divides that into a
+    rate and the Scorecard states that 0% of the test set is within the applicability
+    domain: a fabricated number, alarming to read, and indistinguishable in shape from a
+    measured one. `None` already means "there was nothing to compare" everywhere
+    downstream, so that is what the sequence path returns.
+    """
+    from daikonstudio.application.execution.build_scorecard import held_out_chemistry
+    from daikonstudio.domain.data.structure_kind import StructureKind
+    from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
+
+    normalizer = RdkitStructureNormalizer()
+    parent = "MSIQHFRVALIPFFAAFCLPVFAHPETLVKVKDAEDQLGARVGYIELDLNSGKILESFRPEERFPMMSTFKVLLCGAVLSR"
+    test = [parent, f"{parent[:-1]}A"]
+    train = [f"{parent[:-2]}AA"]
+
+    # What it used to do, and why this test exists: the numbers were not an error.
+    as_molecules = held_out_chemistry(test, train, normalizer)
+    assert as_molecules.similarities == [0.0, 0.0]
+
+    sequences = held_out_chemistry(test, train, normalizer, StructureKind.SEQUENCE)
+    assert sequences.similarities is None
+    # Same length as the input: `_scaffold_errors` zips this against the residuals with
+    # `strict=True`, and empty strings collapse to one family, which that function
+    # already drops for being less than a comparison.
+    assert sequences.scaffolds == ["", ""]
+
+    molecules = held_out_chemistry(["CCO", "c1ccccc1"], ["CCN"], normalizer)
+    assert molecules.similarities is not None
+    assert molecules.similarities[0] > 0.0

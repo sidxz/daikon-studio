@@ -11,6 +11,7 @@ import {
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
+import { splitTitle } from "@/shared/lib/split";
 import { metricLabel } from "../types";
 
 /**
@@ -84,7 +85,13 @@ function ParitySection({
             caption={
               scorecard.noise_floor != null
                 ? "The dashed line is a perfect prediction. The shaded band shows the average spread of repeated measurements as context for the errors."
-                : "The dashed line is a perfect prediction. Points are shaded by how similar the compound is to the training set."
+                : scorecard.parity.some((point) => point.similarity != null)
+                  ? "The dashed line is a perfect prediction. Points are shaded by how similar the compound is to the training set."
+                  : // No similarity to shade by -- a sequence dataset has no Tanimoto
+                    // neighbour. `ParityChart` already drops the shading and its legend
+                    // in that case; promising it in the caption was the last place the
+                    // card still claimed a measurement it never made.
+                    "The dashed line is a perfect prediction."
             }
           />
         )}
@@ -210,9 +217,11 @@ export function SplitComparison({ scorecard }: { scorecard: ScorecardResponse })
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Scaffold split versus random split</CardTitle>
+        <CardTitle className="text-base">
+          {splitTitle(scorecard.split_strategy)} split versus random split
+        </CardTitle>
         <p className="text-sm text-muted-foreground">
-          The same engine and settings, trained and scored on a random split of the same compounds.
+          The same engine and settings, trained and scored on a random split of the same data.
           Consistent differences across metrics indicate split-induced optimism.
         </p>
       </CardHeader>
@@ -221,7 +230,9 @@ export function SplitComparison({ scorecard }: { scorecard: ScorecardResponse })
           <thead>
             <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="pb-2 pr-4 font-medium">Metric</th>
-              <th className="pb-2 pr-4 font-medium">Scaffold split (scored)</th>
+              <th className="pb-2 pr-4 font-medium">
+                {splitTitle(scorecard.split_strategy)} split (scored)
+              </th>
               <th className="pb-2 font-medium">Random split</th>
             </tr>
           </thead>

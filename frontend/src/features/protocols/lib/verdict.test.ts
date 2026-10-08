@@ -198,6 +198,27 @@ describe("optimism gap", () => {
       computeOptimismGap(scorecard({ random_split_unavailable: "the split had one class" })).kind,
     ).toBe("unavailable");
   });
+
+  it("measures the gap on a sequence split too", () => {
+    // Every grouped split gets the random-split comparison, not just scaffold.
+    const gap = computeOptimismGap(
+      scorecard({
+        split_strategy: "identity",
+        primary_metric: "r2",
+        metrics: { r2: 0.389 },
+        random_split_metrics: { r2: 0.758 },
+      }),
+    );
+    expect(gap.kind).toBe("shown");
+    expect(gap.held).toBeCloseTo(0.389);
+    expect(gap.gap).toBeCloseTo(0.369);
+  });
+
+  it("never blames a missing comparison on a random split that did not happen", () => {
+    const gap = computeOptimismGap(scorecard({ split_strategy: "position" }));
+    expect(gap.kind).toBe("unavailable");
+    expect(gap.message).not.toMatch(/scored on a random split/);
+  });
 });
 
 describe("a margin smaller than the assay noise", () => {
