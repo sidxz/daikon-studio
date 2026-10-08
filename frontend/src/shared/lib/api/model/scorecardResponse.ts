@@ -4,6 +4,8 @@
  */
 import type { ScorecardResponsePrimaryMetricCi } from './scorecardResponsePrimaryMetricCi';
 import type { ScorecardResponsePrimaryMetricBootstrap } from './scorecardResponsePrimaryMetricBootstrap';
+import type { ScorecardResponseDifferenceCi } from './scorecardResponseDifferenceCi';
+import type { ScorecardResponseDifferenceBootstrap } from './scorecardResponseDifferenceBootstrap';
 import type { ScorecardResponseMetrics } from './scorecardResponseMetrics';
 import type { ScorecardResponseValidationMetrics } from './scorecardResponseValidationMetrics';
 import type { ScorecardResponseMetricsUndefined } from './scorecardResponseMetricsUndefined';
@@ -67,6 +69,8 @@ export interface ScorecardResponse {
   primary_metric: string;
   primary_metric_ci: ScorecardResponsePrimaryMetricCi;
   primary_metric_bootstrap: ScorecardResponsePrimaryMetricBootstrap;
+  difference_ci?: ScorecardResponseDifferenceCi;
+  difference_bootstrap?: ScorecardResponseDifferenceBootstrap;
   prediction_kind: string;
   metrics: ScorecardResponseMetrics;
   validation_metrics: ScorecardResponseValidationMetrics;

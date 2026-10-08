@@ -8608,6 +8608,30 @@
               }
             ]
           },
+          "difference_ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Difference Ci"
+          },
+          "difference_bootstrap": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BootstrapHistogramResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "prediction_kind": {
             "type": "string",
             "title": "Prediction Kind"

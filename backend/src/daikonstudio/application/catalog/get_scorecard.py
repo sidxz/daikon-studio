@@ -185,6 +185,7 @@ def _build_all(inputs: ScorecardInputs, chemistry: HeldOutChemistry) -> list[Sco
             joint_model=inputs.joint_model,
             actual=target.actual,
             predicted=target.predicted,
+            baseline_predicted=target.baseline_predicted,
             structures=inputs.structures,
             chemistry=chemistry,
             target_unit=target.target_unit,

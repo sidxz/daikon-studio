@@ -286,6 +286,8 @@ export * from './scorecardResponseConditions';
 export * from './scorecardResponseCutoff';
 export * from './scorecardResponseCutoffNote';
 export * from './scorecardResponseDeduplicated';
+export * from './scorecardResponseDifferenceBootstrap';
+export * from './scorecardResponseDifferenceCi';
 export * from './scorecardResponseDirection';
 export * from './scorecardResponseMetrics';
 export * from './scorecardResponseMetricsUndefined';

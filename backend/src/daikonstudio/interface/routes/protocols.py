@@ -367,6 +367,13 @@ class ScorecardResponse(BaseModel):
     # The redraw scores the interval was read from, binned; null exactly when the
     # interval is. What the interval's figure draws.
     primary_metric_bootstrap: BootstrapHistogramResponse | None
+    # `[low, high]`: the 95 % interval for model minus baseline on the primary metric,
+    # both scored on the same redraws of the test set. The verdict's test when present;
+    # null for a protocol trained before baseline predictions were kept, a run without
+    # a baseline, a self-comparison, or a test set too small for an interval.
+    difference_ci: list[float] | None = None
+    # Those redraws binned; null exactly when `difference_ci` is.
+    difference_bootstrap: BootstrapHistogramResponse | None = None
     prediction_kind: str
     metrics: dict[str, float | None]
     # Tune against this; `metrics` is the verdict. `null` when the split declared
@@ -445,6 +452,15 @@ class ScorecardResponse(BaseModel):
                     counts=card.primary_metric_bootstrap.counts,
                 )
                 if card.primary_metric_bootstrap
+                else None
+            ),
+            difference_ci=list(card.difference_ci) if card.difference_ci else None,
+            difference_bootstrap=(
+                BootstrapHistogramResponse(
+                    edges=card.difference_bootstrap.edges,
+                    counts=card.difference_bootstrap.counts,
+                )
+                if card.difference_bootstrap
                 else None
             ),
             prediction_kind=card.prediction_kind,

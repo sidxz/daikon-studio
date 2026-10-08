@@ -282,6 +282,12 @@ class TargetInputs:
     validation_metrics: dict[str, float | None] | None = None
     actual: list[float]
     predicted: list[float]
+    #: The baseline's own predictions on the same test rows, in the same order and of
+    #: the same kind as `predicted`: what the paired comparison resamples against. None
+    #: when no baseline was fitted, when the baseline is this model (the difference is
+    #: zero by construction), and for every blob written before these were kept -- the
+    #: default is what keeps those blobs readable.
+    baseline_predicted: list[float] | None = None
     prediction_kind: str
     #: None when the run was asked not to fit a baseline at all. Distinct from an
     #: empty dict, which would mean a baseline ran and measured nothing.
@@ -912,6 +918,23 @@ class RunTraining:
                 target_columns=dataset.target_columns,
             ),
         )
+        # The same replay with the baseline's artifact, for the paired comparison. A
+        # scoring pass, not a fit. Skipped for a self-comparison, which
+        # `baseline_is_self` already reports, and when no baseline was fitted.
+        baseline_predictions = (
+            await asyncio.to_thread(
+                baseline.predict,
+                PredictContext(
+                    frame=test_rows,
+                    structure_column=dataset.structure_column,
+                    artifact=baseline_result.artifact,
+                    conditions=baseline_conditions,
+                    target_columns=dataset.target_columns,
+                ),
+            )
+            if baseline_result is not None and not baseline_is_self
+            else None
+        )
 
         protocol_id = uuid.uuid4()
         per_target: list[TargetInputs] = []
@@ -944,6 +967,18 @@ class RunTraining:
                     ),
                     actual=[float(value) for value in test_rows[target.column].to_list()],
                     predicted=[float(value) for value in predicted["value"].to_list()],
+                    baseline_predicted=(
+                        [
+                            float(value)
+                            for value in baseline_predictions.filter(
+                                pl.col("target") == target.column
+                            )
+                            .sort("row_id")["value"]
+                            .to_list()
+                        ]
+                        if baseline_predictions is not None
+                        else None
+                    ),
                     prediction_kind=(
                         "probability" if task is TaskType.BINARY_CLASSIFICATION else "value"
                     ),

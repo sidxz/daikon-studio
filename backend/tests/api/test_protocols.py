@@ -166,6 +166,10 @@ async def test_scorecard_exposes_the_baseline_comparison(client, trained_protoco
     assert card["joint_model"] is False
     assert card["baseline_engine_id"] == "ecfp4-randomforest"
     assert card["primary_metric"] in {"rmse", "mcc"}
+    # Paired fields are always on the wire; this fixture's test set is too small for
+    # an interval, so both are null rather than missing.
+    assert card["difference_ci"] is None
+    assert card["difference_bootstrap"] is None
     assert len(card["worst_rows"]) <= 20
 
 

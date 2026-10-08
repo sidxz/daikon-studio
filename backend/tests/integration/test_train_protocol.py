@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import io
 import json
+import math
+import statistics
 import uuid
 import zipfile
 from collections.abc import AsyncIterator
@@ -235,6 +237,7 @@ class Studio:
         baseline_engine_id: str | None = None,
         baseline_conditions: dict[str, object] | None = None,
         tune_cutoffs: bool = False,
+        run_baseline: bool = True,
     ) -> Run:
         command = TrainProtocolCommand(
             name="a trained model",
@@ -244,6 +247,7 @@ class Studio:
             baseline_engine_id=baseline_engine_id,
             baseline_conditions=baseline_conditions or {},
             tune_cutoffs=tune_cutoffs,
+            run_baseline=run_baseline,
         )
         return (await self._train(command, self.auth)).unwrap()
 
@@ -568,6 +572,7 @@ def test_scorecard_inputs_reads_a_blob_written_before_baseline_conditions_existe
     legacy = json.loads(dataset.to_json())
     [target] = legacy.pop("targets")
     del target["column"]
+    del target["baseline_predicted"]
     del legacy["baseline_conditions"]
     del legacy["joint_model"]
 
@@ -577,6 +582,7 @@ def test_scorecard_inputs_reads_a_blob_written_before_baseline_conditions_existe
     assert restored.joint_model is False
     assert restored.targets[0].column == ""
     assert restored.targets[0].metrics == {"rmse": 1.0, "mae": 0.5, "r2": 0.9}
+    assert restored.targets[0].baseline_predicted is None
 
 
 async def test_a_failed_optimism_gap_does_not_destroy_the_honest_result(
@@ -1396,3 +1402,63 @@ async def test_a_stopped_training_run_is_deleted_with_its_saved_progress(
     assert (await studio.reload(finished)).status is RunStatus.READY
     refused = await delete(DeleteRunCommand(run_id=finished.id), studio.auth)
     assert isinstance(refused.failure(), ConflictError)
+
+
+def _rmse(actual: list[float], predicted: list[float]) -> float:
+    return math.sqrt(
+        statistics.fmean((a - p) ** 2 for a, p in zip(actual, predicted, strict=True))
+    )
+
+
+async def test_the_stored_baseline_predictions_reproduce_the_baseline_score(
+    studio: Studio,
+) -> None:
+    """The seam: the paired interval resamples these, so they must be the predictions
+    the engine actually scored, in test-row order. Recomputing the baseline's RMSE from
+    them has to land on the number training stored."""
+    dataset = await studio.dataset(csv=_wider_csv())
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+
+    [target] = (await studio.scorecard_for(run)).targets
+    assert target.baseline_predicted is not None
+    assert len(target.baseline_predicted) == len(target.actual)
+    assert target.baseline_predicted != target.predicted
+    assert target.baseline_metrics is not None
+    assert _rmse(target.actual, target.baseline_predicted) == pytest.approx(
+        target.baseline_metrics["rmse"]
+    )
+
+
+async def test_every_target_gets_its_own_baseline_predictions(studio: Studio) -> None:
+    dataset = await studio.dataset(targets=MIXED, csv=_two_target_csv())
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+
+    targets = {t.column: t for t in (await studio.scorecard_for(run)).targets}
+    for target in targets.values():
+        assert target.baseline_predicted is not None
+        assert len(target.baseline_predicted) == len(target.actual)
+    numeric = targets["y"]
+    assert numeric.baseline_predicted is not None and numeric.baseline_metrics is not None
+    assert _rmse(numeric.actual, numeric.baseline_predicted) == pytest.approx(
+        numeric.baseline_metrics["rmse"]
+    )
+    # A probability per compound for the binary target, not the numeric one's values.
+    binary = targets["active"].baseline_predicted
+    assert binary is not None and all(0.0 <= p <= 1.0 for p in binary)
+
+
+async def test_no_baseline_predictions_without_a_second_model(studio: Studio) -> None:
+    dataset = await studio.dataset()
+    switched_off = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, run_baseline=False
+    )
+    itself = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-randomforest", conditions={}
+    )
+    await studio.wait(switched_off)
+    await studio.wait(itself)
+
+    assert (await studio.scorecard_for(switched_off)).targets[0].baseline_predicted is None
+    assert (await studio.scorecard_for(itself)).targets[0].baseline_predicted is None
