@@ -141,6 +141,19 @@ def _wider_csv() -> bytes:
     return f"smiles,y\n{rows}\n".encode()
 
 
+def _predefined_csv() -> bytes:
+    """Forty rows carrying their own partitions, the way a benchmark that ships a split
+    column does. Sized like `_wider_csv` so the metrics are defined, and the column is
+    named `partition` rather than `split` to keep clear of `RESERVED_TARGET_COLUMNS`.
+    """
+    rows = "\n".join(
+        f"{smiles},{1.0 + 0.37 * index},"
+        + ("train" if index < 32 else "validation" if index < 36 else "test")
+        for index, smiles in enumerate(_WIDER_STRUCTURES)
+    )
+    return f"smiles,y,partition\n{rows}\n".encode()
+
+
 def _two_target_csv() -> bytes:
     numbers = tuple(1.0 + 0.37 * index for index in range(len(_STRUCTURES)))
     labels = _alternating_values()
@@ -216,7 +229,10 @@ class Studio:
         unit: str | None = "logS",
         targets: tuple[TargetSpec, ...] | None = None,
         csv: bytes | None = None,
+        split: SplitSpec | None = None,
     ) -> Dataset:
+        """`split` overrides the `strategy`/seed pair, for the strategies that need
+        more than a name -- a predefined split carries the column it reads."""
         upload_ref = (await self._upload(csv or _csv(values), self.auth)).unwrap()
         command = CreateDatasetCommand(
             name=f"dataset-{strategy.value}-{kind.value}",
@@ -224,7 +240,7 @@ class Studio:
             structure_column="smiles",
             targets=targets
             or (TargetSpec(column="y", kind=kind, unit=unit, direction=Direction.HIGH),),
-            split=SplitSpec(strategy=strategy, seed=7),
+            split=split or SplitSpec(strategy=strategy, seed=7),
         )
         return (await self._create(command, self.auth)).unwrap()
 
@@ -238,6 +254,7 @@ class Studio:
         baseline_conditions: dict[str, object] | None = None,
         tune_cutoffs: bool = False,
         run_baseline: bool = True,
+        split_replicates: int = 0,
     ) -> Run:
         command = TrainProtocolCommand(
             name="a trained model",
@@ -248,6 +265,7 @@ class Studio:
             baseline_conditions=baseline_conditions or {},
             tune_cutoffs=tune_cutoffs,
             run_baseline=run_baseline,
+            split_replicates=split_replicates,
         )
         return (await self._train(command, self.auth)).unwrap()
 
@@ -1462,3 +1480,222 @@ async def test_no_baseline_predictions_without_a_second_model(studio: Studio) ->
 
     assert (await studio.scorecard_for(switched_off)).targets[0].baseline_predicted is None
     assert (await studio.scorecard_for(itself)).targets[0].baseline_predicted is None
+
+
+async def test_extra_draws_are_stored_per_target(studio: Studio) -> None:
+    """The spread has to be visible rather than inferred, same as the optimism gap."""
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD, csv=_wider_csv())
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, split_replicates=2
+    )
+    await studio.wait(run)
+
+    scorecard = await studio.scorecard_for(run)
+    # Offset from the Dataset's own seed of 7, and never 7 itself: that draw is already
+    # the headline, and repeating it would pull the spread toward zero.
+    assert scorecard.replicate_seeds == [8, 9]
+    assert scorecard.replicate_unavailable is None
+    target = scorecard.targets[0]
+    assert target.replicate_metrics is not None
+    assert set(target.replicate_metrics) == set(target.metrics)
+    for values in target.replicate_metrics.values():
+        # One entry per completed draw, always. A short list would make a lost draw
+        # and an undefined metric indistinguishable.
+        assert len(values) == len(scorecard.replicate_seeds)
+
+
+async def test_no_draws_requested_stores_nothing_and_explains_nothing(studio: Studio) -> None:
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD, csv=_wider_csv())
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={})
+    await studio.wait(run)
+
+    scorecard = await studio.scorecard_for(run)
+    assert scorecard.replicate_seeds is None
+    assert scorecard.targets[0].replicate_metrics is None
+    # Silent, not "not applicable": a user who did not ask for draws does not need to
+    # be told they did not get any.
+    assert scorecard.replicate_unavailable is None
+
+
+async def test_a_random_split_still_takes_draws(studio: Studio) -> None:
+    """A random split runs no optimism-gap leg and is still replicable. The draw legs
+    must not be read off the comparison leg."""
+    dataset = await studio.dataset(csv=_wider_csv())
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, split_replicates=2
+    )
+    await studio.wait(run)
+
+    scorecard = await studio.scorecard_for(run)
+    assert scorecard.replicate_seeds == [8, 9]
+    assert scorecard.targets[0].replicate_metrics is not None
+    assert scorecard.targets[0].random_split_metrics is None
+
+
+async def test_a_predefined_split_says_why_it_took_no_draws(studio: Studio) -> None:
+    dataset = await studio.dataset(
+        csv=_predefined_csv(),
+        split=SplitSpec(strategy=SplitStrategy.PREDEFINED, seed=7, column="partition"),
+    )
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, split_replicates=3
+    )
+    await studio.wait(run)
+
+    scorecard = await studio.scorecard_for(run)
+    assert scorecard.targets[0].replicate_metrics is None
+    assert scorecard.replicate_seeds is None
+    assert scorecard.replicate_unavailable is not None
+    # Reads as a correct, permanent state rather than a shortfall.
+    assert "your file" in scorecard.replicate_unavailable
+
+
+async def test_one_failed_draw_keeps_the_others_and_says_so(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Losing one draw of three must not discard the two that worked, and must not be
+    reported as though three had been measured."""
+    import daikonstudio.application.execution.train_protocol as module
+
+    real = module.assign_split
+
+    def explode_on_the_second_draw(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        # The draws reuse the Dataset's own strategy, so the seed is what tells them
+        # apart from the primary split and the gap leg (both seed 7).
+        if spec.seed == 9:
+            raise ValueError("that draw would not fit")
+        return real(frame, structure_column, spec, normalizer)
+
+    monkeypatch.setattr(module, "assign_split", explode_on_the_second_draw)
+
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD, csv=_wider_csv())
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, split_replicates=3
+    )
+    await studio.wait(run)
+
+    assert (await studio.reload(run)).status is RunStatus.READY
+    scorecard = await studio.scorecard_for(run)
+    assert scorecard.replicate_seeds == [8, 10]
+    target = scorecard.targets[0]
+    assert target.replicate_metrics is not None
+    for values in target.replicate_metrics.values():
+        assert len(values) == 2
+    assert scorecard.replicate_unavailable is not None
+    assert "2 of 3" in scorecard.replicate_unavailable
+    assert "that draw would not fit" in scorecard.replicate_unavailable
+
+
+async def test_every_draw_failing_leaves_the_honest_result_intact(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import daikonstudio.application.execution.train_protocol as module
+
+    real = module.assign_split
+
+    def explode_on_every_draw(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        # Seed 7 is the primary split and the gap leg; both must survive.
+        if spec.seed != 7:
+            raise ValueError("no draws for you")
+        return real(frame, structure_column, spec, normalizer)
+
+    monkeypatch.setattr(module, "assign_split", explode_on_every_draw)
+
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD, csv=_wider_csv())
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, split_replicates=2
+    )
+    await studio.wait(run)
+
+    assert (await studio.reload(run)).status is RunStatus.READY
+    scorecard = await studio.scorecard_for(run)
+    assert scorecard.replicate_seeds is None
+    assert scorecard.targets[0].replicate_metrics is None
+    assert scorecard.replicate_unavailable is not None
+    assert "no draws for you" in scorecard.replicate_unavailable
+    assert scorecard.targets[0].metrics and scorecard.targets[0].baseline_metrics
+    assert scorecard.targets[0].random_split_metrics is not None
+
+
+async def test_a_cancellation_inside_a_draw_fails_the_run(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Unlike any other failure in this leg. Recording a deadline or a cancel as a
+    missing draw would let the run succeed after the user asked it not to."""
+    import daikonstudio.application.execution.train_protocol as module
+
+    real = module.assign_split
+
+    def stop_at_the_first_draw(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        if spec.seed == 8:
+            raise RunInterrupted("limit", cancelled=False)
+        return real(frame, structure_column, spec, normalizer)
+
+    monkeypatch.setattr(module, "assign_split", stop_at_the_first_draw)
+
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD, csv=_wider_csv())
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, split_replicates=2
+    )
+
+    assert (await studio.reload(run)).status is RunStatus.FAILED
+
+
+async def test_a_retried_run_resumes_the_draws_it_already_took(
+    studio: Studio, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each draw gets its own checkpoint scope, so a run stopped part way through does
+    not repay for the draws already bought."""
+    import daikonstudio.application.execution.train_protocol as module
+
+    fitted: list[str] = []
+    for engine in (Ecfp4XGBoost, Ecfp4RandomForest):
+        original = engine.train
+
+        def counting(self, ctx, _original=original):  # type: ignore[no-untyped-def]
+            fitted.append(type(self).__name__)
+            return _original(self, ctx)
+
+        monkeypatch.setattr(engine, "train", counting)
+
+    real = module.assign_split
+
+    def stop_at_the_second_draw(frame, structure_column, spec, normalizer):  # type: ignore[no-untyped-def]
+        if spec.seed == 9:
+            raise RunInterrupted("limit", cancelled=False)
+        return real(frame, structure_column, spec, normalizer)
+
+    monkeypatch.setattr(module, "assign_split", stop_at_the_second_draw)
+
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD, csv=_wider_csv())
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, split_replicates=2
+    )
+    assert (await studio.reload(run)).status is RunStatus.FAILED
+    # The model, the baseline, the gap leg, and the first draw.
+    assert fitted == [
+        "Ecfp4XGBoost",
+        "Ecfp4RandomForest",
+        "Ecfp4XGBoost",
+        "Ecfp4XGBoost",
+    ]
+    saved = studio.blobs / checkpoint_root(studio.auth.workspace_id, dataset.id, run.id)
+    assert (saved / "replicate-0" / "result.json").exists()
+
+    monkeypatch.setattr(module, "assign_split", real)
+    fitted.clear()
+    retry = RetryRun(
+        studio.runs,
+        studio.protocols,
+        InlineEnqueuer(studio.sessions, studio.store, FakeProtocolAccess()),
+        default_registry(),
+        studio.store,
+        FakeProtocolAccess(),
+    )
+    (await retry(RetryRunCommand(run_id=run.id), studio.auth)).unwrap()
+
+    resumed = await studio.reload(run)
+    assert resumed.status is RunStatus.READY, resumed.error_message
+    assert fitted == ["Ecfp4XGBoost"]  # the second draw only
+    scorecard = await studio.scorecard_for(run)
+    assert scorecard.replicate_seeds == [8, 9]

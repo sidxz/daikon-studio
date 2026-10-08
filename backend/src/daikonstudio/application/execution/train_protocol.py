@@ -200,6 +200,12 @@ _CHECKPOINT_TIMEOUT_SECONDS = 30.0
 _CHOSEN_SPAN = (0.0, 0.6)
 _BASELINE_SPAN = (0.6, 0.7)
 _RANDOM_SPLIT_SPAN = (0.7, 0.95)
+#: What the random-split leg is squeezed into once extra draws also need room. Small
+#: because it is one fit against up to ten, and non-empty because that leg still
+#: reports progress -- a zero-width slice would move the bar backwards into draw one.
+_GAP_SPAN_WITH_REPLICATES = (0.7, 0.72)
+#: The scope prefix each extra draw's fit is checkpointed and reported under.
+_REPLICATE_SCOPE = "replicate-"
 # Prefixed to an engine's own progress text in the stages that are not the chosen
 # model's fit: with the baseline the same engine as the model, "Training Chemprop
 # D-MPNN" alone cannot say which of the three fits is running.
@@ -208,7 +214,26 @@ _STAGE_LABELS = {"baseline": "Baseline", "random-split": "Random-split compariso
 
 def _staged(scope: str, phase: str) -> str:
     stage = _STAGE_LABELS.get(scope)
+    if stage is None and scope.startswith(_REPLICATE_SCOPE):
+        # 1-based: the form promised "3 more draws", so the bar should not say "draw 0".
+        stage = f"Split draw {int(scope.removeprefix(_REPLICATE_SCOPE)) + 1}"
     return phase if stage is None else f"{stage}: {phase}"
+
+
+def _leg_spans(replicates: int) -> tuple[tuple[float, float], list[tuple[float, float]]]:
+    """The random-split leg's span, and one span per extra draw.
+
+    With no draws the gap keeps the whole band it has always had, so no existing run's
+    progress bar moves. With draws, the gap gives up most of it and the draws divide
+    the rest evenly -- monotonic, and no leg claiming progress it has not made.
+    """
+    if replicates <= 0:
+        return _RANDOM_SPLIT_SPAN, []
+    boundary = _GAP_SPAN_WITH_REPLICATES[1]
+    width = (_RANDOM_SPLIT_SPAN[1] - boundary) / replicates
+    return _GAP_SPAN_WITH_REPLICATES, [
+        (boundary + index * width, boundary + (index + 1) * width) for index in range(replicates)
+    ]
 
 
 class _EpochBuffer:
@@ -294,6 +319,14 @@ class TargetInputs:
     baseline_metrics: dict[str, float | None] | None
     random_split_metrics: dict[str, float | None] | None
     random_split_metrics_undefined: dict[str, str] | None
+    #: Metric name -> one value per completed draw, in `ScorecardInputs.replicate_seeds`
+    #: order. A null entry is a metric *that draw* could not define, which is why the
+    #: list is always as long as `replicate_seeds`: a short list would make a lost draw
+    #: and an undefined metric indistinguishable. Per-draw reasons are deliberately not
+    #: kept -- the count of nulls is what a reader acts on, and ten draws of repeated
+    #: sentences is blob weight for nothing. Defaulted so every blob written before
+    #: draws existed stays readable.
+    replicate_metrics: dict[str, list[float | None]] | None = None
     metrics_undefined: dict[str, str] | None
     duplicate_spread: float | None
     target_unit: str | None
@@ -355,6 +388,16 @@ class ScorecardInputs:
     baseline_conditions: dict[str, Any] = field(default_factory=dict)
     baseline_is_self: bool
     random_split_unavailable: str | None
+    #: The seeds whose draws completed, in the order their values appear in every
+    #: target's `replicate_metrics`. Run-level for the reason `structures` is: one
+    #: re-split serves every target, so a per-target copy would be the same list
+    #: repeated, with the standing risk of the copies disagreeing.
+    replicate_seeds: list[int] | None = None
+    #: Why some or all of the requested draws are missing; `None` when every one asked
+    #: for completed, and also when none was asked for. Set even when some draws *did*
+    #: complete -- a spread over two draws out of five is not what was requested, and
+    #: rendering it unqualified would assert a measurement that did not happen.
+    replicate_unavailable: str | None = None
     split_strategy: str
     #: Whether the Dataset's rows were deduplicated, copied here at training time for
     #: the same reason `split_strategy` is: the Scorecard is built from this blob and
@@ -506,6 +549,21 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
 #: random re-split, which is what makes the optimism gap a measurement rather than an
 #: assertion.
 _COMPARISON_LEGS = 2
+
+#: Why a split cannot be drawn a second time, per strategy. Two sentences because these
+#: are two different states: a predefined split is working as intended and has no seed
+#: to vary, while a homology split could be drawn again if the worker were given a
+#: clusterer. Telling someone who supplied a benchmark's own split that we "do not
+#: support" their choice would be plainly false.
+_UNREPLICABLE_REASONS = {
+    SplitStrategy.PREDEFINED: (
+        "Not applicable: the partitions come from a column in your file, so there is "
+        "no second draw to take."
+    ),
+    SplitStrategy.IDENTITY: (
+        "Extra draws are not available yet for splits grouped by protein family."
+    ),
+}
 
 #: What counts as "in the subset" in a flag column, and what counts as out of it.
 #: Everything arrives as text, because the snapshot keeps what the upload held, so this
@@ -919,8 +977,16 @@ class RunTraining:
                 scope="baseline",
             )
 
+        # One place decides how the band is divided, so the gap leg and the draws
+        # cannot each believe they own all of it.
+        gap_span, replicate_spans = _leg_spans(
+            command.split_replicates if is_replicable(dataset.split.strategy) else 0
+        )
         random_split, random_split_unavailable = await self._optimism_gap(
-            run, engine, dataset, targets, conditions, frame, command
+            run, engine, dataset, targets, conditions, frame, command, gap_span
+        )
+        replicates, replicate_seeds, replicate_unavailable = await self._replicates(
+            run, engine, dataset, targets, conditions, frame, command, replicate_spans
         )
 
         train_rows = frame.filter(pl.col("split") == "train")
@@ -972,6 +1038,7 @@ class RunTraining:
                 else (None, set())
             )
             gap = random_split.get(target.column) if random_split is not None else None
+            draws = replicates.get(target.column) if replicates is not None else None
             # `predict` returns one row per (compound, target); this target's rows, in
             # test-set order, line up with `actual` below.
             predicted = predictions.filter(pl.col("target") == target.column).sort("row_id")
@@ -1006,6 +1073,7 @@ class RunTraining:
                     baseline_metrics=baseline_metrics,
                     random_split_metrics=gap[0] if gap is not None else None,
                     random_split_metrics_undefined=gap[1] if gap is not None else None,
+                    replicate_metrics=draws,
                     metrics_undefined=_undefined_reasons(
                         undefined | baseline_undefined, target.column, train_rows, test_rows
                     ),
@@ -1050,6 +1118,8 @@ class RunTraining:
             baseline_conditions=baseline_conditions,
             baseline_is_self=baseline_is_self,
             random_split_unavailable=random_split_unavailable,
+            replicate_seeds=replicate_seeds,
+            replicate_unavailable=replicate_unavailable,
             split_strategy=dataset.split.strategy.value,
             deduplicated=dataset.validation_report.deduplicated,
             subset_column=command.subset_column,
@@ -1201,6 +1271,7 @@ class RunTraining:
         conditions: dict[str, object],
         frame: pl.DataFrame,
         command: TrainProtocolCommand,
+        span: tuple[float, float],
     ) -> tuple[
         dict[str, tuple[dict[str, float | None], dict[str, str] | None]] | None, str | None
     ]:
@@ -1241,9 +1312,7 @@ class RunTraining:
         # comparison. Swallowing it would leave the aggregate's in-memory version
         # out of step with the row and turn a database problem into a missing
         # optimism gap.
-        await self._progress(
-            run, _RANDOM_SPLIT_SPAN[0], "Training on a random split for comparison"
-        )
+        await self._progress(run, span[0], "Training on a random split for comparison")
         try:
             # Same seed, and the same partition *sizes* the Dataset actually got, so
             # the only variable between the two numbers is the split *strategy* --
@@ -1264,7 +1333,7 @@ class RunTraining:
                         fractions=comparison_fractions(frame, dataset.split),
                     ),
                     scope="random-split",
-                    span=_RANDOM_SPLIT_SPAN,
+                    span=span,
                 ),
                 None,
             )
@@ -1285,6 +1354,100 @@ class RunTraining:
             # Not silent: `random_split_unavailable` is what stops the Scorecard
             # showing an absent gap and a not-applicable gap identically.
             return None, user_facing_error(exc)
+
+    async def _replicates(
+        self,
+        run: Run,
+        engine: Engine,
+        dataset: Dataset,
+        targets: dict[str, TaskType],
+        conditions: dict[str, object],
+        frame: pl.DataFrame,
+        command: TrainProtocolCommand,
+        spans: list[tuple[float, float]],
+    ) -> tuple[dict[str, dict[str, list[float | None]]] | None, list[int] | None, str | None]:
+        """The chosen engine refitted on N reseeded draws of the same split.
+
+        The strategy is held fixed and only the seed moves, which is the whole
+        question: how much of the score is the model, and how much is which compounds
+        happened to land in the test set. The *training* seed is untouched --
+        `_train_off_thread` always passes `dataset.split.seed` -- so a draw varies the
+        split and nothing else. Published measurement puts split noise several times
+        above initialisation noise, and varying both would measure their sum.
+
+        Returns `(per target: metric -> values, completed seeds, unavailable_reason)`.
+
+        Failure is per draw, not per leg. A reseeded split can legitimately produce a
+        partition the engine cannot fit, and discarding four good draws because the
+        fifth raised would throw the measurement away to protect its completeness.
+        """
+        if not command.split_replicates:
+            # Not requested, so nothing to report and nothing to explain. Silent,
+            # unlike the refusal below: someone who did not ask for draws does not need
+            # to be told they did not get any.
+            return None, None, None
+        if not is_replicable(dataset.split.strategy):
+            return (
+                None,
+                None,
+                _UNREPLICABLE_REASONS.get(
+                    dataset.split.strategy, "This split cannot be drawn a second time."
+                ),
+            )
+
+        per_target: dict[str, dict[str, list[float | None]]] = {column: {} for column in targets}
+        seeds: list[int] = []
+        failure: str | None = None
+        for index, span in enumerate(spans):
+            # Offset from the Dataset's own seed so the draws are reproducible from the
+            # Dataset alone, and `+ 1` so no draw repeats the split the headline already
+            # reports -- a repeated draw would pull the spread toward zero.
+            seed = dataset.split.seed + index + 1
+            # Outside the try, as in `_optimism_gap`: this writes to the Run row, and a
+            # failure here is a persistence problem with the run rather than a failure
+            # of the draw.
+            await self._progress(
+                run, span[0], f"Training on split draw {index + 1} of {len(spans)}"
+            )
+            try:
+                measured = await self._comparison_fit(
+                    run,
+                    engine,
+                    dataset,
+                    targets,
+                    conditions,
+                    frame,
+                    spec=SplitSpec(
+                        strategy=dataset.split.strategy,
+                        seed=seed,
+                        fractions=dataset.split.fractions,
+                    ),
+                    scope=f"{_REPLICATE_SCOPE}{index}",
+                    span=span,
+                )
+            except RunInterrupted:
+                # Not degradable, for the reason `_optimism_gap` gives: a cancellation
+                # or a deadline means stop, and recording it as a missing draw would let
+                # the run succeed after the user asked it not to.
+                raise
+            except Exception as exc:
+                # This draw only. The loop continues, and the reason is reported even
+                # when later draws succeed.
+                logger.warning("Split draw %d did not fit; dropping it.", index, exc_info=True)
+                failure = user_facing_error(exc)
+                continue
+            seeds.append(seed)
+            for column, (metrics, _reasons) in measured.items():
+                for name, value in metrics.items():
+                    per_target[column].setdefault(name, []).append(value)
+        if not seeds:
+            return None, None, failure or "No split draw completed."
+        if failure is not None:
+            failure = (
+                f"{len(seeds)} of {command.split_replicates} split draws completed. "
+                f"The rest did not: {failure}"
+            )
+        return per_target, seeds, failure
 
     async def _fit(
         self,
