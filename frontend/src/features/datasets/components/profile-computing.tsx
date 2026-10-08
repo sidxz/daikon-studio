@@ -21,9 +21,12 @@ export function elapsedLabel(startedAt: number, now: number): string {
 export function ProfileComputing({
   startedAt,
   compounds,
+  structureKind,
 }: {
   startedAt: string;
   compounds: number;
+  /** None of the chemistry below is computed for a sequence dataset, so it is not named. */
+  structureKind?: string;
 }) {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -35,12 +38,14 @@ export function ProfileComputing({
     <Card>
       <CardHeader>
         <CardTitle className="text-base">
-          Profiling {compounds.toLocaleString()} compounds
+          Profiling {compounds.toLocaleString()}{" "}
+          {structureKind === "sequence" ? "sequences" : "compounds"}
         </CardTitle>
         <p className="text-sm text-muted-foreground">
-          Computing physicochemical descriptors, Bemis–Murcko scaffolds, test-to-training
-          similarity, and activity cliffs. This runs once per dataset; the result is saved, and
-          later visits open instantly.
+          {structureKind === "sequence"
+            ? "Reading the target distribution and working out which residue positions vary."
+            : "Computing physicochemical descriptors, Bemis–Murcko scaffolds, test-to-training similarity, and activity cliffs."}{" "}
+          This runs once per dataset; the result is saved, and later visits open instantly.
         </p>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">

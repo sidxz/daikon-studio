@@ -7,6 +7,7 @@ import type { DatasetProfileResponseTargetDistribution } from './datasetProfileR
 import type { ClassBalanceResponse } from './classBalanceResponse';
 import type { DatasetProfileResponseSimilarity } from './datasetProfileResponseSimilarity';
 import type { DatasetProfileResponseScaffolds } from './datasetProfileResponseScaffolds';
+import type { DatasetProfileResponseVariants } from './datasetProfileResponseVariants';
 import type { DescriptorProfileResponse } from './descriptorProfileResponse';
 import type { DatasetProfileResponseBestDescriptor } from './datasetProfileResponseBestDescriptor';
 import type { ActivityCliffResponse } from './activityCliffResponse';
@@ -40,6 +41,7 @@ export interface DatasetProfileResponse {
   class_balance: ClassBalanceResponse[];
   similarity: DatasetProfileResponseSimilarity;
   scaffolds: DatasetProfileResponseScaffolds;
+  variants?: DatasetProfileResponseVariants;
   descriptors: DescriptorProfileResponse[];
   best_descriptor: DatasetProfileResponseBestDescriptor;
   activity_cliffs: ActivityCliffResponse[];

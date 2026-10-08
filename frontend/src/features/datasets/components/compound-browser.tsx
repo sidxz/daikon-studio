@@ -16,6 +16,7 @@ import {
 } from "@/shared/components/ui/table";
 import { ArrowDown, ArrowUp } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useDatasetProfile } from "../hooks/use-datasets";
 import { useDatasetCompounds } from "../hooks/use-datasets";
 import type { Dataset } from "../types";
 
@@ -35,6 +36,12 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
   // A sequence dataset has no 2D depiction to draw and no SMILES to name. Drawing
   // one anyway hands RDKit a protein and renders whatever comes back.
   const isSequence = dataset.validation_report?.structure_kind === "sequence";
+  // The parent sequence, so a row can show what it changed instead of 286 characters
+  // truncated at the same place for every variant. Shares react-query's cache with the
+  // Diversity tab, so this costs no extra request.
+  const profile = useDatasetProfile(isSequence ? dataset.id : undefined);
+  const consensus =
+    profile.data && "variants" in profile.data ? profile.data.variants?.consensus : undefined;
   const [offset, setOffset] = useState(0);
   const [descending, setDescending] = useState(false);
   const [sortTarget, setSortTarget] = useState(0);
@@ -179,7 +186,11 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
                     </TableCell>
                   )}
                   <TableCell className="max-w-[1px] truncate font-mono text-xs text-muted-foreground">
-                    {compound.structure}
+                    {consensus ? (
+                      <MutationInContext sequence={compound.structure} consensus={consensus} />
+                    ) : (
+                      compound.structure
+                    )}
                   </TableCell>
                   {dataset.targets.map((target) => (
                     <TableCell key={target.column} className="text-right">
@@ -226,5 +237,48 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * A variant shown as what it changed, not as its first forty residues.
+ *
+ * Every variant of one parent is identical for hundreds of characters, so a truncated
+ * sequence column renders every row the same -- technically the data, and useless. This
+ * diffs against the parent and shows the substitution in context. Falling back to the
+ * raw text matters: a row differing at many positions has no single mutation to point
+ * at, and inventing one would be worse than showing the sequence.
+ */
+function MutationInContext({ sequence, consensus }: { sequence: string; consensus: string }) {
+  if (sequence.length !== consensus.length) return <>{sequence}</>;
+  const differing: number[] = [];
+  for (let i = 0; i < sequence.length && differing.length < 3; i++) {
+    if (sequence[i] !== consensus[i]) differing.push(i);
+  }
+  if (differing.length === 0) return <span className="text-muted-foreground">parent sequence</span>;
+  if (differing.length > 2) return <>{sequence}</>;
+
+  const flank = 6;
+  return (
+    <span className="whitespace-nowrap">
+      {differing.map((index, order) => (
+        <span key={index}>
+          {order > 0 && <span className="px-1 text-muted-foreground">·</span>}
+          <span className="text-muted-foreground">
+            {index > flank ? "…" : ""}
+            {consensus.slice(Math.max(0, index - flank), index)}
+          </span>
+          <span className="rounded bg-primary/10 px-1 font-semibold text-foreground">
+            {consensus[index]}
+            {index + 1}
+            {sequence[index]}
+          </span>
+          <span className="text-muted-foreground">
+            {consensus.slice(index + 1, index + 1 + flank)}
+            {index + 1 + flank < consensus.length ? "…" : ""}
+          </span>
+        </span>
+      ))}
+    </span>
   );
 }

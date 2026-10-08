@@ -129,6 +129,46 @@ class ScaffoldEntry:
 
 
 @dataclass(frozen=True, kw_only=True)
+class VariantPosition:
+    """One residue position that varies, and how its variants fall across partitions.
+
+    `position` is 1-indexed, the way a mutation is written and read (V31H is position
+    31, not 30).
+    """
+
+    position: int
+    train: int
+    validation: int
+    test: int
+
+
+@dataclass(frozen=True, kw_only=True)
+class VariantProfile:
+    """Where a single-parent variant series actually varies.
+
+    The sequence answer to the question the scaffold section answers for molecules:
+    what is this dataset made of, and did the split do what it claims? A position
+    appearing in two partitions is the same integrity failure as a scaffold spanning
+    them -- train on V31H and test on V31D and the model has already seen that site vary.
+
+    Only positions that differ from the consensus appear. `consensus` is the parent
+    sequence, taken as the per-position modal residue, which is what a reader needs to
+    say what a variant changed *to* and *from*.
+    """
+
+    consensus: str
+    positions: list[VariantPosition]
+    #: Rows identical to the consensus -- the wild type, if it was measured.
+    unchanged_rows: int
+    #: Rows differing at more than one position. A series of these is still a valid
+    #: dataset, but "the mutation" stops being a single thing a reader can point at.
+    multi_mutant_rows: int
+    #: Positions held out of training entirely. The number the position split exists to
+    #: make non-zero, and the one worth reading next to the headline metric.
+    held_out_positions: int
+
+
+@dataclass(frozen=True, kw_only=True)
 class ScaffoldProfile:
     """Bemis-Murcko scaffold composition.
 
@@ -226,6 +266,9 @@ class DatasetProfile:
     # about a question that was never meaningful. Same reasoning for `similarity`,
     # `descriptors` and `activity_cliffs` below, all of which key off Tanimoto or RDKit.
     scaffolds: ScaffoldProfile | None = None
+    #: Present only for a sequence dataset whose rows are variants of one parent, and
+    #: `None` for molecules or for sequences too ragged to share a consensus.
+    variants: VariantProfile | None = None
     descriptors: list[DescriptorProfile] = field(default_factory=list)
     best_descriptor: str | None = None
     activity_cliffs: list[ActivityCliff] = field(default_factory=list)
@@ -245,7 +288,12 @@ class DatasetProfile:
 #: number with nothing to indicate it was stale. A shape change would have been
 #: caught by `profile_from_dict` raising; a *value* change is invisible without
 #: this.
-PROFILE_VERSION = 2
+# 3: the variant-position section. A bump is needed for an added section and not just a
+# changed number -- a cached v2 profile is still internally correct, but it has no
+# `variants` key and never will, so the map would stay blank forever on every dataset
+# profiled before this. Making `scaffolds` optional in the same branch did *not* need
+# one: that only removed a section, and an old profile that still carries it reads fine.
+PROFILE_VERSION = 3
 
 
 def profile_to_dict(profile: DatasetProfile) -> dict[str, Any]:
@@ -315,6 +363,25 @@ def profile_to_dict(profile: DatasetProfile) -> dict[str, Any]:
             if profile.scaffolds
             else None
         ),
+        "variants": (
+            {
+                "consensus": profile.variants.consensus,
+                "positions": [
+                    {
+                        "position": entry.position,
+                        "train": entry.train,
+                        "validation": entry.validation,
+                        "test": entry.test,
+                    }
+                    for entry in profile.variants.positions
+                ],
+                "unchanged_rows": profile.variants.unchanged_rows,
+                "multi_mutant_rows": profile.variants.multi_mutant_rows,
+                "held_out_positions": profile.variants.held_out_positions,
+            }
+            if profile.variants
+            else None
+        ),
         "descriptors": [
             {
                 "name": d.name,
@@ -360,6 +427,7 @@ def profile_from_dict(data: dict[str, Any]) -> DatasetProfile:
     similarity = data.get("similarity")
     # `.get`, not `[...]`: a sequence dataset has no scaffold section at all.
     scaffolds = data.get("scaffolds")
+    variants = data.get("variants")
     return DatasetProfile(
         compounds=data["compounds"],
         partition_counts=data["partition_counts"],
@@ -404,6 +472,25 @@ def profile_from_dict(data: dict[str, Any]) -> DatasetProfile:
                 cross_split_compounds=scaffolds["cross_split_compounds"],
             )
             if scaffolds
+            else None
+        ),
+        variants=(
+            VariantProfile(
+                consensus=variants["consensus"],
+                positions=[
+                    VariantPosition(
+                        position=entry["position"],
+                        train=entry["train"],
+                        validation=entry["validation"],
+                        test=entry["test"],
+                    )
+                    for entry in variants["positions"]
+                ],
+                unchanged_rows=variants["unchanged_rows"],
+                multi_mutant_rows=variants["multi_mutant_rows"],
+                held_out_positions=variants["held_out_positions"],
+            )
+            if variants
             else None
         ),
         descriptors=[

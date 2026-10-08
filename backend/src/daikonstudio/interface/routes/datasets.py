@@ -374,6 +374,28 @@ class ScaffoldProfileResponse(BaseModel):
     cross_split_compounds: int
 
 
+class VariantPositionResponse(BaseModel):
+    position: int
+    train: int
+    validation: int
+    test: int
+
+
+class VariantProfileResponse(BaseModel):
+    """Where a single-parent variant series varies. Present only for sequences.
+
+    The sequence counterpart of `scaffolds`, and read the same way: `positions` is the
+    composition of the dataset, and a position appearing in both training and test is
+    the same integrity failure a scaffold spanning partitions would be.
+    """
+
+    consensus: str
+    positions: list[VariantPositionResponse]
+    unchanged_rows: int
+    multi_mutant_rows: int
+    held_out_positions: int
+
+
 class DescriptorProfileResponse(BaseModel):
     name: str
     histogram: SplitHistogramResponse
@@ -418,6 +440,7 @@ class DatasetProfileResponse(BaseModel):
     class_balance: list[ClassBalanceResponse]
     similarity: SimilarityProfileResponse | None
     scaffolds: ScaffoldProfileResponse | None
+    variants: VariantProfileResponse | None = None
     descriptors: list[DescriptorProfileResponse]
     best_descriptor: str | None
     activity_cliffs: list[ActivityCliffResponse]

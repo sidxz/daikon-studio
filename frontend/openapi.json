@@ -5020,6 +5020,16 @@
               }
             ]
           },
+          "variants": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VariantProfileResponse"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "descriptors": {
             "items": {
               "$ref": "#/components/schemas/DescriptorProfileResponse"
@@ -9118,6 +9128,71 @@
         ],
         "title": "ValidationReportWire",
         "description": "Mirrors `ValidationReport` (`domain/data/validation.py`).\n\n`invalid`/`conflicting` type straight to the domain's own `InvalidRow`/\n`ConflictRow` frozen dataclasses -- pydantic validates and serializes\nplain dataclasses natively, so a dedicated wire mirror for each would be\npure duplication of fields that carry no enum and need no cast."
+      },
+      "VariantPositionResponse": {
+        "properties": {
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "train": {
+            "type": "integer",
+            "title": "Train"
+          },
+          "validation": {
+            "type": "integer",
+            "title": "Validation"
+          },
+          "test": {
+            "type": "integer",
+            "title": "Test"
+          }
+        },
+        "type": "object",
+        "required": [
+          "position",
+          "train",
+          "validation",
+          "test"
+        ],
+        "title": "VariantPositionResponse"
+      },
+      "VariantProfileResponse": {
+        "properties": {
+          "consensus": {
+            "type": "string",
+            "title": "Consensus"
+          },
+          "positions": {
+            "items": {
+              "$ref": "#/components/schemas/VariantPositionResponse"
+            },
+            "type": "array",
+            "title": "Positions"
+          },
+          "unchanged_rows": {
+            "type": "integer",
+            "title": "Unchanged Rows"
+          },
+          "multi_mutant_rows": {
+            "type": "integer",
+            "title": "Multi Mutant Rows"
+          },
+          "held_out_positions": {
+            "type": "integer",
+            "title": "Held Out Positions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "consensus",
+          "positions",
+          "unchanged_rows",
+          "multi_mutant_rows",
+          "held_out_positions"
+        ],
+        "title": "VariantProfileResponse",
+        "description": "Where a single-parent variant series varies. Present only for sequences.\n\nThe sequence counterpart of `scaffolds`, and read the same way: `positions` is the\ncomposition of the dataset, and a position appearing in both training and test is\nthe same integrity failure a scaffold spanning partitions would be."
       },
       "WorstRowResponse": {
         "properties": {

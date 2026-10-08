@@ -9,6 +9,8 @@ vi.mock("@/shared/components/chemistry/structure-thumbnail", () => ({
   StructureThumbnail: () => null,
 }));
 vi.mock("../hooks/use-datasets", () => ({
+  // Molecule fixtures, so there is no consensus and the sequence view stays off.
+  useDatasetProfile: () => ({ data: undefined, isLoading: false, isError: false }),
   useDatasetCompounds: (_id: string, query: Record<string, unknown>) => {
     hoisted.queries.push(query);
     return {

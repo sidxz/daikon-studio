@@ -30,6 +30,8 @@ from daikonstudio.domain.data.profile import (
     SimilarityProfile,
     SplitHistogram,
     TargetDistribution,
+    VariantPosition,
+    VariantProfile,
 )
 from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
@@ -129,6 +131,7 @@ def build_profile(
             _similarity(structures, train_index, test_index, normalizer) if chemistry else None
         ),
         scaffolds=_scaffolds(structures, splits, normalizer) if chemistry else None,
+        variants=None if chemistry else _variants(structures, splits),
         descriptors=descriptors,
         best_descriptor=_best_descriptor(descriptors) if chemistry else None,
         activity_cliffs=(
@@ -398,3 +401,57 @@ def _activity_cliffs(
     else:
         cliffs.sort(key=lambda cliff: cliff.delta, reverse=True)
     return cliffs[:_CLIFF_RESULTS]
+
+
+def _variants(sequences: list[str], splits: list[str]) -> VariantProfile | None:
+    """Which residue positions vary, and how their variants fall across partitions.
+
+    `None` for a ragged series. Equal length is what makes "position 31" mean the same
+    thing in every row, and without it a position map would be lining up residues that
+    are not comparable -- a picture that reads as a measurement and is not one.
+    """
+    if not sequences:
+        return None
+    length = len(sequences[0])
+    if length == 0 or any(len(sequence) != length for sequence in sequences):
+        return None
+
+    # The parent is the per-position modal residue, with the tie broken on the residue
+    # letter so the consensus is a pure function of the data and not of row order --
+    # the same rule `assign_split._consensus` uses, and for the same reason.
+    columns = list(zip(*sequences, strict=True))
+    consensus = "".join(
+        max(set(column), key=lambda residue: (column.count(residue), residue))
+        for column in columns
+    )
+
+    counts: dict[int, dict[str, int]] = {}
+    unchanged = 0
+    multi = 0
+    for sequence, split in zip(sequences, splits, strict=True):
+        differing = [i for i, (a, b) in enumerate(zip(sequence, consensus, strict=True)) if a != b]
+        if not differing:
+            unchanged += 1
+        elif len(differing) > 1:
+            multi += 1
+        for index in differing:
+            tally = counts.setdefault(index, {"train": 0, "validation": 0, "test": 0})
+            if split in tally:
+                tally[split] += 1
+
+    positions = [
+        VariantPosition(
+            position=index + 1,
+            train=tally["train"],
+            validation=tally["validation"],
+            test=tally["test"],
+        )
+        for index, tally in sorted(counts.items())
+    ]
+    return VariantProfile(
+        consensus=consensus,
+        positions=positions,
+        unchanged_rows=unchanged,
+        multi_mutant_rows=multi,
+        held_out_positions=sum(1 for p in positions if p.train == 0),
+    )
