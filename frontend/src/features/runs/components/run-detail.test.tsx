@@ -56,6 +56,7 @@ vi.mock("@/shared/lib/app-config", () => ({
 }));
 vi.mock("./run-chemical-space", () => ({ RunChemicalSpace: () => null }));
 vi.mock("./triage-grid", () => ({ TriageGrid: () => null }));
+vi.mock("@/features/pages", () => ({ NotebookPanel: () => null }));
 
 function stoppedRun(kind: string, status = "failed") {
   return {

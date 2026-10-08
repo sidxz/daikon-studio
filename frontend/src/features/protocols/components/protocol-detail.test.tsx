@@ -49,6 +49,8 @@ vi.mock("@/shared/lib/stores/breadcrumb-store", () => ({ useBreadcrumbTrail: () 
 vi.mock("./delete-protocol-button", () => ({ DeleteProtocolButton: () => null }));
 vi.mock("./protocol-chemical-space", () => ({ ProtocolChemicalSpace: () => null }));
 vi.mock("./protocol-runs", () => ({ ProtocolRuns: () => null }));
+vi.mock("@/features/pages", () => ({ NotebookPanel: () => null }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
 
 beforeEach(() => {
   hoisted.result.current = { data: protocol, isLoading: false, isError: false };
