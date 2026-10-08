@@ -134,7 +134,12 @@ function TableGridPicker({ editor }: { editor: Editor }) {
           <TableIcon />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-auto p-2">
+      {/* Keep focus where the action put it (the editor), not back on the trigger. */}
+      <PopoverContent
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        align="start"
+        className="w-auto p-2"
+      >
         <div
           className="grid gap-1"
           style={{ gridTemplateColumns: `repeat(${GRID_COLS}, 1.25rem)` }}
@@ -223,7 +228,12 @@ function LinkControl({ editor, active }: { editor: Editor; active: boolean }) {
           <LinkIcon />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-72 space-y-2 p-3">
+      {/* Keep focus where the action put it (the editor), not back on the trigger. */}
+      <PopoverContent
+        onCloseAutoFocus={(e) => e.preventDefault()}
+        align="start"
+        className="w-72 space-y-2 p-3"
+      >
         <Input
           autoFocus
           placeholder="https://…"
