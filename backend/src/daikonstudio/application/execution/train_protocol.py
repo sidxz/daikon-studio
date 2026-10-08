@@ -1332,21 +1332,27 @@ def _undefined_reasons(
     """Why those metrics are undefined, in words a scientist can act on.
 
     Derived from the split that produced them rather than guessed: the reason a
-    classification metric has no value is almost always that one side of the
-    split holds a single class, and which side it is changes what the scientist
-    should do about it.
+    metric has no value is almost always that one side of the split holds a
+    single value, and which side it is changes what the scientist should do
+    about it.
+
+    Worded for either task. This used to say "class", which was safe while every
+    metric that could be undefined was a classification metric. Spearman is not:
+    a rank correlation needs an order on both sides, so a regression target
+    whose test rows all read the same reaches this function too, and there is no
+    missing class to go and find.
     """
     if not undefined:
         return None
     if test_rows[column].n_unique() < 2:
         reason = (
             f"Undefined: all test-set compounds have the same '{column}' value. Add "
-            "compounds of the missing class, or use a different split."
+            f"compounds with a different '{column}', or use a different split."
         )
     elif train_rows[column].n_unique() < 2:
         reason = (
             f"Undefined: all training-set compounds have the same '{column}' value, so "
-            "the model learned only one class."
+            "the model saw no variation to learn from."
         )
     else:
         # Not a case this function can explain from the split alone. Say that,

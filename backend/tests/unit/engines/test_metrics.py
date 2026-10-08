@@ -45,6 +45,17 @@ def test_spearman_reads_a_monotonic_fit_that_r2_calls_poor() -> None:
     assert metrics["r2"] < 0.0
 
 
+def test_spearman_needs_three_points_because_two_are_always_perfect() -> None:
+    """Two points rank [1,2] against [1,2] or [2,1], so the correlation is +1 or
+    -1 by construction and says nothing about the model. A 20-row upload splits
+    80/10/10 into a two-row test set, so this is a real card, not a contrived
+    one, and it would read "Spearman 1.000 -- a perfect ranking"."""
+    metrics = regression_metrics(np.array([1.0, 2.0]), np.array([9.0, 4.0]))
+
+    assert math.isnan(metrics["spearman"])
+    assert not math.isnan(metrics["rmse"])
+
+
 def test_spearman_is_nan_when_one_side_is_constant() -> None:
     """A constant has no rank order. NaN, not 0.0, which would read as
     "measured, and unrelated" -- the same convention the undefined

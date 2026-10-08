@@ -105,15 +105,23 @@ def _undefined_classification_metrics() -> dict[str, float]:
 def _spearman(y_true: np.ndarray, predicted: np.ndarray) -> float:
     """Rank correlation between measured and predicted, or NaN when undefined.
 
-    NaN rather than 0.0 for the undefined cases -- fewer than two points, or a
-    constant on either side -- because 0.0 reads as "measured, and unrelated".
-    That is the convention `_undefined_classification_metrics` already uses.
-    Polars rather than scipy: polars is a declared dependency and scipy is only
-    present transitively through scikit-learn.
+    NaN rather than 0.0 for the undefined cases -- fewer than three points, or
+    a constant on either side -- because 0.0 reads as "measured, and
+    unrelated". That is the convention `_undefined_classification_metrics`
+    already uses. Polars rather than scipy: polars is a declared dependency and
+    scipy is only present transitively through scikit-learn.
+
+    Three, not two, and the floor matters. Two points rank [1,2] against [1,2]
+    or [2,1], so the correlation is forced to +1 or -1 and carries nothing about
+    the model -- a constant dressed as a perfect score, on a card whose own
+    description reads "1 is a perfect ranking". An 80/10/10 split of a 20-row
+    upload has a two-row test set, so that card is reachable by uploading a
+    small file. `application/data/build_profile.py` sets the same floor for the
+    same statistic and the same reason.
     """
     usable = np.isfinite(y_true) & np.isfinite(predicted)
     left, right = y_true[usable], predicted[usable]
-    if left.size < 2 or np.unique(left).size < 2 or np.unique(right).size < 2:
+    if left.size < 3 or np.unique(left).size < 2 or np.unique(right).size < 2:
         return float("nan")
     correlation = pl.DataFrame({"measured": left, "predicted": right}).select(
         pl.corr("measured", "predicted", method="spearman")
