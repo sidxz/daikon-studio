@@ -18,5 +18,10 @@ export interface TrainProtocolBody {
   tune_cutoffs?: boolean;
   run_baseline?: boolean;
   optimism_gap?: boolean;
+  /**
+   * @minimum 0
+   * @maximum 10
+   */
+  split_replicates?: number;
   subset_column?: TrainProtocolBodySubsetColumn;
 }

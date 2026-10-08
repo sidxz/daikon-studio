@@ -382,3 +382,116 @@ describe("signed", () => {
     expect(signed(0)).toBe("0.000");
   });
 });
+
+describe("the spread across split draws", () => {
+  it("demotes a lead smaller than twice the spread", () => {
+    const v = computeVerdict(
+      scorecard({
+        primary_metric: "mcc",
+        metrics: { mcc: 0.52 },
+        baseline_metrics: { mcc: 0.5 },
+        replicate_summary: { mcc: { mean: 0.51, sd: 0.04, n: 5 } },
+        replicate_seeds: [2, 3, 4, 5, 6],
+      }),
+    );
+
+    expect(v.kind).toBe("within-noise");
+    expect(v.headline).toMatch(/split/i);
+    expect(v.splitSpread).toBeCloseTo(0.04);
+  });
+
+  it("keeps a lead bigger than twice the spread", () => {
+    const v = computeVerdict(
+      scorecard({
+        primary_metric: "mcc",
+        metrics: { mcc: 0.7 },
+        baseline_metrics: { mcc: 0.5 },
+        replicate_summary: { mcc: { mean: 0.69, sd: 0.02, n: 5 } },
+        replicate_seeds: [2, 3, 4, 5, 6],
+      }),
+    );
+
+    expect(v.kind).toBe("beats");
+  });
+
+  it("ignores a spread measured from a single usable draw", () => {
+    // One draw carries no spread, so the older checks decide rather than a null
+    // being read as zero and every lead surviving.
+    const v = computeVerdict(
+      scorecard({
+        primary_metric: "mcc",
+        metrics: { mcc: 0.52 },
+        baseline_metrics: { mcc: 0.5 },
+        replicate_summary: { mcc: { mean: 0.52, sd: null, n: 1 } },
+        replicate_seeds: [2],
+      }),
+    );
+
+    expect(v.splitSpread ?? null).toBeNull();
+    expect(v.kind).toBe("beats");
+  });
+
+  it("ignores a spread for a metric the draws never defined", () => {
+    const v = computeVerdict(
+      scorecard({
+        primary_metric: "mcc",
+        metrics: { mcc: 0.52 },
+        baseline_metrics: { mcc: 0.5 },
+        replicate_summary: { mcc: { mean: null, sd: null, n: 0 } },
+        replicate_seeds: [2, 3],
+      }),
+    );
+
+    expect(v.splitSpread ?? null).toBeNull();
+    expect(v.kind).toBe("beats");
+  });
+
+  it("reads exactly as before when no draws were taken", () => {
+    const withoutDraws = scorecard({
+      primary_metric: "mcc",
+      metrics: { mcc: 0.7 },
+      baseline_metrics: { mcc: 0.5 },
+    });
+
+    expect(computeVerdict(withoutDraws).kind).toBe("beats");
+    expect(computeVerdict(withoutDraws).splitSpread ?? null).toBeNull();
+  });
+
+  it("reports assay noise ahead of the split spread when both apply", () => {
+    // An error metric inside the assay's own measurement error is not a lead at any
+    // split, so the more fundamental reason is the one shown.
+    const v = computeVerdict(
+      scorecard({
+        primary_metric: "rmse",
+        metrics: { rmse: 0.5 },
+        baseline_metrics: { rmse: 0.52 },
+        noise_floor: 0.1,
+        replicate_summary: { rmse: { mean: 0.5, sd: 0.2, n: 5 } },
+        replicate_seeds: [2, 3, 4, 5, 6],
+      }),
+    );
+
+    expect(v.kind).toBe("within-noise");
+    expect(v.noiseFloor).toBeCloseTo(0.1);
+  });
+
+  it("reports the split spread ahead of this test set's sampling noise", () => {
+    // Both would demote the lead. The spread across draws is the broader doubt --
+    // a lead inside it is not a lead on another draw at all -- so it is the reason
+    // the band states.
+    const v = computeVerdict(
+      scorecard({
+        primary_metric: "mcc",
+        metrics: { mcc: 0.52 },
+        baseline_metrics: { mcc: 0.5 },
+        difference_ci: [-0.01, 0.05],
+        replicate_summary: { mcc: { mean: 0.51, sd: 0.04, n: 5 } },
+        replicate_seeds: [2, 3, 4, 5, 6],
+      }),
+    );
+
+    expect(v.kind).toBe("within-noise");
+    expect(v.splitSpread).toBeCloseTo(0.04);
+    expect(v.headline).toMatch(/split/i);
+  });
+});

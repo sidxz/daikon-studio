@@ -26,6 +26,13 @@ export interface Verdict {
    * unpaired check decided.
    */
   difference?: [number, number] | null;
+  /**
+   * The spread of the model's primary metric across the extra draws of the split, when
+   * enough of them defined it. Set when that spread decided the verdict, and read as
+   * the reason a lead was demoted -- which is how the band tells this apart from the
+   * assay-noise verdict (`noiseFloor`) and the paired one (`difference`).
+   */
+  splitSpread?: number | null;
 }
 
 /**
@@ -63,6 +70,12 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   const ci: [number, number] | null = lo != null && hi != null ? [lo, hi] : null;
   const [dlo, dhi] = scorecard.difference_ci ?? [];
   const difference: [number, number] | null = dlo != null && dhi != null ? [dlo, dhi] : null;
+  // Only a spread over at least two draws is a spread. `n` counts the draws that
+  // *defined* this metric, which can be lower than the number taken -- so a metric the
+  // draws never defined reports nothing here rather than a null read as zero, which
+  // would let every lead survive this check.
+  const spread = scorecard.replicate_summary?.[metric];
+  const splitSpread: number | null = spread?.sd != null && spread.n >= 2 ? spread.sd : null;
 
   if (scorecard.baseline_is_self) {
     return {
@@ -121,6 +134,33 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
       baseline,
       delta,
       noiseFloor,
+      ci,
+      difference,
+    };
+  }
+
+  // The same question asked across test sets instead of within one. A lead smaller
+  // than twice the spread the split itself produces is not a lead on another draw.
+  //
+  // Placed between the assay-noise check above and the paired check below, broadest
+  // doubt first: a lead inside the assay's measurement error is not a lead at any
+  // split, a lead inside this spread is not a lead on another draw, and a lead inside
+  // the paired interval is not a lead on a redraw of *this* test set. Reporting the
+  // most fundamental reason that applies is why the order is not the other way round.
+  //
+  // The spread is the model's own, not the difference's, which is deliberately
+  // conservative: the two models move together across draws, so the difference's own
+  // spread is the smaller number. Erring toward demoting a lead is the right
+  // direction, and measuring the difference's spread would need the baseline refitted
+  // on every draw.
+  if (better && splitSpread != null && Math.abs(delta) < 2 * splitSpread) {
+    return {
+      kind: "within-noise",
+      headline: "Ahead of the baseline, but by less than the split itself moves the score",
+      model,
+      baseline,
+      delta,
+      splitSpread,
       ci,
       difference,
     };

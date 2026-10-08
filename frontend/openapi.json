@@ -7638,6 +7638,44 @@
         ],
         "title": "RenameFolderBody"
       },
+      "ReplicateSummaryResponse": {
+        "properties": {
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
+          },
+          "sd": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Sd"
+          },
+          "n": {
+            "type": "integer",
+            "title": "N"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mean",
+          "sd",
+          "n"
+        ],
+        "title": "ReplicateSummaryResponse",
+        "description": "One metric's mean and spread across the extra split draws that defined it."
+      },
       "ResidualHistogramResponse": {
         "properties": {
           "edges": {
@@ -8774,6 +8812,45 @@
             ],
             "title": "Random Split Metrics Undefined"
           },
+          "replicate_summary": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/ReplicateSummaryResponse"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replicate Summary"
+          },
+          "replicate_seeds": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replicate Seeds"
+          },
+          "replicate_unavailable": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replicate Unavailable"
+          },
           "noise_floor": {
             "anyOf": [
               {
@@ -9894,6 +9971,13 @@
             "type": "boolean",
             "title": "Optimism Gap",
             "default": true
+          },
+          "split_replicates": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Split Replicates",
+            "default": 0
           },
           "subset_column": {
             "anyOf": [

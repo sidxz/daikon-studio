@@ -99,6 +99,23 @@ export function hasRandomComparison(strategy: string): boolean {
 }
 
 /**
+ * Whether training can take extra draws of this split by changing the seed.
+ *
+ * The mirror of the backend's `is_replicable`, and it has to stay one: the form uses it
+ * to promise how many training stages a run will have, and over-promising is the bug
+ * `hasRandomComparison` above exists to document.
+ *
+ * Not the same question as either neighbour. A random split is replicable and not
+ * grouped; a predefined split is neither; an identity split is grouped and not
+ * replicable, because the homology clustering it would need is not available to the
+ * training worker. An unknown strategy says no -- claiming work this build cannot
+ * predict is worse than claiming none.
+ */
+export function isReplicableSplit(strategy: string): boolean {
+  return strategy === "random" || strategy === "scaffold" || strategy === "position";
+}
+
+/**
  * What a shared scaffold between training and test means for this split.
  *
  * Here rather than in the profile view because the view was branching on strategy

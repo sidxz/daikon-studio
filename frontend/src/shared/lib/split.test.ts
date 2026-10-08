@@ -4,6 +4,7 @@ import {
   SPLIT_VOCABULARY,
   hasRandomComparison,
   isGroupedSplit,
+  isReplicableSplit,
   scaffoldSeparationNote,
   splitFacts,
   splitVocabulary,
@@ -113,5 +114,31 @@ describe("hasRandomComparison", () => {
 
   it("assumes an unknown strategy does get one, matching the backend default", () => {
     expect(hasRandomComparison("butina")).toBe(true);
+  });
+});
+
+describe("isReplicableSplit", () => {
+  it("mirrors the backend's table exactly", () => {
+    // Drifting from `is_replicable` means the form promises training stages the
+    // backend will not run, or omits ones it will.
+    expect(isReplicableSplit("random")).toBe(true);
+    expect(isReplicableSplit("scaffold")).toBe(true);
+    expect(isReplicableSplit("position")).toBe(true);
+    expect(isReplicableSplit("identity")).toBe(false);
+    expect(isReplicableSplit("predefined")).toBe(false);
+  });
+
+  it("says no to a strategy this build has never heard of", () => {
+    // Claiming work this build cannot predict is worse than claiming none.
+    expect(isReplicableSplit("butina")).toBe(false);
+  });
+
+  it("is not the same question as whether the split is grouped", () => {
+    // A random split is replicable and not grouped; a predefined split is neither
+    // grouped nor replicable; an identity split is grouped and not replicable.
+    expect(isReplicableSplit("random")).toBe(true);
+    expect(isGroupedSplit("random")).toBe(false);
+    expect(isReplicableSplit("identity")).toBe(false);
+    expect(isGroupedSplit("identity")).toBe(true);
   });
 });

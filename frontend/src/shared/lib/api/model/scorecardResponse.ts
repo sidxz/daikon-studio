@@ -15,6 +15,9 @@ import type { ScorecardResponseBaselineMetrics } from './scorecardResponseBaseli
 import type { ScorecardResponseRandomSplitMetrics } from './scorecardResponseRandomSplitMetrics';
 import type { ScorecardResponseRandomSplitUnavailable } from './scorecardResponseRandomSplitUnavailable';
 import type { ScorecardResponseRandomSplitMetricsUndefined } from './scorecardResponseRandomSplitMetricsUndefined';
+import type { ScorecardResponseReplicateSummary } from './scorecardResponseReplicateSummary';
+import type { ScorecardResponseReplicateSeeds } from './scorecardResponseReplicateSeeds';
+import type { ScorecardResponseReplicateUnavailable } from './scorecardResponseReplicateUnavailable';
 import type { ScorecardResponseNoiseFloor } from './scorecardResponseNoiseFloor';
 import type { WorstRowResponse } from './worstRowResponse';
 import type { ScorecardResponseApplicabilityCoverage } from './scorecardResponseApplicabilityCoverage';
@@ -84,6 +87,9 @@ export interface ScorecardResponse {
   random_split_metrics: ScorecardResponseRandomSplitMetrics;
   random_split_unavailable: ScorecardResponseRandomSplitUnavailable;
   random_split_metrics_undefined: ScorecardResponseRandomSplitMetricsUndefined;
+  replicate_summary?: ScorecardResponseReplicateSummary;
+  replicate_seeds?: ScorecardResponseReplicateSeeds;
+  replicate_unavailable?: ScorecardResponseReplicateUnavailable;
   noise_floor: ScorecardResponseNoiseFloor;
   worst_rows: WorstRowResponse[];
   applicability_coverage: ScorecardResponseApplicabilityCoverage;
