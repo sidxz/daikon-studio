@@ -8,6 +8,7 @@ vi.mock("@/features/engines", () => ({ useEngines: () => ({ data: [] }) }));
 vi.mock("./scorecard-diagnostics", () => ({
   ScorecardDiagnostics: () => null,
   SplitComparison: () => null,
+  SplitDrawSpread: () => null,
 }));
 vi.mock("./largest-errors", () => ({ LargestErrors: () => null }));
 vi.mock("@/shared/components/explainers/figures/bootstrap", () => ({

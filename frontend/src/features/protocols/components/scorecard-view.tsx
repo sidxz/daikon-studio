@@ -24,7 +24,7 @@ import {
 import { METRIC_DESCRIPTIONS, metricLabel } from "../types";
 import { BinaryMetricComparison } from "./binary-metric-comparison";
 import { ConfusionMatrix } from "./confusion-matrix";
-import { ScorecardDiagnostics, SplitComparison } from "./scorecard-diagnostics";
+import { ScorecardDiagnostics, SplitComparison, SplitDrawSpread } from "./scorecard-diagnostics";
 import { ScorecardOverview } from "./scorecard-overview";
 import { ScorecardSection } from "./scorecard-section";
 import { ScorecardSimilarity } from "./scorecard-similarity";
@@ -565,6 +565,7 @@ export function ScorecardView({
         <MetricTable scorecard={scorecard} />
         <SubsetMetric scorecard={scorecard} />
         <SplitComparison scorecard={scorecard} />
+        <SplitDrawSpread scorecard={scorecard} />
       </ScorecardSection>
       <ScorecardSection
         title="Training settings"

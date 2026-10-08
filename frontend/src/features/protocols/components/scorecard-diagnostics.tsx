@@ -193,6 +193,111 @@ function truncate(smiles: string): string {
   return smiles.length > 22 ? `${smiles.slice(0, 21)}…` : smiles;
 }
 
+/** One metric's spread across the draws, or why it has none. */
+function DrawSpread({
+  row,
+  completed,
+}: {
+  row: { mean: number | null; sd: number | null; n: number } | undefined;
+  completed: number;
+}) {
+  // A metric the server did not summarize at all. Not measured, and not claimed.
+  if (!row) return <span className="text-xs text-muted-foreground">Not measured</span>;
+  if (row.n === 0) {
+    return <span className="text-xs text-warning">Undefined in every draw</span>;
+  }
+  if (row.sd == null) {
+    // One usable draw is a number with nothing under it. Printing "± 0" would claim a
+    // stability that was never measured.
+    return (
+      <span>
+        <ReadoutValue value={row.mean} className="text-muted-foreground" />
+        <span className="text-xs text-muted-foreground">
+          {" from one draw, so there is no spread to report"}
+        </span>
+      </span>
+    );
+  }
+  return (
+    <span>
+      <ReadoutValue value={row.mean} className="text-muted-foreground" />
+      <span className="text-xs text-muted-foreground">
+        {/* "3 of 5 draws" rather than a second clause: a count below the number of
+            completed draws means this metric was undefined in some of them, which is a
+            different story from a draw that never finished. The warning under the table
+            tells that one, and merging the two would blame the wrong thing. */}
+        {row.n < completed
+          ? ` ± ${row.sd.toFixed(3)} across ${row.n} of ${completed} draws`
+          : ` ± ${row.sd.toFixed(3)} across ${row.n} draws`}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * How much the score moves when the split is drawn again.
+ *
+ * The scored number came from one test set, and which compounds landed in it was
+ * a draw. Training again on other draws of the same kind of split is the only
+ * thing that says whether a score is a property of the model or of that choice.
+ *
+ * Renders nothing only when no draw was asked for. Every other absence has a
+ * reason and prints it -- including a partial one: a spread over two draws when
+ * five were requested is not the measurement that was asked for, so the table
+ * and the warning appear together rather than the table alone.
+ */
+export function SplitDrawSpread({ scorecard }: { scorecard: ScorecardResponse }) {
+  const summary = scorecard.replicate_summary;
+  const unavailable = scorecard.replicate_unavailable;
+  if (!summary && !unavailable) return null;
+
+  const metrics = (scorecard.metrics ?? {}) as Record<string, number | null>;
+  const completed = scorecard.replicate_seeds?.length ?? 0;
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Score across split draws</CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {completed > 0
+            ? `The same engine and settings, trained again on ${completed === 1 ? "one more draw" : `${completed} more draws`} of the split. Each draw divides the same compounds into training and test sets again. A lead over the baseline smaller than this spread is not evidence of a better model.`
+            : "Training on further draws of the split shows how much the score depends on which compounds landed in the test set."}
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {summary && (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+                <th className="pb-2 pr-4 font-medium">Metric</th>
+                <th className="pb-2 pr-4 font-medium">
+                  {splitTitle(scorecard.split_strategy)} split (scored)
+                </th>
+                <th className="pb-2 font-medium">Across draws</th>
+              </tr>
+            </thead>
+            <tbody>
+              {Object.keys(metrics).map((name) => (
+                <tr key={name} className="border-b align-top last:border-0">
+                  <td className="py-2 pr-4">{metricLabel(name)}</td>
+                  <td className="py-2 pr-4">
+                    <ReadoutValue value={metrics[name]} />
+                  </td>
+                  <td className="py-2">
+                    <DrawSpread row={summary[name]} completed={completed} />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+        {/* Rendered whether or not the table is, and never instead of it. */}
+        {unavailable && <p className="text-xs text-warning">{unavailable}</p>}
+      </CardContent>
+    </Card>
+  );
+}
+
 /**
  * How the model scored under the split it was actually judged on versus the
  * easier one.
