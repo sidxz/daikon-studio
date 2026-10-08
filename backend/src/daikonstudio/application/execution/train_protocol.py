@@ -115,7 +115,7 @@ from daikonstudio.application.ports.structure_normalizer import StructureNormali
 from daikonstudio.domain.catalog.protocol import InSilicoProtocol
 from daikonstudio.domain.catalog.readout import ReadoutType
 from daikonstudio.domain.data.dataset import Dataset
-from daikonstudio.domain.data.split import SplitSpec, SplitStrategy
+from daikonstudio.domain.data.split import SplitSpec, SplitStrategy, is_replicable
 from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.domain.execution.run import (
@@ -430,6 +430,11 @@ class TrainProtocolCommand:
     # halves the work on a grouped split and removes the only evidence of how much that
     # split's score was flattered.
     optimism_gap: bool = True
+    # Fit the chosen engine again on this many reseeded draws of the same split, to
+    # measure how much the score depends on which compounds landed in the test set.
+    # 0 is off: each draw is another full training run, so it is opt-in, and every run
+    # enqueued before it existed asked for none.
+    split_replicates: int = 0
     # A column whose true rows get their own metric on the Scorecard. This is how a
     # published number measured over part of a test set -- MoleculeACE's cliff RMSE --
     # becomes comparable. None means report the whole test set only.
@@ -447,6 +452,7 @@ class TrainProtocolCommand:
             "tune_cutoffs": self.tune_cutoffs,
             "run_baseline": self.run_baseline,
             "optimism_gap": self.optimism_gap,
+            "split_replicates": self.split_replicates,
             "subset_column": self.subset_column,
         }
 
@@ -465,6 +471,7 @@ class TrainProtocolCommand:
             # existed did both.
             run_baseline=params.get("run_baseline", True),
             optimism_gap=params.get("optimism_gap", True),
+            split_replicates=params.get("split_replicates", 0),
             subset_column=params.get("subset_column"),
         )
 
@@ -567,6 +574,7 @@ def deadline_scale(
     *,
     run_baseline: bool = True,
     optimism_gap: bool = True,
+    split_replicates: int = 0,
 ) -> int:
     """How many times over its lane's deadline a training Run may take: one lane budget
     per model fitted inside it.
@@ -590,7 +598,14 @@ def deadline_scale(
     # the toggle says -- there is nothing to compare a random split against -- so the
     # two reasons for skipping it must not subtract the same leg twice.
     runs_comparison = optimism_gap and dataset.split.strategy is not SplitStrategy.RANDOM
-    legs = _COMPARISON_LEGS if runs_comparison else 1
+    # Asking for draws a split cannot take buys no budget for them -- `_replicates`
+    # refuses them too, and the two must agree or a run dies on the lane deadline part
+    # way through. Note these two terms are independent: a RANDOM split is replicable
+    # while running *no* comparison leg, so reading one off the other would hand a
+    # random-split run with draws two legs it never uses, or leave a scaffold run with
+    # draws one leg short.
+    replicate_legs = split_replicates if is_replicable(dataset.split.strategy) else 0
+    legs = (_COMPARISON_LEGS if runs_comparison else 1) + replicate_legs
     total = legs * _fits(manifest, dataset, conditions)
     if run_baseline:
         total += _fits(baseline, dataset, baseline_conditions)
@@ -748,6 +763,11 @@ class TrainProtocol:
                 # baseline, optimism gap or subset is not the one being asked for.
                 **({} if command.run_baseline else {"run_baseline": False}),
                 **({} if command.optimism_gap else {"optimism_gap": False}),
+                **(
+                    {"split_replicates": command.split_replicates}
+                    if command.split_replicates
+                    else {}
+                ),
                 **({"subset_column": command.subset_column} if command.subset_column else {}),
             ),
             params={
@@ -760,6 +780,7 @@ class TrainProtocol:
                     command.baseline_conditions,
                     run_baseline=command.run_baseline,
                     optimism_gap=command.optimism_gap,
+                    split_replicates=command.split_replicates,
                 ),
             },
             # Which sweep asked for this run, or None for a solo request. The

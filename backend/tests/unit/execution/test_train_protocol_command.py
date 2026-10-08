@@ -35,3 +35,28 @@ def test_from_params_reads_a_run_written_before_the_baseline_was_choosable() -> 
     restored = TrainProtocolCommand.from_params(legacy)
     assert restored.baseline_engine_id is None
     assert restored.baseline_conditions == {}
+
+
+def test_params_round_trip_carries_the_draw_count() -> None:
+    command = TrainProtocolCommand(
+        name="BBBP — D-MPNN",
+        dataset_id=uuid.uuid4(),
+        engine_id="chemprop-dmpnn",
+        conditions={},
+        split_replicates=5,
+    )
+    restored = TrainProtocolCommand.from_params(command.to_params())
+    assert restored.split_replicates == 5
+    assert restored == command
+
+
+def test_from_params_reads_a_run_written_before_draws_existed() -> None:
+    legacy = {
+        "name": "ESOL — RF",
+        "dataset_id": str(uuid.uuid4()),
+        "engine_id": "ecfp4-randomforest",
+        "conditions": {},
+    }
+    # Zero, not one: a row enqueued before draws existed asked for none, and
+    # defaulting it to any draws would retroactively multiply its budget.
+    assert TrainProtocolCommand.from_params(legacy).split_replicates == 0

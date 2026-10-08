@@ -112,6 +112,11 @@ class TrainProtocolBody(BaseModel):
     run_baseline: bool = True
     #: Fit the same engine again on a random re-split, to measure the optimism gap.
     optimism_gap: bool = True
+    #: Fit the chosen engine again on this many reseeded draws of the split, to measure
+    #: how much the score depends on the draw. 0 disables it. Capped because each draw
+    #: is another full training run, so the lane budget and the user's patience bind
+    #: well before the statistics stop improving.
+    split_replicates: int = Field(default=0, ge=0, le=10)
     #: A column whose true rows get their own metric on the scorecard.
     subset_column: str | None = None
 
@@ -535,6 +540,7 @@ async def train_protocol(
         tune_cutoffs=body.tune_cutoffs,
         run_baseline=body.run_baseline,
         optimism_gap=body.optimism_gap,
+        split_replicates=body.split_replicates,
         subset_column=body.subset_column,
     )
     return RunResponse.from_domain(result_to_response(await service(command, auth=auth)))

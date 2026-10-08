@@ -23,6 +23,17 @@ _RANDOM: Any = SimpleNamespace(
 _SCAFFOLD: Any = SimpleNamespace(
     targets=["a"], split=SimpleNamespace(strategy=SplitStrategy.SCAFFOLD)
 )
+# One target apiece, so the extra-draw arithmetic below reads as legs rather than as
+# legs times targets. `_RANDOM` above has three, which is what the older tests want.
+_RANDOM_ONE: Any = SimpleNamespace(
+    targets=["a"], split=SimpleNamespace(strategy=SplitStrategy.RANDOM)
+)
+_PREDEFINED: Any = SimpleNamespace(
+    targets=["a"], split=SimpleNamespace(strategy=SplitStrategy.PREDEFINED)
+)
+_IDENTITY: Any = SimpleNamespace(
+    targets=["a"], split=SimpleNamespace(strategy=SplitStrategy.IDENTITY)
+)
 
 
 def _manifest(*, joint: bool, ensemble: bool) -> EngineManifest:
@@ -120,3 +131,38 @@ def test_switching_the_comparison_off_cannot_shrink_a_random_split_further():
 
 def test_both_default_to_on():
     assert deadline_scale(_SIMPLE, _SCAFFOLD, {}, _SIMPLE, {}) == 2 + 1
+
+
+def test_extra_draws_default_to_none() -> None:
+    """Every row enqueued before draws existed budgets exactly what it did."""
+    assert deadline_scale(_FOREST, _SCAFFOLD, {}, _FOREST, {}) == 3
+
+
+def test_each_extra_draw_adds_a_leg() -> None:
+    # The model, the random-split comparison, three draws, and the baseline's one fit.
+    assert deadline_scale(_FOREST, _SCAFFOLD, {}, _FOREST, {}, split_replicates=3) == 6
+
+
+def test_extra_draws_on_a_random_split_add_no_comparison_leg() -> None:
+    """A random split runs no comparison leg and is still replicable, so this is
+    1 + 3 legs rather than 2 + 3. The two reasons a leg is skipped are independent,
+    and reading one off the other is how a run gets a budget it cannot finish in."""
+    assert deadline_scale(_FOREST, _RANDOM_ONE, {}, _FOREST, {}, split_replicates=3) == 5
+
+
+def test_a_split_that_cannot_be_drawn_again_pays_for_no_draws() -> None:
+    # Asking for draws these splits cannot take must not buy budget for them --
+    # `_replicates` refuses them too, and the two have to agree.
+    for dataset in (_PREDEFINED, _IDENTITY):
+        assert deadline_scale(
+            _FOREST, dataset, {}, _FOREST, {}, split_replicates=5
+        ) == deadline_scale(_FOREST, dataset, {}, _FOREST, {})
+
+
+def test_extra_draws_multiply_an_ensemble() -> None:
+    """The prod timeout's shape with draws added: four legs of four members, plus one."""
+    joint = _manifest(joint=True, ensemble=True)
+    assert (
+        deadline_scale(joint, _SCAFFOLD, {ENSEMBLE_SIZE: 4}, _FOREST, {}, split_replicates=2)
+        == 4 * 4 + 1
+    )

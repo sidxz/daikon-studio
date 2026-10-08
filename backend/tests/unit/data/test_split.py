@@ -8,6 +8,7 @@ from daikonstudio.application.data.assign_split import assign_split
 from daikonstudio.domain.data.split import (
     SplitSpec,
     SplitStrategy,
+    is_replicable,
     split_from_dict,
     split_to_dict,
 )
@@ -583,3 +584,25 @@ def test_predefined_reads_a_column_that_is_not_called_split():
     assert result["split"].to_list() == ["train", "test"]
     # The source column is left alone; only the canonical "split" column is injected.
     assert result["Set"].to_list() == ["train", "test"]
+
+
+@pytest.mark.parametrize(
+    ("strategy", "expected"),
+    [
+        (SplitStrategy.RANDOM, True),
+        (SplitStrategy.SCAFFOLD, True),
+        (SplitStrategy.POSITION, True),
+        (SplitStrategy.IDENTITY, False),
+        (SplitStrategy.PREDEFINED, False),
+    ],
+)
+def test_which_splits_can_be_reseeded(strategy: SplitStrategy, expected: bool) -> None:
+    assert is_replicable(strategy) is expected
+
+
+def test_every_strategy_has_an_answer() -> None:
+    """A sixth strategy must choose a side here rather than inherit one: the budget,
+    the worker's gate and the form all read this, so a strategy it has no answer for
+    would be promised draws nobody takes."""
+    for strategy in SplitStrategy:
+        assert isinstance(is_replicable(strategy), bool)

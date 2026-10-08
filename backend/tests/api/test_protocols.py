@@ -366,3 +366,14 @@ async def test_scorecard_response_explains_an_optimism_gap_metric_that_is_undefi
     assert card["random_split_metrics_undefined"] is not None
     assert set(card["random_split_metrics_undefined"]) == set(card["random_split_metrics"])
     assert "test-set" in card["random_split_metrics_undefined"]["mcc"]
+
+
+async def test_training_accepts_a_request_for_extra_split_draws(client, dataset_id):
+    response = await _train(client, dataset_id, split_replicates=3)
+    assert response.status_code == 202, response.text
+
+
+@pytest.mark.parametrize("value", [-1, 11])
+async def test_training_refuses_a_draw_count_out_of_range(client, dataset_id, value):
+    response = await _train(client, dataset_id, split_replicates=value)
+    assert response.status_code == 422, response.text

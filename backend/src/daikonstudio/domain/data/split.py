@@ -24,6 +24,28 @@ class SplitStrategy(StrEnum):
     # -- and every one of them but RANDOM makes the Scorecard's optimism gap real.
 
 
+def is_replicable(strategy: SplitStrategy) -> bool:
+    """Whether a second split of the same rows can be drawn by changing the seed.
+
+    Two strategies cannot, for reasons that must not be collapsed into one sentence.
+    PREDEFINED has no seed to vary: the partitions came out of a column in the
+    uploaded file, so there is no second draw to take -- a correct state, not a
+    shortfall. IDENTITY could in principle, but the homology clustering it needs is a
+    `SequenceClusterer`, which the training worker is not given (`RunTraining.__init__`);
+    handing one to the worker is the upgrade path.
+
+    Lives here, beside the strategies, because three callers have to agree: the
+    deadline budget at enqueue, the worker's own gate, and the form's prediction of how
+    much work a run will do. A second copy is how they would stop agreeing -- the same
+    argument `normalize_partition` below makes for partition spellings.
+    """
+    return strategy in {
+        SplitStrategy.RANDOM,
+        SplitStrategy.SCAFFOLD,
+        SplitStrategy.POSITION,
+    }
+
+
 #: Named so `__post_init__` can tell "the caller left fractions alone" from "the caller
 #: chose something", which is what a predefined split has to refuse.
 _DEFAULT_FRACTIONS = (0.8, 0.1, 0.1)
