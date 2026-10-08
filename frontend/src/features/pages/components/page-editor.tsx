@@ -154,7 +154,8 @@ export function PageEditor({
     extensions: [
       ...sharedExtensions({
         placeholder: "Write up the experiment… type @ people, # entities, / to insert",
-        starterKit: { document: false },
+        // Own Document (attrs) and a lowlight code block replace StarterKit's.
+        starterKit: { document: false, codeBlock: false },
         mentions: [
           { char: "@", pluginName: "mention", items: searchMemberItems },
           {
