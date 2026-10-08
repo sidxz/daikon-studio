@@ -201,3 +201,19 @@ def test_the_subset_mcc_breaks_ties_the_way_the_overall_mcc_does():
         cutoff=0.5,
         inclusive=False,
     )
+
+
+def test_an_exact_half_follows_the_engines_tie_rule():
+    # sklearn's `predict` puts an exact 0.5 in class 0. Thresholded that way every
+    # negative here is right and MCC is 1 on every redraw; thresholded at `>=` every
+    # compound is called positive and MCC is undefined on every redraw.
+    actual = [1.0, 0.0] * 20
+    predicted = [0.9, 0.5] * 20
+
+    exclusive = primary_metric_ci(
+        TaskType.BINARY_CLASSIFICATION, actual, predicted, inclusive=False
+    )
+    inclusive = primary_metric_ci(TaskType.BINARY_CLASSIFICATION, actual, predicted)
+
+    assert exclusive == (1.0, 1.0)
+    assert inclusive is None

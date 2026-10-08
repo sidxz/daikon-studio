@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import math
 import statistics
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -124,14 +125,13 @@ def primary_metric_ci(
     resamples: int = _CI_RESAMPLES,
     seed: int = 0,
     cutoff: float = 0.5,
+    inclusive: bool = True,
 ) -> tuple[float, float] | None:
     """A 95 % bootstrap interval over the test set for the headline metric.
 
-    This is what stops "+0.12 over the baseline" at n=197 reading as a win when
-    the baseline's number sits inside [0.49, 0.76] (docs/roadmap.md, Traps). It
-    is *unpaired*: the baseline's per-compound predictions
-    are not persisted, so this is the sampling noise of this one number, not a
-    paired test of the difference. Still the honest floor under the verdict.
+    Unpaired: the sampling noise of this one number. The paired test of the
+    difference from the baseline is `_paired_difference_scores`; this interval is
+    what a Protocol trained before baseline predictions were kept still has.
 
     Recomputed from `actual`/`predicted` with the metric's own definition (MCC
     at the model's decision cutoff, RMSE), not by re-running the engines' `_scored`: the
@@ -139,7 +139,15 @@ def primary_metric_ci(
     the same on every page load.
     """
     return _interval(
-        _bootstrap_scores(task, actual, predicted, resamples=resamples, seed=seed, cutoff=cutoff)
+        _bootstrap_scores(
+            task,
+            actual,
+            predicted,
+            resamples=resamples,
+            seed=seed,
+            cutoff=cutoff,
+            inclusive=inclusive,
+        )
     )
 
 
@@ -178,14 +186,35 @@ def subset_metric(
         return None
     a = np.asarray([actual[index] for index in rows], dtype=float)
     p = np.asarray([predicted[index] for index in rows], dtype=float)
+    # The same tie rule the overall metric used: a subset number thresholded the other
+    # way is not comparable to the number printed beside it, which is the only reason
+    # to print them together.
+    return _score(task, a, p, cutoff=cutoff, inclusive=inclusive)
+
+
+def _score(
+    task: TaskType, actual: np.ndarray, predicted: np.ndarray, *, cutoff: float, inclusive: bool
+) -> float | None:
+    """The headline metric on one set of rows: MCC at the decision cutoff with the
+    engine's own tie rule, or RMSE. Five engines reach their MCC through sklearn's
+    `predict`, which puts an exact 0.5 in class 0; anything thresholded the other way
+    is not a resample of the number printed beside it."""
     if task is TaskType.BINARY_CLASSIFICATION:
-        # The same tie rule the overall metric used. Five engines reach their headline
-        # MCC through sklearn's `predict`, which puts an exact 0.5 in class 0; a subset
-        # number thresholded the other way is not comparable to the number printed
-        # beside it, which is the only reason to print them together.
-        labels = p >= cutoff if inclusive else p > cutoff
-        return _mcc(a, labels)
-    return float(np.sqrt(np.mean((a - p) ** 2)))
+        return _mcc(actual, predicted >= cutoff if inclusive else predicted > cutoff)
+    return float(np.sqrt(np.mean((actual - predicted) ** 2)))
+
+
+def _redraws(
+    n: int, score: Callable[[np.ndarray], float | None], *, resamples: int, seed: int
+) -> list[float] | None:
+    """`score` on each of `resamples` redraws of the test rows, or None when the test
+    set is too small, or when most redraws were undefined (a set too skewed for an
+    interval to mean anything, which the undefined-metric reason already says)."""
+    if n < _CI_MIN_ROWS:
+        return None
+    rng = np.random.default_rng(seed)
+    values = [v for _ in range(resamples) if (v := score(rng.integers(0, n, n))) is not None]
+    return values if len(values) >= resamples // 2 else None
 
 
 def _bootstrap_scores(
@@ -196,30 +225,57 @@ def _bootstrap_scores(
     resamples: int,
     seed: int,
     cutoff: float,
+    inclusive: bool = True,
 ) -> list[float] | None:
     """The headline metric on each redraw of the test set, the interval's raw
     material. Kept apart from `primary_metric_ci` so the card can bin the same
     scores for its figure without running the thousand resamples twice."""
-    n = len(actual)
-    if n < _CI_MIN_ROWS or n != len(predicted):
+    if len(actual) != len(predicted):
         return None
     a = np.asarray(actual, dtype=float)
     p = np.asarray(predicted, dtype=float)
-    rng = np.random.default_rng(seed)
-    values: list[float] = []
-    for _ in range(resamples):
-        idx = rng.integers(0, n, n)
-        if task is TaskType.BINARY_CLASSIFICATION:
-            value = _mcc(a[idx], p[idx] >= cutoff)
-            if value is not None:
-                values.append(value)
-        else:
-            values.append(float(np.sqrt(np.mean((a[idx] - p[idx]) ** 2))))
-    if len(values) < resamples // 2:
-        # Most resamples were single-class: the test set is too skewed for an
-        # interval to mean anything, which the undefined-metric reason already says.
+    return _redraws(
+        len(a),
+        lambda idx: _score(task, a[idx], p[idx], cutoff=cutoff, inclusive=inclusive),
+        resamples=resamples,
+        seed=seed,
+    )
+
+
+def _paired_difference_scores(
+    task: TaskType,
+    actual: list[float],
+    predicted: list[float],
+    baseline_predicted: list[float],
+    *,
+    cutoff: float,
+    inclusive: bool,
+    baseline_cutoff: float,
+    baseline_inclusive: bool,
+) -> list[float] | None:
+    """Model minus baseline on each redraw, both scored on the same compounds.
+
+    The test the verdict uses when it exists. One draw of test rows per resample,
+    applied to both vectors, so what the two models share -- the easy compounds and
+    the hard ones -- cancels instead of widening the interval. A draw on which either
+    MCC is undefined is dropped. Each side keeps the operating point its printed MCC
+    was measured at; thresholded otherwise, this would not be a difference between
+    those two numbers."""
+    n = len(actual)
+    if not n == len(predicted) == len(baseline_predicted):
         return None
-    return values
+    a = np.asarray(actual, dtype=float)
+    p = np.asarray(predicted, dtype=float)
+    b = np.asarray(baseline_predicted, dtype=float)
+
+    def difference(idx: np.ndarray) -> float | None:
+        model = _score(task, a[idx], p[idx], cutoff=cutoff, inclusive=inclusive)
+        baseline = _score(
+            task, a[idx], b[idx], cutoff=baseline_cutoff, inclusive=baseline_inclusive
+        )
+        return None if model is None or baseline is None else model - baseline
+
+    return _redraws(n, difference, resamples=_CI_RESAMPLES, seed=0)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -292,6 +348,7 @@ def build_scorecard(
     joint_model: bool = False,
     actual: list[float],
     predicted: list[float],
+    baseline_predicted: list[float] | None = None,
     structures: list[str],
     chemistry: HeldOutChemistry,
     target_unit: str | None,
@@ -311,13 +368,35 @@ def build_scorecard(
     cutoff_note: str | None = None,
 ) -> Scorecard:
     is_classification = task is TaskType.BINARY_CLASSIFICATION
+    inclusive = cutoff is not None or engine_id not in _EXCLUSIVE_DEFAULT_CUTOFF_ENGINES
+    decision_cutoff = cutoff if cutoff is not None else 0.5
+    baseline_inclusive = (
+        baseline_cutoff is not None or baseline_engine_id not in _EXCLUSIVE_DEFAULT_CUTOFF_ENGINES
+    )
     scores = _bootstrap_scores(
         task,
         actual,
         predicted,
         resamples=_CI_RESAMPLES,
         seed=0,
-        cutoff=cutoff if cutoff is not None else 0.5,
+        cutoff=decision_cutoff,
+        inclusive=inclusive,
+    )
+    # Only against a real second model: a self-comparison differs by zero by
+    # construction, and a run with no baseline has nothing to pair against.
+    differences = (
+        _paired_difference_scores(
+            task,
+            actual,
+            predicted,
+            baseline_predicted,
+            cutoff=decision_cutoff,
+            inclusive=inclusive,
+            baseline_cutoff=baseline_cutoff if baseline_cutoff is not None else 0.5,
+            baseline_inclusive=baseline_inclusive,
+        )
+        if baseline_predicted is not None and baseline_metrics is not None and not baseline_is_self
+        else None
     )
 
     similarities = chemistry.similarities
@@ -346,9 +425,6 @@ def build_scorecard(
         for i in worst_order[:_WORST_ROWS_LIMIT]
     ]
 
-    inclusive = cutoff is not None or engine_id not in _EXCLUSIVE_DEFAULT_CUTOFF_ENGINES
-    decision_cutoff = cutoff if cutoff is not None else 0.5
-
     def ranked_rows(*, descending: bool) -> list[RankedPrediction]:
         # Stable ties retain test-set order. Measured outcomes never affect selection.
         order = sorted(range(len(predicted)), key=lambda i: predicted[i], reverse=descending)
@@ -369,6 +445,8 @@ def build_scorecard(
         primary_metric=primary_metric_for(task),
         primary_metric_ci=_interval(scores),
         primary_metric_bootstrap=_histogram(scores, _BOOTSTRAP_BINS) if scores else None,
+        difference_ci=_interval(differences),
+        difference_bootstrap=_histogram(differences, _BOOTSTRAP_BINS) if differences else None,
         prediction_kind="probability" if is_classification else "value",
         metrics=metrics,
         validation_metrics=validation_metrics,

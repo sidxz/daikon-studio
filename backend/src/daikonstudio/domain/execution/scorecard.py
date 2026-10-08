@@ -255,13 +255,22 @@ class Scorecard:
     applicability_coverage: float | None
     # 95 % bootstrap interval over the test set for `metrics[primary_metric]`,
     # unpaired (see `build_scorecard.primary_metric_ci`). None when the test
-    # set is too small or too skewed to support one. A verdict that beats the
-    # baseline by less than this interval's width is a verdict about noise.
+    # set is too small or too skewed to support one. The comparison's own test is
+    # `difference_ci` below; this is what a Protocol trained before that existed has.
     primary_metric_ci: tuple[float, float] | None = None
     #: The redraw scores that interval was read from, binned. What the interval's
     #: figure draws, so the picture is this test set's and not a demonstration.
     #: None exactly when `primary_metric_ci` is.
     primary_metric_bootstrap: Histogram | None = None
+    #: 95 % interval for model minus baseline on the primary metric, both scored on the
+    #: same redraws of the test set. Same sign as the metric: for RMSE a negative
+    #: difference favors the model. The verdict's test whenever it exists. None for a
+    #: Protocol trained before baseline predictions were kept, a run with no baseline, a
+    #: model that is its own baseline, or a test set too small or skewed for an interval.
+    difference_ci: tuple[float, float] | None = None
+    #: Those redraws binned, for the interval's figure. None exactly when
+    #: `difference_ci` is.
+    difference_bootstrap: Histogram | None = None
     target_unit: str | None
     target_direction: str | None
     split_strategy: str

@@ -469,3 +469,79 @@ def test_a_sequence_dataset_reports_no_applicability_domain_rather_than_zero() -
     molecules = held_out_chemistry(["CCO", "c1ccccc1"], ["CCN"], normalizer)
     assert molecules.similarities is not None
     assert molecules.similarities[0] > 0.0
+
+
+# --- The paired comparison -------------------------------------------------------------
+
+
+def _paired(baseline_predicted, *, size=60, **overrides):
+    actual = [float(i % 7) for i in range(size)]
+    error = [float((i * 7) % 11 - 5) for i in range(size)]
+    return regression_card(
+        actual=actual,
+        predicted=[a + 0.95 * e for a, e in zip(actual, error, strict=True)],
+        baseline_predicted=baseline_predicted(actual, error),
+        structures=["CCO"] * size,
+        **overrides,
+    )
+
+
+def _baseline_errors(actual, error):
+    return [a + e for a, e in zip(actual, error, strict=True)]
+
+
+def test_a_consistent_small_lead_is_resolved_by_pairing_where_the_old_check_cannot():
+    """The model's errors are the baseline's, 5% smaller, on every compound. The
+    baseline's RMSE (3.19) sits inside the model's own interval [2.65, 3.34], so the
+    unpaired check calls it noise; paired, every redraw favors the model."""
+    card = _paired(_baseline_errors)
+
+    assert card.primary_metric_ci is not None
+    low, high = card.primary_metric_ci
+    assert low < 3.186 < high
+    assert card.difference_ci is not None
+    d_low, d_high = card.difference_ci
+    assert d_low < d_high < 0
+    assert card.difference_bootstrap is not None
+    assert sum(card.difference_bootstrap.counts) == 1000
+    assert card.difference_bootstrap.edges[0] <= d_low
+
+
+def test_identical_predictions_differ_by_exactly_nothing():
+    card = _paired(
+        lambda actual, error: [a + 0.95 * e for a, e in zip(actual, error, strict=True)]
+    )
+    assert card.difference_ci == (0.0, 0.0)
+
+
+def test_no_paired_interval_without_a_real_second_model():
+    # Written before baseline predictions were kept.
+    assert _paired(lambda actual, error: None).difference_ci is None
+    # The baseline is this model.
+    assert _paired(_baseline_errors, baseline_is_self=True).difference_ci is None
+    # No baseline was fitted.
+    assert _paired(_baseline_errors, baseline_metrics=None).difference_ci is None
+    # Too few compounds for any interval.
+    small = _paired(_baseline_errors, size=10)
+    assert small.difference_ci is None and small.difference_bootstrap is None
+
+
+def test_each_side_is_thresholded_at_its_own_operating_point():
+    """The model is a neural engine tuned to 0.3; the baseline is a forest left at 0.5,
+    which reaches its MCC through sklearn's `predict` and so puts an exact 0.5 in class
+    0. Both are perfect at their own operating point, so every redraw differs by zero.
+    Thresholding the baseline at `>=` would call every negative positive instead."""
+    card = regression_card(
+        task=TaskType.BINARY_CLASSIFICATION,
+        metrics={"mcc": 1.0},
+        baseline_metrics={"mcc": 1.0},
+        engine_id="chemprop-dmpnn",
+        baseline_engine_id="ecfp4-randomforest",
+        cutoff=0.3,
+        baseline_cutoff=None,
+        actual=[1.0, 0.0] * 20,
+        predicted=[0.35, 0.2] * 20,
+        baseline_predicted=[0.9, 0.5] * 20,
+        structures=["CCO"] * 40,
+    )
+    assert card.difference_ci == (0.0, 0.0)
