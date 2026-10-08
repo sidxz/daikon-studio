@@ -59,6 +59,28 @@ export function ownerHref(kind: string, ownerId: string, pageId?: string): strin
   return `/${kind}s/${ownerId}?tab=notebook${page}`;
 }
 
+/** Names the breadcrumb trail on the full-page route. A separate component so an
+ *  embedded page never calls the hook: any trail it set, even null, would replace
+ *  the host view's own. */
+function PageTrail({
+  kind,
+  ownerId,
+  id,
+  title,
+}: {
+  kind: PageOwnerKind;
+  ownerId: string;
+  id: string;
+  title: string;
+}) {
+  useBreadcrumbTrail([
+    { label: OWNER_LABEL[kind], href: `/${kind}s` },
+    { label: "Notebook", href: ownerHref(kind, ownerId, id) },
+    { label: title },
+  ]);
+  return null;
+}
+
 export function PageContainer({ id, embedded = false }: { id: string; embedded?: boolean }) {
   const qc = useQueryClient();
   const { data: page, error } = usePage(id);
@@ -116,17 +138,7 @@ export function PageContainer({ id, embedded = false }: { id: string; embedded?:
     if (booted) window.history.replaceState(null, "", `/pages/${id}`);
   }, [booted, id]);
 
-  // The full-page route names the trail; embedded, the host view already does.
   const kind = page?.owner_kind as PageOwnerKind | undefined;
-  useBreadcrumbTrail(
-    !embedded && page && kind
-      ? [
-          { label: OWNER_LABEL[kind], href: `/${kind}s` },
-          { label: "Notebook", href: ownerHref(kind, page.owner_id, id) },
-          { label: page.title },
-        ]
-      : null,
-  );
 
   const { onChange, saveNow, discard, dirty, status, conflict, resolveConflict } = usePageSave({
     save: async (doc: PMDoc) => {
@@ -217,6 +229,9 @@ export function PageContainer({ id, embedded = false }: { id: string; embedded?:
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-1">
+      {!embedded && kind && (
+        <PageTrail kind={kind} ownerId={page.owner_id} id={id} title={page.title} />
+      )}
       {embedded ? (
         <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 pb-2">
           <div className="min-w-0 space-y-0.5">
