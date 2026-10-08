@@ -238,3 +238,63 @@ async def test_a_scientist_can_walk_the_whole_loop(client, csv_upload):
     # is covered by test_collections.py instead.
     direction_label = _DIRECTION_LABEL[probability_readout["direction"]]
     assert f"{probability_readout['name']} ({direction_label})" in lines[0], lines[0]
+
+
+async def test_a_two_partition_predefined_split_trains_and_scores(client, csv_upload):
+    """Spec decision 2: a published benchmark often ships train/test with no validation
+    partition, and carving one out of train here would leave our training set smaller
+    than the one the published number came from. So the whole loop has to survive a
+    dataset that genuinely has zero validation rows -- including the runner rebuilding
+    the SplitSpec from the wire, which is where a dropped `column` would surface as a
+    failed run rather than a rejected request."""
+    import csv as _csv
+    import io as _io
+
+    source = list(_csv.DictReader(_io.StringIO(_FIXTURE.read_text())))
+    buffer = _io.StringIO()
+    writer = _csv.writer(buffer)
+    writer.writerow(["smiles", "is_pains", "split"])
+    for index, row in enumerate(source):
+        # Deterministic 80/20, interleaved so both partitions carry both classes.
+        writer.writerow([row["smiles"], row["is_pains"], "test" if index % 5 == 0 else "train"])
+    upload_ref = await csv_upload(buffer.getvalue().encode())
+
+    created = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "pains-predefined",
+            "upload_ref": upload_ref,
+            "structure_column": "smiles",
+            "targets": [{"column": "is_pains", "kind": "binary"}],
+            "split": {"strategy": "predefined", "seed": 1, "column": "split"},
+        },
+    )
+    assert created.status_code == 201, created.text
+    dataset = created.json()
+    assert dataset["split"]["column"] == "split"
+
+    readiness = (await client.get(f"/api/v1/datasets/{dataset['id']}/readiness")).json()
+    assert readiness["partition_counts"].get("validation", 0) == 0, readiness
+    assert readiness["partition_counts"]["test"] == 40, readiness
+
+    train_response = await client.post(
+        "/api/v1/protocols",
+        json={
+            "name": "pains predefined",
+            "dataset_id": dataset["id"],
+            "engine_id": "ecfp4-xgboost",
+            "conditions": {},
+        },
+    )
+    assert train_response.status_code == 202, train_response.text
+    run = await _poll_until_ready(client, train_response.json()["id"], stage="training")
+    assert run["status"] == "ready", f"run failed: {run.get('error_message')}"
+
+    protocols = (await client.get("/api/v1/protocols")).json()["items"]
+    [trained] = [item for item in protocols if item["dataset_id"] == dataset["id"]]
+    [card] = (await client.get(f"/api/v1/protocols/{trained['id']}/scorecard")).json()
+    assert card["split_strategy"] == "predefined"
+    assert card["metrics"]["mcc"] is not None, card
+    # No validation partition means no validation metrics, and that is the designed
+    # answer rather than a failure.
+    assert card["validation_metrics"] is None, card

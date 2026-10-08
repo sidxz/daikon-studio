@@ -185,7 +185,12 @@ class ConflictRowResponse(BaseModel):
     # A compound can conflict in one binary target and agree in another, and the
     # file is fixed in that column, so a conflict has to say which one it is in.
     column: str
-    values: list[int]
+    # Binary labels are ints; a disagreement about a predefined split's partition
+    # carries the partition names as text. This must stay as wide as the domain's
+    # `ConflictRow.values`: a narrower response model does not reject the dataset, it
+    # creates it and then fails to serialize every later read of it, including the
+    # workspace's whole dataset list.
+    values: list[int] | list[str]
     row_numbers: list[int]
 
 

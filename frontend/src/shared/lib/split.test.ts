@@ -2,6 +2,7 @@ import { SplitStrategy } from "@/shared/lib/api/model";
 import { describe, expect, it } from "vitest";
 import {
   SPLIT_VOCABULARY,
+  hasRandomComparison,
   isGroupedSplit,
   scaffoldSeparationNote,
   splitFacts,
@@ -95,5 +96,22 @@ describe("splitFacts", () => {
   it("falls back to the default fractions when the API omits them", () => {
     const facts = splitFacts({ strategy: "random", seed: 7 });
     expect(facts[1].value).toBe("0.8 / 0.1 / 0.1");
+  });
+});
+
+describe("hasRandomComparison", () => {
+  it("matches the backend rule, which is 'not random' rather than 'grouped'", () => {
+    // The backend runs the comparison leg for every strategy but RANDOM. `predefined`
+    // groups nothing, so `isGroupedSplit` is false for it -- and the form used to
+    // promise two stages while three ran.
+    expect(hasRandomComparison("random")).toBe(false);
+    expect(hasRandomComparison("scaffold")).toBe(true);
+    expect(hasRandomComparison("identity")).toBe(true);
+    expect(hasRandomComparison("position")).toBe(true);
+    expect(hasRandomComparison("predefined")).toBe(true);
+  });
+
+  it("assumes an unknown strategy does get one, matching the backend default", () => {
+    expect(hasRandomComparison("butina")).toBe(true);
   });
 });

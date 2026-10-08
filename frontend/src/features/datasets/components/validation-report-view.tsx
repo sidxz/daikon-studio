@@ -45,6 +45,12 @@ export function ValidationReportView({
   const hasConflicts = report.conflicting.length > 0;
   // One compound that conflicts in two columns is two entries but one compound.
   const conflictingCompounds = new Set(report.conflicting.map((row) => row.structure)).size;
+
+  // Binary labels are ints and partition names are text, so the value type says
+  // which kind of disagreement this is. A split conflict is a leak -- the same
+  // compound on both sides of the published split -- and calling it "active and
+  // inactive" on a regression dataset tells the scientist nothing true.
+  const splitConflict = report.conflicting.some((row) => typeof row.values[0] === "string");
   const conflictingRows = new Set(report.conflicting.flatMap((row) => row.row_numbers)).size;
 
   return (
@@ -73,7 +79,10 @@ export function ValidationReportView({
                       rows: row.row_numbers.join(", "),
                       target: row.column,
                       value: row.values.join(" / "),
-                      reason: `Conflicting labels for ${row.structure}; this compound is excluded from all targets.`,
+                      reason:
+                        typeof row.values[0] === "string"
+                          ? `${row.structure} is assigned to more than one partition; this compound is excluded.`
+                          : `Conflicting labels for ${row.structure}; this compound is excluded from all targets.`,
                     })),
                   ],
                   { escapeFormulae: true },
@@ -175,12 +184,13 @@ export function ValidationReportView({
           <CardHeader>
             <CardTitle className="text-base">
               {conflictingCompounds.toLocaleString()} compound
-              {conflictingCompounds === 1 ? "" : "s"} with conflicting labels
+              {conflictingCompounds === 1 ? "" : "s"}{" "}
+              {splitConflict ? "on both sides of the split" : "with conflicting labels"}
             </CardTitle>
             <p className="text-sm text-muted-foreground">
-              Each structure is labeled both active and inactive. A compound with conflicting labels
-              is left out of every target, not only the one it conflicts in. Conflicts are not
-              resolved automatically; correct them and upload again.
+              {splitConflict
+                ? "The same structure is assigned to more than one partition, so it would appear in both training and test. Those compounds are left out entirely. Decide which side each belongs on and upload again."
+                : "Each structure is labeled both active and inactive. A compound with conflicting labels is left out of every target, not only the one it conflicts in. Conflicts are not resolved automatically; correct them and upload again."}
             </p>
           </CardHeader>
           <CardContent className="max-h-96 overflow-y-auto">
@@ -188,8 +198,10 @@ export function ValidationReportView({
               <thead className="sticky top-0 bg-card">
                 <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
                   <th className="pb-2 pr-4 font-medium">Rows</th>
-                  <th className="pb-2 pr-4 font-medium">Target</th>
-                  <th className="pb-2 pr-4 font-medium">Labels</th>
+                  <th className="pb-2 pr-4 font-medium">{splitConflict ? "Column" : "Target"}</th>
+                  <th className="pb-2 pr-4 font-medium">
+                    {splitConflict ? "Partitions" : "Labels"}
+                  </th>
                   <th className="pb-2 font-medium">Structure</th>
                 </tr>
               </thead>

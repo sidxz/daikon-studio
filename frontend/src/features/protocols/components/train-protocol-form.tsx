@@ -38,7 +38,7 @@ import {
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import { isTerminal } from "@/shared/lib/query-defaults";
-import { isGroupedSplit } from "@/shared/lib/split";
+import { hasRandomComparison, isGroupedSplit } from "@/shared/lib/split";
 import { showError } from "@/shared/lib/toast";
 import { Check, ChevronDownIcon, ClipboardCheck, Pencil } from "lucide-react";
 import Link from "next/link";
@@ -696,11 +696,11 @@ export function TrainProtocolForm() {
                   <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
                 </div>
               )}
-              {dataset != null && isGroupedSplit(dataset.split.strategy) && (
+              {dataset != null && hasRandomComparison(dataset.split.strategy) && (
                 <p className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
                   Training also fits the selected engine on a random split, with the same seed and
-                  intended fractions. Its score is compared with the {dataset.split.strategy}-split
-                  result to measure the optimism gap.
+                  the same partition sizes. Its score is compared with the {dataset.split.strategy}
+                  -split result to measure the optimism gap.
                 </p>
               )}
             </CardContent>
@@ -870,7 +870,7 @@ export function TrainProtocolForm() {
                         <span>Train {baselineEngine.name} as the comparison baseline.</span>
                       </li>
                     )}
-                    {isGroupedSplit(dataset.split.strategy) && (
+                    {hasRandomComparison(dataset.split.strategy) && (
                       <li className="flex gap-2">
                         <Check className="mt-0.5 size-3 shrink-0" />
                         <span>Train {engine.name} again on a random split for comparison.</span>
@@ -883,7 +883,7 @@ export function TrainProtocolForm() {
                   </ol>
                   <div className="flex flex-wrap gap-1.5">
                     <Badge variant="outline" className="font-normal">
-                      {isGroupedSplit(dataset.split.strategy)
+                      {hasRandomComparison(dataset.split.strategy)
                         ? selfCompare
                           ? 2
                           : 3

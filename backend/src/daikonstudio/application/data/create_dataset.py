@@ -302,6 +302,23 @@ class CreateDataset:
             # zero-valid-rows return hands back a frame whose structure column has
             # degraded to polars' Null dtype (the result of filtering a String
             # column with an all-False mask); the report is the whole payload here.
+            # When the split column is what emptied the frame, say so. "No usable
+            # compounds" sends a scientist to look at their chemistry, and their
+            # chemistry is fine -- a numbered k-fold column is the common case, and
+            # the fix is a different column, not a different molecule.
+            split_marker = f"column '{split_column}'".lower()
+            if (
+                split_column is not None
+                and report.invalid
+                and all(split_marker in row.reason.lower() for row in report.invalid)
+            ):
+                return InvalidDatasetError(
+                    f"No row in column '{split_column}' names a partition, so the "
+                    "split could not be read. Use train, validation or test. If that "
+                    "column numbers folds instead, split the file into one column per "
+                    "fold first and upload one of them.",
+                    report=report,
+                )
             return InvalidDatasetError(
                 "No usable compounds remain after preparation. "
                 "See the validation report for reasons.",

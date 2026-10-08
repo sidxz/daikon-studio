@@ -216,9 +216,15 @@ export function DatasetWizard() {
         : !draft.targets.length
           ? "Choose at least one target column."
           : null;
+  // The seed check is skipped for a predefined split rather than falling through to
+  // it: the seed input is not rendered there (it decides nothing when the partitions
+  // come from the file), so a NaN seed left over from another strategy would block the
+  // step with a message and no field to act on.
   const splitReason =
-    draft.strategy === "predefined" && !draft.splitColumn
-      ? "Go back and mark the column that holds each row's partition."
+    draft.strategy === "predefined"
+      ? draft.splitColumn
+        ? null
+        : "Go back and mark the column that holds each row's partition."
       : !Number.isSafeInteger(draft.seed)
         ? "Enter a whole-number seed."
         : null;

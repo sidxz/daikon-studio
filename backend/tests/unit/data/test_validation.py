@@ -361,3 +361,18 @@ def test_an_empty_split_cell_is_a_missing_value_not_a_partition():
     assert report.invalid == [
         InvalidRow(row_number=2, value="", reason="Missing value for column 'split'")
     ]
+
+
+def test_a_split_column_survives_every_row_being_rejected_first():
+    """Picking the wrong structure column is ordinary user error, and it empties the
+    frame before the split gate sees it. An empty boolean predicate infers polars' Null
+    dtype, which `filter` refuses -- and the TypeError is outside the PolarsError net
+    `create_dataset` wraps this in, so it would surface as a crash rather than the
+    designed 422 with the per-row report."""
+    frame = pl.DataFrame(
+        {"smiles": ["nope", "also-nope"], "y": [1.0, 2.0], "split": ["train", "test"]}
+    )
+    prepared, report = prepare_frame(frame, "smiles", (NUMERIC,), NORMALIZER, split_column="split")
+    assert prepared.height == 0
+    assert report.valid_rows == 0
+    assert len(report.invalid) == 2

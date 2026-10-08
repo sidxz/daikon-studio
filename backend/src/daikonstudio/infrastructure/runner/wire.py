@@ -106,14 +106,27 @@ class SplitSpecWire(BaseModel):
     strategy: str
     seed: int
     fractions: tuple[float, float, float] = (0.8, 0.1, 0.1)
+    #: Defaulted so an API that predates PREDEFINED can still feed a new runner; the
+    #: reverse is not true, because `_FORBID` rejects an unknown key. A missing value
+    #: here does not fail at the boundary -- it fails inside `SplitSpec.__post_init__`
+    #: on the runner, as a failed run rather than a rejected envelope.
+    column: str | None = None
 
     @classmethod
     def from_domain(cls, split: SplitSpec) -> SplitSpecWire:
-        return cls(strategy=split.strategy.value, seed=split.seed, fractions=split.fractions)
+        return cls(
+            strategy=split.strategy.value,
+            seed=split.seed,
+            fractions=split.fractions,
+            column=split.column,
+        )
 
     def to_domain(self) -> SplitSpec:
         return SplitSpec(
-            strategy=SplitStrategy(self.strategy), seed=self.seed, fractions=self.fractions
+            strategy=SplitStrategy(self.strategy),
+            seed=self.seed,
+            fractions=self.fractions,
+            column=self.column,
         )
 
 

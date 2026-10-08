@@ -139,7 +139,13 @@ def _validate_split_column(
     raw = frame[column].cast(pl.String, strict=False).fill_null("")
     text = raw.to_list()
     normalized = [normalize_partition(str(value)) for value in text]
-    ok = pl.Series([label is not None for label in normalized])
+    # `dtype=` on both Series below, not inferred: an empty list infers polars' Null
+    # dtype, and `filter` refuses a Null predicate with a TypeError that falls outside
+    # the PolarsError net `create_dataset` wraps this call in. The frame really can be
+    # empty here -- every row is dropped first whenever the scientist picks the wrong
+    # structure or target column. `_validate_target` avoids this only by building its
+    # mask from polars expressions, which stay Boolean at height 0.
+    ok = pl.Series([label is not None for label in normalized], dtype=pl.Boolean)
     invalid = [
         InvalidRow(
             row_number=row_numbers[index],
@@ -155,7 +161,7 @@ def _validate_split_column(
         if normalized[index] is None
     ]
     kept = frame.filter(ok).with_columns(
-        pl.Series(column, [label for label in normalized if label is not None])
+        pl.Series(column, [label for label in normalized if label is not None], dtype=pl.String)
     )
     kept_rows = [number for number, keep in zip(row_numbers, ok.to_list(), strict=True) if keep]
     return kept, kept_rows, invalid

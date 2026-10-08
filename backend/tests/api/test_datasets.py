@@ -715,3 +715,57 @@ async def test_a_split_column_literally_named_split_round_trips(client, csv_uplo
     )
     assert response.status_code == 201, response.text
     assert response.json()["split"]["column"] == "split"
+
+
+CONFLICTING_SPLIT_CSV = (
+    b"smiles,y,split\n"
+    b"CCO,1.0,train\nOCC,2.0,test\n"  # same molecule, opposite sides
+    b"CCN,2.0,train\nc1ccccc1,5.0,train\nc1ccncc1,6.0,test\nCCCC,3.0,test\n"
+)
+
+
+async def test_a_compound_on_both_sides_of_a_predefined_split_is_reported_not_a_500(
+    client, csv_upload
+):
+    """The leakage case this split detection exists for must survive serialization.
+
+    A split conflict carries partition names as text, where a binary-label conflict
+    carries ints. If the response model still says `list[int]`, the dataset is created
+    and then every read of it -- the preview, its own page, and the workspace's whole
+    dataset list -- fails to serialize.
+    """
+    upload_ref = await csv_upload(CONFLICTING_SPLIT_CSV)
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(upload_ref, name="conflicting-split", split=PREDEFINED_SPLIT),
+    )
+    assert response.status_code == 201, response.text
+    conflicting = response.json()["validation_report"]["conflicting"]
+    assert len(conflicting) == 1
+    assert conflicting[0]["column"] == "split"
+    assert sorted(conflicting[0]["values"]) == ["test", "train"]
+
+    # The read paths the wizard and the dataset list use.
+    dataset_id = response.json()["id"]
+    assert (await client.get(f"/api/v1/datasets/{dataset_id}")).status_code == 200
+    assert (await client.get("/api/v1/datasets")).status_code == 200
+
+
+async def test_numbered_folds_in_a_split_column_say_what_the_app_expects(client, csv_upload):
+    """TDC ships five numbered splits and QMAP five test sets, so a scientist will try
+    a 0/1/2 column. The compounds are fine; only the split column is wrong, and a
+    headline about unusable compounds sends them to look in the wrong place."""
+    upload_ref = await csv_upload(b"smiles,y,fold\nCCO,1.0,0\nc1ccccc1,5.0,1\nCCN,2.0,2\n")
+    response = await client.post(
+        "/api/v1/datasets",
+        json=create_body(
+            upload_ref, split={"strategy": "predefined", "seed": 1, "column": "fold"}
+        ),
+    )
+    assert response.status_code == 422
+    detail = response.text
+    assert "fold" in detail
+    # Names the real problem rather than blaming the compounds...
+    assert "No usable compounds" not in detail
+    # ...and says what to do about a numbered column.
+    assert "one column per fold" in detail

@@ -239,3 +239,69 @@ def test_run_update_metrics_accepts_both_closed_shapes_and_nothing_else():
 
     with pytest.raises(PydanticValidationError):
         RunUpdateEnvelope(status="ready", expected_version=1, metrics={"anything": "goes"})
+
+
+def _dataset_with(**overrides: object) -> Dataset:
+    """`_dataset()` with fields replaced. `Dataset` is an aggregate root with a
+    keyword-only __init__, not a dataclass, so `dataclasses.replace` does not apply."""
+    base = _dataset()
+    fields = {
+        "workspace_id": base.workspace_id,
+        "name": base.name,
+        "structure_column": base.structure_column,
+        "targets": base.targets,
+        "split": base.split,
+        "content_hash": base.content_hash,
+        "snapshot_uri": base.snapshot_uri,
+        "row_count": base.row_count,
+        "validation_report": base.validation_report,
+    }
+    fields.update(overrides)
+    dataset = Dataset(**fields)  # type: ignore[arg-type]
+    dataset.id = base.id
+    return dataset
+
+
+def test_a_predefined_splits_column_survives_the_wire() -> None:
+    """The runner rebuilds the Dataset from this envelope before every fit.
+
+    Dropping `column` here does not fail at the boundary: it fails inside
+    `SplitSpec.__post_init__` on the runner, so the scientist sees a run go FAILED
+    with "a predefined split needs the name of the column" while looking at a dataset
+    page that names the column.
+    """
+    dataset = _dataset_with(
+        split=SplitSpec(strategy=SplitStrategy.PREDEFINED, seed=42, column="split")
+    )
+    result = DatasetEnvelope.from_domain(dataset).to_domain()
+    assert result.split.column == "split"
+    assert result.__dict__ == dataset.__dict__
+
+
+def test_a_predefined_splits_column_survives_the_wire_as_json() -> None:
+    dataset = _dataset_with(
+        split=SplitSpec(strategy=SplitStrategy.PREDEFINED, seed=42, column="Set")
+    )
+    envelope = DatasetEnvelope.from_domain(dataset)
+    result = DatasetEnvelope.model_validate_json(envelope.model_dump_json()).to_domain()
+    assert result.split.column == "Set"
+
+
+def test_a_split_conflicts_text_values_survive_the_wire() -> None:
+    """A split conflict carries partition names; a binary conflict carries labels."""
+    dataset = _dataset_with(
+        validation_report=ValidationReport(
+            total_rows=4,
+            valid_rows=4,
+            conflicting=[
+                ConflictRow(
+                    structure="CCO", column="split", values=["test", "train"], row_numbers=[1, 2]
+                ),
+                ConflictRow(structure="CCN", column="active", values=[0, 1], row_numbers=[3, 4]),
+            ],
+        )
+    )
+    envelope = DatasetEnvelope.from_domain(dataset)
+    result = DatasetEnvelope.model_validate_json(envelope.model_dump_json()).to_domain()
+    assert result.validation_report.conflicting[0].values == ["test", "train"]
+    assert result.validation_report.conflicting[1].values == [0, 1]

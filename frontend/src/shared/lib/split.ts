@@ -87,6 +87,18 @@ export function isGroupedSplit(strategy: string): boolean {
 }
 
 /**
+ * Whether training also fits the engine on a random re-split, for the optimism gap.
+ *
+ * Not the same question as `isGroupedSplit`, though it was once answered with it. The
+ * backend runs that leg for every strategy but RANDOM, and `predefined` groups nothing
+ * while still getting one -- so asking about grouping promised two training stages
+ * where three ran, and omitted the comparison from the list of what training will do.
+ */
+export function hasRandomComparison(strategy: string): boolean {
+  return strategy !== "random";
+}
+
+/**
  * What a shared scaffold between training and test means for this split.
  *
  * Here rather than in the profile view because the view was branching on strategy

@@ -51,6 +51,7 @@ import lzma
 import math
 import time
 import uuid
+from collections import Counter
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
@@ -454,6 +455,36 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
     )
 
 
+#: Every non-random split is scored twice: once on its own partitions and once on a
+#: random re-split, which is what makes the optimism gap a measurement rather than an
+#: assertion.
+_COMPARISON_LEGS = 2
+
+
+def comparison_fractions(frame: pl.DataFrame, split: SplitSpec) -> tuple[float, float, float]:
+    """The partition sizes the random comparison leg should reproduce.
+
+    For a computed split these are the fractions the scientist asked for. For a
+    PREDEFINED split they are not: its `fractions` are the inert default that
+    `SplitSpec.__post_init__` refuses to let anyone change, because the partitions came
+    out of the file. Comparing a benchmark that held out 20% against a random split
+    that holds out 10% varies the test-set size as well as the strategy, and the
+    optimism gap claims the strategy is the only thing that varied.
+    """
+    if split.strategy is not SplitStrategy.PREDEFINED:
+        return split.fractions
+    labels = frame["split"].to_list()
+    total = len(labels)
+    if total == 0:  # pragma: no cover - a split frame is never empty here
+        return split.fractions
+    counts = Counter(labels)
+    train = counts.get("train", 0) / total
+    validation = counts.get("validation", 0) / total
+    # Subtraction, not a third division: the three must sum to exactly 1 or
+    # `SplitSpec.__post_init__` rejects the comparison spec we are about to build.
+    return (train, validation, 1.0 - train - validation)
+
+
 def deadline_scale(
     manifest: EngineManifest,
     dataset: Dataset,
@@ -478,7 +509,7 @@ def deadline_scale(
     # a list of members: `_optimism_gap` runs the second leg for every non-random
     # strategy, and a new member added to that side but forgotten here would get half
     # the budget it needs and die on the lane deadline at ~80% of a long run.
-    legs = 1 if dataset.split.strategy is SplitStrategy.RANDOM else 2
+    legs = 1 if dataset.split.strategy is SplitStrategy.RANDOM else _COMPARISON_LEGS
     return legs * _fits(manifest, dataset, conditions) + _fits(
         baseline, dataset, baseline_conditions
     )
@@ -986,16 +1017,18 @@ class RunTraining:
             run, _RANDOM_SPLIT_SPAN[0], "Training on a random split for comparison"
         )
         try:
-            # Same seed and same fractions as the Dataset's own split, so the only
-            # variable between the two numbers is the split *strategy* -- which is
-            # the entire claim the optimism gap makes.
+            # Same seed, and the same partition *sizes* the Dataset actually got, so
+            # the only variable between the two numbers is the split *strategy* --
+            # which is the entire claim the optimism gap makes. For a predefined split
+            # those sizes come from the file rather than from `fractions`, which there
+            # are inert (see `comparison_fractions`).
             random_frame = assign_split(
                 frame,
                 dataset.structure_column,
                 SplitSpec(
                     strategy=SplitStrategy.RANDOM,
                     seed=dataset.split.seed,
-                    fractions=dataset.split.fractions,
+                    fractions=comparison_fractions(frame, dataset.split),
                 ),
                 # No clusterer: this split is always RANDOM, which never groups by
                 # homology, so threading one here would be a dead parameter.

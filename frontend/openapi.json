@@ -4994,10 +4994,20 @@
             "title": "Column"
           },
           "values": {
-            "items": {
-              "type": "integer"
-            },
-            "type": "array",
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            ],
             "title": "Values"
           },
           "row_numbers": {
@@ -9167,6 +9177,17 @@
               0.1,
               0.1
             ]
+          },
+          "column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Column"
           }
         },
         "additionalProperties": false,
