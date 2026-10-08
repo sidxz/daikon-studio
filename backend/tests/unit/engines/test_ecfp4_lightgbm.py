@@ -67,7 +67,7 @@ def context(
 def test_regression_reports_the_shared_metric_vocabulary() -> None:
     result = Ecfp4LightGBM().train(context())
 
-    assert sorted(result.metrics["y"]) == ["mae", "r2", "rmse"]
+    assert sorted(result.metrics["y"]) == ["mae", "r2", "rmse", "spearman"]
     assert isinstance(result.artifact, bytes) and len(result.artifact) > 0
 
 

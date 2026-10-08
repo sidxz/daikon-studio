@@ -102,17 +102,44 @@ def _undefined_classification_metrics() -> dict[str, float]:
     }
 
 
+def _spearman(y_true: np.ndarray, predicted: np.ndarray) -> float:
+    """Rank correlation between measured and predicted, or NaN when undefined.
+
+    NaN rather than 0.0 for the undefined cases -- fewer than two points, or a
+    constant on either side -- because 0.0 reads as "measured, and unrelated".
+    That is the convention `_undefined_classification_metrics` already uses.
+    Polars rather than scipy: polars is a declared dependency and scipy is only
+    present transitively through scikit-learn.
+    """
+    usable = np.isfinite(y_true) & np.isfinite(predicted)
+    left, right = y_true[usable], predicted[usable]
+    if left.size < 2 or np.unique(left).size < 2 or np.unique(right).size < 2:
+        return float("nan")
+    correlation = pl.DataFrame({"measured": left, "predicted": right}).select(
+        pl.corr("measured", "predicted", method="spearman")
+    )[0, 0]
+    return float("nan") if correlation is None else float(correlation)
+
+
 def regression_metrics(y_true: np.ndarray, predicted: np.ndarray) -> dict[str, float]:
-    """RMSE, MAE and R2 -- the regression half of the shared vocabulary.
+    """RMSE, MAE, R2 and Spearman -- the regression half of the shared vocabulary.
 
     Engine-agnostic on purpose: this is the code a chemprop model and the ECFP4
     baseline are both measured by, which is what makes a Scorecard's comparison mean
     anything.
+
+    Spearman is here because the error metrics alone cannot answer the question
+    variant-effect and ranking work actually asks. A model that orders every
+    candidate correctly but sits off the diagonal scores a negative R2 and a
+    perfect Spearman, and it is the useful model. It is also the metric the
+    protein literature reports, so without it a Scorecard cannot be compared
+    against a published number.
     """
     return {
         "rmse": float(root_mean_squared_error(y_true, predicted)),
         "mae": float(mean_absolute_error(y_true, predicted)),
         "r2": float(r2_score(y_true, predicted)),
+        "spearman": _spearman(y_true, predicted),
     }
 
 

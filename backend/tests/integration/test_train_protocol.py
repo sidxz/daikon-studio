@@ -718,7 +718,7 @@ async def test_the_task_comes_from_the_target_spec_not_from_the_values(
 
     scorecard = await studio.scorecard_for(run)
     assert scorecard.targets[0].task == "regression"
-    assert set(scorecard.targets[0].metrics) == {"rmse", "mae", "r2"}
+    assert set(scorecard.targets[0].metrics) == {"rmse", "mae", "r2", "spearman"}
     protocol = await studio.protocol_for(run)
     assert [readout.type.value for readout in protocol.readouts] == ["numeric"]
 

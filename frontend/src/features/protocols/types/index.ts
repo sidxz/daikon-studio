@@ -37,6 +37,8 @@ export const METRIC_DESCRIPTIONS: Record<string, string> = {
   mae: "Average distance from the measured value.",
   rmse: "Prediction error with extra weight on larger mistakes.",
   r2: "How much variation is captured. 1 is perfect; 0 matches always predicting the test-set average.",
+  spearman:
+    "How well the model puts the test set in the right order, ignoring how far off the values are. 1 is a perfect ranking; 0 is no better than shuffling.",
   mcc: "Overall quality of binary decisions, accounting for both classes. 1 is perfect; 0 means no correlation.",
   balanced_accuracy:
     "Average share correctly identified within each class, giving both classes equal weight.",
