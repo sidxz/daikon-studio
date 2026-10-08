@@ -51,7 +51,7 @@ export function NotebookPanel({
     });
 
   const createButton = canCreate && (
-    <Button size="sm" onClick={() => setCreating(true)}>
+    <Button size="sm" variant="outline" onClick={() => setCreating(true)}>
       <Plus />
       New page
     </Button>
