@@ -15,4 +15,6 @@ export interface TrainProtocolBody {
   baseline_engine_id?: TrainProtocolBodyBaselineEngineId;
   baseline_conditions?: TrainProtocolBodyBaselineConditions;
   tune_cutoffs?: boolean;
+  run_baseline?: boolean;
+  optimism_gap?: boolean;
 }

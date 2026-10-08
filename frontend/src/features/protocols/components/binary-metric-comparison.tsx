@@ -78,7 +78,9 @@ export function BinaryMetricComparison({ scorecard }: { scorecard: ScorecardResp
       <div className="grid gap-3 md:grid-cols-2">
         {METRICS.map(({ key, label, description }) => {
           const model = unavailable ? null : (scorecard.metrics[key] ?? null);
-          const baseline = unavailable ? null : (scorecard.baseline_metrics[key] ?? null);
+          // Null when the run fitted no baseline at all, which the delta below
+          // already treats as "no comparison" rather than as a tie.
+          const baseline = unavailable ? null : (scorecard.baseline_metrics?.[key] ?? null);
           const delta =
             !scorecard.baseline_is_self && model != null && baseline != null
               ? model - baseline

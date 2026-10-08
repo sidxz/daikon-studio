@@ -280,6 +280,7 @@ export * from './scorecardResponseApplicabilityCoverage';
 export * from './scorecardResponseBaselineConditions';
 export * from './scorecardResponseBaselineCutoff';
 export * from './scorecardResponseBaselineMetrics';
+export * from './scorecardResponseBaselineMetricsAnyOf';
 export * from './scorecardResponseClassificationSummary';
 export * from './scorecardResponseConditions';
 export * from './scorecardResponseCutoff';

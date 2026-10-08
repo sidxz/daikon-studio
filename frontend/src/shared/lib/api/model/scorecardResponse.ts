@@ -71,7 +71,7 @@ export interface ScorecardResponse {
   conditions: ScorecardResponseConditions;
   baseline_engine_id: string;
   baseline_conditions: ScorecardResponseBaselineConditions;
-  baseline_metrics: ScorecardResponseBaselineMetrics;
+  baseline_metrics?: ScorecardResponseBaselineMetrics;
   baseline_is_self: boolean;
   random_split_metrics: ScorecardResponseRandomSplitMetrics;
   random_split_unavailable: ScorecardResponseRandomSplitUnavailable;

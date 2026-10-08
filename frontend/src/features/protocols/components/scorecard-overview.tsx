@@ -157,7 +157,7 @@ function ToleranceCard({
 function ErrorInterpretation({ scorecard }: { scorecard: ScorecardResponse }) {
   const summary = scorecard.regression_summary;
   const mae = scorecard.metrics.mae;
-  const baseline = scorecard.baseline_metrics.mae;
+  const baseline = scorecard.baseline_metrics?.mae ?? null;
   const improvement =
     !scorecard.baseline_is_self && mae != null && baseline != null && baseline > 0
       ? (baseline - mae) / baseline

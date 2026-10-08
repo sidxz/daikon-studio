@@ -21,6 +21,7 @@ import { QueryError } from "@/shared/components/query-error";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -102,6 +103,10 @@ export function TrainProtocolForm() {
   const [baselineEngineId, setBaselineEngineId] = useState("");
   const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
   const [tuneCutoffs, setTuneCutoffs] = useState(false);
+  // Both on by default: they are what makes a number evidence rather than a number.
+  // Off is for reproducing a published protocol, which ran neither.
+  const [runBaseline, setRunBaseline] = useState(true);
+  const [optimismGap, setOptimismGap] = useState(true);
   const [runId, setRunId] = useState<string | undefined>();
   const [datasetSearch, setDatasetSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -253,6 +258,8 @@ export function TrainProtocolForm() {
         // Not just the checkbox: it may have been ticked before the dataset
         // changed to one with no active/inactive target.
         tune_cutoffs: canTuneCutoffs && tuneCutoffs,
+        run_baseline: runBaseline,
+        optimism_gap: optimismGap,
       });
       // A cache hit returns 202 with an already-ready Run, so branch on
       // status rather than assuming 202 means work started.
@@ -696,6 +703,44 @@ export function TrainProtocolForm() {
                   <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
                 </div>
               )}
+              <div className="space-y-3 rounded-lg border p-4">
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="run-baseline"
+                      checked={runBaseline}
+                      onCheckedChange={(value) => setRunBaseline(value !== false)}
+                    />
+                    <Label htmlFor="run-baseline" className="font-normal">
+                      Compare against a baseline model
+                    </Label>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    On by default. Without it there is no verdict on the scorecard: a score with
+                    nothing to compare it against cannot say whether the model learned anything.
+                    Switch it off to reproduce a published protocol exactly.
+                  </p>
+                </div>
+                {dataset != null && hasRandomComparison(dataset.split.strategy) && (
+                  <div className="space-y-1.5 border-t pt-3">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="optimism-gap"
+                        checked={optimismGap}
+                        onCheckedChange={(value) => setOptimismGap(value !== false)}
+                      />
+                      <Label htmlFor="optimism-gap" className="font-normal">
+                        Also train on a random split
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      On by default, and it doubles the training time. This is the only measurement
+                      of how much this split's score was flattered; without it the optimism gap
+                      cannot be reported.
+                    </p>
+                  </div>
+                )}
+              </div>
               {dataset != null && hasRandomComparison(dataset.split.strategy) && (
                 <p className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
                   Training also fits the selected engine on a random split, with the same seed and
@@ -858,19 +903,22 @@ export function TrainProtocolForm() {
               )}
               {engine && dataset && baselineEngine && (
                 <div className="space-y-2 border-t pt-4">
+                  {/* One place decides what runs, so the list and the count cannot
+                      disagree -- which is exactly how the badge once promised two
+                      stages while the backend ran three. */}
                   <p className="text-xs font-medium">Planned work</p>
                   <ol className="space-y-2 text-xs text-muted-foreground">
                     <li className="flex gap-2">
                       <Check className="mt-0.5 size-3 shrink-0" />
                       <span>Train {engine.name} on the dataset split.</span>
                     </li>
-                    {!selfCompare && (
+                    {runBaseline && !selfCompare && (
                       <li className="flex gap-2">
                         <Check className="mt-0.5 size-3 shrink-0" />
                         <span>Train {baselineEngine.name} as the comparison baseline.</span>
                       </li>
                     )}
-                    {hasRandomComparison(dataset.split.strategy) && (
+                    {optimismGap && hasRandomComparison(dataset.split.strategy) && (
                       <li className="flex gap-2">
                         <Check className="mt-0.5 size-3 shrink-0" />
                         <span>Train {engine.name} again on a random split for comparison.</span>
@@ -883,13 +931,9 @@ export function TrainProtocolForm() {
                   </ol>
                   <div className="flex flex-wrap gap-1.5">
                     <Badge variant="outline" className="font-normal">
-                      {hasRandomComparison(dataset.split.strategy)
-                        ? selfCompare
-                          ? 2
-                          : 3
-                        : selfCompare
-                          ? 1
-                          : 2}{" "}
+                      {1 +
+                        (runBaseline && !selfCompare ? 1 : 0) +
+                        (optimismGap && hasRandomComparison(dataset.split.strategy) ? 1 : 0)}{" "}
                       training stages
                     </Badge>
                     {engine.lane === "gpu" && <Badge variant="secondary">GPU lane required</Badge>}
