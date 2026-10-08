@@ -1,7 +1,12 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { TrainProtocolForm, comparesAgainstItself, resolveConditions } from "./train-protocol-form";
+import {
+  TrainProtocolForm,
+  comparesAgainstItself,
+  resolveConditions,
+  trainingStages,
+} from "./train-protocol-form";
 
 const SPECS = [{ key: "n_estimators", label: "Trees", type: "integer", default: 500, options: [] }];
 
@@ -400,5 +405,48 @@ describe("settings that do not apply to the dataset", () => {
 
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
     expect(mutateAsync.mock.calls[0][0].conditions).toEqual({ positive_weighting: "balanced" });
+  });
+});
+
+describe("trainingStages", () => {
+  // The list of planned work and the badge counting it must come from one place.
+  // They disagreed once before: the badge promised two stages while the backend ran
+  // three.
+  const plan = {
+    runBaseline: true,
+    selfCompare: false,
+    optimismGap: true,
+    strategy: "scaffold",
+    replicates: 0,
+  };
+
+  it("counts exactly as before when no draws are asked for", () => {
+    expect(trainingStages(plan)).toBe(3);
+  });
+
+  it("counts each draw as its own training stage", () => {
+    expect(trainingStages({ ...plan, replicates: 3 })).toBe(6);
+  });
+
+  it("counts no comparison stage for a random split that still takes draws", () => {
+    // Replicable, but no optimism-gap leg: 1 + 3, not 2 + 3. Reading one off the
+    // other is how a run gets a budget it cannot finish in.
+    expect(trainingStages({ ...plan, strategy: "random", replicates: 3 })).toBe(5);
+  });
+
+  it("promises no draws on a split that cannot take them", () => {
+    for (const strategy of ["predefined", "identity"]) {
+      expect(trainingStages({ ...plan, strategy, replicates: 5 })).toBe(
+        trainingStages({ ...plan, strategy }),
+      );
+    }
+  });
+
+  it("drops the baseline stage for a self-comparison", () => {
+    expect(trainingStages({ ...plan, selfCompare: true, replicates: 2 })).toBe(4);
+  });
+
+  it("drops the comparison stage when the optimism gap is switched off", () => {
+    expect(trainingStages({ ...plan, optimismGap: false, replicates: 2 })).toBe(4);
   });
 });

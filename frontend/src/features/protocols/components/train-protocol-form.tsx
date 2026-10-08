@@ -39,7 +39,7 @@ import {
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { ApiError } from "@/shared/lib/api/custom-instance";
 import { isTerminal } from "@/shared/lib/query-defaults";
-import { hasRandomComparison, isGroupedSplit } from "@/shared/lib/split";
+import { hasRandomComparison, isGroupedSplit, isReplicableSplit } from "@/shared/lib/split";
 import { showError } from "@/shared/lib/toast";
 import { Check, ChevronDownIcon, ClipboardCheck, Pencil } from "lucide-react";
 import Link from "next/link";
@@ -77,6 +77,32 @@ export function resolveConditions(
 }
 
 /** The client-side mirror of the server's `baseline_is_self`. */
+/**
+ * How many times training will fit a model, and therefore what the planned-work list
+ * must enumerate.
+ *
+ * One function because the list and the badge disagreeing is a real past bug: the badge
+ * promised two stages while the backend ran three. It mirrors `deadline_scale` on the
+ * backend, so the three terms have to stay independent of each other. A draw is a
+ * stage; a split that cannot be drawn again contributes none however many are asked
+ * for; and a random split takes draws while running no comparison stage, so reading
+ * either term off the other goes wrong in one direction or the other.
+ */
+export function trainingStages(plan: {
+  runBaseline: boolean;
+  selfCompare: boolean;
+  optimismGap: boolean;
+  strategy: string;
+  replicates: number;
+}): number {
+  return (
+    1 +
+    (plan.runBaseline && !plan.selfCompare ? 1 : 0) +
+    (plan.optimismGap && hasRandomComparison(plan.strategy) ? 1 : 0) +
+    (isReplicableSplit(plan.strategy) ? plan.replicates : 0)
+  );
+}
+
 export function comparesAgainstItself(
   engineId: string,
   conditions: Record<string, unknown>,
@@ -107,12 +133,16 @@ export function TrainProtocolForm() {
   // Off is for reproducing a published protocol, which ran neither.
   const [runBaseline, setRunBaseline] = useState(true);
   const [optimismGap, setOptimismGap] = useState(true);
+  // How many extra draws of the split to train on, to measure how much the score
+  // depends on which compounds landed in the test set. Off by default: each draw is
+  // another full training run.
+  const [replicates, setReplicates] = useState(0);
   // A column whose true rows get their own number on the scorecard, for comparing
   // against a published figure measured over part of a test set.
   const [subsetColumn, setSubsetColumn] = useState<string>("");
   const [reproductionOpen, setReproductionOpen] = useState(false);
   // Shown on the collapsed trigger, so a changed setting is never invisible.
-  const reproductionChanged = !runBaseline || !optimismGap || subsetColumn !== "";
+  const reproductionChanged = !runBaseline || !optimismGap || subsetColumn !== "" || replicates > 0;
   const [runId, setRunId] = useState<string | undefined>();
   const [datasetSearch, setDatasetSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -267,6 +297,10 @@ export function TrainProtocolForm() {
         tune_cutoffs: canTuneCutoffs && tuneCutoffs,
         run_baseline: runBaseline,
         optimism_gap: optimismGap,
+        // Zero unless the split can actually be drawn again, so the request matches
+        // the work the badge promised.
+        split_replicates:
+          dataset != null && isReplicableSplit(dataset.split.strategy) ? replicates : 0,
         subset_column: subsetColumn || null,
       });
       // A cache hit returns 202 with an already-ready Run, so branch on
@@ -798,6 +832,35 @@ export function TrainProtocolForm() {
                         </p>
                       </div>
                     )}
+                    {dataset != null && isReplicableSplit(dataset.split.strategy) && (
+                      <div className="space-y-1.5 border-t pt-3">
+                        <Label htmlFor="split-replicates" className="font-normal">
+                          Extra draws of the split
+                        </Label>
+                        <Input
+                          id="split-replicates"
+                          type="number"
+                          min={0}
+                          max={10}
+                          value={replicates}
+                          onChange={(event) =>
+                            // Clamped here as well as on the server, so the badge can never
+                            // promise work the request would be refused for.
+                            setReplicates(
+                              Math.max(0, Math.min(10, Number(event.target.value) || 0)),
+                            )
+                          }
+                          className="w-24"
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          None by default. Each draw divides the same compounds into training and
+                          test sets again and trains the engine on them, so it adds a full training
+                          run apiece. The scorecard then reports how much the score moves when the
+                          split changes, which is what says whether a lead over the baseline is
+                          real.
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </CollapsibleContent>
               </Collapsible>
@@ -984,6 +1047,16 @@ export function TrainProtocolForm() {
                         <span>Train {engine.name} again on a random split for comparison.</span>
                       </li>
                     )}
+                    {replicates > 0 && isReplicableSplit(dataset.split.strategy) && (
+                      <li className="flex gap-2">
+                        <Check className="mt-0.5 size-3 shrink-0" />
+                        <span>
+                          Train {engine.name} again on{" "}
+                          {replicates === 1 ? "one more draw" : `${replicates} more draws`} of the
+                          split.
+                        </span>
+                      </li>
+                    )}
                     <li className="flex gap-2">
                       <Check className="mt-0.5 size-3 shrink-0" />
                       <span>Generate a scorecard to review before publishing.</span>
@@ -991,9 +1064,13 @@ export function TrainProtocolForm() {
                   </ol>
                   <div className="flex flex-wrap gap-1.5">
                     <Badge variant="outline" className="font-normal">
-                      {1 +
-                        (runBaseline && !selfCompare ? 1 : 0) +
-                        (optimismGap && hasRandomComparison(dataset.split.strategy) ? 1 : 0)}{" "}
+                      {trainingStages({
+                        runBaseline,
+                        selfCompare,
+                        optimismGap,
+                        strategy: dataset.split.strategy,
+                        replicates,
+                      })}{" "}
                       training stages
                     </Badge>
                     {engine.lane === "gpu" && <Badge variant="secondary">GPU lane required</Badge>}
