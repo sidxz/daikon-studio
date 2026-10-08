@@ -110,6 +110,9 @@ export function TrainProtocolForm() {
   // A column whose true rows get their own number on the scorecard, for comparing
   // against a published figure measured over part of a test set.
   const [subsetColumn, setSubsetColumn] = useState<string>("");
+  const [reproductionOpen, setReproductionOpen] = useState(false);
+  // Shown on the collapsed trigger, so a changed setting is never invisible.
+  const reproductionChanged = !runBaseline || !optimismGap || subsetColumn !== "";
   const [runId, setRunId] = useState<string | undefined>();
   const [datasetSearch, setDatasetSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -708,69 +711,96 @@ export function TrainProtocolForm() {
                   <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
                 </div>
               )}
-              {datasetColumns != null && datasetColumns.length > 0 && (
-                <div className="space-y-1.5 rounded-lg border p-4">
-                  <Label htmlFor="subset-column" className="font-normal">
-                    Report a separate metric for one group of compounds
-                  </Label>
-                  <Select value={subsetColumn} onValueChange={setSubsetColumn}>
-                    <SelectTrigger id="subset-column">
-                      <SelectValue placeholder="None" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">None</SelectItem>
-                      {datasetColumns.map((column) => (
-                        <SelectItem key={column} value={column}>
-                          {column}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+              {/* Collapsed by default. These three change what the run *is* rather than
+                  how it is configured, and a scientist only reaches for them when
+                  reproducing someone else's protocol -- which is rare next to the
+                  everyday case of training a model and reading its verdict. */}
+              <Collapsible
+                open={reproductionOpen}
+                onOpenChange={setReproductionOpen}
+                className="rounded-lg border p-4"
+              >
+                <CollapsibleTrigger className="flex w-full items-center justify-between text-left text-sm font-medium">
+                  <span>
+                    Reproducing a published study{" "}
+                    <span className="font-normal text-muted-foreground">
+                      {reproductionChanged ? "(changed)" : "(defaults)"}
+                    </span>
+                  </span>
+                  <ChevronDownIcon
+                    className={`size-4 transition-transform ${reproductionOpen ? "rotate-180" : ""}`}
+                  />
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-4 space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Rows where this column is true are measured again on their own. Use it when the
-                    number you are comparing against was reported over part of a test set rather
-                    than all of it.
+                    Defaults measure the model as well as this platform can. Change them only to
+                    match how a published number was produced.
                   </p>
-                </div>
-              )}
-              <div className="space-y-3 rounded-lg border p-4">
-                <div className="space-y-1.5">
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="run-baseline"
-                      checked={runBaseline}
-                      onCheckedChange={(value) => setRunBaseline(value !== false)}
-                    />
-                    <Label htmlFor="run-baseline" className="font-normal">
-                      Compare against a baseline model
-                    </Label>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                    On by default. Without it there is no verdict on the scorecard: a score with
-                    nothing to compare it against cannot say whether the model learned anything.
-                    Switch it off to reproduce a published protocol exactly.
-                  </p>
-                </div>
-                {dataset != null && hasRandomComparison(dataset.split.strategy) && (
-                  <div className="space-y-1.5 border-t pt-3">
-                    <div className="flex items-center gap-2">
-                      <Checkbox
-                        id="optimism-gap"
-                        checked={optimismGap}
-                        onCheckedChange={(value) => setOptimismGap(value !== false)}
-                      />
-                      <Label htmlFor="optimism-gap" className="font-normal">
-                        Also train on a random split
+                  {datasetColumns != null && datasetColumns.length > 0 && (
+                    <div className="space-y-1.5 rounded-lg border p-4">
+                      <Label htmlFor="subset-column" className="font-normal">
+                        Report a separate metric for one group of compounds
                       </Label>
+                      <Select value={subsetColumn} onValueChange={setSubsetColumn}>
+                        <SelectTrigger id="subset-column">
+                          <SelectValue placeholder="None" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">None</SelectItem>
+                          {datasetColumns.map((column) => (
+                            <SelectItem key={column} value={column}>
+                              {column}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Rows where this column is true are measured again on their own. Use it when
+                        the number you are comparing against was reported over part of a test set
+                        rather than all of it.
+                      </p>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      On by default, and it doubles the training time. This is the only measurement
-                      of how much this split's score was flattered; without it the optimism gap
-                      cannot be reported.
-                    </p>
+                  )}
+                  <div className="space-y-3 rounded-lg border p-4">
+                    <div className="space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="run-baseline"
+                          checked={runBaseline}
+                          onCheckedChange={(value) => setRunBaseline(value !== false)}
+                        />
+                        <Label htmlFor="run-baseline" className="font-normal">
+                          Compare against a baseline model
+                        </Label>
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        On by default. Without it there is no verdict on the scorecard: a score with
+                        nothing to compare it against cannot say whether the model learned anything.
+                        Switch it off to reproduce a published protocol exactly.
+                      </p>
+                    </div>
+                    {dataset != null && hasRandomComparison(dataset.split.strategy) && (
+                      <div className="space-y-1.5 border-t pt-3">
+                        <div className="flex items-center gap-2">
+                          <Checkbox
+                            id="optimism-gap"
+                            checked={optimismGap}
+                            onCheckedChange={(value) => setOptimismGap(value !== false)}
+                          />
+                          <Label htmlFor="optimism-gap" className="font-normal">
+                            Also train on a random split
+                          </Label>
+                        </div>
+                        <p className="text-xs text-muted-foreground">
+                          On by default, and it doubles the training time. This is the only
+                          measurement of how much this split's score was flattered; without it the
+                          optimism gap cannot be reported.
+                        </p>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </CollapsibleContent>
+              </Collapsible>
               {dataset != null && hasRandomComparison(dataset.split.strategy) && (
                 <p className="rounded-lg bg-muted/30 p-3 text-xs text-muted-foreground">
                   Training also fits the selected engine on a random split, with the same seed and
