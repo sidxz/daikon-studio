@@ -15,12 +15,17 @@ from daikonstudio.domain.shared.errors import DomainError
 _MAX_LENGTH = 500
 
 
-def user_facing_error(exc: BaseException) -> str:
+def user_facing_error(exc: BaseException, *, subject: str = "The run") -> str:
+    """`subject` names what failed. It defaults to the run because that is the
+    common case, and is overridden by the legs that degrade rather than fail: a
+    message reading "The run failed" is false on a run the worker goes on to mark
+    READY, and worse inside a sentence that also says two of three draws completed.
+    """
     if isinstance(exc, DomainError):
         return f"{exc.message} ({exc.detail})" if exc.detail else exc.message
     if isinstance(exc, ValueError | TypeError) and str(exc):
         return str(exc)[:_MAX_LENGTH]
     return (
-        f"The run failed with an unexpected internal error ({type(exc).__name__}). "
+        f"{subject} failed with an unexpected internal error ({type(exc).__name__}). "
         "Details are in the runner log."
     )

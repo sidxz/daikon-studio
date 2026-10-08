@@ -260,7 +260,7 @@ export function SplitDrawSpread({ scorecard }: { scorecard: ScorecardResponse })
         <CardTitle className="text-base">Score across split draws</CardTitle>
         <p className="text-sm text-muted-foreground">
           {completed > 0
-            ? `The same engine and settings, trained again on ${completed === 1 ? "one more draw" : `${completed} more draws`} of the split. Each draw divides the same compounds into training and test sets again. A lead over the baseline smaller than this spread is not evidence of a better model.`
+            ? `The same engine and settings, trained again on ${completed === 1 ? "one more draw" : `${completed} more draws`} of the split. Each draw divides the same compounds into training and test sets again. A lead over the baseline smaller than twice this spread is not evidence of a better model.`
             : "Training on further draws of the split shows how much the score depends on which compounds landed in the test set."}
         </p>
       </CardHeader>

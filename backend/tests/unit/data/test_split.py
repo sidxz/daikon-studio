@@ -606,3 +606,82 @@ def test_every_strategy_has_an_answer() -> None:
     would be promised draws nobody takes."""
     for strategy in SplitStrategy:
         assert isinstance(is_replicable(strategy), bool)
+
+
+#: Substituted benzenes, pyridines, cyclohexanes, furans and one thiophene: Murcko
+#: group sizes 8/5/3/2/1, every one distinct. `_grouped_labels` sorts by descending
+#: group size and only breaks ties with the seed, so this is the shape where the sort
+#: is total and reseeding is a no-op.
+_DISTINCT_GROUP_SIZES = (
+    "c1ccccc1",
+    "Cc1ccccc1",
+    "CCc1ccccc1",
+    "CCCc1ccccc1",
+    "CCCCc1ccccc1",
+    "Clc1ccccc1",
+    "Brc1ccccc1",
+    "Fc1ccccc1",
+    "c1ccncc1",
+    "Cc1ccncc1",
+    "CCc1ccncc1",
+    "Clc1ccncc1",
+    "Brc1ccncc1",
+    "C1CCCCC1",
+    "CC1CCCCC1",
+    "CCC1CCCCC1",
+    "c1ccoc1",
+    "Cc1ccoc1",
+    "c1ccsc1",
+)
+
+
+def _labels(frame: pl.DataFrame, column: str, strategy: SplitStrategy, seed: int) -> list[str]:
+    return assign_split(frame, column, SplitSpec(strategy=strategy, seed=seed), NORMALIZER)[
+        "split"
+    ].to_list()
+
+
+def test_a_random_reseed_redraws_the_partitions() -> None:
+    frame = pl.DataFrame({"smiles": [f"{'C' * n}O" for n in range(1, 20)]})
+    drawn = {tuple(_labels(frame, "smiles", SplitStrategy.RANDOM, seed)) for seed in (7, 8, 9, 10)}
+    assert len(drawn) == 4
+
+
+def test_a_scaffold_reseed_redraws_when_groups_tie() -> None:
+    """The guard the extra-draws feature rests on. Without it a reseed that changed
+    nothing would pass every test that only checks list lengths, and the Scorecard
+    would report a spread of zero as though it were a measurement."""
+    # Each molecule its own scaffold, so every group is size 1 and every comparison is
+    # a tie the seed decides. This is what real chemistry looks like: measured across
+    # all 13 dataset snapshots in `.blobs/`, 97-100% of scaffold groups sit in a tie
+    # bucket and only 10-34% of the test set survives a seed change.
+    frame = pl.DataFrame({"smiles": [f"{'C' * n}O" for n in range(1, 20)]})
+    drawn = {
+        tuple(_labels(frame, "smiles", SplitStrategy.SCAFFOLD, seed)) for seed in (7, 8, 9, 10)
+    }
+    assert len(drawn) == 4
+
+
+def test_a_position_reseed_redraws_when_groups_tie() -> None:
+    frame = variant_frame()
+    drawn = {
+        tuple(_labels(frame, "sequence", SplitStrategy.POSITION, seed)) for seed in (7, 8, 9, 10)
+    }
+    assert len(drawn) > 1
+
+
+def test_a_scaffold_reseed_changes_nothing_when_every_group_differs_in_size() -> None:
+    """The documented limit of the seed's reach, and the reason `_replicates` refuses a
+    run whose draws all come out identical.
+
+    `_grouped_labels` orders groups by descending size and uses the seed only to break
+    ties, so when no two groups share a size the ordering is total and every seed
+    produces the same split. Real chemistry is overwhelmingly singleton scaffolds, so
+    this is a congeneric-series shape rather than the common one -- but it is reachable,
+    and a spread of zero measured on it is an absence, not a measurement.
+    """
+    frame = pl.DataFrame({"smiles": list(_DISTINCT_GROUP_SIZES)})
+    drawn = {
+        tuple(_labels(frame, "smiles", SplitStrategy.SCAFFOLD, seed)) for seed in (7, 8, 9, 10)
+    }
+    assert len(drawn) == 1

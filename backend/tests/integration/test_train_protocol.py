@@ -154,6 +154,46 @@ def _predefined_csv() -> bytes:
     return f"smiles,y,partition\n{rows}\n".encode()
 
 
+def _distinct_group_size_csv() -> bytes:
+    """Substituted benzenes, pyridines, cyclohexanes, furans and one thiophene: Murcko
+    group sizes 8/5/3/2/1, every one distinct.
+
+    `_grouped_labels` orders groups by descending size and uses the seed only to break
+    ties, so with no two groups the same size the ordering is total and every seed
+    produces the identical split. A congeneric-series shape rather than the common one
+    -- real chemistry is overwhelmingly singleton scaffolds -- but reachable, and the
+    one case where paying for N draws measures nothing.
+    """
+    smiles = (
+        # benzene x8
+        "c1ccccc1",
+        "Cc1ccccc1",
+        "CCc1ccccc1",
+        "CCCc1ccccc1",
+        "CCCCc1ccccc1",
+        "Clc1ccccc1",
+        "Brc1ccccc1",
+        "Fc1ccccc1",
+        # pyridine x5
+        "c1ccncc1",
+        "Cc1ccncc1",
+        "CCc1ccncc1",
+        "Clc1ccncc1",
+        "Brc1ccncc1",
+        # cyclohexane x3
+        "C1CCCCC1",
+        "CC1CCCCC1",
+        "CCC1CCCCC1",
+        # furan x2
+        "c1ccoc1",
+        "Cc1ccoc1",
+        # thiophene x1
+        "c1ccsc1",
+    )
+    rows = "\n".join(f"{s},{1.0 + 0.37 * i}" for i, s in enumerate(smiles))
+    return f"smiles,y\n{rows}\n".encode()
+
+
 def _two_target_csv() -> bytes:
     numbers = tuple(1.0 + 0.37 * index for index in range(len(_STRUCTURES)))
     labels = _alternating_values()
@@ -1699,3 +1739,26 @@ async def test_a_retried_run_resumes_the_draws_it_already_took(
     assert fitted == ["Ecfp4XGBoost"]  # the second draw only
     scorecard = await studio.scorecard_for(run)
     assert scorecard.replicate_seeds == [8, 9]
+
+
+async def test_draws_that_all_come_out_identical_are_refused_not_averaged(
+    studio: Studio,
+) -> None:
+    """A spread of zero over draws that never differed is an absence, not a
+    measurement. Reporting `+- 0.000 across 3 draws` after charging for three training
+    runs is the most reassuring thing the panel could print and it would be false.
+    """
+    dataset = await studio.dataset(strategy=SplitStrategy.SCAFFOLD, csv=_distinct_group_size_csv())
+    run = await studio.train(
+        dataset_id=dataset.id, engine_id="ecfp4-xgboost", conditions={}, split_replicates=3
+    )
+    await studio.wait(run)
+
+    assert (await studio.reload(run)).status is RunStatus.READY
+    scorecard = await studio.scorecard_for(run)
+    assert scorecard.replicate_seeds is None
+    assert all(target.replicate_metrics is None for target in scorecard.targets)
+    assert scorecard.replicate_unavailable is not None
+    assert "same" in scorecard.replicate_unavailable
+    # The primary result is untouched.
+    assert scorecard.targets[0].metrics

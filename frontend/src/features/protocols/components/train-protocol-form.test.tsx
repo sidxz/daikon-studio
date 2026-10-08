@@ -123,6 +123,7 @@ const WEIGHTED_ENGINE = {
 // one that withholds a joint engine.
 const hoisted = vi.hoisted(() => ({
   targets: [{ kind: "numeric", column: "logS" }] as { kind: string; column: string }[],
+  strategy: "scaffold",
 }));
 
 vi.mock("@/features/datasets", () => ({
@@ -138,7 +139,7 @@ vi.mock("@/features/datasets", () => ({
       name: "Solubility",
       row_count: 100,
       targets: hoisted.targets,
-      split: { strategy: "scaffold" },
+      split: { strategy: hoisted.strategy },
     },
   }),
 }));
@@ -448,5 +449,90 @@ describe("trainingStages", () => {
 
   it("drops the comparison stage when the optimism gap is switched off", () => {
     expect(trainingStages({ ...plan, optimismGap: false, replicates: 2 })).toBe(4);
+  });
+});
+
+describe("the extra-draws control", () => {
+  afterEach(() => {
+    mutateAsync.mockClear();
+    hoisted.strategy = "scaffold";
+  });
+
+  async function openReproductionSettings() {
+    const qc = new QueryClient();
+    render(
+      <QueryClientProvider client={qc}>
+        <TrainProtocolForm />
+      </QueryClientProvider>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Dataset" }));
+    fireEvent.click(await screen.findByText(/Solubility/));
+    fireEvent.click(await screen.findByRole("radio", { name: /ECFP4 \+ RF/ }));
+    fireEvent.click(screen.getByText(/Reproducing a published study/));
+  }
+
+  it("sends the requested number of draws in the payload", async () => {
+    await openReproductionSettings();
+
+    fireEvent.change(await screen.findByLabelText(/Extra draws of the split/), {
+      target: { value: "4" },
+    });
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
+    fireEvent.click(screen.getByText("Train"));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync.mock.calls[0][0].split_replicates).toBe(4);
+  });
+
+  it("clamps above the server's maximum rather than posting a 422", async () => {
+    await openReproductionSettings();
+
+    const input = await screen.findByLabelText(/Extra draws of the split/);
+    fireEvent.change(input, { target: { value: "40" } });
+    expect((input as HTMLInputElement).value).toBe("10");
+
+    fireEvent.change(input, { target: { value: "-5" } });
+    expect((input as HTMLInputElement).value).toBe("0");
+  });
+
+  it("counts each draw in the planned work and the badge together", async () => {
+    // The scar this guards: the badge once promised two stages while the backend ran
+    // three. The list and the badge must agree on the same arithmetic.
+    await openReproductionSettings();
+
+    fireEvent.change(await screen.findByLabelText(/Extra draws of the split/), {
+      target: { value: "2" },
+    });
+
+    expect(await screen.findByText(/2 more draws of the split/)).toBeInTheDocument();
+    // The badge interpolates the count, so its text spans several nodes.
+    // Four, not five: the chosen engine here IS the registry's flagged baseline, so
+    // the baseline stage correctly drops out. Chosen fit + random-split + 2 draws.
+    // The badge interpolates its count, so its text spans several nodes.
+    const badges = screen
+      .getAllByText(/training stages/)
+      .map((element) => (element.textContent ?? "").replace(/\s+/g, " ").trim());
+    expect(badges).toContain("4 training stages");
+  });
+
+  it("is hidden for a split that cannot be drawn again", async () => {
+    hoisted.strategy = "predefined";
+    await openReproductionSettings();
+
+    expect(screen.queryByLabelText(/Extra draws of the split/)).not.toBeInTheDocument();
+  });
+
+  it("sends no draws for a predefined split even if state carries some", async () => {
+    // The control is hidden, so the number cannot be raised from here -- but submit
+    // zeroes it independently, so the request can never ask for work the badge did
+    // not count.
+    hoisted.strategy = "predefined";
+    await openReproductionSettings();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Test protocol" } });
+    fireEvent.click(screen.getByText("Train"));
+
+    await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
+    expect(mutateAsync.mock.calls[0][0].split_replicates).toBe(0);
   });
 });

@@ -44,6 +44,7 @@ measured", `build_scorecard` owns "how it is presented".
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import io
 import json
 import logging
@@ -555,6 +556,17 @@ _COMPARISON_LEGS = 2
 #: to vary, while a homology split could be drawn again if the worker were given a
 #: clusterer. Telling someone who supplied a benchmark's own split that we "do not
 #: support" their choice would be plainly false.
+#: Why a run that *could* be drawn again measured nothing anyway. `_grouped_labels`
+#: orders groups by descending size and uses the seed only to break ties, so a dataset
+#: whose groups all differ in size -- a congeneric series, say -- is drawn identically
+#: whatever the seed. Reporting a spread of zero over draws that never differed would be
+#: the most reassuring number the Scorecard could print, and false.
+_IDENTICAL_DRAWS = (
+    "Every draw produced the same training and test sets, so there is no spread to "
+    "report. This split keeps related compounds together and fills the partitions with "
+    "the largest groups first, and the seed only reorders groups of the same size."
+)
+
 _UNREPLICABLE_REASONS = {
     SplitStrategy.PREDEFINED: (
         "Not applicable: the partitions come from a column in your file, so there is "
@@ -1225,7 +1237,7 @@ class RunTraining:
         spec: SplitSpec,
         scope: str,
         span: tuple[float, float],
-    ) -> dict[str, tuple[dict[str, float | None], dict[str, str] | None]]:
+    ) -> tuple[dict[str, tuple[dict[str, float | None], dict[str, str] | None]], str]:
         """The chosen engine refitted on one re-split of the same rows.
 
         Shared by the optimism gap, which varies the split *strategy*, and the extra
@@ -1234,6 +1246,10 @@ class RunTraining:
         undefined-metric reasons computed from the partition that produced them rather
         than from the Dataset's own. A second copy of that last part is how the two
         legs would start attributing one partition's reasons to another.
+
+        Returns the per-target measurements and a digest of the partition they were
+        measured on, so two draws can be compared for having actually differed without
+        either frame being kept.
 
         Raises on any failure. The callers own the gating and the degradation, because
         what a failure means differs between them: the gap has one reason for the whole
@@ -1260,7 +1276,7 @@ class RunTraining:
                 metrics,
                 _undefined_reasons(undefined, column, train_rows, test_rows),
             )
-        return measured
+        return measured, _partition_key(split_frame)
 
     async def _optimism_gap(
         self,
@@ -1319,24 +1335,22 @@ class RunTraining:
             # which is the entire claim the optimism gap makes. For a predefined split
             # those sizes come from the file rather than from `fractions`, which there
             # are inert (see `comparison_fractions`).
-            return (
-                await self._comparison_fit(
-                    run,
-                    engine,
-                    dataset,
-                    targets,
-                    conditions,
-                    frame,
-                    spec=SplitSpec(
-                        strategy=SplitStrategy.RANDOM,
-                        seed=dataset.split.seed,
-                        fractions=comparison_fractions(frame, dataset.split),
-                    ),
-                    scope="random-split",
-                    span=span,
+            measured, _partition = await self._comparison_fit(
+                run,
+                engine,
+                dataset,
+                targets,
+                conditions,
+                frame,
+                spec=SplitSpec(
+                    strategy=SplitStrategy.RANDOM,
+                    seed=dataset.split.seed,
+                    fractions=comparison_fractions(frame, dataset.split),
                 ),
-                None,
+                scope="random-split",
+                span=span,
             )
+            return measured, None
         except RunInterrupted:
             # Not degradable, unlike every other failure in this leg. A cancellation or
             # a deadline means stop, and recording it as an unavailable comparison would
@@ -1353,7 +1367,7 @@ class RunTraining:
             # therefore degrades to a recorded reason rather than a failure.
             # Not silent: `random_split_unavailable` is what stops the Scorecard
             # showing an absent gap and a not-applicable gap identically.
-            return None, user_facing_error(exc)
+            return None, user_facing_error(exc, subject="The comparison")
 
     async def _replicates(
         self,
@@ -1397,6 +1411,7 @@ class RunTraining:
 
         per_target: dict[str, dict[str, list[float | None]]] = {column: {} for column in targets}
         seeds: list[int] = []
+        partitions: list[str] = []
         failure: str | None = None
         for index, span in enumerate(spans):
             # Offset from the Dataset's own seed so the draws are reproducible from the
@@ -1410,7 +1425,7 @@ class RunTraining:
                 run, span[0], f"Training on split draw {index + 1} of {len(spans)}"
             )
             try:
-                measured = await self._comparison_fit(
+                measured, partition = await self._comparison_fit(
                     run,
                     engine,
                     dataset,
@@ -1434,14 +1449,20 @@ class RunTraining:
                 # This draw only. The loop continues, and the reason is reported even
                 # when later draws succeed.
                 logger.warning("Split draw %d did not fit; dropping it.", index, exc_info=True)
-                failure = user_facing_error(exc)
+                failure = user_facing_error(exc, subject="This draw")
                 continue
             seeds.append(seed)
+            partitions.append(partition)
             for column, (metrics, _reasons) in measured.items():
                 for name, value in metrics.items():
                     per_target[column].setdefault(name, []).append(value)
         if not seeds:
             return None, None, failure or "No split draw completed."
+        if len(partitions) > 1 and len(set(partitions)) == 1:
+            # Every draw landed on the identical partition, so the spread is an
+            # artefact of the seed having no reach rather than a measurement. Refuse
+            # it outright: averaging it would print 0.000 as evidence.
+            return None, None, _IDENTICAL_DRAWS
         if failure is not None:
             failure = (
                 f"{len(seeds)} of {command.split_replicates} split draws completed. "
@@ -1719,6 +1740,16 @@ def _save_result(stage: Checkpoints, result: TrainResult) -> None:
     runner cannot delete one blob, so `discard` empties it."""
     if stage.save_result(result):
         stage.scoped(TRAINING_STATE_SCOPE).discard(TRAINING_STATE)
+
+
+def _partition_key(frame: pl.DataFrame) -> str:
+    """Which rows landed in which partition, as a digest.
+
+    The label sequence identifies the partition because every draw re-splits the same
+    snapshot in the same row order. Hashed rather than kept so comparing N draws costs
+    one short string each instead of N frames.
+    """
+    return hashlib.sha256("".join(frame["split"].to_list()).encode()).hexdigest()
 
 
 def _measured(metrics: dict[str, float]) -> tuple[dict[str, float | None], set[str]]:

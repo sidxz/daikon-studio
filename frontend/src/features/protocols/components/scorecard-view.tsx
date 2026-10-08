@@ -318,14 +318,34 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
               </p>
             )
           )}
-          {/* Within noise by the interval: the only such verdict with no noise floor. */}
-          {verdict.kind === "within-noise" && verdict.noiseFloor == null && (
+          {/* Demoted by the spread across split draws, which is a different reason from
+              either of the two below and has to say so. It is checked first because
+              `computeVerdict` reaches it first, and it carries neither a noise floor nor
+              a statement about the interval -- the interval on this card may well
+              exclude zero, since a lead can survive resampling one test set and still
+              not survive being measured on another draw of the split. Claiming it
+              includes zero here is what this branch exists to stop. */}
+          {verdict.kind === "within-noise" && verdict.splitSpread != null && (
             <p className="mt-2 text-sm">
-              {verdict.difference
-                ? "The interval for the difference includes zero, so the two models are not distinguishable on this test set."
-                : `The baseline's ${metric} lies within this interval, so the two models are not distinguishable on this test set.`}
+              The margin (
+              <ReadoutValue value={Math.abs(verdict.delta ?? 0)} precision={3} />) is smaller than
+              twice the spread across split draws (
+              <ReadoutValue value={verdict.splitSpread} precision={3} />
+              ). A lead that small does not survive a different draw of the same split.
             </p>
           )}
+          {/* Within noise by the interval. Both this and the assay-noise branch below
+              now have to exclude `splitSpread`, because "no noise floor" no longer
+              identifies this verdict on its own. */}
+          {verdict.kind === "within-noise" &&
+            verdict.noiseFloor == null &&
+            verdict.splitSpread == null && (
+              <p className="mt-2 text-sm">
+                {verdict.difference
+                  ? "The interval for the difference includes zero, so the two models are not distinguishable on this test set."
+                  : `The baseline's ${metric} lies within this interval, so the two models are not distinguishable on this test set.`}
+              </p>
+            )}
           {verdict.kind === "within-noise" && verdict.noiseFloor != null && (
             <p className="mt-2 text-sm">
               The margin (

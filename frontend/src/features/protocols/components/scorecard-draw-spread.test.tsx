@@ -33,6 +33,21 @@ describe("the draw-spread panel", () => {
     expect(screen.getByText(/partitions come from a column in your file/i)).toBeInTheDocument();
   });
 
+  it("states the same decision rule the verdict band applies", () => {
+    // The band demotes at |delta| < 2 * sd. The panel said "smaller than this spread",
+    // i.e. 1 sd, so the two components stated different rules for the same number and
+    // a 1.5 sd lead was evidence by one and not a lead by the other.
+    render(
+      <SplitDrawSpread
+        scorecard={card({
+          replicate_summary: { mcc: { mean: 0.48, sd: 0.03, n: 5 } },
+          replicate_seeds: [2, 3, 4, 5, 6],
+        })}
+      />,
+    );
+    expect(screen.getByText(/smaller than twice this spread/i)).toBeInTheDocument();
+  });
+
   it("shows the mean, the spread and how many draws there were", () => {
     render(
       <SplitDrawSpread

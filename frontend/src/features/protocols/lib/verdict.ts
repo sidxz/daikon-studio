@@ -148,11 +148,16 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   // the paired interval is not a lead on a redraw of *this* test set. Reporting the
   // most fundamental reason that applies is why the order is not the other way round.
   //
-  // The spread is the model's own, not the difference's, which is deliberately
-  // conservative: the two models move together across draws, so the difference's own
-  // spread is the smaller number. Erring toward demoting a lead is the right
-  // direction, and measuring the difference's spread would need the baseline refitted
-  // on every draw.
+  // The spread is the model's own, not the difference's, because only the model is
+  // refitted on each draw. That is *usually* conservative rather than guaranteed so:
+  // sd(delta)^2 = sd_m^2 + sd_b^2 - 2*rho*sd_m*sd_b, so using sd_m in place of
+  // sd(delta) over-demotes only while rho >= sd_b / (2*sd_m). With the two models
+  // about equally stable that needs rho >= 0.5, which the shared test-set difficulty
+  // across draws normally supplies. It fails when the *baseline* is the less stable
+  // model -- a fingerprint forest on a few hundred compounds against a pretrained
+  // network is a real case -- and there this check under-demotes. The upgrade path is
+  // to refit the baseline on every draw and measure the difference's own spread, which
+  // was declined for cost.
   if (better && splitSpread != null && Math.abs(delta) < 2 * splitSpread) {
     return {
       kind: "within-noise",
