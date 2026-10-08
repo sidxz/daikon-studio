@@ -20,6 +20,12 @@ export interface Verdict {
   noiseFloor?: number | null;
   /** The bootstrap 95% interval on the model's primary metric, when the server computed one. */
   ci?: [number, number] | null;
+  /**
+   * The paired 95% interval on model minus baseline, when the server computed one.
+   * Its presence is what makes this a paired verdict; without it the older,
+   * unpaired check decided.
+   */
+  difference?: [number, number] | null;
 }
 
 /**
@@ -37,6 +43,11 @@ export function higherIsBetter(metric: string): boolean {
   return !LOWER_IS_BETTER.has(metric.toLowerCase());
 }
 
+/** A difference as the cards print it: three decimals, a plus sign on a gain. */
+export function signed(value: number): string {
+  return `${value > 0 ? "+" : ""}${value.toFixed(3)}`;
+}
+
 /**
  * Is this model worth anything over fingerprints and a random forest?
  *
@@ -50,6 +61,8 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   const baseline = (scorecard.baseline_metrics as Record<string, number | null>)?.[metric] ?? null;
   const [lo, hi] = scorecard.primary_metric_ci ?? [];
   const ci: [number, number] | null = lo != null && hi != null ? [lo, hi] : null;
+  const [dlo, dhi] = scorecard.difference_ci ?? [];
+  const difference: [number, number] | null = dlo != null && dhi != null ? [dlo, dhi] : null;
 
   if (scorecard.baseline_is_self) {
     return {
@@ -77,7 +90,15 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
   const better = higherIsBetter(metric) ? delta > 0 : delta < 0;
 
   if (Math.abs(delta) < TIE_EPSILON) {
-    return { kind: "ties", headline: "Matches the baseline score", model, baseline, delta: 0, ci };
+    return {
+      kind: "ties",
+      headline: "Matches the baseline score",
+      model,
+      baseline,
+      delta: 0,
+      ci,
+      difference,
+    };
   }
 
   // A win smaller than the assay's own measurement error is not a win. The
@@ -101,24 +122,33 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
       delta,
       noiseFloor,
       ci,
+      difference,
     };
   }
 
-  // The same question asked of the test set instead of the assay: when the
-  // baseline's number sits inside the bootstrap interval on the model's own,
-  // resampling these test compounds can put the model behind it. No
-  // `noiseFloor` on this verdict, which is how the band tells the two reasons
-  // apart: an R² margin held against a noise floor in the readout's units
-  // would be arithmetic on unrelated quantities.
-  if (better && ci && baseline >= ci[0] && baseline <= ci[1]) {
-    return {
-      kind: "within-noise",
-      headline: "Ahead of the baseline, but within this test set's sampling noise",
-      model,
-      baseline,
-      delta,
-      ci,
-    };
+  // The same question asked of the test set instead of the assay. Paired when the
+  // server could pair: both models scored on the same redraws of the test compounds,
+  // so the lead holds on this test set only when the whole interval for the
+  // difference sits on the model's side of zero. A protocol trained before the
+  // baseline's predictions were kept has only the model's own interval and keeps
+  // the older check, the baseline's number inside it. No `noiseFloor` on either,
+  // which is how the band tells them from the assay-noise verdict: an R² margin
+  // held against a noise floor in the readout's units would be arithmetic on
+  // unrelated quantities.
+  const sampling: Verdict = {
+    kind: "within-noise",
+    headline: "Ahead of the baseline, but within this test set's sampling noise",
+    model,
+    baseline,
+    delta,
+    ci,
+    difference,
+  };
+  if (better && difference) {
+    const favorsModel = higherIsBetter(metric) ? difference[0] > 0 : difference[1] < 0;
+    if (!favorsModel) return sampling;
+  } else if (better && ci && baseline >= ci[0] && baseline <= ci[1]) {
+    return sampling;
   }
 
   return better
@@ -130,6 +160,7 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
         delta,
         noiseFloor,
         ci,
+        difference,
       }
     : {
         kind: "no-better",
@@ -139,6 +170,7 @@ export function computeVerdict(scorecard: ScorecardResponse): Verdict {
         delta,
         noiseFloor,
         ci,
+        difference,
       };
 }
 

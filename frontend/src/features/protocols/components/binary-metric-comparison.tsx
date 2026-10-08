@@ -5,7 +5,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { cn } from "@/shared/lib/utils";
 import { formatCutoff } from "../lib/format-cutoff";
-import { computeVerdict } from "../lib/verdict";
+import { computeVerdict, signed } from "../lib/verdict";
 
 const VERDICT_STYLE = {
   beats: {
@@ -85,14 +85,15 @@ export function BinaryMetricComparison({ scorecard }: { scorecard: ScorecardResp
             !scorecard.baseline_is_self && model != null && baseline != null
               ? model - baseline
               : null;
-          // Only the primary metric has a saved interval. Never present an MCC
-          // interval as uncertainty on PR AUC.
-          const interval =
-            model != null && scorecard.primary_metric === key ? scorecard.primary_metric_ci : null;
+          // Only the primary metric has saved intervals. Never present an MCC
+          // interval, or an MCC difference, as uncertainty on PR AUC.
+          const primary = model != null && scorecard.primary_metric === key;
+          const interval = primary ? scorecard.primary_metric_ci : null;
           const verdict = computeVerdict({
             ...scorecard,
             primary_metric: key,
             primary_metric_ci: interval,
+            difference_ci: primary ? scorecard.difference_ci : null,
             metrics: { [key]: model },
             baseline_metrics: { [key]: baseline },
             noise_floor: null,
@@ -130,7 +131,7 @@ export function BinaryMetricComparison({ scorecard }: { scorecard: ScorecardResp
                     <div>
                       <dt className="text-xs text-muted-foreground">Difference</dt>
                       <dd className={cn("mt-1 text-xl tabular-nums", style.text)}>
-                        {delta == null ? "N/A" : `${delta > 0 ? "+" : ""}${delta.toFixed(3)}`}
+                        {delta == null ? "N/A" : signed(delta)}
                       </dd>
                     </div>
                   </>
@@ -160,16 +161,24 @@ export function BinaryMetricComparison({ scorecard }: { scorecard: ScorecardResp
                     {label} is not available for the comparison model.
                   </p>
                 )}
-              {interval && (
+              {verdict.difference ? (
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Likely range for this {label}: <ReadoutValue value={interval[0]} /> to{" "}
-                  <ReadoutValue value={interval[1]} /> (95% interval for this model).
+                  95% interval for the difference: {signed(verdict.difference[0])} to{" "}
+                  {signed(verdict.difference[1])}.
                 </p>
+              ) : (
+                interval && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Likely range for this {label}: <ReadoutValue value={interval[0]} /> to{" "}
+                    <ReadoutValue value={interval[1]} /> (95% interval for this model).
+                  </p>
+                )
               )}
               {verdict.kind === "within-noise" && (
                 <p className="mt-2 text-xs text-warning">
-                  The comparison score falls inside this model’s likely range. The observed lead is
-                  uncertain.
+                  {verdict.difference
+                    ? "The interval for the difference includes zero. The observed lead is uncertain."
+                    : "The comparison score falls inside this model’s likely range. The observed lead is uncertain."}
                 </p>
               )}
               <p className="mt-3 border-t pt-3 text-xs leading-relaxed text-muted-foreground">

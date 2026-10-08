@@ -150,3 +150,33 @@ describe("binary metric comparisons", () => {
     expect(screen.queryByText(/contains only inactive/)).not.toBeInTheDocument();
   });
 });
+
+describe("a paired interval", () => {
+  it("decides the MCC card and states the interval for the difference in place of the range", () => {
+    render(
+      <BinaryMetricComparison
+        scorecard={card({ primary_metric_ci: [0.5, 0.7], difference_ci: [-0.01, 0.35] })}
+      />,
+    );
+    const mcc = within(screen.getByRole("region", { name: "MCC comparison" }));
+    expect(mcc.getByText("Ahead, but uncertain")).toBeInTheDocument();
+    expect(mcc.getByText(/95% interval for the difference/)).toHaveTextContent("-0.010 to +0.350");
+    expect(mcc.queryByText(/Likely range/)).not.toBeInTheDocument();
+    expect(mcc.getByText(/The interval for the difference includes zero/)).toBeInTheDocument();
+  });
+
+  it("never lends the MCC difference to another metric's card", () => {
+    render(
+      <BinaryMetricComparison
+        scorecard={card({
+          metrics: { mcc: 0.6, auprc: 0.6 },
+          baseline_metrics: { mcc: 0.4, auprc: 0.5 },
+          difference_ci: [-0.01, 0.35],
+        })}
+      />,
+    );
+    const pr = within(screen.getByRole("region", { name: "PR AUC comparison" }));
+    expect(pr.getByText("Ahead of baseline")).toBeInTheDocument();
+    expect(pr.queryByText(/interval for the difference/)).not.toBeInTheDocument();
+  });
+});

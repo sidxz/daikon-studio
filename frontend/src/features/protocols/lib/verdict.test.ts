@@ -1,7 +1,13 @@
 import type { Engine } from "@/features/engines";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { describe, expect, it } from "vitest";
-import { computeOptimismGap, computeVerdict, describeBaseline, higherIsBetter } from "./verdict";
+import {
+  computeOptimismGap,
+  computeVerdict,
+  describeBaseline,
+  higherIsBetter,
+  signed,
+} from "./verdict";
 
 function scorecard(overrides: Partial<ScorecardResponse>): ScorecardResponse {
   return {
@@ -319,5 +325,60 @@ describe("a margin inside the bootstrap interval", () => {
     const v = computeVerdict(scorecard({ primary_metric_ci: [0.5, 0.8], noise_floor: 0.151 }));
     expect(v.kind).toBe("within-noise");
     expect(v.noiseFloor ?? null).toBeNull();
+  });
+});
+
+describe("a paired interval on the difference", () => {
+  const rmse = (over: Partial<ScorecardResponse>) =>
+    scorecard({
+      primary_metric: "rmse",
+      metrics: { rmse: 3.03 },
+      baseline_metrics: { rmse: 3.19 },
+      // The model's own interval holds the baseline: the old check would say noise.
+      primary_metric_ci: [2.65, 3.34],
+      ...over,
+    });
+
+  it("beats when the whole interval favors the model, whatever the old check says", () => {
+    const v = computeVerdict(rmse({ difference_ci: [-0.176, -0.139] }));
+    expect(v.kind).toBe("beats");
+    expect(v.difference).toEqual([-0.176, -0.139]);
+  });
+
+  it("is within noise when the interval reaches zero, whatever the old check says", () => {
+    const v = computeVerdict(
+      scorecard({ primary_metric_ci: [0.65, 0.75], difference_ci: [-0.02, 0.2] }),
+    );
+    expect(v.kind).toBe("within-noise");
+    expect(v.noiseFloor ?? null).toBeNull();
+  });
+
+  it("is within noise when the interval sits on the baseline's side of a model lead", () => {
+    expect(computeVerdict(scorecard({ difference_ci: [-0.2, -0.01] })).kind).toBe("within-noise");
+  });
+
+  it("lets the assay noise floor speak first", () => {
+    const v = computeVerdict(rmse({ difference_ci: [-0.176, -0.139], noise_floor: 0.3 }));
+    expect(v.kind).toBe("within-noise");
+    expect(v.noiseFloor).toBe(0.3);
+  });
+
+  it("leaves a loss a loss", () => {
+    const v = computeVerdict(scorecard({ metrics: { r2: 0.5 }, difference_ci: [-0.2, -0.05] }));
+    expect(v.kind).toBe("no-better");
+  });
+
+  it("keeps the old check for a card that has no paired interval", () => {
+    const v = computeVerdict(rmse({}));
+    expect(v.kind).toBe("within-noise");
+    expect(v.difference ?? null).toBeNull();
+  });
+});
+
+describe("signed", () => {
+  it("marks a gain and leaves a loss its own sign", () => {
+    expect(signed(0.2)).toBe("+0.200");
+    expect(signed(-0.08)).toBe("-0.080");
+    expect(signed(0)).toBe("0.000");
   });
 });

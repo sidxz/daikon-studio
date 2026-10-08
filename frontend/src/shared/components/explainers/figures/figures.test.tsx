@@ -12,6 +12,7 @@ import { SplitFigure, splitCaption } from "./split";
 
 /** RMSE redraws around 0.72, the shape of a real scaffold-split card. */
 const RMSE: BootstrapData = {
+  mode: "score",
   metric: "RMSE",
   higherIsBetter: false,
   interval: [0.586, 0.864],

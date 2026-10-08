@@ -5,7 +5,13 @@ export interface BootstrapData {
   /** As the card shows it, e.g. "RMSE". */
   metric: string;
   higherIsBetter: boolean;
+  /**
+   * "score": the model's own score on each redraw, against the baseline's score.
+   * "difference": model minus baseline on each redraw, against zero.
+   */
+  mode: "score" | "difference";
   interval: [number, number];
+  /** The reference line: the baseline's score, or 0 when `mode` is "difference". */
   baseline: number;
   /** The primary metric on each redraw, binned; `edges` is one longer than `counts`. */
   redraws: { edges: number[]; counts: number[] };

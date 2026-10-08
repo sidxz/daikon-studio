@@ -68,6 +68,7 @@ describe("gaussian process", () => {
 
 describe("bootstrap", () => {
   const data: BootstrapData = {
+    mode: "score",
     metric: "RMSE",
     higherIsBetter: false,
     interval: [0.6, 0.85],

@@ -19,6 +19,7 @@ import {
   computeVerdict,
   describeBaseline,
   higherIsBetter,
+  signed,
 } from "../lib/verdict";
 import { METRIC_DESCRIPTIONS, metricLabel } from "../types";
 import { BinaryMetricComparison } from "./binary-metric-comparison";
@@ -143,14 +144,22 @@ export function bootstrapData(
   scorecard: ScorecardResponse,
   verdict: Verdict,
 ): BootstrapData | null {
-  const redraws = scorecard.primary_metric_bootstrap;
-  if (verdict.ci == null || verdict.baseline == null || redraws == null) return null;
+  if (verdict.baseline == null) return null;
   if (verdict.kind === "is-baseline" || verdict.kind === "unknown") return null;
+  // Paired when the card is: the figure explains the test the verdict used.
+  const paired =
+    verdict.difference && scorecard.difference_bootstrap
+      ? { interval: verdict.difference, redraws: scorecard.difference_bootstrap }
+      : null;
+  const interval = paired?.interval ?? verdict.ci;
+  const redraws = paired?.redraws ?? scorecard.primary_metric_bootstrap;
+  if (interval == null || redraws == null) return null;
   return {
+    mode: paired ? "difference" : "score",
     metric: metricLabel(scorecard.primary_metric),
     higherIsBetter: higherIsBetter(scorecard.primary_metric),
-    interval: verdict.ci,
-    baseline: verdict.baseline,
+    interval,
+    baseline: paired ? 0 : verdict.baseline,
     redraws,
     compounds: scorecard.parity,
     testSize: scorecard.parity_sampled_from ?? scorecard.parity.length,
@@ -246,7 +255,7 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
           </p>
           {bootstrap && scorecard.metrics[scorecard.primary_metric] != null && (
             <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-              <h4 className="font-medium">How is the {metric} range estimated?</h4>
+              <h4 className="font-medium">How is the 95% interval estimated?</h4>
               <BootstrapExplainer data={bootstrap} />
             </div>
           )}
@@ -296,17 +305,25 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
               </span>
             )}
           </div>
-          {verdict.ci && (
+          {verdict.difference ? (
             <p className="mt-1 text-xs text-muted-foreground">
-              Likely range for this {metric}: <ReadoutValue value={verdict.ci[0]} /> to{" "}
-              <ReadoutValue value={verdict.ci[1]} /> (95% interval)
+              95% interval for the difference: {signed(verdict.difference[0])} to{" "}
+              {signed(verdict.difference[1])}
             </p>
+          ) : (
+            verdict.ci && (
+              <p className="mt-1 text-xs text-muted-foreground">
+                Likely range for this {metric}: <ReadoutValue value={verdict.ci[0]} /> to{" "}
+                <ReadoutValue value={verdict.ci[1]} /> (95% interval)
+              </p>
+            )
           )}
           {/* Within noise by the interval: the only such verdict with no noise floor. */}
           {verdict.kind === "within-noise" && verdict.noiseFloor == null && (
             <p className="mt-2 text-sm">
-              The baseline's {metric} lies within this interval, so the two models are not
-              distinguishable on this test set.
+              {verdict.difference
+                ? "The interval for the difference includes zero, so the two models are not distinguishable on this test set."
+                : `The baseline's ${metric} lies within this interval, so the two models are not distinguishable on this test set.`}
             </p>
           )}
           {verdict.kind === "within-noise" && verdict.noiseFloor != null && (
@@ -327,7 +344,7 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
           </p>
           {bootstrap && (
             <div className="mt-3 space-y-2 text-xs text-muted-foreground">
-              <h4 className="font-medium">How is the likely range estimated?</h4>
+              <h4 className="font-medium">How is the 95% interval estimated?</h4>
               <BootstrapExplainer data={bootstrap} />
             </div>
           )}
