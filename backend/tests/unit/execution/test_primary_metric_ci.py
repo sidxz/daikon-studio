@@ -180,10 +180,10 @@ def test_the_subset_mcc_breaks_ties_the_way_the_overall_mcc_does():
         cutoff=0.5,
         inclusive=False,
     )
-    # Inclusive calls both positive, exclusive calls both negative; either way MCC is
-    # undefined on a single predicted class, so what is pinned is that the two paths
-    # are distinguishable at all rather than silently identical.
-    assert inclusive_value is None and exclusive_value is None
+    # Inclusive calls both positive, exclusive calls both negative; either way the
+    # prediction is a single class, which the headline's `matthews_corrcoef` scores 0
+    # rather than leaving undefined. Only single-class *labels* leave MCC undefined.
+    assert inclusive_value == 0.0 and exclusive_value == 0.0
 
     # With one compound off the boundary the two rules disagree, which is the point.
     assert subset_metric(
@@ -206,7 +206,7 @@ def test_the_subset_mcc_breaks_ties_the_way_the_overall_mcc_does():
 def test_an_exact_half_follows_the_engines_tie_rule():
     # sklearn's `predict` puts an exact 0.5 in class 0. Thresholded that way every
     # negative here is right and MCC is 1 on every redraw; thresholded at `>=` every
-    # compound is called positive and MCC is undefined on every redraw.
+    # compound is called positive, which the headline's `matthews_corrcoef` scores 0.
     actual = [1.0, 0.0] * 20
     predicted = [0.9, 0.5] * 20
 
@@ -216,4 +216,4 @@ def test_an_exact_half_follows_the_engines_tie_rule():
     inclusive = primary_metric_ci(TaskType.BINARY_CLASSIFICATION, actual, predicted)
 
     assert exclusive == (1.0, 1.0)
-    assert inclusive is None
+    assert inclusive == (0.0, 0.0)

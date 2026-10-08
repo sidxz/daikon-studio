@@ -106,15 +106,21 @@ _BOOTSTRAP_BINS = 24
 
 
 def _mcc(actual: np.ndarray, predicted_positive: np.ndarray) -> float | None:
-    """Matthews correlation from 0/1 labels and a boolean prediction; None when
-    a resample holds one class on either side and the metric is undefined."""
+    """Matthews correlation from 0/1 labels and a boolean prediction, defined the way
+    the headline is: None when the labels hold one class, which the engines report as
+    undefined, and 0 when only the prediction does, which sklearn's `matthews_corrcoef`
+    scores 0. Dropping those as undefined would leave a model that calls everything
+    negative -- an untuned forest on imbalanced data, often -- with no interval, or
+    with one drawn only from the redraws where it happened to do better."""
     positive = actual >= 0.5
+    if positive.all() or not positive.any():
+        return None
     tp = float(np.sum(positive & predicted_positive))
     tn = float(np.sum(~positive & ~predicted_positive))
     fp = float(np.sum(~positive & predicted_positive))
     fn = float(np.sum(positive & ~predicted_positive))
     denominator = math.sqrt((tp + fp) * (tp + fn) * (tn + fp) * (tn + fn))
-    return None if denominator == 0 else (tp * tn - fp * fn) / denominator
+    return 0.0 if denominator == 0 else (tp * tn - fp * fn) / denominator
 
 
 def primary_metric_ci(

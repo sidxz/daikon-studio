@@ -545,3 +545,22 @@ def test_each_side_is_thresholded_at_its_own_operating_point():
         structures=["CCO"] * 40,
     )
     assert card.difference_ci == (0.0, 0.0)
+
+
+def test_a_baseline_that_never_predicts_a_positive_is_still_paired_against():
+    """An untuned forest on imbalanced data often calls every test compound negative.
+    The headline scores that MCC 0 (sklearn's convention), so every redraw of it must
+    too: dropping those redraws as undefined would leave no paired interval at all, or
+    keep only the redraws where the baseline happened to look better than 0."""
+    card = regression_card(
+        task=TaskType.BINARY_CLASSIFICATION,
+        metrics={"mcc": 1.0},
+        baseline_metrics={"mcc": 0.0},
+        engine_id="chemprop-dmpnn",
+        baseline_engine_id="ecfp4-randomforest",
+        actual=[1.0, 0.0] * 20,
+        predicted=[0.9, 0.1] * 20,
+        baseline_predicted=[0.1] * 40,
+        structures=["CCO"] * 40,
+    )
+    assert card.difference_ci == (1.0, 1.0)
