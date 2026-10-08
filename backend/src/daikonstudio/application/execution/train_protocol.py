@@ -354,6 +354,11 @@ class ScorecardInputs:
     #: never reads the Dataset. None, not True, for a scorecard written before the
     #: toggle existed -- "unknown" rather than a claim.
     deduplicated: bool | None = None
+    #: The column whose true rows were measured separately, and the mask itself in
+    #: test-row order. Both None unless a subset was asked for. Defaulted so every
+    #: blob written before this loads unchanged.
+    subset_column: str | None = None
+    subset: list[bool] | None = None
     # True when one model learned every target; False for one model per target --
     # and for every Protocol trained before targets could be several, which had one
     # target and one model either way. Recorded here rather than read off the
@@ -418,6 +423,10 @@ class TrainProtocolCommand:
     # halves the work on a grouped split and removes the only evidence of how much that
     # split's score was flattered.
     optimism_gap: bool = True
+    # A column whose true rows get their own metric on the Scorecard. This is how a
+    # published number measured over part of a test set -- MoleculeACE's cliff RMSE --
+    # becomes comparable. None means report the whole test set only.
+    subset_column: str | None = None
 
     def to_params(self) -> dict[str, Any]:
         return {
@@ -431,6 +440,7 @@ class TrainProtocolCommand:
             "tune_cutoffs": self.tune_cutoffs,
             "run_baseline": self.run_baseline,
             "optimism_gap": self.optimism_gap,
+            "subset_column": self.subset_column,
         }
 
     @classmethod
@@ -448,6 +458,7 @@ class TrainProtocolCommand:
             # existed did both.
             run_baseline=params.get("run_baseline", True),
             optimism_gap=params.get("optimism_gap", True),
+            subset_column=params.get("subset_column"),
         )
 
 
@@ -481,6 +492,10 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
 #: random re-split, which is what makes the optimism gap a measurement rather than an
 #: assertion.
 _COMPARISON_LEGS = 2
+
+#: What counts as "in the subset" in a flag column. Everything arrives as text, because
+#: the snapshot keeps what the upload held, so this cannot lean on a boolean dtype.
+_SUBSET_TRUE = {"true", "1", "yes", "y", "t"}
 
 
 def comparison_fractions(frame: pl.DataFrame, split: SplitSpec) -> tuple[float, float, float]:
@@ -943,6 +958,15 @@ class RunTraining:
             random_split_unavailable=random_split_unavailable,
             split_strategy=dataset.split.strategy.value,
             deduplicated=dataset.validation_report.deduplicated,
+            subset_column=command.subset_column,
+            subset=(
+                [
+                    str(value).strip().lower() in _SUBSET_TRUE
+                    for value in test_rows[command.subset_column].to_list()
+                ]
+                if command.subset_column and command.subset_column in test_rows.columns
+                else None
+            ),
             joint_model=manifest.supports_multitask,
             targets=per_target,
         )

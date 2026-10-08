@@ -8816,6 +8816,50 @@
             ],
             "title": "Deduplicated"
           },
+          "subset_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Column"
+          },
+          "subset_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Count"
+          },
+          "subset_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Total"
+          },
+          "subset_metric": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Metric"
+          },
           "cutoff": {
             "anyOf": [
               {
@@ -9826,6 +9870,17 @@
             "type": "boolean",
             "title": "Optimism Gap",
             "default": true
+          },
+          "subset_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Column"
           }
         },
         "additionalProperties": false,

@@ -6,6 +6,7 @@ small or too skewed to support one yields None rather than a misleading pair.
 """
 
 import numpy as np
+import pytest
 
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.execution.build_scorecard import primary_metric_ci
@@ -73,3 +74,56 @@ def test_the_classification_interval_follows_the_models_decision_cutoff():
     assert at_half is not None and at_nine_tenths is not None
     assert at_default == at_half
     assert at_nine_tenths != at_half
+
+
+# --- The metric over a flagged part of the test set ------------------------------------
+#
+# A published benchmark often reports a number over a named subset of its test set:
+# MoleculeACE's headline is RMSE restricted to activity-cliff compounds. Comparing
+# against it means computing exactly that, not the overall number.
+
+
+def test_a_subset_metric_uses_only_the_flagged_rows():
+    from daikonstudio.application.execution.build_scorecard import subset_metric
+
+    # All the error is in the two flagged rows.
+    actual = [1.0, 2.0, 3.0, 4.0]
+    predicted = [1.0, 2.0, 4.0, 5.0]
+    value = subset_metric(
+        TaskType.REGRESSION, actual, predicted, subset=[False, False, True, True]
+    )
+    assert value == pytest.approx(1.0)
+
+
+def test_an_empty_subset_is_no_measurement_rather_than_zero():
+    """A cliff flag whose compounds all landed in training is an ordinary outcome of a
+    split we did not choose. Zero would read as a perfect score."""
+    from daikonstudio.application.execution.build_scorecard import subset_metric
+
+    assert (
+        subset_metric(TaskType.REGRESSION, [1.0, 2.0], [1.1, 2.1], subset=[False, False]) is None
+    )
+
+
+def test_a_subset_covering_every_row_equals_the_overall_metric():
+    from daikonstudio.application.execution.build_scorecard import subset_metric
+
+    actual = [1.0, 2.0, 3.0]
+    predicted = [1.5, 2.5, 3.5]
+    assert subset_metric(
+        TaskType.REGRESSION, actual, predicted, subset=[True, True, True]
+    ) == pytest.approx(0.5)
+
+
+def test_a_binary_subset_metric_is_undefined_when_the_flagged_rows_are_one_class():
+    from daikonstudio.application.execution.build_scorecard import subset_metric
+
+    assert (
+        subset_metric(
+            TaskType.BINARY_CLASSIFICATION,
+            [1.0, 1.0, 0.0],
+            [0.9, 0.8, 0.1],
+            subset=[True, True, False],
+        )
+        is None
+    )

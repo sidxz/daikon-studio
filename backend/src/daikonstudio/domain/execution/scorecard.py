@@ -267,6 +267,14 @@ class Scorecard:
     split_strategy: str
     #: None when the scorecard predates the deduplication toggle.
     deduplicated: bool | None = None
+    #: A metric over one named part of the test set, for comparing against a published
+    #: number measured the same way. `subset_metric` is None when no test row carries
+    #: the flag, which is a different statement from a score of zero -- hence the count
+    #: and the total beside it.
+    subset_column: str | None = None
+    subset_count: int | None = None
+    subset_total: int | None = None
+    subset_metric: float | None = None
     #: The decision cutoffs MCC and balanced accuracy were measured at, for this model
     #: and for its baseline; None means 0.5. `cutoff_note` is why a requested tuning
     #: did not happen (too few validation compounds of a class, say), and None when it

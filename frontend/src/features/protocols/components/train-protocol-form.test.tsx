@@ -121,6 +121,8 @@ const hoisted = vi.hoisted(() => ({
 }));
 
 vi.mock("@/features/datasets", () => ({
+  // The subset picker asks for the snapshot's columns; none here, so it stays hidden.
+  useDatasetColumns: () => ({ data: undefined }),
   useDatasets: () => ({
     isLoading: false,
     data: { items: [{ id: "ds-1", name: "Solubility", row_count: 100 }] },

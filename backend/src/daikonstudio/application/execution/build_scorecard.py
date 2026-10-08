@@ -149,6 +149,39 @@ def _interval(scores: list[float] | None) -> tuple[float, float] | None:
     return float(np.percentile(scores, 2.5)), float(np.percentile(scores, 97.5))
 
 
+def subset_metric(
+    task: TaskType,
+    actual: list[float],
+    predicted: list[float],
+    *,
+    subset: list[bool],
+    cutoff: float = 0.5,
+) -> float | None:
+    """The headline metric over the flagged test rows only, or None when there are none.
+
+    A published benchmark often reports a number over a named part of its test set --
+    MoleculeACE's headline is RMSE restricted to activity-cliff compounds -- and
+    comparing against it means computing exactly that, not the overall number.
+
+    Computed here rather than asked of the engines, for the same reason
+    `primary_metric_ci` is: the per-row `actual`/`predicted` are already persisted, this
+    layer may not import the engines' scoring module, and a Scorecard is built on every
+    read, so the number appears for protocols already trained the moment a mask exists.
+
+    None, not zero, when nothing is flagged or when a binary subset turns out to be one
+    class. A metric over no rows is not a good score, it is no measurement, and the
+    difference is the whole point of reporting the count beside it.
+    """
+    rows = [index for index, flagged in enumerate(subset) if flagged]
+    if not rows or len(subset) != len(actual) or len(actual) != len(predicted):
+        return None
+    a = np.asarray([actual[index] for index in rows], dtype=float)
+    p = np.asarray([predicted[index] for index in rows], dtype=float)
+    if task is TaskType.BINARY_CLASSIFICATION:
+        return _mcc(a, p >= cutoff)
+    return float(np.sqrt(np.mean((a - p) ** 2)))
+
+
 def _bootstrap_scores(
     task: TaskType,
     actual: list[float],
@@ -259,6 +292,8 @@ def build_scorecard(
     target_direction: str | None,
     split_strategy: str,
     deduplicated: bool | None = None,
+    subset_column: str | None = None,
+    subset: list[bool] | None = None,
     random_split_metrics: dict[str, float | None] | None = None,
     random_split_unavailable: str | None = None,
     random_split_metrics_undefined: dict[str, str] | None = None,
@@ -353,6 +388,14 @@ def build_scorecard(
         target_direction=target_direction,
         split_strategy=split_strategy,
         deduplicated=deduplicated,
+        subset_column=subset_column,
+        subset_count=(sum(subset) if subset is not None else None),
+        subset_total=(len(subset) if subset is not None else None),
+        subset_metric=(
+            subset_metric(task, actual, predicted, subset=subset, cutoff=cutoff or 0.5)
+            if subset is not None
+            else None
+        ),
         cutoff=cutoff,
         baseline_cutoff=baseline_cutoff,
         cutoff_note=cutoff_note,

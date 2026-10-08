@@ -5,6 +5,7 @@
 import type { TrainProtocolBodyConditions } from './trainProtocolBodyConditions';
 import type { TrainProtocolBodyBaselineEngineId } from './trainProtocolBodyBaselineEngineId';
 import type { TrainProtocolBodyBaselineConditions } from './trainProtocolBodyBaselineConditions';
+import type { TrainProtocolBodySubsetColumn } from './trainProtocolBodySubsetColumn';
 
 export interface TrainProtocolBody {
   /** @maxLength 256 */
@@ -17,4 +18,5 @@ export interface TrainProtocolBody {
   tune_cutoffs?: boolean;
   run_baseline?: boolean;
   optimism_gap?: boolean;
+  subset_column?: TrainProtocolBodySubsetColumn;
 }

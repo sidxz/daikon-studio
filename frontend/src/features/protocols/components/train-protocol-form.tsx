@@ -1,6 +1,6 @@
 "use client";
 
-import { useDataset, useDatasets } from "@/features/datasets";
+import { useDataset, useDatasetColumns, useDatasets } from "@/features/datasets";
 import { DatasetReadinessView } from "@/features/datasets/components/dataset-readiness-view";
 import { useDatasetReadiness } from "@/features/datasets/hooks/use-datasets";
 import type { Condition } from "@/features/engines";
@@ -107,6 +107,9 @@ export function TrainProtocolForm() {
   // Off is for reproducing a published protocol, which ran neither.
   const [runBaseline, setRunBaseline] = useState(true);
   const [optimismGap, setOptimismGap] = useState(true);
+  // A column whose true rows get their own number on the scorecard, for comparing
+  // against a published figure measured over part of a test set.
+  const [subsetColumn, setSubsetColumn] = useState<string>("");
   const [runId, setRunId] = useState<string | undefined>();
   const [datasetSearch, setDatasetSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -124,6 +127,7 @@ export function TrainProtocolForm() {
   const datasetQuery = useDataset(datasetId || undefined);
   const dataset = datasetId ? datasetQuery.data : undefined;
   const readiness = useDatasetReadiness(datasetId || undefined);
+  const datasetColumns = useDatasetColumns(datasetId, Boolean(datasetId)).data?.columns;
   const train = useTrainProtocol();
   const run = useRunPoll(runId);
   const epochs = useRunEpochs(runId ?? "", Boolean(runId));
@@ -260,6 +264,7 @@ export function TrainProtocolForm() {
         tune_cutoffs: canTuneCutoffs && tuneCutoffs,
         run_baseline: runBaseline,
         optimism_gap: optimismGap,
+        subset_column: subsetColumn || null,
       });
       // A cache hit returns 202 with an already-ready Run, so branch on
       // status rather than assuming 202 means work started.
@@ -701,6 +706,31 @@ export function TrainProtocolForm() {
               {canTuneCutoffs && (
                 <div className="rounded-lg border p-4">
                   <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
+                </div>
+              )}
+              {datasetColumns != null && datasetColumns.length > 0 && (
+                <div className="space-y-1.5 rounded-lg border p-4">
+                  <Label htmlFor="subset-column" className="font-normal">
+                    Report a separate metric for one group of compounds
+                  </Label>
+                  <Select value={subsetColumn} onValueChange={setSubsetColumn}>
+                    <SelectTrigger id="subset-column">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">None</SelectItem>
+                      {datasetColumns.map((column) => (
+                        <SelectItem key={column} value={column}>
+                          {column}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Rows where this column is true are measured again on their own. Use it when the
+                    number you are comparing against was reported over part of a test set rather
+                    than all of it.
+                  </p>
                 </div>
               )}
               <div className="space-y-3 rounded-lg border p-4">

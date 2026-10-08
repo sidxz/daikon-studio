@@ -112,6 +112,8 @@ class TrainProtocolBody(BaseModel):
     run_baseline: bool = True
     #: Fit the same engine again on a random re-split, to measure the optimism gap.
     optimism_gap: bool = True
+    #: A column whose true rows get their own metric on the scorecard.
+    subset_column: str | None = None
 
 
 class ReadoutResponse(BaseModel):
@@ -387,6 +389,10 @@ class ScorecardResponse(BaseModel):
     direction: str | None
     split_strategy: str
     deduplicated: bool | None = None
+    subset_column: str | None = None
+    subset_count: int | None = None
+    subset_total: int | None = None
+    subset_metric: float | None = None
     # The decision cutoffs MCC and balanced accuracy were measured at, for the model and
     # its baseline. Null means 0.5. `cutoff_note` says why a requested tuning did not
     # happen; null when it did or was not requested.
@@ -461,6 +467,10 @@ class ScorecardResponse(BaseModel):
             direction=card.target_direction,
             split_strategy=card.split_strategy,
             deduplicated=card.deduplicated,
+            subset_column=card.subset_column,
+            subset_count=card.subset_count,
+            subset_total=card.subset_total,
+            subset_metric=card.subset_metric,
             cutoff=card.cutoff,
             baseline_cutoff=card.baseline_cutoff,
             cutoff_note=card.cutoff_note,
@@ -509,6 +519,7 @@ async def train_protocol(
         tune_cutoffs=body.tune_cutoffs,
         run_baseline=body.run_baseline,
         optimism_gap=body.optimism_gap,
+        subset_column=body.subset_column,
     )
     return RunResponse.from_domain(result_to_response(await service(command, auth=auth)))
 

@@ -326,6 +326,57 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
   );
 }
 
+/**
+ * A metric over one named part of the test set.
+ *
+ * Its own card rather than a row in `MetricTable`, deliberately. A number with a
+ * different denominator sitting unlabelled beside the full-test metrics invites the
+ * reader to compare two things that were not measured on the same rows -- which is the
+ * quiet kind of wrongness this product exists to surface in other people's work. The
+ * count and the total are part of the heading for the same reason.
+ */
+function SubsetMetric({ scorecard }: { scorecard: ScorecardResponse }) {
+  const column = scorecard.subset_column;
+  if (column == null) return null;
+  const count = scorecard.subset_count ?? 0;
+  const total = scorecard.subset_total ?? 0;
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">
+          Metrics on the rows flagged by <span className="font-mono">{column}</span>
+        </CardTitle>
+        <p className="text-sm text-muted-foreground">
+          {count} of {total} test compounds. Published benchmarks often report a number over part of
+          their test set; this is that number, measured the same way.
+        </p>
+      </CardHeader>
+      <CardContent>
+        {scorecard.subset_metric == null ? (
+          <p className="text-sm text-muted-foreground">
+            No test row carries this flag, so there is nothing to measure here. The split put all of
+            them in the training set.
+          </p>
+        ) : (
+          <dl className="flex items-baseline gap-3">
+            <dt className="text-sm text-muted-foreground">
+              {metricLabel(scorecard.primary_metric)}
+            </dt>
+            <dd>
+              <ReadoutValue
+                value={scorecard.subset_metric}
+                unit={scorecard.unit}
+                precision={3}
+                className="text-xl font-semibold"
+              />
+            </dd>
+          </dl>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
   const metrics = (scorecard.metrics ?? {}) as Record<string, number | null>;
   const baseline = (scorecard.baseline_metrics ?? {}) as Record<string, number | null>;
@@ -464,6 +515,7 @@ export function ScorecardView({
         description="Validation and test scores, the comparison model, and the effect of the data split."
       >
         <MetricTable scorecard={scorecard} />
+        <SubsetMetric scorecard={scorecard} />
         <SplitComparison scorecard={scorecard} />
       </ScorecardSection>
       <ScorecardSection

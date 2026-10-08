@@ -19,6 +19,10 @@ import type { ScorecardResponseApplicabilityCoverage } from './scorecardResponse
 import type { ScorecardResponseUnit } from './scorecardResponseUnit';
 import type { ScorecardResponseDirection } from './scorecardResponseDirection';
 import type { ScorecardResponseDeduplicated } from './scorecardResponseDeduplicated';
+import type { ScorecardResponseSubsetColumn } from './scorecardResponseSubsetColumn';
+import type { ScorecardResponseSubsetCount } from './scorecardResponseSubsetCount';
+import type { ScorecardResponseSubsetTotal } from './scorecardResponseSubsetTotal';
+import type { ScorecardResponseSubsetMetric } from './scorecardResponseSubsetMetric';
 import type { ScorecardResponseCutoff } from './scorecardResponseCutoff';
 import type { ScorecardResponseBaselineCutoff } from './scorecardResponseBaselineCutoff';
 import type { ScorecardResponseCutoffNote } from './scorecardResponseCutoffNote';
@@ -83,6 +87,10 @@ export interface ScorecardResponse {
   direction: ScorecardResponseDirection;
   split_strategy: string;
   deduplicated?: ScorecardResponseDeduplicated;
+  subset_column?: ScorecardResponseSubsetColumn;
+  subset_count?: ScorecardResponseSubsetCount;
+  subset_total?: ScorecardResponseSubsetTotal;
+  subset_metric?: ScorecardResponseSubsetMetric;
   cutoff: ScorecardResponseCutoff;
   baseline_cutoff: ScorecardResponseBaselineCutoff;
   cutoff_note: ScorecardResponseCutoffNote;

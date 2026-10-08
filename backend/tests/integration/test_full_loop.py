@@ -339,3 +339,56 @@ async def test_a_run_without_a_baseline_has_no_verdict_to_state(client, csv_uplo
     assert card["baseline_metrics"] is None, card
     # "no comparison" is not the same statement as "the model is its own baseline".
     assert card["baseline_is_self"] is False, card
+
+
+async def test_a_flagged_subset_of_the_test_set_gets_its_own_metric(client, csv_upload):
+    """MoleculeACE's headline number is RMSE over its activity-cliff compounds, not
+    over the whole test set. A column of flags is how that becomes comparable."""
+    import csv as _csv
+    import io as _io
+
+    source = list(_csv.DictReader(_io.StringIO(_FIXTURE.read_text())))
+    buffer = _io.StringIO()
+    writer = _csv.writer(buffer)
+    writer.writerow(["smiles", "is_pains", "hard"])
+    for index, row in enumerate(source):
+        writer.writerow([row["smiles"], row["is_pains"], "1" if index % 3 == 0 else "0"])
+    upload_ref = await csv_upload(buffer.getvalue().encode())
+
+    created = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "pains-subset",
+            "upload_ref": upload_ref,
+            "structure_column": "smiles",
+            "targets": [{"column": "is_pains", "kind": "binary"}],
+            "split": {"strategy": "random", "seed": 5},
+        },
+    )
+    assert created.status_code == 201, created.text
+    dataset = created.json()
+
+    train_response = await client.post(
+        "/api/v1/protocols",
+        json={
+            "name": "pains subset",
+            "dataset_id": dataset["id"],
+            "engine_id": "ecfp4-xgboost",
+            "conditions": {},
+            "subset_column": "hard",
+        },
+    )
+    assert train_response.status_code == 202, train_response.text
+    run = await _poll_until_ready(client, train_response.json()["id"], stage="training")
+    assert run["status"] == "ready", f"run failed: {run.get('error_message')}"
+
+    protocols = (await client.get("/api/v1/protocols")).json()["items"]
+    [trained] = [item for item in protocols if item["dataset_id"] == dataset["id"]]
+    [card] = (await client.get(f"/api/v1/protocols/{trained['id']}/scorecard")).json()
+    assert card["subset_column"] == "hard"
+    assert card["subset_count"] is not None and card["subset_count"] > 0
+    # The subset is part of the test set, so its count cannot exceed the total.
+    assert card["subset_total"] > 0
+    assert card["subset_count"] <= card["subset_total"]
+    # And the number itself exists, which is the point of the whole feature.
+    assert card["subset_metric"] is not None
