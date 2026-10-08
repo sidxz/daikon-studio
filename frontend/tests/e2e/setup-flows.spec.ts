@@ -64,6 +64,7 @@ const engines: EngineManifestResponse[] = [
     conditions: [condition],
     is_baseline: true,
     supports_multitask: false,
+    structure_kinds: ["molecule"],
     lane: "default",
   },
   {
@@ -75,6 +76,7 @@ const engines: EngineManifestResponse[] = [
     conditions: [{ ...condition, key: "epochs", label: "Epochs", default: 30, maximum: 100 }],
     is_baseline: false,
     supports_multitask: true,
+    structure_kinds: ["molecule"],
     lane: "gpu",
   },
 ];

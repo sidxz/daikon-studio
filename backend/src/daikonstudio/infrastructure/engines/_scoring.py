@@ -48,6 +48,12 @@ from daikonstudio.infrastructure.chem.featurize import (
     ecfp4,
     rdkit_descriptors,
 )
+from daikonstudio.infrastructure.protein.descriptors import (
+    DESCRIPTOR_NAMES as PROTEIN_DESCRIPTOR_NAMES,
+)
+from daikonstudio.infrastructure.protein.descriptors import (
+    protein_descriptors,
+)
 from daikonstudio.infrastructure.protein.embed import esm2_650m
 
 #: How a fitted artifact names the representation it was trained on. `predict` reads the
@@ -316,6 +322,13 @@ _FEATURE_NAMES["ecfp4+rdkit_descriptors"] = DESCRIPTOR_NAMES
 #: Safe to import at module scope despite needing torch: `protein.embed` keeps every
 #: torch and transformers import inside a function, so this line costs an unused import
 #: on the API tier and nothing else. Do not "tidy" that by hoisting them.
+#: The sequence baseline's representation. Unlike ESM-2 this one has names for its
+#: columns, so the Scorecard can attribute a prediction to "hydropathy" rather than to
+#: dimension 412 -- which is most of why a baseline is readable at all.
+PROTEIN_DESCRIPTOR_FEATURIZER = "protein-descriptors"
+_FEATURIZERS[PROTEIN_DESCRIPTOR_FEATURIZER] = protein_descriptors
+_FEATURE_NAMES[PROTEIN_DESCRIPTOR_FEATURIZER] = PROTEIN_DESCRIPTOR_NAMES
+
 ESM2_FEATURIZER = "esm2-650m"
 _FEATURIZERS[ESM2_FEATURIZER] = esm2_650m
 # No entry in `_FEATURE_NAMES`: the 1280 embedding dimensions have no names that could

@@ -445,6 +445,13 @@ function CliffSection({
   const cliffs = profile.activity_cliffs;
   const noiseFloor = dataset.validation_report.duplicate_spread[target.column] ?? null;
 
+  // An activity cliff is a pair of *similar* structures with different measurements, and
+  // similarity here is Tanimoto, which a sequence has none of -- so the scan never ran.
+  // The empty list below would otherwise render as "no activity cliffs found", which says
+  // we looked. For a sequence dataset the section is absent instead, the same as the
+  // scaffold and similarity sections above.
+  if (dataset.validation_report?.structure_kind === "sequence") return null;
+
   if (cliffs.length === 0) {
     return (
       <Card>

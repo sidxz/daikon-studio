@@ -68,6 +68,10 @@ class EngineManifestResponse(BaseModel):
     conditions: list[ConditionResponse]
     is_baseline: bool
     supports_multitask: bool
+    # What this engine can read in the structure column: "molecule", "sequence", or
+    # both. The picker filters on it, so a scientist with a protein dataset is not
+    # offered a fingerprint engine that the training request would then refuse.
+    structure_kinds: list[str]
     # Which runner lane serves this engine ("default" or "gpu"). A client that
     # knows this can say "waiting for a gpu runner" instead of just "Queued".
     lane: str
@@ -83,6 +87,7 @@ class EngineManifestResponse(BaseModel):
             conditions=[ConditionResponse.from_spec(spec) for spec in manifest.conditions],
             is_baseline=manifest.is_baseline,
             supports_multitask=manifest.supports_multitask,
+            structure_kinds=[kind.value for kind in manifest.structure_kinds],
             lane=manifest.lane,
         )
 

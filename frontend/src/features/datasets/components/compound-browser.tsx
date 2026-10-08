@@ -32,6 +32,9 @@ const PARTITIONS = ["train", "validation", "test"] as const;
  * backend refuses it for the same reason.
  */
 export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
+  // A sequence dataset has no 2D depiction to draw and no SMILES to name. Drawing
+  // one anyway hands RDKit a protein and renders whatever comes back.
+  const isSequence = dataset.validation_report?.structure_kind === "sequence";
   const [offset, setOffset] = useState(0);
   const [descending, setDescending] = useState(false);
   const [sortTarget, setSortTarget] = useState(0);
@@ -137,9 +140,9 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead className="w-[120px]">Structure</TableHead>
+            {!isSequence && <TableHead className="w-[120px]">Structure</TableHead>}
             {dataset.id_column && <TableHead>{dataset.id_column}</TableHead>}
-            <TableHead>SMILES</TableHead>
+            <TableHead>{isSequence ? "Sequence" : "SMILES"}</TableHead>
             {dataset.targets.map((target) => (
               <TableHead key={target.column} className="text-right">
                 {target.column}
@@ -153,16 +156,23 @@ export function CompoundBrowser({ dataset }: { dataset: Dataset }) {
             ? Array.from({ length: 6 }, (_, index) => (
                 // biome-ignore lint/suspicious/noArrayIndexKey: fixed-length skeleton, no identity
                 <TableRow key={index}>
-                  <TableCell colSpan={3 + dataset.targets.length + (dataset.id_column ? 1 : 0)}>
+                  <TableCell
+                    colSpan={
+                      // structure thumbnail (molecules only) + text + partition
+                      (isSequence ? 2 : 3) + dataset.targets.length + (dataset.id_column ? 1 : 0)
+                    }
+                  >
                     <Skeleton className="h-16 w-full" />
                   </TableCell>
                 </TableRow>
               ))
             : data?.items.map((compound) => (
                 <TableRow key={compound.structure}>
-                  <TableCell>
-                    <StructureThumbnail smiles={compound.structure} size={96} />
-                  </TableCell>
+                  {!isSequence && (
+                    <TableCell>
+                      <StructureThumbnail smiles={compound.structure} size={96} />
+                    </TableCell>
+                  )}
                   {dataset.id_column && (
                     <TableCell className="font-mono text-xs">
                       {compound.compound_id ?? "N/A"}

@@ -60,13 +60,25 @@ export function tasksForTargets(targets: HasKind[]): string[] {
  * model, so the server refuses it a dataset that mixes measured values and
  * active/inactive labels, and so does this list.
  */
-export function enginesForTargets(engines: Engine[], targets: HasKind[]): Engine[] {
+export function enginesForTargets(
+  engines: Engine[],
+  targets: HasKind[],
+  structureKind?: string,
+): Engine[] {
   const kinds = new Set(targets.map((target) => target.kind));
   const tasks = tasksForTargets(targets);
   return engines.filter(
     (engine) =>
       tasks.every((task) => engine.tasks.includes(task)) &&
-      (!engine.supports_multitask || kinds.size <= 1),
+      (!engine.supports_multitask || kinds.size <= 1) &&
+      // What the engine can read in the structure column. Filtering here rather than
+      // letting the request be refused is what keeps the baseline right: the form picks
+      // its mandatory baseline from this list, and with sequence and molecule baselines
+      // both flagged it was choosing the molecule one for protein data and failing every
+      // run. `undefined` leaves the list unfiltered, for a caller with no dataset yet.
+      (structureKind === undefined ||
+        engine.structure_kinds === undefined ||
+        engine.structure_kinds.includes(structureKind)),
   );
 }
 

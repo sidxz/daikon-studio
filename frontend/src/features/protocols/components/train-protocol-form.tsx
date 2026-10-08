@@ -125,7 +125,14 @@ export function TrainProtocolForm() {
 
   // Only engines that can learn every one of this dataset's targets. The two
   // vocabularies differ, and that translation lives in the engines feature.
-  const eligible = engines.data && dataset ? enginesForTargets(engines.data, dataset.targets) : [];
+  const eligible =
+    engines.data && dataset
+      ? enginesForTargets(
+          engines.data,
+          dataset.targets,
+          dataset.validation_report?.structure_kind ?? "molecule",
+        )
+      : [];
 
   // Unknown until a dataset is chosen: every setting shows, and the cutoff
   // option stays hidden because there is no active/inactive target to tune.
@@ -556,6 +563,7 @@ export function TrainProtocolForm() {
                     setRevealSettings(false);
                   }}
                   targetCount={dataset.targets.length}
+                  structureKind={dataset.validation_report?.structure_kind}
                 />
               )}
               {engine && (

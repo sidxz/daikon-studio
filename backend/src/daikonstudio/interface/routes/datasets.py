@@ -64,6 +64,7 @@ from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.dataset_build import DatasetBuild
 from daikonstudio.domain.data.profile import DatasetProfile, profile_to_dict
 from daikonstudio.domain.data.split import SplitSpec, SplitStrategy, split_to_dict
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import Direction, TargetKind, TargetSpec, target_to_dict
 from daikonstudio.domain.data.validation import report_to_dict
 from daikonstudio.domain.shared.errors import ValidationError
@@ -206,6 +207,11 @@ class ValidationReportResponse(BaseModel):
     salts_flagged: int
     # Keyed by target column; numeric targets with replicates only.
     duplicate_spread: dict[str, float]
+    # `"molecule"` or `"sequence"`: what the structure column was found to hold. The
+    # browser needs it to avoid saying SMILES about a protein, or drawing a 2D
+    # depiction of one -- there is no other signal for it on a Dataset, since the
+    # column role is deliberately one modality-agnostic "structure".
+    structure_kind: str = StructureKind.MOLECULE.value
 
 
 class DatasetResponse(BaseModel):

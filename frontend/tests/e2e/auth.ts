@@ -71,7 +71,8 @@ export async function installAuth(page: Page): Promise<void> {
   // rejects the response as a replay.
   await page.route("**accounts.google.com/o/oauth2/**", async (route) => {
     const url = new URL(route.request().url());
-    const redirectUri = url.searchParams.get("redirect_uri") ?? "http://localhost:3103/auth/callback";
+    const redirectUri =
+      url.searchParams.get("redirect_uri") ?? "http://localhost:3103/auth/callback";
     const nonce = url.searchParams.get("nonce") ?? "";
     const state = url.searchParams.get("state") ?? "";
 

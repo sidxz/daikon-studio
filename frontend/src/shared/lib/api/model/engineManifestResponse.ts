@@ -16,5 +16,6 @@ export interface EngineManifestResponse {
   conditions: ConditionResponse[];
   is_baseline: boolean;
   supports_multitask: boolean;
+  structure_kinds: string[];
   lane: string;
 }

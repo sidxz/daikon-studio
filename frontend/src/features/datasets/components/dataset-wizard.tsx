@@ -65,7 +65,10 @@ const SPLIT_BADGE: Record<SplitStrategy, string | null> = {
   position: "For variants of one protein",
 };
 const ROLES: Record<ColumnRole, string> = {
-  structure: "Structure (SMILES)",
+  // Neutral on purpose: this role is chosen before the file is read, and the kind
+  // is detected from the data, not declared here. Naming one modality told a
+  // scientist uploading protein that their sequences were SMILES.
+  structure: "Structure (SMILES or sequence)",
   identifier: "Identifier",
   target: "Target",
   unused: "Unused",
@@ -356,7 +359,8 @@ export function DatasetWizard() {
                     {fileReading ? "Reading the preview…" : "Drop a CSV here, or choose a file"}
                   </span>
                   <span className="max-w-sm text-sm text-muted-foreground">
-                    A SMILES column and at least one measured target. CSV files up to 100 MB.
+                    A structure column — SMILES or an amino-acid sequence — and at least one
+                    measured target. CSV files up to 100 MB.
                   </span>
                 </button>
               </div>

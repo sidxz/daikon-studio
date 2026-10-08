@@ -26,6 +26,9 @@ from daikonstudio.infrastructure.engines.ecfp4_randomforest import Ecfp4RandomFo
 from daikonstudio.infrastructure.engines.ecfp4_xgboost import Ecfp4XGBoost
 from daikonstudio.infrastructure.engines.esm2_xgboost import Esm2XGBoost
 from daikonstudio.infrastructure.engines.molformer_xl import MolformerXL
+from daikonstudio.infrastructure.engines.protein_descriptors_randomforest import (
+    ProteinDescriptorsRandomForest,
+)
 from daikonstudio.infrastructure.engines.tanimoto_gp import TanimotoGP
 
 _ENGINES: tuple[Engine, ...] = (
@@ -37,6 +40,7 @@ _ENGINES: tuple[Engine, ...] = (
     ChempropDMPNN(),
     MolformerXL(),
     Esm2XGBoost(),
+    ProteinDescriptorsRandomForest(),
 )
 
 

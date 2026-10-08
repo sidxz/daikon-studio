@@ -570,15 +570,6 @@ class TrainProtocol:
         # exactly one possible answer, so an unknown baseline is a synchronous
         # 404 rather than a 202 for a Run that cannot succeed. The *conditions*
         # stay unvalidated here, for the reason in this class's docstring.
-        try:
-            baseline = (
-                self._engines.get(command.baseline_engine_id)
-                if command.baseline_engine_id
-                else self._engines.baseline()
-            )
-        except UnknownEngineError:
-            return Failure(NotFoundError("Baseline engine", command.baseline_engine_id))
-
         dataset = await self._datasets.get(auth.workspace_id, command.dataset_id)
         if dataset is None:
             return Failure(NotFoundError("Dataset", str(command.dataset_id)))
@@ -586,6 +577,18 @@ class TrainProtocol:
         # this cannot fire today. It stays because it is the guard that has to
         # hold if a future caller ever hands us a Dataset it fetched elsewhere.
         require_same_workspace(auth, dataset.workspace_id, entity_type="Dataset")
+
+        # After the Dataset, not before it: which baseline applies depends on what the
+        # structure column holds, so this check cannot run until that is known. The
+        # default baseline reads molecules and a sequence dataset needs its own.
+        try:
+            baseline = (
+                self._engines.get(command.baseline_engine_id)
+                if command.baseline_engine_id
+                else self._engines.baseline(dataset.validation_report.structure_kind)
+            )
+        except UnknownEngineError:
+            return Failure(NotFoundError("Baseline engine", command.baseline_engine_id))
 
         for candidate in (engine, baseline):
             refused = joint_kind_error(candidate.manifest(), dataset)
@@ -714,7 +717,7 @@ class RunTraining:
         baseline = (
             self._engines.get(command.baseline_engine_id)
             if command.baseline_engine_id
-            else self._engines.baseline()
+            else self._engines.baseline(dataset.validation_report.structure_kind)
         )
         baseline_manifest = baseline.manifest()
         _check_capable(baseline_manifest, dataset, baseline=True)

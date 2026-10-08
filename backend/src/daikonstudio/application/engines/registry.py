@@ -3,6 +3,7 @@ from __future__ import annotations
 from daikonstudio.application.engines.fan_out import FanOut
 from daikonstudio.application.engines.manifest import EngineManifest
 from daikonstudio.application.engines.protocol import Engine
+from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.shared.errors import DomainError, NotFoundError
 
 
@@ -60,13 +61,28 @@ class EngineRegistry:
     def manifests(self) -> list[EngineManifest]:
         return [engine.manifest() for engine in self._engines.values()]
 
-    def baseline(self) -> Engine:
-        baselines = [e for e in self._engines.values() if e.manifest().is_baseline]
+    def baseline(self, structure_kind: StructureKind = StructureKind.MOLECULE) -> Engine:
+        """The baseline for this kind of structure column.
+
+        Keyed by kind rather than global, because a baseline has to be able to read the
+        data it is the floor for. The molecule baseline on a sequence dataset is not a
+        weak comparison, it is an impossible one -- `_check_capable` refuses it, and
+        since the baseline is mandatory that refusal failed the entire run.
+        """
+        baselines = [
+            e
+            for e in self._engines.values()
+            if e.manifest().is_baseline and structure_kind in e.manifest().structure_kinds
+        ]
         if not baselines:
-            raise UnknownEngineError("No baseline engine is configured on this server.")
+            raise UnknownEngineError(
+                f"No baseline engine on this server can read {structure_kind.value} "
+                f"data, and every Protocol is measured against a baseline."
+            )
         if len(baselines) > 1:
             ids = sorted(e.manifest().id for e in baselines)
             raise UnknownEngineError(
-                f"More than one baseline engine is configured: {', '.join(ids)}."
+                f"More than one baseline engine is configured for {structure_kind.value} "
+                f"data: {', '.join(ids)}."
             )
         return _uniform(baselines[0])

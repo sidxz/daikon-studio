@@ -22,6 +22,11 @@ dependencies = [
     "pyarrow>=18.0",
     # helmkit's own floor, raised from 2024.09 for it.
     "rdkit>=2025.3.3",
+    # ProtParam, for the sequence baseline's physicochemical descriptors.
+    # `Bio/SeqUtils/ProtParam.py` is dual licensed Biopython Agreement / BSD-3.
+    # Deliberately not `peptides` (ships GPLv3 despite an MIT classifier) or
+    # `propy3` (GPL-2.0-only) -- both copyleft.
+    "biopython>=1.84",
     # HELM peptide notation -> SMILES at ingestion (infrastructure/chem/helm.py).
     # MIT, Copyright (c) 2025 adaliaramon -- the LICENSE file ships in the distribution
     # but the PyPI metadata carries no license field or classifier, so the licence is

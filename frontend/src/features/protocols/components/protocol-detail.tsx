@@ -95,6 +95,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
   const creator = useMemberName()(protocol?.created_by);
   const scorecard = useScorecard(protocolId);
   const { data: dataset } = useDataset(protocol?.dataset_id);
+  const isSequence = dataset?.validation_report?.structure_kind === "sequence";
   const publish = usePublishProtocol();
   const [confirming, setConfirming] = useState(false);
   const [selectedTarget, setSelectedTarget] = useState<string>();
@@ -202,7 +203,10 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
         <TabsList aria-label="Protocol details">
           <TabsTrigger value="performance">Model performance</TabsTrigger>
           <TabsTrigger value="compounds">Test compounds</TabsTrigger>
-          <TabsTrigger value="chemistry">Chemical space</TabsTrigger>
+          {/* A chemical space is a space of molecules. For a sequence protocol the tab
+              would only ever say "no map computed yet", and "yet" is not true: there is
+              no map coming, because there is nothing to map. */}
+          {!isSequence && <TabsTrigger value="chemistry">Chemical space</TabsTrigger>}
           <TabsTrigger value="history">Run history</TabsTrigger>
         </TabsList>
         {(["performance", "compounds"] as const).map((view) => (

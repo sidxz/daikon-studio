@@ -5313,6 +5313,13 @@
             "type": "boolean",
             "title": "Supports Multitask"
           },
+          "structure_kinds": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Structure Kinds"
+          },
           "lane": {
             "type": "string",
             "title": "Lane"
@@ -5328,6 +5335,7 @@
           "conditions",
           "is_baseline",
           "supports_multitask",
+          "structure_kinds",
           "lane"
         ],
         "title": "EngineManifestResponse",
@@ -9032,6 +9040,11 @@
             },
             "type": "object",
             "title": "Duplicate Spread"
+          },
+          "structure_kind": {
+            "type": "string",
+            "title": "Structure Kind",
+            "default": "molecule"
           }
         },
         "type": "object",
