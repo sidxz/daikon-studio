@@ -392,3 +392,35 @@ async def test_a_flagged_subset_of_the_test_set_gets_its_own_metric(client, csv_
     assert card["subset_count"] <= card["subset_total"]
     # And the number itself exists, which is the point of the whole feature.
     assert card["subset_metric"] is not None
+
+
+async def test_a_subset_column_the_dataset_does_not_have_fails_the_run_clearly(client, csv_upload):
+    """Better a run that says the column is missing than one that succeeds and reports
+    "0 of 0 test compounds, the split put all of them in training" about a column that
+    was never there."""
+    upload_ref = await csv_upload(_FIXTURE.read_bytes())
+    created = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "pains-no-such-column",
+            "upload_ref": upload_ref,
+            "structure_column": "smiles",
+            "targets": [{"column": "is_pains", "kind": "binary"}],
+            "split": {"strategy": "random", "seed": 11},
+        },
+    )
+    assert created.status_code == 201, created.text
+    train_response = await client.post(
+        "/api/v1/protocols",
+        json={
+            "name": "pains missing subset",
+            "dataset_id": created.json()["id"],
+            "engine_id": "ecfp4-xgboost",
+            "conditions": {},
+            "subset_column": "cliff_mol",
+        },
+    )
+    assert train_response.status_code == 202, train_response.text
+    run = await _poll_until_ready(client, train_response.json()["id"], stage="training")
+    assert run["status"] == "failed"
+    assert "cliff_mol" in (run.get("error_message") or "")

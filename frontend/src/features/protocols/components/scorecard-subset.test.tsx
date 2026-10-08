@@ -66,6 +66,26 @@ describe("a metric over a flagged part of the test set", () => {
     expect(screen.getByText(/No test row/)).toBeInTheDocument();
   });
 
+  it("does not say nothing was flagged when 245 rows were", () => {
+    // The null metric has three causes and this is the second: a binary subset whose
+    // flagged rows are all one class. Saying "no test row carries this flag" above a
+    // count of 245 contradicts the line directly beneath it.
+    render(
+      <ScorecardView
+        scorecard={card({
+          primary_metric: "mcc",
+          metrics: { mcc: 0.5 },
+          subset_column: "cliff_mol",
+          subset_count: 245,
+          subset_total: 666,
+          subset_metric: null,
+        })}
+      />,
+    );
+    expect(screen.queryByText(/No test row/)).not.toBeInTheDocument();
+    expect(screen.getByText(/every flagged compound has the same label/)).toBeInTheDocument();
+  });
+
   it("shows no section at all when no column was chosen", () => {
     render(<ScorecardView scorecard={card({})} />);
     expect(screen.queryByText(/flagged by/)).not.toBeInTheDocument();

@@ -828,7 +828,8 @@ export function DatasetWizard() {
                       {preparation.split.column
                         ? `Partitions from "${preparation.split.column}"`
                         : `Seed ${preparation.split.seed}`}{" "}
-                      · {preparation.readiness.row_count.toLocaleString()} unique compounds
+                      · {preparation.readiness.row_count.toLocaleString()}{" "}
+                      {draft.deduplicate ? "unique compounds" : "rows"}
                     </p>
                     <DatasetReadinessView readiness={preparation.readiness} />
                   </CardContent>
@@ -837,9 +838,9 @@ export function DatasetWizard() {
                   <CardHeader>
                     <CardTitle className="text-base">Preparation results</CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      Invalid rows and conflicting labels are excluded. Repeated numeric
-                      measurements are averaged per compound; repeated agreeing binary labels are
-                      collapsed.
+                      {draft.deduplicate
+                        ? "Invalid rows and conflicting labels are excluded. Repeated numeric measurements are averaged per compound; repeated agreeing binary labels are collapsed."
+                        : "Invalid rows are excluded. Repeated measurements of the same compound are kept as separate rows, so the same compound can appear in both training and test."}
                     </p>
                   </CardHeader>
                   <CardContent>

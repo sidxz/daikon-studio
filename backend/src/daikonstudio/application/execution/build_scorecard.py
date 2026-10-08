@@ -156,6 +156,7 @@ def subset_metric(
     *,
     subset: list[bool],
     cutoff: float = 0.5,
+    inclusive: bool = True,
 ) -> float | None:
     """The headline metric over the flagged test rows only, or None when there are none.
 
@@ -178,7 +179,12 @@ def subset_metric(
     a = np.asarray([actual[index] for index in rows], dtype=float)
     p = np.asarray([predicted[index] for index in rows], dtype=float)
     if task is TaskType.BINARY_CLASSIFICATION:
-        return _mcc(a, p >= cutoff)
+        # The same tie rule the overall metric used. Five engines reach their headline
+        # MCC through sklearn's `predict`, which puts an exact 0.5 in class 0; a subset
+        # number thresholded the other way is not comparable to the number printed
+        # beside it, which is the only reason to print them together.
+        labels = p >= cutoff if inclusive else p > cutoff
+        return _mcc(a, labels)
     return float(np.sqrt(np.mean((a - p) ** 2)))
 
 
@@ -392,7 +398,14 @@ def build_scorecard(
         subset_count=(sum(subset) if subset is not None else None),
         subset_total=(len(subset) if subset is not None else None),
         subset_metric=(
-            subset_metric(task, actual, predicted, subset=subset, cutoff=cutoff or 0.5)
+            subset_metric(
+                task,
+                actual,
+                predicted,
+                subset=subset,
+                cutoff=decision_cutoff,
+                inclusive=inclusive,
+            )
             if subset is not None
             else None
         ),

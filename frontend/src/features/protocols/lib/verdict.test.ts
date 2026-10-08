@@ -196,6 +196,20 @@ describe("optimism gap", () => {
     expect(computeOptimismGap(scorecard({ split_strategy: "random" })).kind).toBe("not-applicable");
   });
 
+  it("lets the backend's reason beat the vocabulary when the comparison was switched off", () => {
+    // The one string whose job is to reach the reader before the per-strategy
+    // sentence does. Nothing pinned it before, and "no comparison was recorded"
+    // reads as a missing run rather than as a choice someone made.
+    const gap = computeOptimismGap(
+      scorecard({
+        split_strategy: "scaffold",
+        random_split_metrics: null,
+        random_split_unavailable: "The random-split comparison was switched off for this run.",
+      }),
+    );
+    expect(gap.message).toContain("switched off");
+  });
+
   it("does not tell a predefined split it was scored on a random one", () => {
     // The old copy said "Not applicable: the model was scored on a random split" for
     // every strategy whose vocabulary has no group. That is flatly false here: the

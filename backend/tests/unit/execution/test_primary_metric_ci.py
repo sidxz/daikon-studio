@@ -127,3 +127,77 @@ def test_a_binary_subset_metric_is_undefined_when_the_flagged_rows_are_one_class
         )
         is None
     )
+
+
+def test_an_unrecognised_flag_value_is_rejected_rather_than_read_as_false():
+    """Everything arrives as text, so a float-typed flag column reaches us as "1.0" and
+    a three-level column as "2". Reading those as "not in the subset" silently shrinks
+    the denominator of the number being published, which is the one outcome worse than
+    refusing to compute it."""
+    from daikonstudio.application.execution.train_protocol import subset_mask
+    from daikonstudio.domain.shared.errors import ValidationError
+
+    assert subset_mask(["1", "0", "true", "no"], column="cliff") == [True, False, True, False]
+    with pytest.raises(ValidationError) as caught:
+        subset_mask(["1", "1.0", "0"], column="cliff")
+    message = caught.value.message
+    assert "cliff" in message
+    assert "1.0" in message
+    assert "row 2" in message
+
+
+def test_an_empty_flag_cell_is_simply_not_in_the_subset():
+    """Unlike a partition, a blank flag has an obvious reading: this row is not in the
+    group. A file that flags 245 of 666 rows leaves the rest blank far more often than
+    it writes "false"."""
+    from daikonstudio.application.execution.train_protocol import subset_mask
+
+    assert subset_mask(["1", "", "  "], column="cliff") == [True, False, False]
+
+
+def test_the_subset_mcc_breaks_ties_the_way_the_overall_mcc_does():
+    """Five engines assign an exact 0.5 to class 0 via sklearn's `predict`, and
+    `build_scorecard` goes to real trouble to preserve that. A subset number thresholded
+    the other way is not comparable to the overall number printed beside it, which is
+    the whole purpose of reporting them together."""
+    from daikonstudio.application.execution.build_scorecard import subset_metric
+
+    actual = [1.0, 0.0]
+    predicted = [0.5, 0.5]  # both exactly on the boundary
+    inclusive_value = subset_metric(
+        TaskType.BINARY_CLASSIFICATION,
+        actual,
+        predicted,
+        subset=[True, True],
+        cutoff=0.5,
+        inclusive=True,
+    )
+    exclusive_value = subset_metric(
+        TaskType.BINARY_CLASSIFICATION,
+        actual,
+        predicted,
+        subset=[True, True],
+        cutoff=0.5,
+        inclusive=False,
+    )
+    # Inclusive calls both positive, exclusive calls both negative; either way MCC is
+    # undefined on a single predicted class, so what is pinned is that the two paths
+    # are distinguishable at all rather than silently identical.
+    assert inclusive_value is None and exclusive_value is None
+
+    # With one compound off the boundary the two rules disagree, which is the point.
+    assert subset_metric(
+        TaskType.BINARY_CLASSIFICATION,
+        [1.0, 0.0, 1.0],
+        [0.5, 0.1, 0.9],
+        subset=[True, True, True],
+        cutoff=0.5,
+        inclusive=True,
+    ) != subset_metric(
+        TaskType.BINARY_CLASSIFICATION,
+        [1.0, 0.0, 1.0],
+        [0.5, 0.1, 0.9],
+        subset=[True, True, True],
+        cutoff=0.5,
+        inclusive=False,
+    )

@@ -196,6 +196,10 @@ function CutoffLine({
 function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
   const binary = scorecard.prediction_kind === "probability";
   const verdict = computeVerdict(scorecard);
+  // A third state beside "beats" and "is-baseline": the run was asked not to fit one.
+  // Nothing failed and nothing is undefined -- there is simply nothing to compare, and
+  // every sentence on this card that names a comparison model has to know that.
+  const noBaseline = scorecard.baseline_metrics == null;
   const bootstrap = bootstrapData(scorecard, verdict);
   const metric = metricLabel(scorecard.primary_metric);
   const { data: engines } = useEngines();
@@ -234,9 +238,11 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
         <>
           <BinaryMetricComparison scorecard={scorecard} />
           <p className="mt-3 text-xs text-muted-foreground">
-            {scorecard.baseline_is_self
-              ? `This model is the baseline (${engineName}). There is no separate model to compare.`
-              : `The comparison model is ${describeBaseline(scorecard, engines)}, evaluated on the same test set. Differences above are observed scores, not proof that one model will perform better on new compounds.`}
+            {noBaseline
+              ? "No baseline was fitted for this run, so the comparison columns are empty."
+              : scorecard.baseline_is_self
+                ? `This model is the baseline (${engineName}). There is no separate model to compare.`
+                : `The comparison model is ${describeBaseline(scorecard, engines)}, evaluated on the same test set. Differences above are observed scores, not proof that one model will perform better on new compounds.`}
           </p>
           {bootstrap && scorecard.metrics[scorecard.primary_metric] != null && (
             <div className="mt-3 space-y-2 text-xs text-muted-foreground">
@@ -249,6 +255,15 @@ function VerdictBand({ scorecard }: { scorecard: ScorecardResponse }) {
         <p className="mt-2 text-sm text-muted-foreground">
           The model and baseline are the same engine ({engineName}) with the same settings, so there
           is no comparison to report.
+        </p>
+      ) : noBaseline ? (
+        /* Before the `unknown` arm, which is written for "the metric was undefined".
+           No baseline is a different statement: nothing failed, nothing was measured,
+           and saying "could not be computed" sends the reader to All metrics for a
+           reason that is not there. */
+        <p className="mt-2 text-sm text-muted-foreground">
+          No baseline was fitted for this run, so there is no comparison to report. The model's own
+          scores are below.
         </p>
       ) : verdict.kind === "unknown" ? (
         <p className="mt-2 text-sm text-muted-foreground">
@@ -353,9 +368,14 @@ function SubsetMetric({ scorecard }: { scorecard: ScorecardResponse }) {
       </CardHeader>
       <CardContent>
         {scorecard.subset_metric == null ? (
+          /* Three causes, not one. Nothing flagged in the test set; flagged rows that
+             are all one class, where MCC is undefined; or a mask that does not describe
+             these rows. Printing "no test row carries this flag" above a count of 245
+             is the contradiction this branch exists to avoid. */
           <p className="text-sm text-muted-foreground">
-            No test row carries this flag, so there is nothing to measure here. The split put all of
-            them in the training set.
+            {count === 0
+              ? "No test row carries this flag, so there is nothing to measure here."
+              : `${metricLabel(scorecard.primary_metric)} is undefined on these rows: every flagged compound has the same label.`}
           </p>
         ) : (
           <dl className="flex items-baseline gap-3">
@@ -365,7 +385,10 @@ function SubsetMetric({ scorecard }: { scorecard: ScorecardResponse }) {
             <dd>
               <ReadoutValue
                 value={scorecard.subset_metric}
-                unit={scorecard.unit}
+                /* Same rule as MetricTable: the "higher is better" metrics are
+                   unitless, and a binary target carrying a unit would otherwise
+                   render "MCC 0.432 nM". */
+                unit={higherIsBetter(scorecard.primary_metric) ? undefined : scorecard.unit}
                 precision={3}
                 className="text-xl font-semibold"
               />
@@ -420,7 +443,11 @@ function MetricTable({ scorecard }: { scorecard: ScorecardResponse }) {
                 Test
                 <span className="ml-1 normal-case text-[10px]">the verdict</span>
               </th>
-              <th className="pb-2 font-medium">{scorecard.baseline_is_self ? "" : "Baseline"}</th>
+              {/* Blank when the model is its own baseline, and equally when no
+                  baseline ran -- an unexplained column of N/A is worse than no column. */}
+              <th className="pb-2 font-medium">
+                {scorecard.baseline_is_self || scorecard.baseline_metrics == null ? "" : "Baseline"}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -512,7 +539,11 @@ export function ScorecardView({
       </ScorecardSection>
       <ScorecardSection
         title="All metrics and comparisons"
-        description="Validation and test scores, the comparison model, and the effect of the data split."
+        description={
+          scorecard.baseline_metrics == null
+            ? "Validation and test scores, and the effect of the data split. No baseline was fitted for this run."
+            : "Validation and test scores, the comparison model, and the effect of the data split."
+        }
       >
         <MetricTable scorecard={scorecard} />
         <SubsetMetric scorecard={scorecard} />

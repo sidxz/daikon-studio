@@ -102,19 +102,27 @@ export function ValidationReportView({
             replicates are grouped -- so it is not the compound count. Deriving
             it here is what stops the page saying "1,008 usable compounds" for a
             dataset that trains on 997. */}
+        {/* With deduplication off there are no groups, so this count is the row
+            count and calling it "unique compounds" would reintroduce exactly the
+            error the comment above exists to prevent -- a replicate-bearing file
+            described as though every row were a distinct compound. */}
         <Stat
           value={(
             report.valid_rows -
             report.duplicates_collapsed -
             conflictingRows
           ).toLocaleString()}
-          label="Unique compounds"
+          label={report.deduplicated === false ? "Rows kept" : "Unique compounds"}
         />
-        <Stat
-          value={report.duplicates_collapsed.toLocaleString()}
-          label="Duplicates collapsed"
-          tone={report.duplicates_collapsed > 0 ? "warn" : "default"}
-        />
+        {report.deduplicated === false ? (
+          <Stat value="Kept" label="Repeated measurements" tone="warn" />
+        ) : (
+          <Stat
+            value={report.duplicates_collapsed.toLocaleString()}
+            label="Duplicates collapsed"
+            tone={report.duplicates_collapsed > 0 ? "warn" : "default"}
+          />
+        )}
         <Stat
           value={report.salts_flagged.toLocaleString()}
           label="Salts or mixtures flagged"

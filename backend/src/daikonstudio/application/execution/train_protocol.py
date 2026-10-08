@@ -52,6 +52,7 @@ import math
 import time
 import uuid
 from collections import Counter
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, field, fields, replace
 from typing import Any
 
@@ -493,9 +494,38 @@ def joint_kind_error(manifest: EngineManifest, dataset: Dataset) -> ValidationEr
 #: assertion.
 _COMPARISON_LEGS = 2
 
-#: What counts as "in the subset" in a flag column. Everything arrives as text, because
-#: the snapshot keeps what the upload held, so this cannot lean on a boolean dtype.
+#: What counts as "in the subset" in a flag column, and what counts as out of it.
+#: Everything arrives as text, because the snapshot keeps what the upload held, so this
+#: cannot lean on a boolean dtype. A blank is out: a file that flags 245 of 666 rows
+#: leaves the rest empty far more often than it writes "false".
 _SUBSET_TRUE = {"true", "1", "yes", "y", "t"}
+_SUBSET_FALSE = {"false", "0", "no", "n", "f", ""}
+
+
+def subset_mask(values: Sequence[object], *, column: str) -> list[bool]:
+    """Which rows are in the flagged group, refusing anything it cannot read.
+
+    Silence is the dangerous answer here. A float-typed flag column reaches us as
+    "1.0", a three-level column as "2", and reading either as "not in the subset" would
+    shrink the denominator of the very number being published while leaving a plausible
+    result on the screen. The split column's gate refuses unknown values for the same
+    reason (`_validate_split_column`), and this is its counterpart.
+    """
+    mask: list[bool] = []
+    for index, value in enumerate(values):
+        text = str(value).strip().lower()
+        if text in _SUBSET_TRUE:
+            mask.append(True)
+        elif text in _SUBSET_FALSE:
+            mask.append(False)
+        else:
+            raise ValidationError(
+                f"Column '{column}' holds '{value}' at row {index + 1}, which does not "
+                f"say whether the row is in the group. Use 1 or 0 (or true/false), and "
+                f"leave a cell empty to mean it is not.",
+                detail=None,
+            )
+    return mask
 
 
 def comparison_fractions(frame: pl.DataFrame, split: SplitSpec) -> tuple[float, float, float]:
@@ -707,6 +737,12 @@ class TrainProtocol:
                 # Only when on: a key hashes whatever parts it is given, so an absent
                 # part leaves every key computed before this option existed unchanged.
                 **({"tune_cutoffs": True} if command.tune_cutoffs else {}),
+                # Same argument as `tune_cutoffs` above: each of these changes what the
+                # run measures, so a key omitting them could serve a cached result whose
+                # baseline, optimism gap or subset is not the one being asked for.
+                **({} if command.run_baseline else {"run_baseline": False}),
+                **({} if command.optimism_gap else {"optimism_gap": False}),
+                **({"subset_column": command.subset_column} if command.subset_column else {}),
             ),
             params={
                 **command.to_params(),
@@ -799,13 +835,17 @@ class RunTraining:
             else self._engines.baseline(dataset.validation_report.structure_kind)
         )
         baseline_manifest = baseline.manifest()
-        _check_capable(baseline_manifest, dataset, baseline=True)
+        # Only when one will actually be fitted: refusing a reproduction run because no
+        # eligible baseline exists would reject it for a fit that is not going to happen.
+        if command.run_baseline:
+            _check_capable(baseline_manifest, dataset, baseline=True)
         baseline_conditions = validate_conditions(baseline_manifest, command.baseline_conditions)
 
         frame = pl.read_parquet(
             io.BytesIO(self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id)))
         )
         _require_structure_column(dataset, frame)
+        _require_subset_column(command.subset_column, frame)
 
         # The run's saved progress. A retry of this same run (same id) finds what an
         # earlier attempt saved and skips it; success clears it below.
@@ -837,11 +877,9 @@ class RunTraining:
             manifest.id == baseline_manifest.id and conditions == baseline_conditions
         )
         baseline_result = None
-        if not command.run_baseline:
-            pass
-        elif baseline_is_self:
+        if command.run_baseline and baseline_is_self:
             baseline_result = chosen
-        else:
+        elif command.run_baseline:
             baseline_result = await self._fit(
                 run,
                 baseline,
@@ -960,10 +998,10 @@ class RunTraining:
             deduplicated=dataset.validation_report.deduplicated,
             subset_column=command.subset_column,
             subset=(
-                [
-                    str(value).strip().lower() in _SUBSET_TRUE
-                    for value in test_rows[command.subset_column].to_list()
-                ]
+                subset_mask(
+                    test_rows[command.subset_column].to_list(),
+                    column=command.subset_column,
+                )
                 if command.subset_column and command.subset_column in test_rows.columns
                 else None
             ),
@@ -1511,6 +1549,25 @@ def _cutoff_note(column: str, cutoff: float | None, frame: pl.DataFrame) -> str 
 # column existed. Those rows have no true answer, so the sentinel is deliberately
 # not a plausible column name -- and training refuses it by name below.
 _LEGACY_STRUCTURE_COLUMN = "unknown"
+
+
+def _require_subset_column(column: str | None, frame: pl.DataFrame) -> None:
+    """Refuse a flag column the dataset does not have, rather than reporting on it.
+
+    Without this the Scorecard renders a card headed "Metrics on the rows flagged by
+    cliff_mol", reading "0 of 0 test compounds -- no test row carries this flag, the
+    split put all of them in the training set". Every clause of that is false: the
+    column is not in the dataset at all. A run that fails saying so is strictly better
+    than one that succeeds and explains an absence it invented.
+    """
+    if column is None or column in frame.columns:
+        return
+    available = ", ".join(frame.columns)
+    raise ValidationError(
+        f"Column '{column}' was chosen for a separate metric, but this dataset has no "
+        f"such column.",
+        detail=f"Available columns: {available}",
+    )
 
 
 def _require_structure_column(dataset: Dataset, frame: pl.DataFrame) -> None:

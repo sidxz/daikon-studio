@@ -149,11 +149,17 @@ export function BinaryMetricComparison({ scorecard }: { scorecard: ScorecardResp
                     `${label} is not available for this model.`}
                 </p>
               )}
-              {!unavailable && !scorecard.baseline_is_self && baseline == null && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  {label} is not available for the comparison model.
-                </p>
-              )}
+              {!unavailable &&
+                !scorecard.baseline_is_self &&
+                baseline == null &&
+                // Only when a baseline ran and this metric was missing from it.
+                // Without one there is no comparison model whose metric could be
+                // unavailable, and saying so asserts a fit that never happened.
+                scorecard.baseline_metrics != null && (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    {label} is not available for the comparison model.
+                  </p>
+                )}
               {interval && (
                 <p className="mt-2 text-xs text-muted-foreground">
                   Likely range for this {label}: <ReadoutValue value={interval[0]} /> to{" "}
