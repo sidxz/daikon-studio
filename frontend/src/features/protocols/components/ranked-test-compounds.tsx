@@ -118,7 +118,10 @@ export function RankedTestCompounds({ scorecard }: { scorecard: ScorecardRespons
                           <p className="break-all font-medium">
                             {row.compound_id ?? `Test compound ${row.test_index + 1}`}
                           </p>
-                          <p className="mt-1 break-all font-mono text-xs text-muted-foreground">
+                          <p // A 286-residue sequence breaks into a dozen lines and buries the numbers the
+                            // row exists to show. Two lines is still the whole of most SMILES.
+                            className="mt-1 line-clamp-2 break-all font-mono text-xs text-muted-foreground"
+                          >
                             {row.structure}
                           </p>
                         </div>
