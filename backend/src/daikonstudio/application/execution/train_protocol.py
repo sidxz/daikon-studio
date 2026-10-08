@@ -282,7 +282,9 @@ class TargetInputs:
     actual: list[float]
     predicted: list[float]
     prediction_kind: str
-    baseline_metrics: dict[str, float | None]
+    #: None when the run was asked not to fit a baseline at all. Distinct from an
+    #: empty dict, which would mean a baseline ran and measured nothing.
+    baseline_metrics: dict[str, float | None] | None
     random_split_metrics: dict[str, float | None] | None
     random_split_metrics_undefined: dict[str, str] | None
     metrics_undefined: dict[str, str] | None
@@ -407,6 +409,15 @@ class TrainProtocolCommand:
     # Choose each binary target's decision cutoff on the validation partition. The same
     # request reaches the model, its baseline and the random-split fit.
     tune_cutoffs: bool = False
+    # Fit the comparison baseline on the identical split. On by default, because a
+    # number with nothing to compare it against is not evidence. Off is for reproducing
+    # a published protocol exactly, where our baseline is an addition to it -- and it
+    # means there is no verdict, and no interval on a difference that is not computed.
+    run_baseline: bool = True
+    # Fit the same engine again on a random re-split, to measure the optimism gap. Off
+    # halves the work on a grouped split and removes the only evidence of how much that
+    # split's score was flattered.
+    optimism_gap: bool = True
 
     def to_params(self) -> dict[str, Any]:
         return {
@@ -418,6 +429,8 @@ class TrainProtocolCommand:
             "baseline_conditions": self.baseline_conditions,
             "sweep_name": self.sweep_name,
             "tune_cutoffs": self.tune_cutoffs,
+            "run_baseline": self.run_baseline,
+            "optimism_gap": self.optimism_gap,
         }
 
     @classmethod
@@ -431,6 +444,10 @@ class TrainProtocolCommand:
             baseline_conditions=params.get("baseline_conditions") or {},
             sweep_name=params.get("sweep_name"),
             tune_cutoffs=params.get("tune_cutoffs", False),
+            # Defaulted to today's behaviour: every Run enqueued before the toggles
+            # existed did both.
+            run_baseline=params.get("run_baseline", True),
+            optimism_gap=params.get("optimism_gap", True),
         )
 
 
@@ -496,6 +513,9 @@ def deadline_scale(
     conditions: dict[str, object],
     baseline: EngineManifest,
     baseline_conditions: dict[str, object],
+    *,
+    run_baseline: bool = True,
+    optimism_gap: bool = True,
 ) -> int:
     """How many times over its lane's deadline a training Run may take: one lane budget
     per model fitted inside it.
@@ -514,10 +534,16 @@ def deadline_scale(
     # a list of members: `_optimism_gap` runs the second leg for every non-random
     # strategy, and a new member added to that side but forgotten here would get half
     # the budget it needs and die on the lane deadline at ~80% of a long run.
-    legs = 1 if dataset.split.strategy is SplitStrategy.RANDOM else _COMPARISON_LEGS
-    return legs * _fits(manifest, dataset, conditions) + _fits(
-        baseline, dataset, baseline_conditions
-    )
+    # Both toggles default on, so every run enqueued before they existed budgets
+    # exactly what it did. The comparison leg is skipped for a random split whatever
+    # the toggle says -- there is nothing to compare a random split against -- so the
+    # two reasons for skipping it must not subtract the same leg twice.
+    runs_comparison = optimism_gap and dataset.split.strategy is not SplitStrategy.RANDOM
+    legs = _COMPARISON_LEGS if runs_comparison else 1
+    total = legs * _fits(manifest, dataset, conditions)
+    if run_baseline:
+        total += _fits(baseline, dataset, baseline_conditions)
+    return total
 
 
 def _fits(manifest: EngineManifest, dataset: Dataset, conditions: dict[str, object]) -> int:
@@ -675,6 +701,8 @@ class TrainProtocol:
                     command.conditions,
                     baseline.manifest(),
                     command.baseline_conditions,
+                    run_baseline=command.run_baseline,
+                    optimism_gap=command.optimism_gap,
                 ),
             },
             # Which sweep asked for this run, or None for a solo request. The
@@ -784,10 +812,19 @@ class RunTraining:
         # are already holding. `baseline_is_self` travels with the metrics so the
         # Scorecard says "this model is the baseline" instead of presenting one
         # result twice as though a comparison had taken place.
-        baseline_is_self = (
+        # Three states, not two, and they say different things. `baseline_is_self`
+        # means "the comparison is this same model", which is a fact about the choice
+        # of engine. `run_baseline=False` means "there is no comparison", which is a
+        # choice the scientist made. Conflating them would have the Scorecard tell a
+        # reader their model was its own baseline when they had simply switched the
+        # baseline off.
+        baseline_is_self = command.run_baseline and (
             manifest.id == baseline_manifest.id and conditions == baseline_conditions
         )
-        if baseline_is_self:
+        baseline_result = None
+        if not command.run_baseline:
+            pass
+        elif baseline_is_self:
             baseline_result = chosen
         else:
             baseline_result = await self._fit(
@@ -803,7 +840,7 @@ class RunTraining:
             )
 
         random_split, random_split_unavailable = await self._optimism_gap(
-            run, engine, dataset, targets, conditions, frame
+            run, engine, dataset, targets, conditions, frame, command
         )
 
         train_rows = frame.filter(pl.col("split") == "train")
@@ -829,8 +866,13 @@ class RunTraining:
         for target in dataset.targets:
             task = targets[target.column]
             metrics, undefined = _measured(chosen.metrics[target.column])
-            baseline_metrics, baseline_undefined = _measured(
-                baseline_result.metrics[target.column]
+            # No baseline fit means no baseline metrics and nothing undefined about
+            # them -- `verdict.ts` already reads a null baseline as "unknown" rather
+            # than as a comparison that went badly.
+            baseline_metrics, baseline_undefined = (
+                _measured(baseline_result.metrics[target.column])
+                if baseline_result is not None
+                else (None, set())
             )
             gap = random_split.get(target.column) if random_split is not None else None
             # `predict` returns one row per (compound, target); this target's rows, in
@@ -864,7 +906,11 @@ class RunTraining:
                         target.direction.value if target.direction is not None else None
                     ),
                     cutoff=cutoff,
-                    baseline_cutoff=(baseline_result.cutoffs or {}).get(target.column),
+                    baseline_cutoff=(
+                        (baseline_result.cutoffs or {}).get(target.column)
+                        if baseline_result is not None
+                        else None
+                    ),
                     cutoff_note=(
                         _cutoff_note(target.column, cutoff, frame)
                         if self._tune_cutoffs and task is TaskType.BINARY_CLASSIFICATION
@@ -878,7 +924,9 @@ class RunTraining:
                     column=target.column,
                     primary_metric=primary,
                     value=metrics.get(primary),
-                    baseline_value=baseline_metrics.get(primary),
+                    baseline_value=(
+                        baseline_metrics.get(primary) if baseline_metrics is not None else None
+                    ),
                 )
             )
         inputs = ScorecardInputs(
@@ -985,6 +1033,7 @@ class RunTraining:
         targets: dict[str, TaskType],
         conditions: dict[str, object],
         frame: pl.DataFrame,
+        command: TrainProtocolCommand,
     ) -> tuple[
         dict[str, tuple[dict[str, float | None], dict[str, str] | None]] | None, str | None
     ]:
@@ -1013,7 +1062,13 @@ class RunTraining:
         prevents.
         """
         if dataset.split.strategy is SplitStrategy.RANDOM:
+            # Nothing to compare a random split against. Checked first, and silently,
+            # because the frontend's per-strategy vocabulary already supplies the
+            # sentence for it -- saying it twice, differently, is the bug.
             return None, None
+        if not command.optimism_gap:
+            return None, "The random-split comparison was switched off for this run."
+
         # Outside the try on purpose: this writes to the Run row, and a failure
         # here is a persistence problem with the run itself, not a failure of the
         # comparison. Swallowing it would leave the aggregate's in-memory version

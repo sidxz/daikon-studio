@@ -243,7 +243,9 @@ class Scorecard:
     conditions: dict[str, Any]
     baseline_engine_id: str
     baseline_conditions: dict[str, Any]
-    baseline_metrics: dict[str, float | None]
+    #: None when the run fitted no baseline, which is a different statement from a
+    #: baseline whose metrics were all undefined.
+    baseline_metrics: dict[str, float | None] | None
     baseline_is_self: bool
     random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None

@@ -107,6 +107,11 @@ class TrainProtocolBody(BaseModel):
     # Choose each binary target's decision cutoff on the validation partition instead
     # of fixing it at 0.5. Reaches the model, its baseline and the random-split fit.
     tune_cutoffs: bool = False
+    #: Fit the comparison baseline. Off reproduces a published protocol exactly, and
+    #: leaves the Scorecard with no verdict to state.
+    run_baseline: bool = True
+    #: Fit the same engine again on a random re-split, to measure the optimism gap.
+    optimism_gap: bool = True
 
 
 class ReadoutResponse(BaseModel):
@@ -370,7 +375,7 @@ class ScorecardResponse(BaseModel):
     conditions: dict[str, Any]
     baseline_engine_id: str
     baseline_conditions: dict[str, Any]
-    baseline_metrics: dict[str, float | None]
+    baseline_metrics: dict[str, float | None] | None = None
     baseline_is_self: bool
     random_split_metrics: dict[str, float | None] | None
     random_split_unavailable: str | None
@@ -502,6 +507,8 @@ async def train_protocol(
         baseline_engine_id=body.baseline_engine_id,
         baseline_conditions=body.baseline_conditions,
         tune_cutoffs=body.tune_cutoffs,
+        run_baseline=body.run_baseline,
+        optimism_gap=body.optimism_gap,
     )
     return RunResponse.from_domain(result_to_response(await service(command, auth=auth)))
 

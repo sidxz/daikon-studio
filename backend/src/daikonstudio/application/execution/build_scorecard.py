@@ -248,7 +248,7 @@ def build_scorecard(
     engine_id: str,
     conditions: dict[str, Any],
     baseline_engine_id: str,
-    baseline_metrics: dict[str, float | None],
+    baseline_metrics: dict[str, float | None] | None,
     baseline_is_self: bool,
     joint_model: bool = False,
     actual: list[float],

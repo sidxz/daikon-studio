@@ -298,3 +298,44 @@ async def test_a_two_partition_predefined_split_trains_and_scores(client, csv_up
     # No validation partition means no validation metrics, and that is the designed
     # answer rather than a failure.
     assert card["validation_metrics"] is None, card
+
+
+async def test_a_run_without_a_baseline_has_no_verdict_to_state(client, csv_upload):
+    """Reproducing a published protocol means running theirs and not ours. Without a
+    baseline there is nothing to compare against, and the Scorecard has to say that
+    rather than present one result twice or imply a comparison happened."""
+    upload_ref = await csv_upload(_FIXTURE.read_bytes())
+    created = await client.post(
+        "/api/v1/datasets",
+        json={
+            "name": "pains-no-baseline",
+            "upload_ref": upload_ref,
+            "structure_column": "smiles",
+            "targets": [{"column": "is_pains", "kind": "binary"}],
+            "split": {"strategy": "random", "seed": 3},
+        },
+    )
+    assert created.status_code == 201, created.text
+    dataset = created.json()
+
+    train_response = await client.post(
+        "/api/v1/protocols",
+        json={
+            "name": "pains no baseline",
+            "dataset_id": dataset["id"],
+            "engine_id": "ecfp4-xgboost",
+            "conditions": {},
+            "run_baseline": False,
+        },
+    )
+    assert train_response.status_code == 202, train_response.text
+    run = await _poll_until_ready(client, train_response.json()["id"], stage="training")
+    assert run["status"] == "ready", f"run failed: {run.get('error_message')}"
+
+    protocols = (await client.get("/api/v1/protocols")).json()["items"]
+    [trained] = [item for item in protocols if item["dataset_id"] == dataset["id"]]
+    [card] = (await client.get(f"/api/v1/protocols/{trained['id']}/scorecard")).json()
+    assert card["metrics"]["mcc"] is not None, card
+    assert card["baseline_metrics"] is None, card
+    # "no comparison" is not the same statement as "the model is its own baseline".
+    assert card["baseline_is_self"] is False, card

@@ -86,3 +86,37 @@ def test_an_ensemble_baseline_counts_its_members() -> None:
     joint = _manifest(joint=True, ensemble=True)
     single = _manifest(joint=True, ensemble=False)
     assert deadline_scale(single, _RANDOM, {}, joint, {ENSEMBLE_SIZE: 10}) == 1 + 10
+
+
+# --- The optional legs ----------------------------------------------------------------
+#
+# A faithful reproduction runs the published protocol and nothing else. Our baseline and
+# our random-split comparison are additions, so a scientist can switch them off -- and
+# the budget has to follow, or the lane deadline kills a run that was never going to
+# take that long.
+
+_SIMPLE = _manifest(joint=False, ensemble=False)
+
+
+def test_a_run_without_the_random_comparison_budgets_one_leg():
+    assert deadline_scale(_SIMPLE, _SCAFFOLD, {}, _SIMPLE, {}, optimism_gap=False) == 1 + 1
+
+
+def test_a_run_without_a_baseline_budgets_no_baseline_fit():
+    assert deadline_scale(_SIMPLE, _SCAFFOLD, {}, _SIMPLE, {}, run_baseline=False) == 2
+
+
+def test_both_off_on_a_grouped_split_is_a_single_fit():
+    assert (
+        deadline_scale(_SIMPLE, _SCAFFOLD, {}, _SIMPLE, {}, run_baseline=False, optimism_gap=False)
+        == 1
+    )
+
+
+def test_switching_the_comparison_off_cannot_shrink_a_random_split_further():
+    """A random split already skips the leg. The toggle must not subtract it twice."""
+    assert deadline_scale(_SIMPLE, _RANDOM, {}, _SIMPLE, {}, optimism_gap=False) == 3 + 3
+
+
+def test_both_default_to_on():
+    assert deadline_scale(_SIMPLE, _SCAFFOLD, {}, _SIMPLE, {}) == 2 + 1
