@@ -39,6 +39,15 @@ const MCC: BootstrapData = {
   cutoff: 0.5,
 };
 
+/** Model minus baseline RMSE on each redraw: a consistent lead, all below zero. */
+const DIFF: BootstrapData = {
+  ...RMSE,
+  mode: "difference",
+  interval: [-0.176, -0.139],
+  baseline: 0,
+  redraws: { edges: [-0.19, -0.17, -0.15, -0.13], counts: [200, 600, 200] },
+};
+
 const FIGURES: [string, (t: number) => ReactElement][] = [
   ["forest", (t) => <ForestFigure t={t} />],
   ["boosting", (t) => <BoostingFigure t={t} />],
@@ -52,6 +61,7 @@ const FIGURES: [string, (t: number) => ReactElement][] = [
   ["bootstrap, regression", (t) => <BootstrapFigure t={t} data={RMSE} />],
   ["bootstrap, classification", (t) => <BootstrapFigure t={t} data={MCC} />],
   ["bootstrap, off scale", (t) => <BootstrapFigure t={t} data={{ ...RMSE, baseline: 9 }} />],
+  ["bootstrap, difference", (t) => <BootstrapFigure t={t} data={DIFF} />],
   ["domain", (t) => <DomainFigure t={t} threshold={0.3} />],
 ];
 
@@ -101,6 +111,27 @@ describe("BootstrapFigure", () => {
   it("names a baseline too far for the axis at its edge instead of crushing the dots", () => {
     render(<BootstrapFigure t={1} data={{ ...RMSE, baseline: 9 }} />);
     expect(screen.getByText("baseline model: 9.000 →")).toBeInTheDocument();
+  });
+  it("marks zero as no difference and says a lead below it holds for RMSE", () => {
+    render(<BootstrapFigure t={1} data={DIFF} />);
+    expect(screen.getByText("no difference")).toBeInTheDocument();
+    expect(screen.getByText("likely range of the difference")).toBeInTheDocument();
+    expect(
+      screen.getByText(/RMSE, model minus baseline \(lower favors the model\)/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Every likely difference favors the model, so its lead holds up/),
+    ).toBeInTheDocument();
+  });
+  it("says this test cannot tell when zero is inside the difference's range", () => {
+    render(<BootstrapFigure t={1} data={{ ...DIFF, interval: [-0.1, 0.05] }} />);
+    expect(
+      screen.getByText(/Zero is inside the likely range of the difference/),
+    ).toBeInTheDocument();
+  });
+  it("says the baseline leads when the whole range is on its side", () => {
+    render(<BootstrapFigure t={1} data={{ ...DIFF, interval: [0.05, 0.1] }} />);
+    expect(screen.getByText(/Every likely difference favors the baseline/)).toBeInTheDocument();
   });
 });
 

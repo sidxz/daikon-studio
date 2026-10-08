@@ -51,6 +51,9 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
 
   const inside = baseline >= lo && baseline <= hi;
   const modelAhead = data.higherIsBetter ? baseline < lo : baseline > hi;
+  const diff = data.mode === "difference";
+  const reference = diff ? "no difference" : `baseline model: ${fmt(baseline)}`;
+  const better = data.higherIsBetter ? "higher" : "lower";
 
   return (
     <div className="space-y-2">
@@ -58,7 +61,11 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
         viewBox="0 0 640 300"
         className="block h-auto w-full overflow-visible"
         role="img"
-        aria-label={`The model's ${metric} on ${L.total.toLocaleString()} reshuffled tests, shown as a pile of dots. The likely range of the model's score, ${fmt(lo)} to ${fmt(hi)}, is shaded. The baseline model's ${fmt(baseline)} is marked against it.`}
+        aria-label={
+          diff
+            ? `Model minus baseline ${metric} on ${L.total.toLocaleString()} reshuffled tests, shown as a pile of dots. The likely range of the difference, ${fmt(lo)} to ${fmt(hi)}, is shaded. Zero, where the two models tie, is marked against it.`
+            : `The model's ${metric} on ${L.total.toLocaleString()} reshuffled tests, shown as a pile of dots. The likely range of the model's score, ${fmt(lo)} to ${fmt(hi)}, is shaded. The baseline model's ${fmt(baseline)} is marked against it.`
+        }
       >
         <text x={60} y={12} className={S.textStrong}>
           {N < n ? `${N} of the` : "All"} {n.toLocaleString()} test compounds
@@ -121,7 +128,9 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
           </g>
         ))}
         <text x={576} y={AXIS_Y + 32} textAnchor="end" className={S.text}>
-          {metric} ({data.higherIsBetter ? "higher" : "lower"} is better)
+          {diff
+            ? `${metric}, model minus baseline (${better} favors the model)`
+            : `${metric} (${better} is better)`}
         </text>
         {L.dots.map(({ bin, level }, b) => {
           const x = binX(bin);
@@ -158,7 +167,7 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
                 strokeDasharray="4 3"
               />
               <text x={X(baseline)} y={78} textAnchor="middle" className={S.textStrong}>
-                baseline model: {fmt(baseline)}
+                {reference}
               </text>
             </>
           ) : (
@@ -169,15 +178,13 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
               textAnchor={L.baselineOff < 0 ? "start" : "end"}
               className={S.textStrong}
             >
-              {L.baselineOff < 0
-                ? `← baseline model: ${fmt(baseline)}`
-                : `baseline model: ${fmt(baseline)} →`}
+              {L.baselineOff < 0 ? `← ${reference}` : `${reference} →`}
             </text>
           )}
         </g>
         <text textAnchor="end" opacity={seg(t, 0.8, 0.88)} className={S.textStrong}>
           <tspan x={Math.max(X(hi) - 6, 266)} y={102}>
-            likely range of the model's score
+            {diff ? "likely range of the difference" : "likely range of the model's score"}
           </tspan>
           <tspan x={Math.max(X(hi) - 6, 266)} y={115}>
             {fmt(lo)} to {fmt(hi)} (95% interval)
@@ -185,11 +192,15 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
         </text>
       </svg>
       <p className="text-sm" style={{ opacity: seg(t, 0.93, 1) }}>
-        {inside
-          ? `The baseline (${fmt(baseline)}) is inside the model's likely range, so this test can't tell which model is better.`
-          : modelAhead
-            ? `The baseline (${fmt(baseline)}) is outside the model's likely range, so the model is genuinely better, not just lucky with the test compounds.`
-            : `The baseline (${fmt(baseline)}) is outside the model's likely range, so the baseline is genuinely better, not just lucky with the test compounds.`}
+        {diff
+          ? inside
+            ? "Zero is inside the likely range of the difference, so this test can't tell which model is better."
+            : `Every likely difference favors the ${modelAhead ? "model" : "baseline"}, so its lead holds up when the test compounds are reshuffled.`
+          : inside
+            ? `The baseline (${fmt(baseline)}) is inside the model's likely range, so this test can't tell which model is better.`
+            : modelAhead
+              ? `The baseline (${fmt(baseline)}) is outside the model's likely range, so the model is genuinely better, not just lucky with the test compounds.`
+              : `The baseline (${fmt(baseline)}) is outside the model's likely range, so the baseline is genuinely better, not just lucky with the test compounds.`}
       </p>
     </div>
   );
@@ -203,7 +214,11 @@ export function BootstrapExplainer({ data }: { data: BootstrapData }) {
       id="bootstrap"
       label="What the 95% interval means"
       durationMs={BOOTSTRAP_MS}
-      caption={`A model's score depends partly on which compounds happened to be in the test set. To see how much, Studio makes ${total} reshuffled tests. Each one picks compounds at random from the real test set, so some appear twice and others not at all. The pile of dots shows the model's score on each. If the baseline falls outside the shaded range, the difference between the two models is real.`}
+      caption={
+        data.mode === "difference"
+          ? `A model's score depends partly on which compounds happened to be in the test set. To see how much, Studio makes ${total} reshuffled tests. Each one picks compounds at random from the real test set, so some appear twice and others not at all, and scores both models on the same picks. The pile of dots shows how far apart the two scores were each time. If zero falls outside the shaded range, one model stays ahead however the test compounds are reshuffled.`
+          : `A model's score depends partly on which compounds happened to be in the test set. To see how much, Studio makes ${total} reshuffled tests. Each one picks compounds at random from the real test set, so some appear twice and others not at all. The pile of dots shows the model's score on each. If the baseline falls outside the shaded range, the difference between the two models is real.`
+      }
     >
       {(t) => <BootstrapFigure t={t} data={data} />}
     </Explainer>
