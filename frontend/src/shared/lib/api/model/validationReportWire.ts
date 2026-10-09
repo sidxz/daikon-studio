@@ -5,6 +5,7 @@
 import type { InvalidRow } from './invalidRow';
 import type { ConflictRow } from './conflictRow';
 import type { ValidationReportWireDuplicateSpread } from './validationReportWireDuplicateSpread';
+import type { ValidationReportWireLabelledRows } from './validationReportWireLabelledRows';
 
 /**
  * Mirrors `ValidationReport` (`domain/data/validation.py`).
@@ -23,4 +24,5 @@ export interface ValidationReportWire {
   salts_flagged?: number;
   duplicate_spread?: ValidationReportWireDuplicateSpread;
   structure_kind?: string;
+  labelled_rows?: ValidationReportWireLabelledRows;
 }

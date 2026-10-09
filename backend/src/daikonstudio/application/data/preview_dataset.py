@@ -55,7 +55,15 @@ from daikonstudio.domain.shared.errors import (
 logger = logging.getLogger(__name__)
 _running: set[asyncio.Task[None]] = set()
 REVIEW_LIFETIME = timedelta(days=1)
-READINESS_VERSION = 1
+READINESS_VERSION = 2
+
+#: Below this share of a partition's rows carrying a measurement, the review screen says
+#: so. Not a refusal: a genuinely sparse benchmark like Tox21 sits around two thirds, and
+#: a floor that rejected it would be wrong. This catches the mistyped-column case, where
+#: coverage is near zero and the scientist would otherwise never be told, because sparse
+#: ingestion keeps those rows alive on their other targets.
+#: ponytail: one constant, no setting, until a dataset needs it to vary.
+MIN_TARGET_COVERAGE = 0.5
 
 
 def preview_key(workspace_id: uuid.UUID, build_id: uuid.UUID, name: str) -> str:
@@ -72,6 +80,12 @@ class TargetClassBalance:
     split: str
     positive: int
     negative: int
+    #: Rows in this partition carrying a measurement for this target -- `positive +
+    #: negative`. Equal to the partition's size on a dense dataset. Defaulted so a
+    #: readiness entry cached before sparse labels still deserializes; `READINESS_VERSION`
+    #: invalidates those anyway, and relying on the exception that a missing key would
+    #: otherwise raise is not a plan.
+    labelled: int = 0
 
 
 @dataclass(frozen=True)
@@ -91,7 +105,7 @@ def dataset_readiness(frame: pl.DataFrame, targets: tuple[TargetSpec, ...]) -> D
     warnings: list[str] = []
     for target in targets:
         if target.kind is TargetKind.BINARY:
-            for part in counts:
+            for part, count in counts.items():
                 values = frame.filter(pl.col("split") == part)[target.column]
                 # Both classes counted directly, never one subtracted from the row
                 # count: a sparse target is null where it was not measured, and
@@ -101,7 +115,15 @@ def dataset_readiness(frame: pl.DataFrame, targets: tuple[TargetSpec, ...]) -> D
                 positive = int((values == 1).sum())
                 negative = int((values == 0).sum())
                 labelled = positive + negative
-                balance.append(TargetClassBalance(target.column, part, positive, negative))
+                balance.append(
+                    TargetClassBalance(target.column, part, positive, negative, labelled)
+                )
+                if count and labelled / count < MIN_TARGET_COVERAGE:
+                    warnings.append(
+                        f"'{target.column}' is measured for only {labelled} of {count} "
+                        f"compounds in the {part} set. The rest are blank and will be "
+                        "skipped when this target is trained and scored."
+                    )
                 if labelled and (positive == 0 or negative == 0):
                     warnings.append(
                         f"'{target.column}' has only one class in the {part} set. "

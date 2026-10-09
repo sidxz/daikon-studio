@@ -313,6 +313,11 @@ class ClassBalanceResponse(BaseModel):
     split: str
     positive: int
     negative: int
+    # Rows in this partition measured for this target. Equal to `positive + negative`,
+    # and sent rather than derived so a client never has to know that rule. On a dense
+    # dataset it equals the partition's size; where it does not, the difference is what
+    # the coverage warning is about.
+    labelled: int = 0
 
 
 class TargetClassBalanceResponse(ClassBalanceResponse):

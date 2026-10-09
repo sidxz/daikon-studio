@@ -4596,6 +4596,11 @@
           "negative": {
             "type": "integer",
             "title": "Negative"
+          },
+          "labelled": {
+            "type": "integer",
+            "title": "Labelled",
+            "default": 0
           }
         },
         "type": "object",
@@ -9763,6 +9768,11 @@
             "type": "integer",
             "title": "Negative"
           },
+          "labelled": {
+            "type": "integer",
+            "title": "Labelled",
+            "default": 0
+          },
           "column": {
             "type": "string",
             "title": "Column"
@@ -10166,6 +10176,14 @@
             "type": "string",
             "title": "Structure Kind",
             "default": "molecule"
+          },
+          "labelled_rows": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Labelled Rows",
+            "default": {}
           }
         },
         "additionalProperties": false,

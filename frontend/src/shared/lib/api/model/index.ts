@@ -375,6 +375,7 @@ export * from './validationReportResponse';
 export * from './validationReportResponseDuplicateSpread';
 export * from './validationReportWire';
 export * from './validationReportWireDuplicateSpread';
+export * from './validationReportWireLabelledRows';
 export * from './variantPositionResponse';
 export * from './variantProfileResponse';
 export * from './variantProfileResponsePositionsSampledFrom';

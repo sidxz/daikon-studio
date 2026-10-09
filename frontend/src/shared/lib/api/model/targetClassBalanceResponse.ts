@@ -7,5 +7,6 @@ export interface TargetClassBalanceResponse {
   split: string;
   positive: number;
   negative: number;
+  labelled?: number;
   column: string;
 }
