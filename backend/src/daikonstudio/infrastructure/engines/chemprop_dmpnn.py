@@ -56,6 +56,7 @@ from daikonstudio.infrastructure.engines._options import (
 from daikonstudio.infrastructure.engines._scoring import (
     _require_matching_features,
     classification_by_column,
+    labelled_only,
     regression_metrics,
     tuned_cutoffs,
 )
@@ -214,7 +215,18 @@ def _datapoints(
     return [
         MoleculeDatapoint.from_smi(
             smiles,
-            y=None if targets is None else np.array([float(value) for value in targets[index]]),
+            # An unmeasured target is NaN, not an error. chemprop masks NaN entries out
+            # of its loss and its metrics, which is the whole reason this engine is
+            # handed the sparse frame whole while every fanned-out engine gets one
+            # filtered to its own target's rows. `float(None)` raises, so without this
+            # the masking upstream was never reached -- the fit died at construction.
+            y=(
+                None
+                if targets is None
+                else np.array(
+                    [float("nan") if value is None else float(value) for value in targets[index]]
+                )
+            ),
             x_d=None if x_d is None else x_d[index],
         )
         for index, smiles in enumerate(structures)
@@ -769,8 +781,13 @@ class ChempropDMPNN:
         def score(rows: pl.DataFrame, values: Any) -> dict[str, dict[str, float]]:
             if is_classification:
                 return classification_by_column(columns, rows, values, cutoffs, train_rows)
+            # `labelled_only` for the same reason the classification branch uses it:
+            # this engine is handed the sparse frame whole, so unmeasured rows have to
+            # come out per column here rather than having been filtered upstream.
             return {
-                column: regression_metrics(rows[column].to_numpy(), values[:, index])
+                column: regression_metrics(
+                    *labelled_only(rows[column].to_numpy(), values[:, index])
+                )
                 for index, column in enumerate(columns)
             }
 

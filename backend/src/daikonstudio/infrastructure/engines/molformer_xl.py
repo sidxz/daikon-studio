@@ -455,6 +455,27 @@ class MolformerXL:
         return _MANIFEST
 
     def train(self, ctx: TrainContext) -> TrainResult:
+        # Before anything else, including loading a 1.1-billion-parameter checkpoint:
+        # this is a decision about the shape of the data, not a failed fit.
+        #
+        # MoLFormer declares `supports_multitask`, so `FanOut` does not split this
+        # context and does not drop unmeasured rows. The loss below masks nothing, so a
+        # null target would be trained on as a number -- no exception, no visible
+        # symptom, meaningless weights. Refused rather than masked: neither of the
+        # sparse benchmarks this platform targets needs MoLFormer, both reproduce a
+        # D-MPNN, and this message is what tells the next person the capability is
+        # missing rather than broken.
+        for column in ctx.targets:
+            missing = int(ctx.frame[column].null_count())
+            if missing:
+                raise ValidationError(
+                    f"MoLFormer-XL does not support datasets with unmeasured targets, "
+                    f"and '{column}' is blank for {missing:,} of {ctx.frame.height:,} "
+                    "compounds. Use Chemprop D-MPNN, which learns every target jointly "
+                    "and handles unmeasured ones, or a dataset where every compound is "
+                    "measured."
+                )
+
         from daikonstudio.settings import Settings
 
         _require_transformers(Settings().pretrained_weights_dir)

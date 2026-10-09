@@ -214,6 +214,23 @@ def mcc_cutoff(y_true: np.ndarray, probabilities: np.ndarray) -> float | None:
     return float(cuts[best])
 
 
+def labelled_only(labels: np.ndarray, *aligned: np.ndarray) -> tuple[np.ndarray, ...]:
+    """`labels` and each aligned array, keeping only positions where a label exists.
+
+    For the joint engines only. Every other engine is wrapped in `FanOut`, which hands
+    it a frame already filtered to its target's measured rows -- but a joint engine
+    learns all targets in one model, so it is handed the sparse frame whole and its
+    per-column scoring is where the unmeasured rows have to come out. polars converts a
+    null to NaN for Int64 and Float64 alike, so one mask serves binary and regression.
+
+    Returns the inputs unchanged when nothing is missing, which is every dense dataset.
+    """
+    keep = ~np.isnan(labels)
+    if bool(keep.all()):
+        return (labels, *aligned)
+    return (labels[keep], *(array[keep] for array in aligned))
+
+
 def tuned_cutoffs(
     columns: Sequence[str], validation_rows: pl.DataFrame, probabilities: np.ndarray
 ) -> dict[str, float]:
@@ -225,7 +242,10 @@ def tuned_cutoffs(
     """
     cutoffs: dict[str, float] = {}
     for index, column in enumerate(columns):
-        cutoff = mcc_cutoff(validation_rows[column].to_numpy(), probabilities[:, index])
+        labels, scores = labelled_only(
+            validation_rows[column].to_numpy(), probabilities[:, index]
+        )
+        cutoff = mcc_cutoff(labels, scores)
         if cutoff is not None:
             cutoffs[column] = cutoff
     return cutoffs
@@ -241,15 +261,22 @@ def classification_by_column(
     """`classification_metrics` per target column of a joint model, labeling each
     compound active when its probability reaches that column's cutoff, or 0.5 where it
     has none -- exactly the rule these engines applied before cutoffs could be tuned."""
-    return {
-        column: classification_metrics(
+    scored: dict[str, dict[str, float]] = {}
+    for index, column in enumerate(columns):
+        labels, predicted, probability = labelled_only(
             rows[column].to_numpy(),
             (probabilities[:, index] >= cutoffs.get(column, 0.5)).astype(float),
             probabilities[:, index],
-            train_has_both_classes=train_rows[column].n_unique() >= 2,
         )
-        for index, column in enumerate(columns)
-    }
+        scored[column] = classification_metrics(
+            labels,
+            predicted,
+            probability,
+            # `drop_nulls()`: polars counts null as a distinct value, so a training
+            # column with one real class plus unmeasured rows would claim both.
+            train_has_both_classes=train_rows[column].drop_nulls().n_unique() >= 2,
+        )
+    return scored
 
 
 def _metrics_on(
