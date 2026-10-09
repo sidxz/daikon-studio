@@ -87,6 +87,18 @@ changes at once rather than each fix as it lands.
 To deploy a release, pin `STUDIO_API_IMAGE` / `STUDIO_FRONTEND_IMAGE` in
 `deploy/.env` to the version instead of `:latest`.
 
+### Deploy the API before the runners
+
+**Always, including the GPU runner on atlantic.** Runners write the training blobs
+the API reads back, and `ScorecardInputs.from_json` is `cls(**raw)` — so a blob from
+a newer runner carrying a field an older API has never heard of raises `TypeError`
+and the Scorecard 500s. The API tolerates an older runner's blob (every new field
+has a `None` default); an older API cannot tolerate a newer runner's. The order is
+therefore API, then default-lane runners, then atlantic's GPU runner.
+
+This is not specific to any one release. It holds for every release that adds a
+field to a stored blob, which most training changes do.
+
 ## Where the version shows up
 
 - **App sidebar:** `UI v<version>`, from the baked image.

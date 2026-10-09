@@ -515,7 +515,7 @@ class ScorecardResponse(BaseModel):
                     name: _summary_response(values)
                     for name, values in card.replicate_metrics.items()
                 }
-                if card.replicate_metrics
+                if card.replicate_metrics is not None
                 else None
             ),
             replicate_seeds=card.replicate_seeds,

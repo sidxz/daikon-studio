@@ -5,6 +5,7 @@ only for the worst-20 residual list and the applicability distribution.
 
 from daikonstudio.application.engines.manifest import TaskType
 from daikonstudio.application.execution.build_scorecard import (
+    _PAIRED_CI_RESAMPLES,
     build_scorecard,
     held_out_chemistry,
 )
@@ -503,7 +504,9 @@ def test_a_consistent_small_lead_is_resolved_by_pairing_where_the_old_check_cann
     d_low, d_high = card.difference_ci
     assert d_low < d_high < 0
     assert card.difference_bootstrap is not None
-    assert sum(card.difference_bootstrap.counts) == 1000
+    # Against the constant, not a literal: the claim is that every redraw lands in the
+    # histogram, which must survive a change to how many redraws the paired test takes.
+    assert sum(card.difference_bootstrap.counts) == _PAIRED_CI_RESAMPLES
     assert card.difference_bootstrap.edges[0] <= d_low
 
 

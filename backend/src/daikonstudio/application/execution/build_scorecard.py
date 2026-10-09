@@ -99,8 +99,15 @@ def primary_metric_for(task: TaskType) -> str:
 #: the resampling, not the model; the card then shows no interval at all.
 _CI_MIN_ROWS = 20
 _CI_RESAMPLES = 1000
+#: The paired difference gets ten times the redraws, because it is the number a claim
+#: rests on -- "beats" requires its interval to exclude zero -- and at the test sizes
+#: that decides for (a few hundred rows) 1,000 leaves visible noise on the edges. The
+#: unpaired interval stays at `_CI_RESAMPLES`: it is an honest floor under one number,
+#: not a comparison. Measured per target on binary MCC: 0.13 s at 153 test rows,
+#: 0.33 s at 3.8k, 2.4 s at 40k, 3.9 s at 65k -- and this runs on every view.
+_PAIRED_CI_RESAMPLES = 10000
 #: The redraw scores reach the client binned, for the interval's figure: two dozen
-#: columns read as a distribution at the figure's width, and a thousand raw floats
+#: columns read as a distribution at the figure's width, and ten thousand raw floats
 #: per card would be payload for nothing.
 _BOOTSTRAP_BINS = 24
 
@@ -281,7 +288,7 @@ def _paired_difference_scores(
         )
         return None if model is None or baseline is None else model - baseline
 
-    return _redraws(n, difference, resamples=_CI_RESAMPLES, seed=0)
+    return _redraws(n, difference, resamples=_PAIRED_CI_RESAMPLES, seed=0)
 
 
 @dataclass(frozen=True, kw_only=True)

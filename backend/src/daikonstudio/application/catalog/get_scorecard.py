@@ -124,9 +124,14 @@ class GetScorecard:
 
         # The expensive half -- Murcko scaffolds and the O(test x train) Tanimoto
         # search -- is read, not computed: training stores it (`scorecard_chemistry_
-        # key`). What is left is measured at 0.74 s for four targets at 40k test
-        # compounds, off the event loop. The cards themselves are rendered on every
-        # view, so a change to how a Scorecard reads reaches old Protocols too.
+        # key`). What is left is the bootstrap, off the event loop: the unpaired
+        # interval at 0.15 s per target at 40k test rows, and -- where baseline
+        # predictions were kept -- the paired difference at 2.4 s, because that one
+        # takes ten times the redraws. Four targets at 40k is about 10 s; the cards
+        # are rendered on every view, so a change to how a Scorecard reads reaches old
+        # Protocols too. Folding the two passes together is the lever if that bites:
+        # they share a seed, so the paired pass redraws rows the unpaired one already
+        # drew.
         chemistry = await self._chemistry(protocol.workspace_id, protocol.id, inputs)
         scorecards = await asyncio.to_thread(_build_all, inputs, chemistry)
         # IDs are looked up now rather than stored with the inputs, so naming or
