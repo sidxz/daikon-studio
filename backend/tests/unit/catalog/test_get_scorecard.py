@@ -454,7 +454,12 @@ def test_a_sparse_target_subsets_the_run_level_structures_and_chemistry():
     from daikonstudio.application.execution.train_protocol import ScorecardInputs, TargetInputs
     from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 
-    partition = ["CCO", "CCN", "CCC", "CCCC", "CCCCC", "CCCCCC"]
+    # Thirty rows, not six: `_error_by_similarity` returns early below
+    # `_SIMILARITY_BINS * 2` (16), so a small fixture skips the exact loop that
+    # indexes `residuals[i]` over the unsubset similarities -- which is where C1
+    # actually crashed in the browser while a six-row version of this test passed.
+    partition = ["C" * (i + 1) + "O" for i in range(40)]
+    measured = list(range(0, 40, 2))  # twenty of the forty, above the 16-row bin floor
     inputs = ScorecardInputs(
         protocol_id=str(uuid.uuid4()),
         run_id=str(uuid.uuid4()),
@@ -474,10 +479,9 @@ def test_a_sparse_target_subsets_the_run_level_structures_and_chemistry():
                 column="tox",
                 task="binary_classification",
                 metrics={"mcc": 0.5},
-                # measured on partition rows 0, 3 and 5 only
-                actual=[1.0, 0.0, 1.0],
-                predicted=[0.9, 0.2, 0.8],
-                labelled_indices=[0, 3, 5],
+                actual=[float(i % 2) for i in range(len(measured))],
+                predicted=[0.9 if i % 2 else 0.2 for i in range(len(measured))],
+                labelled_indices=measured,
                 prediction_kind="probability",
                 baseline_metrics=None,
                 random_split_metrics=None,
@@ -492,12 +496,17 @@ def test_a_sparse_target_subsets_the_run_level_structures_and_chemistry():
 
     [card] = _build_all(inputs, held_out_chemistry(partition, ["CCO"], RdkitStructureNormalizer()))
 
-    assert card.labelled_test_rows == 3
-    # Row 1 of the masked vectors is partition row 3 -- "CCCC", not "CCN".
+    assert card.labelled_test_rows == 20
+    # Every compound named must be one this target was actually measured on. Paired by
+    # raw position instead, index 1 of the masked vectors would name partition row 1 --
+    # a compound with no measurement for this target at all.
+    measurable = {partition[i] for i in measured}
     named = {row.structure for row in card.worst_rows}
-    assert named <= {"CCO", "CCCC", "CCCCCC"}, named
+    assert named <= measurable, named - measurable
+    # The similarity bins ran -- the loop that raised IndexError before the fix.
+    assert card.error_by_similarity
     # `test_count` is the held-out partition, which is what "tested on N compounds the
     # model did not train on" means and what it meant before sparse labels. Equal to
     # `labelled_test_rows` here would make the card's own caveat unreachable and show a
     # denominator a scientist cannot reconcile with the published test set.
-    assert card.test_count == 6
+    assert card.test_count == 40
