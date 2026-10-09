@@ -1272,10 +1272,16 @@ class RunTraining:
         measured: dict[str, tuple[dict[str, float | None], dict[str, str] | None]] = {}
         for column in targets:
             metrics, undefined = _measured(result.metrics[column])
-            measured[column] = (
-                metrics,
-                _undefined_reasons(undefined, column, train_rows, test_rows),
-            )
+            reasons = _undefined_reasons(undefined, column, train_rows, test_rows) or {}
+            thin = _too_few_to_compare(column, targets[column], test_rows)
+            if thin is not None:
+                # Only over the metrics that came back with a value. Where the engine
+                # already called one undefined, `_undefined_reasons` has the sharper
+                # answer -- a test set holding one class says so directly, and is worth
+                # more to a scientist than "too few of a class to compare".
+                metrics = dict.fromkeys(metrics, None)
+                reasons = {name: reasons.get(name, thin) for name in metrics}
+            measured[column] = (metrics, reasons or None)
         return measured, _partition_key(split_frame)
 
     async def _optimism_gap(
@@ -1764,6 +1770,41 @@ def _measured(metrics: dict[str, float]) -> tuple[dict[str, float | None], set[s
     undefined = {name for name, value in metrics.items() if math.isnan(value)}
     return {name: None if name in undefined else value for name, value in metrics.items()}, (
         undefined
+    )
+
+
+def _too_few_to_compare(column: str, task: TaskType, test_rows: pl.DataFrame) -> str | None:
+    """Why a re-split's scores for this target should not be reported at all, or None.
+
+    A re-split leg -- the optimism gap, and each extra draw -- keeps the Dataset's own
+    partition *sizes*, so a rare label lands a handful of actives in the new test rows.
+    Measured there, every classification metric reads perfectly: a model that ranks five
+    actives above a hundred inactives scores MCC, balanced accuracy, ROC AUC and PR AUC
+    at exactly 1.000, and the Scorecard then prints that as an optimism gap of half a
+    point. Observed on the Lane 2018 Mtb set at a 3.4% active rate, where the 1 uM and
+    10 uM targets gave sensible gaps from the same fit and the 100 nM one did not.
+
+    Suppressed rather than caveated, and only on this leg: the Dataset's own test score
+    always travels with a bootstrap interval and a paired verdict that carry its
+    uncertainty, and the gap is a bare number in a table with neither. A comparison
+    drawn from five positives carries no information to report.
+
+    The threshold is `MIN_CUTOFF_CLASS_COUNT` for the reason it exists there too -- that
+    many of a class is the point below which a number computed from them is noise -- and
+    reusing it keeps one tunable rather than two that must not drift.
+    """
+    if task is not TaskType.BINARY_CLASSIFICATION:
+        return None
+    labels = test_rows[column].drop_nulls()
+    positives = int((labels == 1).sum())
+    negatives = labels.len() - positives
+    if positives >= MIN_CUTOFF_CLASS_COUNT and negatives >= MIN_CUTOFF_CLASS_COUNT:
+        return None
+    return (
+        f"Not compared: the re-split's test rows hold {positives} active and "
+        f"{negatives} inactive compounds for '{column}'; at least "
+        f"{MIN_CUTOFF_CLASS_COUNT} of each are needed for the comparison to mean "
+        "anything."
     )
 
 

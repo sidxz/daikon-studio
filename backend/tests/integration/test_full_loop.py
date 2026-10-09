@@ -158,11 +158,18 @@ async def test_a_scientist_can_walk_the_whole_loop(client, csv_upload):
     assert card["primary_metric"] == "mcc", card
     assert card["baseline_engine_id"] == "ecfp4-randomforest"
     assert card["baseline_metrics"]["mcc"] is not None, f"[scorecard] baseline undefined: {card}"
-    # Trained on a *scaffold* split, so the Scorecard also carries the
-    # random-split comparison -- the optimism gap is visible, not inferred.
+    # Trained on a *scaffold* split, so the Scorecard also carries the random-split
+    # comparison -- the optimism gap is visible, not inferred. Its *values* are
+    # withheld here and that is the correct answer rather than a gap in coverage: 200
+    # balanced rows split 80/10/10 leave about ten actives in the re-split's test rows,
+    # below what a comparison can be drawn from. What this smoke test proves is that
+    # the leg ran and reached the card explained -- `random_split_unavailable` stays
+    # None because it WAS computed. The populated case is pinned by
+    # `test_a_scaffold_split_also_reports_the_random_split_number`, on a wider fixture.
     assert card["random_split_metrics"] is not None, f"[scorecard] no optimism gap: {card}"
-    assert card["random_split_metrics"]["mcc"] is not None, card
     assert card["random_split_unavailable"] is None
+    assert card["random_split_metrics_undefined"] is not None, card
+    assert "at least" in card["random_split_metrics_undefined"]["mcc"], card
     assert 0 < len(card["worst_rows"]) <= 20, card["worst_rows"]
     # Applicability coverage: the test set is non-empty and so is the training
     # set, so this is computable -- a real fraction, never a fabricated 0.0.
