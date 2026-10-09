@@ -1762,3 +1762,63 @@ async def test_draws_that_all_come_out_identical_are_refused_not_averaged(
     assert "same" in scorecard.replicate_unavailable
     # The primary result is untouched.
     assert scorecard.targets[0].metrics
+
+
+def _sparse_csv(rows: int = 60) -> bytes:
+    """A Tox21-shaped file: three targets, each blank on a different third of the rows.
+
+    The intersection is empty, so under the old gate this dataset could not exist at
+    all. Every row carries exactly two of the three measurements.
+    """
+    import csv as csv_module
+    import io as io_module
+
+    buffer = io_module.StringIO()
+    writer = csv_module.writer(buffer)
+    writer.writerow(["smiles", "a", "b", "c"])
+    for index in range(rows):
+        # Distinct, parseable structures of growing length, so nothing collapses as a
+        # duplicate and the sparseness is the only thing under test.
+        smiles = "C" * (index + 1) + "O"
+        values = ["", "", ""]
+        values[index % 3] = str(index % 2)
+        values[(index + 1) % 3] = str((index + 1) % 2)
+        writer.writerow([smiles, *values])
+    return buffer.getvalue().encode()
+
+
+async def test_a_sparse_dataset_freezes_trains_and_scores(studio: Studio) -> None:
+    """The gate no unit test covers: a mask applied at four boundaries and missed at a
+    fifth passes every one of them individually. This walks upload, freeze, train,
+    baseline replay and scorecard on a file whose three targets share no common rows.
+    """
+    targets = tuple(
+        TargetSpec(column=column, kind=TargetKind.BINARY) for column in ("a", "b", "c")
+    )
+    dataset = await studio.dataset(
+        strategy=SplitStrategy.RANDOM, csv=_sparse_csv(), targets=targets
+    )
+
+    report = dataset.validation_report
+    # Not the intersection: every row survived on the two targets it carries.
+    assert report.valid_rows == 60
+    assert report.labelled_rows == {"a": 40, "b": 40, "c": 40}
+
+    run = await studio.train(dataset_id=dataset.id, engine_id="ecfp4-randomforest", conditions={})
+    await studio.wait(run)
+
+    scorecard = await studio.scorecard_for(run)
+    assert len(scorecard.targets) == 3
+    # Run-level: every target shares one split and one set of test rows.
+    partition = len(scorecard.structures)
+    for card in scorecard.targets:
+        # The three vectors describe the same compounds, or the paired bootstrap is
+        # comparing different ones and has no way to say so.
+        assert len(card.actual) == len(card.predicted)
+        if card.baseline_predicted is not None:
+            assert len(card.baseline_predicted) == len(card.actual)
+        # Strictly fewer than the partition, which is what proves the mask actually
+        # ran: on a build where it never did, every vector would be full length and
+        # every assertion above would still hold.
+        assert 0 < len(card.actual) < partition, (card.column, len(card.actual), partition)
+        assert card.metrics, f"{card.column} produced no metrics"
