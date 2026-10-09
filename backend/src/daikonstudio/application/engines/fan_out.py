@@ -22,6 +22,14 @@ Three rules this file exists to keep:
   for all of them. At N > 1 the artifacts are packed into one zip -- boring,
   inspectable, no pickle -- under index names, never column names, since a CSV
   header can hold a slash or a leading `/` that a zip entry name would rewrite.
+
+Sparse labels are handled here and nowhere else for these engines. A Dataset may be
+measured for some targets and blank for others; each sub-fit is handed only the rows
+carrying a measurement for its own target, so no inner engine -- and none of the five
+scoring sites inside them -- ever sees a null. On a dense Dataset the filter removes
+nothing. The cost is that the mask is invisible: an engine declaring
+`supports_multitask` opts out of it silently, which is what
+`tests/unit/engines/test_multitask_nulls.py` exists to catch.
 """
 
 from __future__ import annotations
@@ -86,6 +94,21 @@ class FanOut:
             result = self._inner.train(
                 replace(
                     ctx,
+                    # Filtered on *this* target's nulls only. A row measured for this
+                    # target is kept even where another target is blank on it --
+                    # filtering on any null would rebuild the intersection the
+                    # ingestion gate exists to avoid.
+                    #
+                    # Guarded on the column existing because this adapter should not
+                    # invent a failure: a frame without the target column is a caller
+                    # error, and the inner engine reports it in the terms of whatever
+                    # it was trying to read. Raising a polars `ColumnNotFoundError`
+                    # from here would replace that with a worse message.
+                    frame=(
+                        ctx.frame.filter(pl.col(column).is_not_null())
+                        if column in ctx.frame.columns
+                        else ctx.frame
+                    ),
                     targets={column: task},
                     report=_slice(ctx.report, index, count, column),
                     record_epoch=_tagged(ctx.record_epoch, column),
