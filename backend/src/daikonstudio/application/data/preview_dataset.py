@@ -91,21 +91,31 @@ def dataset_readiness(frame: pl.DataFrame, targets: tuple[TargetSpec, ...]) -> D
     warnings: list[str] = []
     for target in targets:
         if target.kind is TargetKind.BINARY:
-            for part, count in counts.items():
+            for part in counts:
                 values = frame.filter(pl.col("split") == part)[target.column]
+                # Both classes counted directly, never one subtracted from the row
+                # count: a sparse target is null where it was not measured, and
+                # `count - positive` would report every unmeasured row as inactive --
+                # turning a thinly measured column into a falsely imbalanced one. Every
+                # guard below reads `labelled` for the same reason.
                 positive = int((values == 1).sum())
-                negative = count - positive
+                negative = int((values == 0).sum())
+                labelled = positive + negative
                 balance.append(TargetClassBalance(target.column, part, positive, negative))
-                if count and (positive == 0 or negative == 0):
+                if labelled and (positive == 0 or negative == 0):
                     warnings.append(
                         f"'{target.column}' has only one class in the {part} set. "
                         "Some evaluation metrics or cutoff tuning may be unavailable."
                     )
-                elif count and min(positive, negative) / count < 0.1:
+                elif labelled and min(positive, negative) / labelled < 0.1:
                     warnings.append(
                         f"'{target.column}' is imbalanced in the {part} set "
                         f"({positive} active, {negative} inactive)."
                     )
+                # Deliberately NOT gated on `labelled`: a validation partition with no
+                # labelled row for this target still keeps the cutoff at 0.5, which is
+                # the thing this warning exists to say. Suppressing it there would hide
+                # a true statement in exactly the case that most needs it.
                 if part == "validation" and min(positive, negative) < MIN_CUTOFF_CLASS_COUNT:
                     warnings.append(
                         f"'{target.column}' has fewer than {MIN_CUTOFF_CLASS_COUNT} examples "

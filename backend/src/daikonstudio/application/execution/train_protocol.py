@@ -1823,15 +1823,19 @@ def _undefined_reasons(
     a rank correlation needs an order on both sides, so a regression target
     whose test rows all read the same reaches this function too, and there is no
     missing class to go and find.
+
+    `drop_nulls()` on both: a sparse target is null where it was not measured, and
+    polars counts null as a distinct value. Without it `[1.0, None]` reads as two
+    classes and this function reports nothing wrong with a single-class test set.
     """
     if not undefined:
         return None
-    if test_rows[column].n_unique() < 2:
+    if test_rows[column].drop_nulls().n_unique() < 2:
         reason = (
             f"Undefined: all test-set compounds have the same '{column}' value. Add "
             f"compounds with a different '{column}', or use a different split."
         )
-    elif train_rows[column].n_unique() < 2:
+    elif train_rows[column].drop_nulls().n_unique() < 2:
         reason = (
             f"Undefined: all training-set compounds have the same '{column}' value, so "
             "the model saw no variation to learn from."

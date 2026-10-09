@@ -457,7 +457,10 @@ def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> Validation
             # distinct value" to mean anything -- none of them this guard's
             # concern.
             continue
-        if rows[target.column].n_unique() >= 2:
+        # `drop_nulls()`: a sparse target is null where it was not measured, and polars
+        # counts null as a distinct value -- so `[1.0, None]` would read as two classes
+        # and walk past the guard this block exists to be.
+        if rows[target.column].drop_nulls().n_unique() >= 2:
             continue
         kind = "class" if is_binary else "value"
         return ValidationError(
