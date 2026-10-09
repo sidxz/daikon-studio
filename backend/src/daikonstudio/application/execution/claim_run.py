@@ -36,6 +36,7 @@ class ClaimRun:
         max_attempts: int,
         deadline_seconds: int,
         deadline_by_lane: dict[str, int] | None = None,
+        max_deadline_seconds: int,
     ) -> None:
         self._queue = queue
         self._runs = runs
@@ -44,6 +45,7 @@ class ClaimRun:
         self._max_attempts = max_attempts
         self._deadline_seconds = deadline_seconds
         self._deadline_by_lane = deadline_by_lane or {}
+        self._max_deadline_seconds = max_deadline_seconds
 
     async def __call__(
         self, *, runner: Runner
@@ -77,4 +79,11 @@ class ClaimRun:
         # budgets they are worth (`deadline_scale`). Absent on prediction runs and on runs
         # enqueued before targets could be several, where it is 1.
         deadline *= int(run.params.get("deadline_scale", 1))
+        # Capped here rather than inside `deadline_scale`, which counts fits and does
+        # not know what a fit is worth on the claiming runner's lane -- and because
+        # every claim routes through this line, including runs enqueued before the cap
+        # existed. A run that genuinely needs longer than the ceiling is one the
+        # ceiling is meant to stop: the alternative is a hung fit holding a runner for
+        # years, with cancel as the only brake.
+        deadline = min(deadline, self._max_deadline_seconds)
         return Success((run, deadline, self._lease_seconds))

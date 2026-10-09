@@ -39,7 +39,7 @@ class _Runs:
         return self._run
 
 
-def _claim(run: Run) -> ClaimRun:
+def _claim(run: Run, *, max_deadline_seconds: int = 432_000) -> ClaimRun:
     return ClaimRun(
         _Queue(run.id),  # type: ignore[arg-type]
         _Runs(run),  # type: ignore[arg-type]
@@ -48,6 +48,7 @@ def _claim(run: Run) -> ClaimRun:
         max_attempts=3,
         deadline_seconds=1800,
         deadline_by_lane={"gpu": 7200},
+        max_deadline_seconds=max_deadline_seconds,
     )
 
 
@@ -68,3 +69,24 @@ async def test_a_fan_out_run_gets_the_lane_deadline_once_per_target():
     run.params = {"deadline_scale": 4}
     runner = Runner(name="gpu-box", lanes=("gpu",), token_hash="h")
     assert (await _claim(run)(runner=runner)).unwrap() == (run, 4 * 7200, 600)
+
+
+async def test_the_scaled_deadline_is_capped():
+    """The cap is the whole point of the ceiling: a run holding many fits must not be
+    handed a deadline so long that the backstop never fires. 252 lane budgets is the
+    measured worst case -- a 12-target dataset with a 10-member ensemble -- and on the
+    GPU lane that is 1,260 days before the cap."""
+    run = _run("gpu")
+    run.params = {"deadline_scale": 252}
+    runner = Runner(name="gpu-box", lanes=("gpu",), token_hash="h")
+    assert 252 * 7200 > 432_000  # the thing being prevented
+    assert (await _claim(run)(runner=runner)).unwrap() == (run, 432_000, 600)
+
+
+async def test_the_cap_applies_to_an_unscaled_run_on_a_long_lane():
+    """A lane configured above the ceiling is capped too, with no `deadline_scale` in
+    play: the ceiling bounds the deadline served, not the multiplier."""
+    run = _run("gpu")
+    runner = Runner(name="gpu-box", lanes=("gpu",), token_hash="h")
+    claim = _claim(run, max_deadline_seconds=3600)
+    assert (await claim(runner=runner)).unwrap() == (run, 3600, 600)

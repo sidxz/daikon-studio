@@ -345,6 +345,7 @@ def create_container(settings: Settings | None = None) -> Container:
             max_attempts=resolved.runner_max_attempts,
             deadline_seconds=resolved.worker_job_timeout,
             deadline_by_lane=resolved.worker_job_timeout_by_lane,
+            max_deadline_seconds=resolved.max_job_deadline,
         ),
     )
 

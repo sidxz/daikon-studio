@@ -51,6 +51,14 @@ class Settings(BaseSettings):
     # for days too. 432000 is 120 h per fit, and a training run gets one per fit it
     # holds (`deadline_scale`); a chemprop ensemble of four on 404k rows needs ~11.5 h.
     worker_job_timeout_by_lane: dict[str, int] = {}
+    # The absolute ceiling on a claimed job's soft deadline, after `deadline_scale` has
+    # multiplied the lane's budget by the number of fits the run holds. Without it the
+    # product is unbounded and the backstop stops being one: a 12-target dataset with a
+    # 10-member ensemble scores 252 lane budgets, which on the GPU lane is a 1,260-day
+    # deadline, and cancel becomes the only way to stop a hung run. 432000 is 5 days --
+    # the GPU lane's own per-fit budget, and roughly ten times the longest run measured
+    # here (a chemprop ensemble of four on 404k rows, ~11.5 h).
+    max_job_deadline: int = 432_000
 
     # Duar (authz mode) — same realm as prot-cellar, chem-cellar, daikon-gen3,
     # docu-store. `duar_service_key` defaults to "" as a missing-config signal,
