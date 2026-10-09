@@ -460,8 +460,25 @@ def _degenerate_partition(frame: pl.DataFrame, target: TargetSpec) -> Validation
         # `drop_nulls()`: a sparse target is null where it was not measured, and polars
         # counts null as a distinct value -- so `[1.0, None]` would read as two classes
         # and walk past the guard this block exists to be.
-        if rows[target.column].drop_nulls().n_unique() >= 2:
+        measured = rows[target.column].drop_nulls()
+        if measured.n_unique() >= 2:
             continue
+        if measured.len() == 0:
+            # Distinct from the single-class case below, and worth its own sentence:
+            # "every compound has the same class" is false when no compound was
+            # measured at all, and it points the scientist at their split when the
+            # real cause is almost always a mistyped column name. Reachable only with
+            # sparse labels -- before them an unmeasured row could not survive
+            # ingestion.
+            return ValidationError(
+                f"'{target.column}' has no measured compounds in the {partition} set, "
+                "so nothing can be learned about it.",
+                detail=(
+                    f"Every row in the {partition} set is blank for "
+                    f"'{target.column}'. Check that the column name matches your "
+                    "file, or remove this target."
+                ),
+            )
         kind = "class" if is_binary else "value"
         return ValidationError(
             f"After splitting, every compound in the {partition} set has the same "
