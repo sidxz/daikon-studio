@@ -242,9 +242,7 @@ def tuned_cutoffs(
     """
     cutoffs: dict[str, float] = {}
     for index, column in enumerate(columns):
-        labels, scores = labelled_only(
-            validation_rows[column].to_numpy(), probabilities[:, index]
-        )
+        labels, scores = labelled_only(validation_rows[column].to_numpy(), probabilities[:, index])
         cutoff = mcc_cutoff(labels, scores)
         if cutoff is not None:
             cutoffs[column] = cutoff

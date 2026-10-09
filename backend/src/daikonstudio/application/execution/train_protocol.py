@@ -1055,6 +1055,21 @@ class RunTraining:
             # test-set order, line up with `actual` below.
             predicted = predictions.filter(pl.col("target") == target.column).sort("row_id")
             cutoff = (chosen.cutoffs or {}).get(target.column)
+            # One mask over all three, before they are stored: the paired bootstrap
+            # reads them at shared indices, so a row dropped from one must be dropped
+            # from every one.
+            actual, model_predicted, baseline_vector = _labelled_vectors(
+                target.column,
+                test_rows,
+                predicted["value"].to_list(),
+                (
+                    baseline_predictions.filter(pl.col("target") == target.column)
+                    .sort("row_id")["value"]
+                    .to_list()
+                    if baseline_predictions is not None
+                    else None
+                ),
+            )
             per_target.append(
                 TargetInputs(
                     column=target.column,
@@ -1065,20 +1080,9 @@ class RunTraining:
                         if chosen.validation_metrics is not None
                         else None
                     ),
-                    actual=[float(value) for value in test_rows[target.column].to_list()],
-                    predicted=[float(value) for value in predicted["value"].to_list()],
-                    baseline_predicted=(
-                        [
-                            float(value)
-                            for value in baseline_predictions.filter(
-                                pl.col("target") == target.column
-                            )
-                            .sort("row_id")["value"]
-                            .to_list()
-                        ]
-                        if baseline_predictions is not None
-                        else None
-                    ),
+                    actual=actual,
+                    predicted=model_predicted,
+                    baseline_predicted=baseline_vector,
                     prediction_kind=(
                         "probability" if task is TaskType.BINARY_CLASSIFICATION else "value"
                     ),
@@ -1805,6 +1809,46 @@ def _too_few_to_compare(column: str, task: TaskType, test_rows: pl.DataFrame) ->
         f"{negatives} inactive compounds for '{column}'; at least "
         f"{MIN_CUTOFF_CLASS_COUNT} of each are needed for the comparison to mean "
         "anything."
+    )
+
+
+def _labelled_vectors(
+    column: str,
+    test_rows: pl.DataFrame,
+    predicted: list[float],
+    baseline_predicted: list[float] | None,
+) -> tuple[list[float], list[float], list[float] | None]:
+    """The test rows this target was actually measured on, from all three vectors.
+
+    One mask, applied three times, because these are compared *pairwise*: the paired
+    bootstrap resamples row indices once and reads all three at that index. Masking
+    `actual` alone would shorten it and leave the others describing different
+    compounds -- an interval that still computes and means nothing.
+
+    Positional throughout, which is the invariant this file already relies on:
+    `predict` replays `test_rows` whole -- for every target, including ones this
+    compound was never measured for -- and the caller sorts its output by `row_id`, so
+    index i of every vector is row i of `test_rows`. `strict=True` on both zips is
+    deliberate: a length mismatch is the bug this helper exists to prevent, and it must
+    raise here rather than silently truncate into a plausible wrong answer.
+    """
+    labels = test_rows[column].to_list()
+    keep = [value is not None for value in labels]
+    # No dense fast path: on a fully measured column every mask below keeps every row
+    # anyway, and routing both cases through the same strict zips is what makes the
+    # length check above true for dense datasets too, where it has always been absent.
+    return (
+        [float(value) for value, wanted in zip(labels, keep, strict=True) if wanted],
+        [float(value) for value, wanted in zip(predicted, keep, strict=True) if wanted],
+        (
+            [
+                float(value)
+                for value, wanted in zip(baseline_predicted, keep, strict=True)
+                if wanted
+            ]
+            if baseline_predicted is not None
+            else None
+        ),
     )
 
 
