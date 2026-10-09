@@ -9,6 +9,8 @@ upstream -- behaviour this project depends on and does not own.
 
 from __future__ import annotations
 
+import importlib.util
+
 import polars as pl
 import pytest
 
@@ -17,6 +19,15 @@ from daikonstudio.application.engines.registry import EngineRegistry
 from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.engines.chemprop_dmpnn import ChempropDMPNN
 from daikonstudio.infrastructure.engines.molformer_xl import MolformerXL
+
+#: CI installs only the `s3` extra, so chemprop is absent there. Skipped per test
+#: rather than per module on purpose: the MoLFormer half needs no GPU dependency at
+#: all -- its refusal fires before `_require_transformers` -- and it is the half most
+#: likely to regress silently, so it must keep running where chemprop cannot.
+needs_chemprop = pytest.mark.skipif(
+    importlib.util.find_spec("chemprop") is None,
+    reason="chemprop is in the `gpu` extra; CI installs `s3` only",
+)
 
 
 def _sparse_context() -> object:
@@ -70,6 +81,7 @@ def test_every_multitask_engine_handles_or_refuses_nulls() -> None:
 _FAST = {"epochs": 2, "depth": 2, "message_hidden_dim": 64, "batch_size": 8}
 
 
+@needs_chemprop
 def test_chemprop_trains_through_unmeasured_targets() -> None:
     """The other branch, and the one that pins behaviour this project does not own:
     chemprop v2 masks NaN targets in its loss upstream, which is the entire reason
@@ -162,6 +174,7 @@ def test_chemprop_trains_through_unmeasured_targets() -> None:
         )
 
 
+@needs_chemprop
 def test_chemprop_trains_through_unmeasured_regression_targets() -> None:
     """The branch the classification guard does not cover.
 

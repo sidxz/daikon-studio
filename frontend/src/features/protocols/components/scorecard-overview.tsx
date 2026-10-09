@@ -275,8 +275,8 @@ export function ScorecardOverview({
                 <>
                   {" "}
                   Measured for {scorecard.labelled_test_rows.toLocaleString()} of{" "}
-                  {count.toLocaleString()}; the rest are blank for this target and are
-                  not scored here.
+                  {count.toLocaleString()}; the rest are blank for this target and are not scored
+                  here.
                 </>
               )}
             {summary && (
