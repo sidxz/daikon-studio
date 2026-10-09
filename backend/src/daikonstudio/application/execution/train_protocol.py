@@ -314,6 +314,19 @@ class TargetInputs:
     #: zero by construction), and for every blob written before these were kept -- the
     #: default is what keeps those blobs readable.
     baseline_predicted: list[float] | None = None
+    #: Which rows of the run-level `structures` (and of the shared `HeldOutChemistry`,
+    #: which is positionally aligned with it) this target's `actual`/`predicted` came
+    #: from. `None` when every test row carried a measurement, which is every dense
+    #: dataset and so every Protocol trained before sparse labels.
+    #:
+    #: Load-bearing, not bookkeeping. Those two are run-level because every target
+    #: shares one split and at 324k compounds they are most of the blob -- but a sparse
+    #: target's vectors are shorter than they are, so a consumer that pairs them by
+    #: position reads a *different compound's* structure, scaffold and
+    #: nearest-neighbour similarity. Without this the worst-residuals table and the
+    #: triage ranking name the wrong molecules, and `build_scorecard`'s strict zips
+    #: raise before they get the chance.
+    labelled_indices: list[int] | None = None
     prediction_kind: str
     #: None when the run was asked not to fit a baseline at all. Distinct from an
     #: empty dict, which would mean a baseline ran and measured nothing.
@@ -1058,7 +1071,7 @@ class RunTraining:
             # One mask over all three, before they are stored: the paired bootstrap
             # reads them at shared indices, so a row dropped from one must be dropped
             # from every one.
-            actual, model_predicted, baseline_vector = _labelled_vectors(
+            actual, model_predicted, baseline_vector, labelled_indices = _labelled_vectors(
                 target.column,
                 test_rows,
                 predicted["value"].to_list(),
@@ -1083,6 +1096,7 @@ class RunTraining:
                     actual=actual,
                     predicted=model_predicted,
                     baseline_predicted=baseline_vector,
+                    labelled_indices=labelled_indices,
                     prediction_kind=(
                         "probability" if task is TaskType.BINARY_CLASSIFICATION else "value"
                     ),
@@ -1817,7 +1831,7 @@ def _labelled_vectors(
     test_rows: pl.DataFrame,
     predicted: list[float],
     baseline_predicted: list[float] | None,
-) -> tuple[list[float], list[float], list[float] | None]:
+) -> tuple[list[float], list[float], list[float] | None, list[int] | None]:
     """The test rows this target was actually measured on, from all three vectors.
 
     One mask, applied three times, because these are compared *pairwise*: the paired
@@ -1834,6 +1848,11 @@ def _labelled_vectors(
     """
     labels = test_rows[column].to_list()
     keep = [value is not None for value in labels]
+    # The kept positions travel with the vectors, because the run-level `structures`
+    # and `HeldOutChemistry` still describe the whole partition and a consumer pairing
+    # them by position would otherwise read a different compound's structure and
+    # scaffold. `None` on a dense column keeps every existing blob byte-identical.
+    indices = None if all(keep) else [i for i, wanted in enumerate(keep) if wanted]
     # No dense fast path: on a fully measured column every mask below keeps every row
     # anyway, and routing both cases through the same strict zips is what makes the
     # length check above true for dense datasets too, where it has always been absent.
@@ -1849,6 +1868,7 @@ def _labelled_vectors(
             if baseline_predicted is not None
             else None
         ),
+        indices,
     )
 
 

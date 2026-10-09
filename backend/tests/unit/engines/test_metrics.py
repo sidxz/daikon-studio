@@ -201,3 +201,21 @@ def test_an_empty_validation_partition_reports_none_not_zero():
         .alias("split")
     )
     assert _train(no_validation).validation_metrics is None
+
+
+def test_regression_metrics_on_no_measured_rows_are_undefined_not_an_exception() -> None:
+    """The classification half short-circuits on a single class and returns NaN for
+    all four metrics; the regression half had no equivalent and sklearn raises on a
+    zero-length array. Sparse labels make that reachable in a re-split leg, where
+    `_comparison_fit` does not re-run the degenerate-partition guard -- so a thinly
+    measured numeric target whose labels all land in one partition under a reseeded
+    draw would kill the whole draw, for every target, rather than reporting this one
+    as unmeasured."""
+    import numpy as np
+
+    from daikonstudio.infrastructure.engines._scoring import regression_metrics
+
+    scores = regression_metrics(np.array([]), np.array([]))
+
+    assert set(scores) == {"rmse", "mae", "r2", "spearman"}
+    assert all(value != value for value in scores.values())

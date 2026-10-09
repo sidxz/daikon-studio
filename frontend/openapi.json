@@ -4596,11 +4596,6 @@
           "negative": {
             "type": "integer",
             "title": "Negative"
-          },
-          "labelled": {
-            "type": "integer",
-            "title": "Labelled",
-            "default": 0
           }
         },
         "type": "object",
@@ -9773,14 +9768,14 @@
             "type": "integer",
             "title": "Negative"
           },
+          "column": {
+            "type": "string",
+            "title": "Column"
+          },
           "labelled": {
             "type": "integer",
             "title": "Labelled",
             "default": 0
-          },
-          "column": {
-            "type": "string",
-            "title": "Column"
           }
         },
         "type": "object",

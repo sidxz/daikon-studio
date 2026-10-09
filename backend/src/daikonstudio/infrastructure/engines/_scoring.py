@@ -143,6 +143,13 @@ def regression_metrics(y_true: np.ndarray, predicted: np.ndarray) -> dict[str, f
     protein literature reports, so without it a Scorecard cannot be compared
     against a published number.
     """
+    if len(y_true) == 0:
+        # Undefined, not an exception -- the same answer `classification_metrics`
+        # already gives when its labels hold one class. A sparse target can have no
+        # measured row in a re-split leg's test partition, and sklearn raises on a
+        # zero-length array; raising there would fail the whole draw, for every
+        # target, instead of reporting this one as unmeasured.
+        return dict.fromkeys(("rmse", "mae", "r2", "spearman"), float("nan"))
     return {
         "rmse": float(root_mean_squared_error(y_true, predicted)),
         "mae": float(mean_absolute_error(y_true, predicted)),

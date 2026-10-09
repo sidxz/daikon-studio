@@ -160,3 +160,92 @@ def test_chemprop_trains_through_unmeasured_targets() -> None:
         assert not all(value != value for value in scores.values()), (
             f"every metric for {column} is NaN: the loss consumed the unmeasured rows"
         )
+
+
+def test_chemprop_trains_through_unmeasured_regression_targets() -> None:
+    """The branch the classification guard does not cover.
+
+    Chemprop scales regression targets (`normalize_targets`, `UnscaleTransform`, and
+    `unit_scale` read off `target_scaler.scale_[0]`), and none of that had ever been
+    run with a NaN present. The spec's own position is that upstream behaviour we
+    depend on gets a test rather than an assumption; this is the other half of it.
+    """
+    from daikonstudio.application.engines.context import TrainContext
+
+    frame = pl.DataFrame(
+        {
+            "smiles": [
+                "CCO",
+                "CCN",
+                "CCC",
+                "CCCC",
+                "CCCCC",
+                "CCCCCC",
+                "CCCCCCC",
+                "CC(C)O",
+                "CC(C)CO",
+                "CCOC",
+                "c1ccccc1",
+                "Cc1ccccc1",
+                "CCc1ccccc1",
+                "c1ccncc1",
+                "Cc1ccncc1",
+                "CCOCC",
+            ],
+            # ten train, two validation, four test -- the last four of each row
+            "p": [
+                1.1,
+                2.3,
+                None,
+                4.5,
+                0.7,
+                3.2,
+                None,
+                2.8,
+                1.9,
+                3.6,
+                2.2,
+                4.1,
+                1.4,
+                3.9,
+                None,
+                2.6,
+            ],
+            "q": [
+                None,
+                3.1,
+                1.8,
+                2.2,
+                None,
+                4.4,
+                1.2,
+                3.3,
+                2.7,
+                None,
+                1.6,
+                2.9,
+                4.2,
+                1.1,
+                3.4,
+                2.0,
+            ],
+            "split": ["train"] * 10 + ["validation"] * 2 + ["test"] * 4,
+        }
+    )
+    ctx = TrainContext(
+        frame=frame,
+        targets={"p": TaskType.REGRESSION, "q": TaskType.REGRESSION},
+        structure_column="smiles",
+        conditions=_FAST,
+        seed=13,
+    )
+
+    result = ChempropDMPNN().train(ctx)
+
+    assert set(result.metrics) == {"p", "q"}
+    for column, scores in result.metrics.items():
+        assert scores, f"{column} produced no metrics"
+        assert not all(value != value for value in scores.values()), (
+            f"every metric for {column} is NaN: the scaler or the loss consumed the "
+            "unmeasured rows"
+        )

@@ -145,11 +145,29 @@ def dataset_readiness(frame: pl.DataFrame, targets: tuple[TargetSpec, ...]) -> D
                         "default cutoff of 0.5 for this target."
                     )
         else:
-            train = frame.filter(pl.col("split") == "train")[target.column]
-            test = frame.filter(pl.col("split") == "test")[target.column]
+            # Coverage is per target, not per binary target: a numeric column measured
+            # on a handful of rows is the same silent-typo failure, and before sparse
+            # labels those rows were rejected and the upload failed visibly.
+            for part, count in counts.items():
+                labelled = int(
+                    frame.filter(pl.col("split") == part)[target.column].drop_nulls().len()
+                )
+                if count and labelled / count < MIN_TARGET_COVERAGE:
+                    warnings.append(
+                        f"'{target.column}' is measured for only {labelled} of {count} "
+                        f"compounds in the {part} set. The rest are blank and will be "
+                        "skipped when this target is trained and scored."
+                    )
+            # Measured rows only. `len(test)` counts the blanks too, so an all-blank
+            # test partition read as non-empty and `test.mean()` came back None --
+            # `abs(train_mean - None)` raises, and the upload fails with "Could not
+            # prepare the dataset. Try again."
+            train = frame.filter(pl.col("split") == "train")[target.column].drop_nulls()
+            test = frame.filter(pl.col("split") == "test")[target.column].drop_nulls()
             std = cast(float | None, train.std())
             if (
                 std
+                and len(train)
                 and len(test)
                 and abs(cast(float, train.mean()) - cast(float, test.mean())) > std
             ):

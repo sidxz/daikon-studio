@@ -14,6 +14,8 @@ chemist looks at individually and would be meaningless as aggregates.
 
 from __future__ import annotations
 
+import math
+
 import numpy as np
 import polars as pl
 
@@ -205,8 +207,15 @@ def _class_balance(targets: np.ndarray, splits: list[str]) -> list[ClassBalance]
         rows = [targets[i] for i, split in enumerate(splits) if split == name]
         if not rows:
             continue
-        positive = sum(1 for value in rows if float(value) > 0.5)
-        balance.append(ClassBalance(split=name, positive=positive, negative=len(rows) - positive))
+        # Both classes counted directly over measured rows only. `to_numpy()` yields
+        # NaN for an unmeasured target, `nan > 0.5` is False, and `len(rows) -
+        # positive` would therefore report every blank as an inactive result -- a
+        # falsely imbalanced column presented as a measurement.
+        measured = [float(value) for value in rows if not math.isnan(float(value))]
+        positive = sum(1 for value in measured if value > 0.5)
+        balance.append(
+            ClassBalance(split=name, positive=positive, negative=len(measured) - positive)
+        )
     return balance
 
 

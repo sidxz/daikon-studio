@@ -380,17 +380,25 @@ def prepare_frame(
     helpers = ["_n"]
     for index, target in enumerate(targets):
         values = pl.col(target.column)
+        # `drop_nulls()` throughout: a sparse target is null where it was not measured,
+        # and a blank is not an answer. Without it polars counts null as a distinct
+        # value, so a replicate pair measured once reads as two conflicting answers and
+        # the compound is deleted; `.first()` returns null when the first of two rows
+        # is the blank one, discarding the measurement on the second; and a group's
+        # size is not the number of measurements it actually holds.
+        measured = values.drop_nulls()
         if target.kind is TargetKind.NUMERIC:
             aggregations += [
-                (values.max() - values.min()).alias(f"_spread_{index}"),
-                values.mean().alias(target.column),
+                (measured.max() - measured.min()).alias(f"_spread_{index}"),
+                measured.len().alias(f"_measured_{index}"),
+                measured.mean().alias(target.column),
             ]
-            helpers.append(f"_spread_{index}")
+            helpers += [f"_spread_{index}", f"_measured_{index}"]
         else:
             aggregations += [
-                values.n_unique().alias(f"_n_unique_{index}"),
-                values.alias(f"_values_{index}"),
-                values.first().alias(target.column),
+                measured.n_unique().alias(f"_n_unique_{index}"),
+                measured.alias(f"_values_{index}"),
+                measured.first().alias(target.column),
             ]
             helpers += [f"_n_unique_{index}", f"_values_{index}"]
     # A designated split column must not be narrowed by `.first()` like any other extra
@@ -447,10 +455,21 @@ def prepare_frame(
     for index, target in enumerate(targets):
         if target.kind is not TargetKind.NUMERIC:
             continue
+        # Gated on how many rows of the group were *measured*, not on how many rows it
+        # had. A pair holding one measurement and one blank has a spread of 0.0 -- max
+        # and min of a single value -- which would report perfect assay reproducibility
+        # for a compound measured once, and that number becomes the Scorecard's noise
+        # floor. A group measured on no row at all has a null spread, and `float(None)`
+        # raised a TypeError that escaped the PolarsError net as "Could not prepare the
+        # dataset. Try again."
         spreads = [
             float(spread)
-            for n, spread in zip(group_sizes, agreeing[f"_spread_{index}"].to_list(), strict=True)
-            if n > 1
+            for measured_rows, spread in zip(
+                agreeing[f"_measured_{index}"].to_list(),
+                agreeing[f"_spread_{index}"].to_list(),
+                strict=True,
+            )
+            if measured_rows > 1 and spread is not None
         ]
         if spreads:
             duplicate_spread[target.column] = sum(spreads) / len(spreads)

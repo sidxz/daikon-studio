@@ -364,6 +364,11 @@ def build_scorecard(
     baseline_predicted: list[float] | None = None,
     structures: list[str],
     chemistry: HeldOutChemistry,
+    #: Rows in the held-out partition, which is larger than `structures` when this
+    #: target was not measured on all of them. Defaults to `len(structures)`, the only
+    #: possible answer before sparse labels and so the right one for every Scorecard
+    #: stored then.
+    partition_rows: int | None = None,
     target_unit: str | None,
     target_direction: str | None,
     split_strategy: str,
@@ -541,7 +546,11 @@ def build_scorecard(
         ),
         scaffold_errors=_scaffold_errors(residuals, scaffolds),
         calibration=_calibration(actual, predicted) if is_classification else [],
-        test_count=len(actual),
+        # The held-out partition, not the measured subset: "tested on N compounds the
+        # model did not train on" is a statement about the split. `labelled_test_rows`
+        # is the measured count, and the card compares the two to decide whether the
+        # caveat is worth printing -- which it cannot do if they are the same number.
+        test_count=partition_rows if partition_rows is not None else len(structures),
         regression_summary=(
             RegressionSummary(
                 mean_signed_error=statistics.fmean(

@@ -210,8 +210,40 @@ class GetScorecard:
 _COMPUTING: dict[uuid.UUID, asyncio.Future[HeldOutChemistry]] = {}
 
 
+def _subset[T](values: list[T], indices: list[int] | None) -> list[T]:
+    """`values` at `indices`, or unchanged when the target was measured everywhere."""
+    return values if indices is None else [values[index] for index in indices]
+
+
+def _subset_chemistry(chemistry: HeldOutChemistry, indices: list[int] | None) -> HeldOutChemistry:
+    """The shared chemistry narrowed to one target's measured rows.
+
+    `similarities` is `None` when the training set was empty and coverage could not be
+    computed -- a distinct state from "every compound is out of distribution" -- so it
+    is subset only when it exists rather than being coerced into a list.
+    """
+    if indices is None:
+        return chemistry
+    return HeldOutChemistry(
+        similarities=(
+            None
+            if chemistry.similarities is None
+            else [chemistry.similarities[index] for index in indices]
+        ),
+        scaffolds=[chemistry.scaffolds[index] for index in indices],
+    )
+
+
 def _build_all(inputs: ScorecardInputs, chemistry: HeldOutChemistry) -> list[Scorecard]:
-    """One Scorecard per target, sharing one `HeldOutChemistry`."""
+    """One Scorecard per target, sharing one `HeldOutChemistry` where it can.
+
+    A sparse target's `actual`/`predicted` cover only the rows it was measured on,
+    while `structures` and the chemistry are run-level and cover the whole test
+    partition. They are subset to the same rows here -- not merely to stop the strict
+    zips raising, but because `worst_rows` and the triage ranking index them by
+    position, and an unsubset list makes them name a different compound than the one
+    whose residual they are reporting.
+    """
     return [
         build_scorecard(
             target=target.column,
@@ -228,8 +260,9 @@ def _build_all(inputs: ScorecardInputs, chemistry: HeldOutChemistry) -> list[Sco
             actual=target.actual,
             predicted=target.predicted,
             baseline_predicted=target.baseline_predicted,
-            structures=inputs.structures,
-            chemistry=chemistry,
+            structures=_subset(inputs.structures, target.labelled_indices),
+            chemistry=_subset_chemistry(chemistry, target.labelled_indices),
+            partition_rows=len(inputs.structures),
             target_unit=target.target_unit,
             target_direction=target.target_direction,
             split_strategy=inputs.split_strategy,

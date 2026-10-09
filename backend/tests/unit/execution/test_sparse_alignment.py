@@ -21,25 +21,30 @@ def test_the_three_vectors_drop_the_same_rows() -> None:
     predicted = [0.9, 0.5, 0.2, 0.4, 0.8]
     baseline = [0.7, 0.6, 0.3, 0.1, 0.6]
 
-    actual, model, base = _labelled_vectors("tox", test_rows, predicted, baseline)
+    actual, model, base, indices = _labelled_vectors("tox", test_rows, predicted, baseline)
 
     assert actual == [1.0, 0.0, 1.0]
     assert model == [0.9, 0.2, 0.8]
     assert base == [0.7, 0.3, 0.6]
+    # The positions these came from, so the run-level structures and chemistry can be
+    # narrowed to the same compounds rather than paired by a position that has shifted.
+    assert indices == [0, 2, 4]
 
 
 def test_a_dense_column_keeps_every_row() -> None:
     test_rows = pl.DataFrame({"tox": [1.0, 0.0]})
 
-    actual, model, base = _labelled_vectors("tox", test_rows, [0.9, 0.1], [0.8, 0.2])
+    actual, model, base, indices = _labelled_vectors("tox", test_rows, [0.9, 0.1], [0.8, 0.2])
 
     assert (actual, model, base) == ([1.0, 0.0], [0.9, 0.1], [0.8, 0.2])
+    # None, not `[0, 1]`: a dense target must leave every existing blob unchanged.
+    assert indices is None
 
 
 def test_no_baseline_stays_none() -> None:
     test_rows = pl.DataFrame({"tox": [1.0, None]})
 
-    _, _, base = _labelled_vectors("tox", test_rows, [0.9, 0.5], None)
+    _, _, base, _ = _labelled_vectors("tox", test_rows, [0.9, 0.5], None)
 
     assert base is None
 
@@ -49,9 +54,10 @@ def test_a_fully_unmeasured_target_yields_empty_vectors() -> None:
     Empty is the honest answer; `build_scorecard` reports undefined metrics from it."""
     test_rows = pl.DataFrame({"tox": [None, None]})
 
-    actual, model, base = _labelled_vectors("tox", test_rows, [0.9, 0.1], [0.5, 0.5])
+    actual, model, base, indices = _labelled_vectors("tox", test_rows, [0.9, 0.1], [0.5, 0.5])
 
     assert (actual, model, base) == ([], [], [])
+    assert indices == []
 
 
 def test_a_prediction_vector_of_the_wrong_length_raises() -> None:

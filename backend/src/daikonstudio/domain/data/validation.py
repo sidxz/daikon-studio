@@ -89,6 +89,13 @@ def report_from_dict(data: Mapping[str, Any]) -> ValidationReport:
         duplicate_spread=dict(data.get("duplicate_spread") or {}),
         structure_kind=StructureKind(data.get("structure_kind", StructureKind.MOLECULE)),
         deduplicated=data.get("deduplicated", True),
+        # `.get` with an empty default, like every field above: a manifest written
+        # before sparse labels has no such key, and an absent count reads as "not
+        # recorded" rather than as zero measured. Omitting this line entirely is not a
+        # harmless oversight -- `ConfirmDatasetPreview` rebuilds the Dataset through
+        # here, so the count would be dropped at the moment of freezing and the runner
+        # envelope would carry `{}` forever.
+        labelled_rows=dict(data.get("labelled_rows") or {}),
     )
 
 

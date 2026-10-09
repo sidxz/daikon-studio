@@ -437,3 +437,67 @@ def test_a_blob_written_before_draws_existed_still_loads() -> None:
     assert inputs.replicate_seeds is None
     assert inputs.replicate_unavailable is None
     assert all(target.replicate_metrics is None for target in inputs.targets)
+
+
+def test_a_sparse_target_subsets_the_run_level_structures_and_chemistry():
+    """The seam the end-to-end test could not cross.
+
+    `actual`/`predicted` are masked to the rows a target was measured on, but
+    `structures` and `HeldOutChemistry` are run-level and still describe the whole test
+    partition. Handing both to `build_scorecard` crashes (`zip(..., strict=True)`), and
+    past the crash it is worse: `worst_rows` and the triage ranking read
+    `structures[i]` with `i` indexing the *masked* vectors, so they name the wrong
+    molecule with the wrong scaffold and the wrong nearest-neighbour similarity.
+    """
+    from daikonstudio.application.catalog.get_scorecard import _build_all
+    from daikonstudio.application.execution.build_scorecard import held_out_chemistry
+    from daikonstudio.application.execution.train_protocol import ScorecardInputs, TargetInputs
+    from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
+
+    partition = ["CCO", "CCN", "CCC", "CCCC", "CCCCC", "CCCCCC"]
+    inputs = ScorecardInputs(
+        protocol_id=str(uuid.uuid4()),
+        run_id=str(uuid.uuid4()),
+        dataset_id=str(uuid.uuid4()),
+        random_split_unavailable=None,
+        engine_id="ecfp4-randomforest",
+        conditions={},
+        baseline_engine_id="ecfp4-randomforest",
+        baseline_conditions={},
+        baseline_is_self=False,
+        joint_model=False,
+        structures=partition,
+        train_structures=["CCO"],
+        split_strategy="random",
+        targets=[
+            TargetInputs(
+                column="tox",
+                task="binary_classification",
+                metrics={"mcc": 0.5},
+                # measured on partition rows 0, 3 and 5 only
+                actual=[1.0, 0.0, 1.0],
+                predicted=[0.9, 0.2, 0.8],
+                labelled_indices=[0, 3, 5],
+                prediction_kind="probability",
+                baseline_metrics=None,
+                random_split_metrics=None,
+                random_split_metrics_undefined=None,
+                metrics_undefined=None,
+                duplicate_spread=None,
+                target_unit=None,
+                target_direction=None,
+            )
+        ],
+    )
+
+    [card] = _build_all(inputs, held_out_chemistry(partition, ["CCO"], RdkitStructureNormalizer()))
+
+    assert card.labelled_test_rows == 3
+    # Row 1 of the masked vectors is partition row 3 -- "CCCC", not "CCN".
+    named = {row.structure for row in card.worst_rows}
+    assert named <= {"CCO", "CCCC", "CCCCCC"}, named
+    # `test_count` is the held-out partition, which is what "tested on N compounds the
+    # model did not train on" means and what it meant before sparse labels. Equal to
+    # `labelled_test_rows` here would make the card's own caveat unreachable and show a
+    # denominator a scientist cannot reconcile with the published test set.
+    assert card.test_count == 6

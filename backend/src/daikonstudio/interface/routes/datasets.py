@@ -313,15 +313,21 @@ class ClassBalanceResponse(BaseModel):
     split: str
     positive: int
     negative: int
-    # Rows in this partition measured for this target. Equal to `positive + negative`,
-    # and sent rather than derived so a client never has to know that rule. On a dense
-    # dataset it equals the partition's size; where it does not, the difference is what
-    # the coverage warning is about.
-    labelled: int = 0
 
 
 class TargetClassBalanceResponse(ClassBalanceResponse):
     column: str
+    # Rows in this partition measured for this target. Equal to `positive + negative`,
+    # and sent rather than derived so a client never has to know that rule. On a dense
+    # dataset it equals the partition's size; where it does not, the difference is what
+    # the coverage warning is about.
+    #
+    # Here and not on `ClassBalanceResponse`, which the Dataset Profile also uses: the
+    # profile's domain `ClassBalance` has no such field, so inheriting it would
+    # advertise a number in the OpenAPI contract and always send 0 -- "zero measured"
+    # where the truth is "not recorded", which is the failure every default on this
+    # branch was written to avoid.
+    labelled: int = 0
 
 
 class DatasetReadinessResponse(BaseModel):
