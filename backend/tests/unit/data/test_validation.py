@@ -195,7 +195,18 @@ SOLUBILITY = TargetSpec(column="solubility", kind=TargetKind.NUMERIC)
 REACTIVE = TargetSpec(column="reactive", kind=TargetKind.BINARY)
 
 
-def test_every_target_is_gated_and_the_reason_names_its_column():
+def test_every_target_is_gated_and_a_blank_cell_does_not_cost_the_row():
+    """Each target is gated independently, and a cell one target cannot use is nulled
+    rather than removing the row.
+
+    This assertion was inverted when sparse labels landed. It used to require that the
+    middle row -- a good `solubility`, a blank `reactive` -- be dropped and reported,
+    which is the intersecting behaviour the feature exists to remove: a second target
+    that is blank on a third of the file used to discard a third of the first target's
+    rows. The row now survives carrying the measurement it has. A row blank in *every*
+    target is still rejected, with its first target's reason, which
+    `test_sparse_ingestion.py` pins.
+    """
     frame = pl.DataFrame(
         {
             "smiles": ["CCO", "CCN", "CCC"],
@@ -204,8 +215,12 @@ def test_every_target_is_gated_and_the_reason_names_its_column():
         }
     )
     prepared, report = prepare_frame(frame, "smiles", (SOLUBILITY, REACTIVE), NORMALIZER)
-    assert prepared.height == 2
-    assert [row.reason for row in report.invalid] == ["Missing value for target 'reactive'"]
+
+    assert prepared.height == 3
+    assert prepared["solubility"].to_list() == [1.0, 2.0, 3.0]
+    assert prepared["reactive"].to_list() == [0, None, 1]
+    assert report.invalid == []
+    assert report.labelled_rows == {"solubility": 3, "reactive": 2}
 
 
 def test_duplicates_collapse_per_target_kind_and_keep_column_order():

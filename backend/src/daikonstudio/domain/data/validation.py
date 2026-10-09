@@ -47,6 +47,11 @@ class ValidationReport:
     # appear: a binary target has no spread, and a column with no replicates has
     # nothing to measure, which is different from a spread of zero.
     duplicate_spread: dict[str, float] = field(default_factory=dict)
+    # Keyed by target column: how many surviving rows actually carry a measurement for
+    # it. Equal to `valid_rows` for every dense dataset, which is every dataset frozen
+    # before sparse labels existed -- hence the empty default, which reads back as
+    # "not recorded" rather than as zero measured.
+    labelled_rows: dict[str, int] = field(default_factory=dict)
     # What the structure column turned out to hold. It belongs here rather than on a
     # column of its own because it is a finding *about the uploaded file* -- in the same
     # family as how many rows were unreadable -- and because it is what decided how every

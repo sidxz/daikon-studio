@@ -154,6 +154,12 @@ class ValidationReportWire(BaseModel):
     # arrive looking like molecules and ESM-2 would be refused on every real run. A plain
     # `str` with a default, so an envelope from an older API still deserializes.
     structure_kind: str = StructureKind.MOLECULE.value
+    # Mirrored for the same reason as every field above: this model is `_FORBID` and
+    # builds itself explicitly, so a domain field missing here is silently dropped
+    # crossing API -> runner. Training does not read it -- the sparse mask comes from
+    # the frame's own nulls, not from the report -- but a report that loses a field in
+    # transit is a report that lies about the Dataset on the other side.
+    labelled_rows: dict[str, int] = {}
 
     @classmethod
     def from_domain(cls, report: ValidationReport) -> ValidationReportWire:
@@ -166,6 +172,7 @@ class ValidationReportWire(BaseModel):
             salts_flagged=report.salts_flagged,
             duplicate_spread=report.duplicate_spread,
             structure_kind=report.structure_kind.value,
+            labelled_rows=report.labelled_rows,
         )
 
     def to_domain(self) -> ValidationReport:
@@ -178,6 +185,7 @@ class ValidationReportWire(BaseModel):
             salts_flagged=self.salts_flagged,
             duplicate_spread=self.duplicate_spread,
             structure_kind=StructureKind(self.structure_kind),
+            labelled_rows=self.labelled_rows,
         )
 
 

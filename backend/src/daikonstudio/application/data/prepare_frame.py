@@ -73,11 +73,19 @@ def read_csv_upload(raw: bytes) -> pl.DataFrame:
 def _validate_target(
     frame: pl.DataFrame, target: TargetSpec, row_numbers: list[int]
 ) -> tuple[pl.DataFrame, list[int], list[InvalidRow]]:
-    """Rows whose target cannot be trained on, rejected here with their row
-    numbers rather than as `Input y contains NaN` minutes later in a worker.
+    """Cells whose target cannot be trained on, nulled here with their row
+    numbers rather than reaching a worker as `Input y contains NaN`.
+
+    **This function removes no rows.** A cell it cannot use becomes null and the row
+    stays, because a bad cell in one target says nothing about the row's other targets
+    -- dropping it here is what made the gate an intersection across all targets. The
+    caller collects each target's rejections and removes only the rows that *every*
+    target rejected. So the returned `InvalidRow`s are candidates, not verdicts, and
+    `row_numbers` comes back exactly as it went in.
 
     Returns the frame with the target cast (Float64 for NUMERIC, Int64 for
-    BINARY), the surviving row numbers, and one InvalidRow per rejected row.
+    BINARY) and its unusable cells nulled, the row numbers unchanged, and one
+    candidate InvalidRow per rejected cell.
     Three reasons, in the words a scientist needs: an empty cell, text where a
     number belongs (`NA`, `<10`, `12,5`), or a binary label that is not 0 or 1.
     Each names its column, since with several targets "missing value" alone does
@@ -119,9 +127,28 @@ def _validate_target(
         for index in range(frame.height)
         if not ok[index]
     ]
-    kept = frame.filter(ok).with_columns(numeric.filter(ok).cast(cast_to).alias(column))
-    kept_rows = [number for number, keep in zip(row_numbers, ok.to_list(), strict=True) if keep]
-    return kept, kept_rows, invalid
+    # Nulled, not filtered: a cell this target cannot use says nothing about the row's
+    # other targets, and removing the row here is what made the gate an intersection.
+    # The caller drops a row only when *every* target rejected it, so `invalid` here is
+    # a list of candidates rather than of final rejections, and `row_numbers` comes back
+    # unchanged -- this function no longer removes anything.
+    kept = frame.with_columns(
+        pl.when(pl.Series(ok)).then(numeric).otherwise(None).cast(cast_to).alias(column)
+    )
+    return kept, row_numbers, invalid
+
+
+def _labelled_rows(frame: pl.DataFrame, targets: Sequence[TargetSpec]) -> dict[str, int]:
+    """How many of `frame`'s rows carry a measurement for each target.
+
+    Counted from the frame being returned, never from an earlier one: deduplication
+    collapses replicate rows, so the count before it is not the count the Dataset has.
+    """
+    return {
+        target.column: int(frame[target.column].drop_nulls().len())
+        for target in targets
+        if target.column in frame.columns
+    }
 
 
 def _validate_split_column(
@@ -244,9 +271,30 @@ def prepare_frame(
     # reported once, for its structure -- the thing the scientist fixes first. The
     # targets are gated in the order chosen, and a row is reported for the first one
     # it fails.
+    # Each target nulls the cells it cannot use and reports them; a row is removed, and
+    # reported as invalid, only when *every* target rejected it. A row measured for some
+    # targets and blank for others is the case sparse labels exist for, and the old loop
+    # -- which rebound `valid_frame` to each target's survivors in turn -- silently made
+    # the dataset the intersection across all of them.
+    per_target_failures: list[dict[int, InvalidRow]] = []
     for target in targets:
         valid_frame, row_numbers, bad_targets = _validate_target(valid_frame, target, row_numbers)
-        invalid.extend(bad_targets)
+        per_target_failures.append({row.row_number: row for row in bad_targets})
+    unusable = (
+        set.intersection(*(set(failed) for failed in per_target_failures))
+        if per_target_failures
+        else set()
+    )
+    # Reported with the *first* target's own reason, not a generic one: "Target 'y' must
+    # be 0 or 1 (found 'active')" names the cell to fix, and this file's existing
+    # convention is already that a row is reported for the first target it fails. On a
+    # single-target dataset that is exactly the behaviour this gate always had.
+    invalid.extend(per_target_failures[0][number] for number in sorted(unusable))
+    if unusable:
+        valid_frame = valid_frame.filter(
+            pl.Series([number not in unusable for number in row_numbers])
+        )
+        row_numbers = [number for number in row_numbers if number not in unusable]
     # Last, after the targets: a row with an unreadable structure and a bad partition is
     # reported for its structure, which is the thing the scientist fixes first.
     if split_column is not None and split_column in valid_frame.columns:
@@ -278,6 +326,7 @@ def prepare_frame(
             invalid=invalid,
             salts_flagged=salts_flagged,
             structure_kind=kind,
+            labelled_rows=_labelled_rows(valid_frame, targets),
         )
 
     if not deduplicate:
@@ -297,6 +346,7 @@ def prepare_frame(
             duplicate_spread={},
             structure_kind=kind,
             deduplicated=False,
+            labelled_rows=_labelled_rows(valid_frame, targets),
         )
 
     target_columns = {target.column for target in targets}
@@ -405,7 +455,8 @@ def prepare_frame(
         if spreads:
             duplicate_spread[target.column] = sum(spreads) / len(spreads)
 
-    return agreeing.drop(helpers), ValidationReport(
+    deduplicated_frame = agreeing.drop(helpers)
+    return deduplicated_frame, ValidationReport(
         total_rows=total_rows,
         valid_rows=valid_rows,
         invalid=invalid,
@@ -415,4 +466,5 @@ def prepare_frame(
         duplicate_spread=duplicate_spread,
         structure_kind=kind,
         deduplicated=True,
+        labelled_rows=_labelled_rows(deduplicated_frame, targets),
     )
