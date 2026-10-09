@@ -567,3 +567,19 @@ def test_a_baseline_that_never_predicts_a_positive_is_still_paired_against():
         structures=["CCO"] * 40,
     )
     assert card.difference_ci == (1.0, 1.0)
+
+
+def test_the_card_says_how_many_rows_the_target_was_measured_on():
+    """Without it a target with 200 labels and one with 8,000 render identically --
+    the same dishonesty as an optimism gap printed off five actives. Derived from
+    `actual`, which Task 5 already masked to the measured rows, so nothing new is
+    stored and a Protocol trained before sparse labels reads back correctly."""
+    card = regression_card()
+
+    assert card.labelled_test_rows == 3
+
+
+def test_a_target_measured_on_nothing_reports_zero_not_a_blank():
+    card = regression_card(actual=[], predicted=[], structures=[])
+
+    assert card.labelled_test_rows == 0

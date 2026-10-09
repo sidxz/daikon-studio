@@ -458,6 +458,9 @@ def build_scorecard(
     return Scorecard(
         target=target,
         joint_model=joint_model,
+        # `actual` reaches here already masked to the rows this target was measured
+        # on (`_labelled_vectors`), so its length *is* the labelled count.
+        labelled_test_rows=len(actual),
         primary_metric=primary_metric_for(task),
         primary_metric_ci=_interval(scores),
         primary_metric_bootstrap=_histogram(scores, _BOOTSTRAP_BINS) if scores else None,

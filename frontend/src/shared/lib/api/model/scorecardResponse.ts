@@ -93,6 +93,7 @@ export interface ScorecardResponse {
   noise_floor: ScorecardResponseNoiseFloor;
   worst_rows: WorstRowResponse[];
   applicability_coverage: ScorecardResponseApplicabilityCoverage;
+  labelled_test_rows?: number;
   unit: ScorecardResponseUnit;
   direction: ScorecardResponseDirection;
   split_strategy: string;

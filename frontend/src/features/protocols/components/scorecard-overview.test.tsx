@@ -58,3 +58,23 @@ describe("plain-language performance overview", () => {
     expect(screen.queryByText(/No compounds were predicted active/)).not.toBeInTheDocument();
   });
 });
+
+describe("unmeasured compounds", () => {
+  it("says how many compounds the target was measured on when some were not", () => {
+    render(
+      <ScorecardOverview
+        scorecard={card({ test_count: 400, labelled_test_rows: 120 })}
+      />,
+    );
+    expect(screen.getByText(/Measured for 120 of 400/)).toBeInTheDocument();
+  });
+
+  it("says nothing extra when every compound was measured", () => {
+    render(
+      <ScorecardOverview
+        scorecard={card({ test_count: 400, labelled_test_rows: 400 })}
+      />,
+    );
+    expect(screen.queryByText(/Measured for/)).not.toBeInTheDocument();
+  });
+});

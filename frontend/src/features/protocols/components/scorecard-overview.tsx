@@ -266,6 +266,19 @@ export function ScorecardOverview({
             ) : (
               "Results on compounds the model did not train on."
             )}
+            {/* Only when they differ. On a dense dataset every test compound carries
+                a measurement and the sentence would be noise; where they differ, the
+                scores below describe the measured subset and not the partition. */}
+            {count != null &&
+              scorecard.labelled_test_rows != null &&
+              scorecard.labelled_test_rows < count && (
+                <>
+                  {" "}
+                  Measured for {scorecard.labelled_test_rows.toLocaleString()} of{" "}
+                  {count.toLocaleString()}; the rest are blank for this target and are
+                  not scored here.
+                </>
+              )}
             {summary && (
               <>
                 {" "}

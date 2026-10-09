@@ -8885,6 +8885,11 @@
             ],
             "title": "Applicability Coverage"
           },
+          "labelled_test_rows": {
+            "type": "integer",
+            "title": "Labelled Test Rows",
+            "default": 0
+          },
           "unit": {
             "anyOf": [
               {

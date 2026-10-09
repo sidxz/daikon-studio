@@ -263,6 +263,13 @@ class Scorecard:
     noise_floor: float | None
     worst_rows: list[WorstRow]
     applicability_coverage: float | None
+    #: How many test rows carried a measurement for this target. Equal to the test
+    #: partition's size on a dense dataset, and smaller wherever the target was not
+    #: measured. Without it a target with 200 labels and one with 8,000 render
+    #: identically, which is the same dishonesty as a comparison printed off five
+    #: actives. Derived from `actual`'s length rather than stored, so a Protocol
+    #: trained before sparse labels reads back correctly.
+    labelled_test_rows: int = 0
     # 95 % bootstrap interval over the test set for `metrics[primary_metric]`,
     # unpaired (see `build_scorecard.primary_metric_ci`). None when the test
     # set is too small or too skewed to support one. The comparison's own test is

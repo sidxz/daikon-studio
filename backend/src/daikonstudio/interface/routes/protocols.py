@@ -426,6 +426,11 @@ class ScorecardResponse(BaseModel):
     noise_floor: float | None
     worst_rows: list[WorstRowResponse]
     applicability_coverage: float | None
+    #: Test rows carrying a measurement for this target. Equal to the test partition's
+    #: size on a dense dataset; smaller where the target was not measured. Defaulted so
+    #: a Scorecard stored before sparse labels reads back as "not recorded" rather than
+    #: as zero measured.
+    labelled_test_rows: int = 0
     unit: str | None
     direction: str | None
     split_strategy: str
@@ -523,6 +528,7 @@ class ScorecardResponse(BaseModel):
             noise_floor=card.noise_floor,
             worst_rows=[WorstRowResponse.from_domain(row) for row in card.worst_rows],
             applicability_coverage=card.applicability_coverage,
+            labelled_test_rows=card.labelled_test_rows,
             unit=card.target_unit,
             direction=card.target_direction,
             split_strategy=card.split_strategy,
