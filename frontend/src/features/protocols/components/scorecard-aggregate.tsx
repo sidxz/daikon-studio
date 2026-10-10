@@ -2,8 +2,16 @@
 
 import { ReadoutValue } from "@/shared/components/readout-value";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/components/ui/select";
 import type { ScorecardResponse } from "@/shared/lib/api/model";
-import { aggregateTargets } from "../lib/aggregate";
+import { useState } from "react";
+import { aggregateTargets, averageableMetrics } from "../lib/aggregate";
 import { higherIsBetter, signed } from "../lib/verdict";
 import { METRIC_DESCRIPTIONS, metricLabel } from "../types";
 
@@ -21,13 +29,42 @@ import { METRIC_DESCRIPTIONS, metricLabel } from "../types";
  * underneath it rather than quietly dropped.
  */
 export function ScorecardAggregate({ scorecards }: { scorecards: ScorecardResponse[] }) {
-  const result = aggregateTargets(scorecards);
+  // Which metric to average is a choice because the primary metric is not
+  // always the one a benchmark is published as: the Tox21 reproduction scores
+  // MCC as primary and is published as a mean ROC AUC. Undefined means the
+  // primary metric, so the default needs no lookup.
+  const [chosen, setChosen] = useState<string>();
+  const options = averageableMetrics(scorecards);
+  const result = aggregateTargets(scorecards, chosen);
+
+  // The picker is rendered here too, not only beside a number. A metric can be
+  // offered and still refuse to average -- an error metric whose targets differ
+  // in unit -- and without the picker on this branch, choosing it would be a
+  // dead end with nothing to change it back.
+  const picker = (current: string) =>
+    options.length > 1 && (
+      <Select value={current} onValueChange={setChosen}>
+        <SelectTrigger aria-label="Metric to average" className="h-8 w-auto min-w-36">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((name) => (
+            <SelectItem key={name} value={name}>
+              {metricLabel(name)}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    );
 
   if (result.kind === "unavailable")
     return (
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">No average across targets</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-base">No average across targets</CardTitle>
+            {picker(chosen ?? options[0] ?? "")}
+          </div>
         </CardHeader>
         <CardContent>
           <p className="text-sm text-muted-foreground">{result.message}</p>
@@ -47,12 +84,16 @@ export function ScorecardAggregate({ scorecards }: { scorecards: ScorecardRespon
     <div className="space-y-4">
       <Card>
         <CardHeader className="pb-3">
-          <CardTitle className="text-base">
-            Average {label} across {scored.length} target{scored.length === 1 ? "" : "s"}
-          </CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-base">
+              Average {label} across {scored.length} target{scored.length === 1 ? "" : "s"}
+            </CardTitle>
+            {picker(metric)}
+          </div>
           <p className="text-sm text-muted-foreground">
-            Every target counts once, however many compounds carry a label for it. This is the
-            figure published multi-task results report, so it is the one to compare against them.
+            Every target counts once, however many compounds carry a label for it, which is how
+            published multi-task results are reported. Average the metric those results quote: a
+            protocol's own primary metric need not be the one a benchmark is published as.
           </p>
         </CardHeader>
         <CardContent className="space-y-4">

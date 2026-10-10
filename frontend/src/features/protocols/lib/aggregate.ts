@@ -42,6 +42,29 @@ const list = (items: string[]) =>
   new Intl.ListFormat("en", { style: "long", type: "conjunction" }).format(items);
 
 /**
+ * The metrics worth offering as the thing to average, primary first.
+ *
+ * A protocol's primary metric is not always the one its benchmark is published
+ * as: the Tox21 reproduction scores MCC as primary while the challenge is
+ * reported as a mean ROC AUC, and averaging only the primary metric would have
+ * left that comparison in twelve separate tabs, which is the friction this
+ * whole card exists to remove.
+ *
+ * Only metrics at least two targets carry a number for, since a metric that
+ * cannot produce an average is not a choice.
+ */
+export function averageableMetrics(scorecards: ScorecardResponse[]): string[] {
+  if (scorecards.length < 2) return [];
+  const counts = new Map<string, number>();
+  for (const card of scorecards)
+    for (const [name, value] of Object.entries((card.metrics ?? {}) as Record<string, unknown>))
+      if (typeof value === "number") counts.set(name, (counts.get(name) ?? 0) + 1);
+  const names = [...counts].filter(([, count]) => count >= 2).map(([name]) => name);
+  const primary = scorecards[0].primary_metric;
+  return names.includes(primary) ? [primary, ...names.filter((n) => n !== primary)] : names;
+}
+
+/**
  * The one number a multi-task benchmark reports: each target's own score,
  * averaged with every target counting once.
  *
@@ -58,8 +81,13 @@ const list = (items: string[]) =>
  * mean of a ROC AUC and an MAE, or of a nanomolar error and a log-unit error,
  * is a plausible-looking figure with no meaning -- the quiet kind of wrongness
  * this product exists to surface in other people's work.
+ *
+ * `chosen` names the metric to average instead of the primary one. Targets
+ * that disagree about their primary metric can still share a metric worth
+ * averaging, so an explicit choice settles that disagreement rather than
+ * running into it.
  */
-export function aggregateTargets(scorecards: ScorecardResponse[]): Aggregate {
+export function aggregateTargets(scorecards: ScorecardResponse[], chosen?: string): Aggregate {
   if (scorecards.length < 2)
     return {
       kind: "unavailable",
@@ -67,15 +95,15 @@ export function aggregateTargets(scorecards: ScorecardResponse[]): Aggregate {
     };
 
   const metrics = [...new Set(scorecards.map((card) => card.primary_metric))];
-  if (metrics.length > 1)
+  if (chosen == null && metrics.length > 1)
     return {
       kind: "unavailable",
       message: `These targets were scored on different metrics (${list(
         metrics.map(metricLabel),
-      )}), which cannot be averaged into one number.`,
+      )}). Choose one they share, or read them a target at a time.`,
     };
 
-  const metric = metrics[0];
+  const metric = chosen ?? metrics[0];
   const scored: TargetScore[] = [];
   const skipped: SkippedTarget[] = [];
   // Units are collected from the scored targets only, as they are walked: a

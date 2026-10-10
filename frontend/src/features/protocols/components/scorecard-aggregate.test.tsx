@@ -119,6 +119,36 @@ describe("ScorecardAggregate", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 
+  it("offers nothing to choose when the targets carry one metric", () => {
+    render(<ScorecardAggregate scorecards={[card("a", 0.8), card("b", 0.9)]} />);
+
+    expect(screen.queryByLabelText("Metric to average")).not.toBeInTheDocument();
+  });
+
+  it("offers the shared metrics, opening on the primary one", () => {
+    const both = (target: string, mcc: number, auroc: number) =>
+      card(target, null, { primary_metric: "mcc", metrics: { mcc, auroc } });
+    render(<ScorecardAggregate scorecards={[both("a", 0.2, 0.8), both("b", 0.4, 0.9)]} />);
+
+    expect(screen.getByLabelText("Metric to average")).toHaveTextContent("MCC");
+    expect(screen.getByText("Average MCC across 2 targets")).toBeInTheDocument();
+  });
+
+  it("keeps the picker when the chosen metric cannot be averaged", () => {
+    // Otherwise choosing an error metric whose targets disagree about units is
+    // a dead end: a refusal with nothing on screen that would undo it.
+    const mae = (target: string, unit: string) =>
+      card(target, null, {
+        primary_metric: "mae",
+        metrics: { mae: 0.5, auroc: 0.8 },
+        unit,
+      });
+    render(<ScorecardAggregate scorecards={[mae("a", "nM"), mae("b", "log M")]} />);
+
+    expect(screen.getByText("No average across targets")).toBeInTheDocument();
+    expect(screen.getByLabelText("Metric to average")).toBeInTheDocument();
+  });
+
   it("carries the unit on an error metric, where the number has one", () => {
     const mae = (target: string, value: number) =>
       card(target, null, {

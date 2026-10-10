@@ -1,6 +1,6 @@
 import type { ScorecardResponse } from "@/shared/lib/api/model";
 import { describe, expect, it } from "vitest";
-import { type Aggregate, aggregateTargets } from "./aggregate";
+import { type Aggregate, aggregateTargets, averageableMetrics } from "./aggregate";
 
 function card(overrides: Partial<ScorecardResponse>): ScorecardResponse {
   return {
@@ -175,6 +175,60 @@ describe("aggregateTargets", () => {
       card({ target, primary_metric: "mae", metrics: { mae: value }, unit: "log M" });
     const result = shown(aggregateTargets([mae("good", 0.2), mae("bad", 1.4), mae("mid", 0.8)]));
     expect(result.scored.map((entry) => entry.target)).toEqual(["bad", "mid", "good"]);
+  });
+});
+
+describe("choosing which metric to average", () => {
+  // The protocol this was built for scores MCC as its primary metric while the
+  // benchmark it reproduces is published as a mean ROC AUC. Averaging only the
+  // primary metric leaves that comparison exactly where it was: in twelve tabs.
+  const both = (target: string, mcc: number, auroc: number) =>
+    card({ target, primary_metric: "mcc", metrics: { mcc, auroc } });
+
+  it("averages a metric other than the primary one when asked", () => {
+    const result = shown(aggregateTargets([both("a", 0.2, 0.8), both("b", 0.4, 0.9)], "auroc"));
+    expect(result.metric).toBe("auroc");
+    expect(result.mean).toBeCloseTo(0.85, 12);
+  });
+
+  it("still averages the primary metric by default", () => {
+    const result = shown(aggregateTargets([both("a", 0.2, 0.8), both("b", 0.4, 0.9)]));
+    expect(result.metric).toBe("mcc");
+    expect(result.mean).toBeCloseTo(0.3, 12);
+  });
+
+  it("averages a chosen metric even where the targets' primary metrics differ", () => {
+    // Disagreeing primary metrics block a default average, but a metric every
+    // target carries is still a fair thing to average.
+    const result = shown(
+      aggregateTargets(
+        [
+          card({ target: "a", primary_metric: "mcc", metrics: { mcc: 0.2, auroc: 0.8 } }),
+          card({ target: "b", primary_metric: "auprc", metrics: { auprc: 0.4, auroc: 0.9 } }),
+        ],
+        "auroc",
+      ),
+    );
+    expect(result.mean).toBeCloseTo(0.85, 12);
+  });
+
+  it("orders the choices with the primary metric first", () => {
+    expect(averageableMetrics([both("a", 0.2, 0.8), both("b", 0.4, 0.9)])).toEqual([
+      "mcc",
+      "auroc",
+    ]);
+  });
+
+  it("offers only metrics at least two targets actually carry", () => {
+    const metrics = averageableMetrics([
+      card({ target: "a", primary_metric: "mcc", metrics: { mcc: 0.2, auroc: 0.8, r2: 0.1 } }),
+      card({ target: "b", primary_metric: "mcc", metrics: { mcc: 0.4, auroc: 0.9, r2: null } }),
+    ]);
+    expect(metrics).toEqual(["mcc", "auroc"]);
+  });
+
+  it("offers nothing to choose between when there is one target", () => {
+    expect(averageableMetrics([card({ target: "a", metrics: { auroc: 0.8 } })])).toEqual([]);
   });
 });
 
