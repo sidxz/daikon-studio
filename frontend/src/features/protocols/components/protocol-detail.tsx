@@ -30,6 +30,7 @@ import { formatCutoff } from "../lib/format-cutoff";
 import { DeleteProtocolButton } from "./delete-protocol-button";
 import { ProtocolChemicalSpace } from "./protocol-chemical-space";
 import { ProtocolRuns } from "./protocol-runs";
+import { ScorecardAggregate } from "./scorecard-aggregate";
 import { ScorecardCompounds } from "./scorecard-compounds";
 import { ScorecardView } from "./scorecard-view";
 
@@ -37,6 +38,11 @@ import { ScorecardView } from "./scorecard-view";
  * One scorecard per target. One target renders exactly as before; several share a
  * header that says whether one model learned them all or each has its own, so a
  * row of per-target numbers is never mistaken for joint learning.
+ *
+ * Several targets also open on their average rather than on the first target,
+ * because the average across targets is the figure a multi-task result is
+ * published as and the one a reader checks a reproduction against. The targets
+ * keep a tab each, one click away.
  */
 export function Scorecards({
   scorecards,
@@ -57,31 +63,41 @@ export function Scorecards({
   const TargetView = view === "compounds" ? ScorecardCompounds : ScorecardView;
   if (scorecards.length === 1)
     return <TargetView key={first.target} scorecard={first} protocolId={protocolId} />;
+
+  // A target name is a column header, so it can be anything at all -- including
+  // whatever this tab is called. Grown until it is nobody else's name.
+  let average = "__average__";
+  while (scorecards.some((card) => card.target === average)) average += "_";
+  // Performance only. The test-compounds view lists one target's compounds and
+  // their measured values; there is no averaging a table of rows.
+  const averaged = view !== "compounds";
+  const values = [...(averaged ? [average] : []), ...scorecards.map((card) => card.target)];
+  // Both views share one selection and only one of them has an average tab, so
+  // an unknown value resolves here rather than leaving Radix with no open tab.
+  const value =
+    selectedTarget != null && values.includes(selectedTarget) ? selectedTarget : values[0];
+
   return (
     <div className="space-y-3">
       <p className="text-sm text-muted-foreground">
         {first.joint_model
-          ? `One model learned all ${scorecards.length} targets jointly. Each tab scores it on one target.`
+          ? `One model learned all ${scorecards.length} targets jointly.`
           : `${scorecards.length} separate models, one per target, trained on the same compounds and split.`}
       </p>
-      <Tabs
-        defaultValue={first.target}
-        value={
-          selectedTarget == null
-            ? undefined
-            : scorecards.some((card) => card.target === selectedTarget)
-              ? selectedTarget
-              : first.target
-        }
-        onValueChange={onTargetChange}
-      >
+      <Tabs value={value} onValueChange={onTargetChange}>
         <TabsList>
+          {averaged && <TabsTrigger value={average}>All targets</TabsTrigger>}
           {scorecards.map((card) => (
             <TabsTrigger key={card.target} value={card.target} className="font-mono">
               {card.target}
             </TabsTrigger>
           ))}
         </TabsList>
+        {averaged && (
+          <TabsContent value={average}>
+            <ScorecardAggregate scorecards={scorecards} />
+          </TabsContent>
+        )}
         {scorecards.map((card) => (
           <TabsContent key={card.target} value={card.target}>
             <TargetView scorecard={card} protocolId={protocolId} />
@@ -225,7 +241,7 @@ export function ProtocolDetail({ protocolId }: { protocolId: string }) {
                 scorecards={scorecard.data}
                 protocolId={protocol.id}
                 view={view}
-                selectedTarget={selectedTarget ?? scorecard.data[0]?.target}
+                selectedTarget={selectedTarget}
                 onTargetChange={setSelectedTarget}
               />
             )}
