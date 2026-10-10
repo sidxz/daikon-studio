@@ -36,6 +36,17 @@ describe("looksBinary", () => {
   });
 });
 
+describe("the sample the guesses are made from", () => {
+  it("reaches a sparse column's first measured value far down the file", async () => {
+    const { parseCsvPreview } = await import("./parse-csv");
+    // A real multi-task file: the 0/1 endpoint is blank for the first 200 rows.
+    // Sampling too few rows guesses "numeric" having seen no value at all.
+    const file = new File([`smiles,tox\n${"CCO,\n".repeat(200)}CCO,1\nCCO,0\n`], "sparse.csv");
+    const preview = await parseCsvPreview(file);
+    expect(looksBinary(preview.rows, "tox")).toBe(true);
+  });
+});
+
 describe("CSV preview errors", () => {
   it("rejects a header-only file before setup begins", async () => {
     const { parseCsvPreview } = await import("./parse-csv");

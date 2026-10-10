@@ -3,11 +3,20 @@ import Papa from "papaparse";
 export interface CsvPreview {
   columns: string[];
   rows: Record<string, string>[];
-  /** Columns whose sampled values all parse as numbers (a hint, not a rule). */
-  numericColumns: Set<string>;
 }
 
-const PREVIEW_ROWS = 20;
+/**
+ * How many rows the column guesses get to see. The preview *table* shows four
+ * of them; the rest are evidence.
+ *
+ * It is this large because of sparse multi-task files, where a column is blank
+ * for most rows and the measured ones are not evenly spread: a 20-row sample
+ * of the Tox21 challenge set is entirely blank for several endpoints, so the
+ * kind was guessed from no values at all and a 0/1 endpoint opened as
+ * "Continuous values". A column still blank across this many rows is one the
+ * backend refuses anyway, as a target nothing was measured for.
+ */
+const SAMPLE_ROWS = 1000;
 
 /**
  * Read a CSV's header and a handful of rows in the browser.
@@ -22,7 +31,7 @@ export function parseCsvPreview(file: File): Promise<CsvPreview> {
     Papa.parse<Record<string, string>>(file, {
       header: true,
       skipEmptyLines: true,
-      preview: PREVIEW_ROWS,
+      preview: SAMPLE_ROWS,
       complete: (result) => {
         if (result.errors.length > 0) {
           reject(
@@ -42,15 +51,7 @@ export function parseCsvPreview(file: File): Promise<CsvPreview> {
           reject(new Error("The file has column headers but no data rows."));
           return;
         }
-        const numericColumns = new Set(
-          columns.filter((column) =>
-            rows.every((row) => {
-              const value = row[column]?.trim();
-              return value !== undefined && value !== "" && Number.isFinite(Number(value));
-            }),
-          ),
-        );
-        resolve({ columns, rows, numericColumns });
+        resolve({ columns, rows });
       },
       error: (error) => reject(error),
     });
