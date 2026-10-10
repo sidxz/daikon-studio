@@ -189,3 +189,32 @@ describe("the split-assignment role", () => {
     expect(next.splitColumn).toBeNull();
   });
 });
+
+describe("replaceUpload and a target's kind", () => {
+  it("re-guesses the kind from the replacement file, keeping the unit and direction", () => {
+    const draft = {
+      ...draftFromUpload(columns, rows, "panel.csv"),
+      targets: [
+        { column: "solubility", kind: "numeric" as const, unit: "uM", direction: "low" as const },
+      ],
+    };
+    // The same column is 0/1 in the replacement: its kind is derived from the
+    // data, so it is re-derived, while unit and direction are the scientist's.
+    const binaryRows = [
+      { smiles: "CCO", solubility: "1" },
+      { smiles: "CCN", solubility: "0" },
+    ];
+    const next = replaceUpload(
+      draft,
+      ["smiles", "solubility"],
+      binaryRows,
+      new File([], "new.csv"),
+    );
+    expect(next.targets[0]).toEqual({
+      column: "solubility",
+      kind: "binary",
+      unit: "uM",
+      direction: "low",
+    });
+  });
+});

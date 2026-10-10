@@ -114,9 +114,15 @@ export function replaceUpload(
   const structureColumn = columns.includes(draft.structureColumn)
     ? draft.structureColumn
     : guessed.structureColumn;
-  const targets = draft.targets.filter(
-    (target) => columns.includes(target.column) && target.column !== structureColumn,
-  );
+  // The kind is re-guessed from the new rows, because it is the one target
+  // setting derived from the data rather than entered by a scientist: a column
+  // that was continuous in the old file and 0/1 in this one is a binary target
+  // now, and keeping the old kind silently mislabels it. The unit and the
+  // direction say what the number means, which no file can tell us, so those
+  // survive the replacement.
+  const targets = draft.targets
+    .filter((target) => columns.includes(target.column) && target.column !== structureColumn)
+    .map((target) => ({ ...target, kind: draftTarget(target.column, rows).kind }));
   const idColumn =
     draft.idColumn && columns.includes(draft.idColumn) ? draft.idColumn : guessed.idColumn;
   // Never guessed, unlike the structure and identifier columns: a split assignment is a
