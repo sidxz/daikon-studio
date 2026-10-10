@@ -1,6 +1,12 @@
 "use client";
 
-import { PREDICTION_TEMPLATE_CSV, useDataset } from "@/features/datasets";
+import {
+  ACCEPTED_UPLOADS,
+  PREDICTION_TEMPLATE_CSV,
+  sizeLimitMb,
+  toCsvFile,
+  useDataset,
+} from "@/features/datasets";
 import { useEngines } from "@/features/engines";
 import { useProtocolOptions } from "@/features/protocols";
 import type { Protocol } from "@/features/protocols";
@@ -116,9 +122,31 @@ export function PredictWizard() {
   const published = (protocols.data ?? []).filter((protocol) => protocol.status !== "draft");
   const selectedProtocol = published.find((protocol) => protocol.id === protocolId);
 
-  const onDrop = useCallback((files: File[]) => {
-    const dropped = files[0];
-    if (!dropped) return;
+  const onDrop = useCallback(async (files: File[]) => {
+    const original = files[0];
+    if (!original) return;
+    // Excel becomes CSV at the door, so the parse below and the upload that
+    // follows both see the same bytes the backend will read.
+    let dropped: File;
+    try {
+      if (original.size > sizeLimitMb(original.name) * 1024 * 1024) {
+        throw new Error(`Choose a file smaller than ${sizeLimitMb(original.name)} MB.`);
+      }
+      const converted = await toCsvFile(original);
+      dropped = converted.file;
+      if (converted.sheetNames.length > 1) {
+        // No sheet picker on this screen, unlike the dataset wizard: a
+        // prediction input is a list of structures, not a supplementary
+        // workbook. Naming the sheet is enough for someone to notice the
+        // wrong one and export the right one themselves.
+        showError(
+          `Read the sheet "${converted.sheet}" of ${converted.sheetNames.length}. Export a single sheet if that is not the one you meant.`,
+        );
+      }
+    } catch (error) {
+      showError(error instanceof Error ? error.message : "Could not read that file.");
+      return;
+    }
     // ponytail: parses the whole file on the main thread, synchronously,
     // before the preview can show a true row count. Bounded today by the
     // shared upload endpoint's 100 MB cap (`MAX_UPLOAD_BYTES`, datasets.py) --
@@ -157,7 +185,7 @@ export function PredictWizard() {
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
-    accept: { "text/csv": [".csv"] },
+    accept: ACCEPTED_UPLOADS,
     multiple: false,
     noClick: true,
   });
@@ -245,7 +273,7 @@ export function PredictWizard() {
         >
           <FileUp className="size-6 text-muted-foreground" />
           <span className="text-sm font-medium">
-            {file ? file.name : "Drop a CSV of structures, or click to choose one"}
+            {file ? file.name : "Drop a CSV or Excel file of structures, or click to choose one"}
           </span>
           <span className="text-xs text-muted-foreground">Requires one SMILES column.</span>
         </button>

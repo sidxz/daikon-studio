@@ -40,6 +40,7 @@ import {
   setColumnRole,
 } from "../lib/draft-from-upload";
 import { type CsvPreview, DATASET_TEMPLATE_CSV, parseCsvPreview } from "../lib/parse-csv";
+import { ACCEPTED_UPLOADS, sizeLimitMb, toCsvFile } from "../lib/to-csv-file";
 import {
   type DatasetDraft,
   type DraftTarget,
@@ -95,6 +96,13 @@ export function DatasetWizard() {
   const [fileError, setFileError] = useState<string | null>(null);
   const [fileReading, setFileReading] = useState(false);
   const [mappingNotice, setMappingNotice] = useState<string | null>(null);
+  // The dropped workbook, kept so another of its sheets can be converted without
+  // asking for the file again. Null for a CSV, which has nothing to choose.
+  const [workbook, setWorkbook] = useState<{
+    source: File;
+    sheetNames: string[];
+    sheet: string;
+  } | null>(null);
   const upload = useUploadDatasetFile();
   const prepare = useStartDatasetPreview();
   const freeze = useFreezeDatasetPreview();
@@ -130,6 +138,37 @@ export function DatasetWizard() {
     }));
   }
 
+  // One file -- or one sheet of one workbook -- taken into the draft. The drop
+  // handler and the sheet picker differ only in which sheet they ask for, so
+  // the reading, previewing and re-mapping live here once.
+  const adopt = useCallback(async (source: File, sheet?: string) => {
+    const limit = sizeLimitMb(source.name);
+    if (source.size > limit * 1024 * 1024) {
+      throw new Error(`Choose a file smaller than ${limit} MB.`);
+    }
+    // Excel is converted at the door, so everything downstream -- the preview,
+    // the column guesses and the upload -- sees the same CSV bytes the backend
+    // will read.
+    const converted = await toCsvFile(source, sheet);
+    const parsed = await parseCsvPreview(converted.file);
+    setCsv(parsed);
+    setWorkbook(
+      converted.sheet ? { source, sheetNames: converted.sheetNames, sheet: converted.sheet } : null,
+    );
+    setDraft((previous) =>
+      previous.file || previous.structureColumn
+        ? replaceUpload(previous, parsed.columns, parsed.rows, converted.file)
+        : {
+            ...draftFromUpload(parsed.columns, parsed.rows, converted.file.name),
+            file: converted.file,
+          },
+    );
+    setUploadRef(null);
+    setReviewId(null);
+    setFailure(null);
+    return converted;
+  }, []);
+
   const onDrop = useCallback(
     async (files: File[]) => {
       const file = files[0];
@@ -137,19 +176,11 @@ export function DatasetWizard() {
       setFileReading(true);
       setFileError(null);
       try {
-        if (file.size > 100 * 1024 * 1024) throw new Error("Choose a CSV smaller than 100 MB.");
-        const parsed = await parseCsvPreview(file);
-        setCsv(parsed);
-        setDraft((previous) =>
-          previous.file || previous.structureColumn
-            ? replaceUpload(previous, parsed.columns, parsed.rows, file)
-            : { ...draftFromUpload(parsed.columns, parsed.rows, file.name), file },
-        );
-        setUploadRef(null);
-        setReviewId(null);
-        setFailure(null);
+        const converted = await adopt(file);
         setMappingNotice(
-          "Column roles and target types are suggestions. Check them against your measurements before continuing.",
+          converted.sheetNames.length > 1
+            ? `Read the sheet "${converted.sheet}" of ${converted.sheetNames.length} in this workbook. Check that it is the right sheet, and that the column roles and target types match your measurements.`
+            : "Column roles and target types are suggestions. Check them against your measurements before continuing.",
         );
         router.replace("/datasets/new", { scroll: false });
         setStep(1);
@@ -160,16 +191,33 @@ export function DatasetWizard() {
         setFileReading(false);
       }
     },
-    [router],
+    [adopt, router],
   );
+
+  async function chooseSheet(sheet: string) {
+    if (!workbook || sheet === workbook.sheet) return;
+    setFileReading(true);
+    setFileError(null);
+    try {
+      invalidateReview();
+      await adopt(workbook.source, sheet);
+      setMappingNotice(
+        `Now reading the sheet "${sheet}". Check the column roles again — a different sheet can hold different columns.`,
+      );
+    } catch (error) {
+      setFileError(error instanceof Error ? error.message : "Could not read that sheet.");
+    } finally {
+      setFileReading(false);
+    }
+  }
 
   const { getRootProps, getInputProps, isDragActive, open } = useDropzone({
     onDrop,
-    accept: { "text/csv": [".csv"] },
+    accept: ACCEPTED_UPLOADS,
     multiple: false,
     noClick: true,
     disabled: working,
-    onDropRejected: () => setFileError("Choose one CSV file smaller than 100 MB."),
+    onDropRejected: () => setFileError("Choose one CSV or Excel file: .csv, .xlsx, .xlsm or .xls."),
     maxSize: 100 * 1024 * 1024,
   });
 
@@ -342,17 +390,40 @@ export function DatasetWizard() {
             <div className="flex items-center gap-3">
               <FileUp className="size-5 text-muted-foreground" />
               <div>
-                <p className="text-sm font-medium">{draft.file?.name ?? preparation?.file_name}</p>
+                <p className="text-sm font-medium">
+                  {workbook?.source.name ?? draft.file?.name ?? preparation?.file_name}
+                </p>
                 <p className="text-xs text-muted-foreground">
                   {draft.file
-                    ? `${(draft.file.size / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} KB · preview of up to 20 rows`
+                    ? `${(draft.file.size / 1024).toLocaleString(undefined, { maximumFractionDigits: 1 })} KB · first rows shown below`
                     : "Previously uploaded file · prepared for this review"}
                 </p>
               </div>
             </div>
-            <Button variant="outline" size="sm" disabled={working} onClick={open}>
-              Replace file
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              {/* A supplementary workbook usually holds several tables, and the
+                  one that matters is rarely the first sheet. */}
+              {workbook && workbook.sheetNames.length > 1 && (
+                <Select value={workbook.sheet} onValueChange={chooseSheet} disabled={working}>
+                  <SelectTrigger
+                    aria-label="Sheet to import"
+                    className="h-8 w-auto min-w-44 bg-background text-xs"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {workbook.sheetNames.map((name) => (
+                      <SelectItem key={name} value={name}>
+                        {name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <Button variant="outline" size="sm" disabled={working} onClick={open}>
+                Replace file
+              </Button>
+            </div>
           </div>
         )}
 
@@ -376,11 +447,13 @@ export function DatasetWizard() {
                 >
                   <FileUp className="size-9 text-muted-foreground" />
                   <span className="font-medium">
-                    {fileReading ? "Reading the preview…" : "Drop a CSV here, or choose a file"}
+                    {fileReading
+                      ? "Reading the preview…"
+                      : "Drop a CSV or Excel file here, or choose one"}
                   </span>
                   <span className="max-w-sm text-sm text-muted-foreground">
                     A structure column — SMILES or an amino-acid sequence — and at least one
-                    measured target. CSV files up to 100 MB.
+                    measured target. CSV up to 100 MB, Excel (.xlsx, .xlsm, .xls) up to 25 MB.
                   </span>
                 </button>
               </div>

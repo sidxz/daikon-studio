@@ -9,6 +9,29 @@ if (typeof global.ResizeObserver === "undefined") {
   };
 }
 
+// jsdom's Blob predates the promise-based readers, so `file.arrayBuffer()` and
+// `file.text()` are missing here while every target browser has both. The
+// upload path reads a dropped workbook with them.
+if (typeof Blob !== "undefined" && typeof FileReader !== "undefined") {
+  const read = <T>(blob: Blob, as: "readAsArrayBuffer" | "readAsText") =>
+    new Promise<T>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as T);
+      reader.onerror = () => reject(reader.error);
+      reader[as](blob);
+    });
+  if (!Blob.prototype.arrayBuffer) {
+    Blob.prototype.arrayBuffer = function arrayBuffer() {
+      return read<ArrayBuffer>(this, "readAsArrayBuffer");
+    };
+  }
+  if (!Blob.prototype.text) {
+    Blob.prototype.text = function text() {
+      return read<string>(this, "readAsText");
+    };
+  }
+}
+
 // cmdk scrolls its active item into view.
 if (typeof HTMLElement !== "undefined" && !HTMLElement.prototype.scrollIntoView) {
   HTMLElement.prototype.scrollIntoView = () => {};

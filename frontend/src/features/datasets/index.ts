@@ -4,6 +4,7 @@ export { SPLIT_COPY, TARGET_KIND_COPY } from "./types";
 export { useDataset, useDatasetColumns, useDatasets } from "./hooks/use-datasets";
 export { DATASETS_KEY, DATASET_KEY } from "./hooks/query-keys";
 export { PREDICTION_TEMPLATE_CSV } from "./lib/parse-csv";
+export { ACCEPTED_UPLOADS, sizeLimitMb, toCsvFile } from "./lib/to-csv-file";
 export { DatasetList } from "./components/dataset-list";
 export { DatasetDetail } from "./components/dataset-detail";
 export { DatasetWizard } from "./components/dataset-wizard";

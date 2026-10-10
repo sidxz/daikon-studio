@@ -23,10 +23,19 @@ vi.mock("next/navigation", () => ({
 vi.mock("@/shared/lib/app-config", () => ({
   useAppConfig: () => ({ chemcellarUrl: "http://cellar" }),
 }));
-vi.mock("@/features/datasets", () => ({
-  PREDICTION_TEMPLATE_CSV: "",
-  useDataset: () => ({ data: undefined }),
-}));
+// The barrel is stubbed to keep its hooks and wizards out of this test, but the
+// upload helpers are pure and come through for real: a fake accept map or a
+// fake converter would make the drop zone's behaviour here meaningless.
+vi.mock("@/features/datasets", async () => {
+  const uploads = await import("@/features/datasets/lib/to-csv-file");
+  return {
+    PREDICTION_TEMPLATE_CSV: "",
+    useDataset: () => ({ data: undefined }),
+    ACCEPTED_UPLOADS: uploads.ACCEPTED_UPLOADS,
+    sizeLimitMb: uploads.sizeLimitMb,
+    toCsvFile: uploads.toCsvFile,
+  };
+});
 vi.mock("@/features/engines", () => ({ useEngines: () => ({ data: [] }) }));
 vi.mock("@/features/protocols", () => ({
   useProtocolOptions: () => ({
