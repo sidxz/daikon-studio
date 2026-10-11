@@ -191,9 +191,10 @@ def test_the_engines_compose_the_key_from_the_chosen_model() -> None:
 
 
 def test_every_esm2_engine_offers_the_choice() -> None:
+    from daikonstudio.infrastructure.engines.esm2_gp import Esm2GP
     from daikonstudio.infrastructure.engines.esm2_xgboost import Esm2XGBoost
 
-    for engine in (Esm2XGBoost,):
+    for engine in (Esm2XGBoost, Esm2GP):
         conditions = {spec.key: spec for spec in engine.manifest().conditions}
         assert "protein_model" in conditions, engine.__name__
         assert conditions["protein_model"].default == DEFAULT_VARIANT

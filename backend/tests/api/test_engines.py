@@ -21,9 +21,15 @@ async def test_engines_are_listed_with_their_conditions(client):
         "chemprop-dmpnn",
         "molformer-xl",
         "esm2-xgboost",
+        "esm2-gp",
         "protein-descriptors-randomforest",
         "site-mean-fitness",
     }
+    # The one engine that does not offer both tasks. It exists to report a posterior
+    # standard deviation, which `GaussianProcessClassifier` has none of, so the picker
+    # must hide it for a classification target rather than offer a worse XGBoost.
+    gp = next(e for e in engines if e["id"] == "esm2-gp")
+    assert gp["tasks"] == ["regression"]
     xgb = next(e for e in engines if e["id"] == "ecfp4-xgboost")
     keys = {c["key"] for c in xgb["conditions"]}
     assert keys == {
