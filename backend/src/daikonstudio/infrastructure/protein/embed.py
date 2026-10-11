@@ -76,6 +76,13 @@ class Variant:
     #: A `_pretrained.WEIGHT_SETS` name whose partial state dict is laid over the base
     #: weights, or `None` to use them as published.
     overlay: str | None = None
+    #: How a log-likelihood ratio is read off this model: `"masked"` masks each position
+    #: of the parent in turn and reads the distribution there, `"wt"` reads them all off
+    #: one forward pass of the unmasked parent. **A property of the weights, not a user
+    #: preference** -- it is the protocol the publisher trained or distilled under, and
+    #: scoring a model the other way is what made VESM2's own LLR look worse than stock
+    #: ESM-2's. So it lives here and no engine offers it as a setting.
+    likelihood_scoring: str = "masked"
 
 
 #: The default, and the only one the engines offered before the others existed.
@@ -87,23 +94,39 @@ VARIANTS: dict[str, Variant] = {
     # architecture, same width, same 1022-residue ceiling, so it costs no new code path
     # -- and MIT, per the model card's body.
     #
-    # **Measured on the TEM-1 pilot, and it splits the opposite way to the prediction.**
-    # Under the position holdout, as an embedding it is clearly better than stock ESM-2
-    # (0.6928 Spearman / 0.4725 r2 against 0.6575 / 0.4195) -- but *its own* LLR is
-    # worse: adding it drops VESM2 to 0.6860 / 0.4483, where ESM-2's LLR lifts ESM-2 to
-    # 0.7100 / 0.4866. The expectation going in, from the published benchmarks being
-    # variant-effect ones, was precisely the reverse.
+    # **Measured on the TEM-1 pilot under its position holdout, and it is the best thing
+    # on the roster**: 0.7366 Spearman / 0.5395 r2 with the likelihood feature on, where
+    # stock ESM-2's best tree arm is 0.7197 / 0.5084. As a plain embedding it is also
+    # ahead, 0.6928 / 0.4725 against 0.6575 / 0.4195.
     #
-    # The likely cause is a scoring-protocol mismatch, and it is actionable. VESM's own
-    # released code reads log-likelihood ratios off the logits of the **unmasked**
-    # sequence -- wt-marginals -- while `likelihood.py` masks each position in turn and
-    # reads masked marginals. Their weights were distilled under their protocol. So the
-    # honest reading is "VESM2 is a better featurizer here, and we are scoring its head
-    # the wrong way", not "VESM2 is worse". One split draw, no paired test.
+    # It reached that only after the scoring protocol below was fixed. Scored by ESM-2's
+    # masked-marginal protocol its LLR *hurt* -- 0.6860 / 0.4483, worse than VESM2 with
+    # no LLR at all -- which read as "VESM2's embeddings are better but its head is
+    # worse" and was entirely our bug.
+    #
+    # **The cause was a scoring-protocol mismatch, since confirmed and fixed.** VESM's
+    # released code reads ratios off the logits of the *unmasked* sequence -- wt-marginals
+    # -- and `likelihood.py` was masking each position in turn, which is ESM-2's protocol
+    # and not theirs. Zero-shot LLR against fitness on the same 512 test rows:
+    #
+    #     esm2-650m   masked  +0.5545     esm2-650m   wt  +0.5434
+    #     vesm2-650m  masked  +0.5092     vesm2-650m  wt  +0.6558
+    #
+    # So masked is correctly ESM-2's default, and reading VESM2 the wrong way was costing
+    # **0.147 Spearman**. Scored its own way its zero-shot LLR beats ESM-2's best by
+    # 0.101, which does reproduce the paper's claim. Hence `likelihood_scoring` on this
+    # dataclass rather than a user setting. One split draw, no paired test.
     #
     # VESM3 is ESM3-derived and non-commercial -- excluded.
     "vesm2-650m": Variant(
-        checkpoint=CHECKPOINT, dim=DIM, label="VESM2 650M", overlay="VESM2-650M"
+        checkpoint=CHECKPOINT,
+        dim=DIM,
+        label="VESM2 650M",
+        overlay="VESM2-650M",
+        # wt-marginals, because that is what VESM's released code does: it reads ratios
+        # off the logits of one unmasked forward pass. Scoring it with ESM-2's
+        # masked-marginal protocol is the measured reason its own LLR underperformed.
+        likelihood_scoring="wt",
     ),
     # 150M rather than 35M or 8M as the small option. The price of shrinking is not
     # uniform: under a leakage-aware split, 650M -> 8M costs about 0.02 Spearman on

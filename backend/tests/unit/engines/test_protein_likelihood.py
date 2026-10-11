@@ -17,6 +17,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from daikonstudio.infrastructure.protein.likelihood import _llr_from_logprobs, esm2_llr
@@ -74,6 +75,58 @@ def test_a_residue_the_model_cannot_score_is_skipped_not_guessed() -> None:
     exotic = _PARENT[:9] + "X" + _PARENT[10:]
 
     assert _llr_from_logprobs([exotic], _PARENT, _LOGPROBS)[:, 0] == pytest.approx([0.0])
+
+
+def test_the_scoring_protocol_belongs_to_the_weights() -> None:
+    """Not a user setting. It is the protocol a checkpoint was trained or distilled
+    under, and reading a model the other way is the measured reason VESM2's own LLR came
+    out behind stock ESM-2's on the TEM-1 pilot (0.6860 against 0.7100 Spearman)."""
+    from daikonstudio.infrastructure.protein.embed import variant
+
+    assert variant("esm2-650m").likelihood_scoring == "masked"
+    assert variant("esm2-150m").likelihood_scoring == "masked"
+    assert variant("vesm2-650m").likelihood_scoring == "wt", "VESM's own code reads wt"
+
+    from daikonstudio.infrastructure.engines.esm2_xgboost import Esm2XGBoost
+
+    keys = {spec.key for spec in Esm2XGBoost.manifest().conditions}
+    assert "likelihood_scoring" not in keys, "a property of the weights, not a setting"
+
+
+@needs_weights
+def test_the_two_protocols_disagree_and_both_stay_finite() -> None:
+    """They are different quantities, not two routes to one number: wt-marginals let the
+    model see the wild-type residue it is being asked about, which inflates
+    `log p(wild type)` by its own presence. If these ever matched, one of them would be
+    reading the wrong tensor."""
+    from daikonstudio.infrastructure.protein.likelihood import _masked_marginals, _wt_marginals
+
+    parent = "MAKVQLSRLSGEQLLDELMAKVQLSRLSGEQLLDEL"
+
+    masked = _masked_marginals(parent, [9, 17])
+    unmasked = _wt_marginals(parent, [9, 17])
+
+    assert set(masked) == set(unmasked) == {9, 17}
+    for position in (9, 17):
+        assert all(np.isfinite(value) for value in unmasked[position].values())
+        assert masked[position] != unmasked[position]
+    # Seeing the residue makes the model surer of it. This is the mechanism, so it is
+    # worth pinning rather than leaving as a remark.
+    assert unmasked[9][parent[9]] > masked[9][parent[9]]
+
+
+@needs_weights
+def test_wt_marginals_cost_one_pass_regardless_of_how_many_sites() -> None:
+    """The practical reason to care beyond correctness: masked marginals need one forward
+    pass per distinct mutated position, this needs one for the whole parent."""
+    from daikonstudio.infrastructure.protein.likelihood import _wt_marginals
+
+    parent = "MAKVQLSRLSGEQLLDELMAKVQLSRLSGEQLLDEL"
+
+    every = _wt_marginals(parent, list(range(len(parent))))
+
+    assert len(every) == len(parent)
+    assert all(len(at_site) == 20 for at_site in every.values())
 
 
 @needs_weights

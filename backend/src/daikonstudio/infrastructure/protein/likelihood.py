@@ -1,5 +1,5 @@
-"""ESM-2's masked-marginal log-likelihood ratio -- what the model thinks of a variant
-before it has seen a single label.
+"""ESM-2's log-likelihood ratio -- what the model thinks of a variant before it has
+seen a single label.
 
 `embed.py` named this the single highest-value addition to the protein side and deferred
 it for one reason: an LLR is a variant scored against a reference sequence, and an upload
@@ -18,7 +18,13 @@ variant-effect model is actually judged.
 **Cost is per distinct mutated position, not per variant.** Masked-marginal scoring masks
 one site of the *parent* and reads the distribution there, so a 4,000-variant series over
 200 mutated positions needs 200 forward passes, not 4,000. That is the whole reason this
-is affordable as a feature.
+is affordable as a feature. The wt-marginal protocol needs exactly one.
+
+**Two protocols, chosen by the weights rather than by the user.** Masked marginals are
+ESM-2's own and score better for it; wt-marginals read every position off a single
+unmasked pass, which is what VESM's released code does. `Variant.likelihood_scoring`
+carries the choice, because it is a property of how a checkpoint was trained -- scoring
+VESM2 by masking is the measured reason its own LLR came out behind stock ESM-2's.
 
 Sign convention, stated once because inverting it would flip every downstream correlation
 while still producing plausible numbers: **LLR = log p(mutant) - log p(wild type)**, so a
@@ -60,7 +66,10 @@ _RESIDUES = "ACDEFGHIKLMNPQRSTVWY"
 def esm2_llr(
     sequences: list[str], parent: str | None = None, model: str = DEFAULT_VARIANT
 ) -> np.ndarray:
-    """One column: each variant's masked-marginal LLR against the series' parent.
+    """One column: each variant's LLR against the series' parent.
+
+    Which protocol reads it is `model`'s to say, not the caller's -- see the module
+    docstring and `Variant.likelihood_scoring`.
 
     Shape `(len(sequences), 1)`, float32, so it concatenates onto any feature matrix.
     Deterministic: the model runs in eval mode under `no_grad`, and the parent is the
@@ -78,7 +87,9 @@ def esm2_llr(
     positions = sorted(
         {position for sequence in sequences for position in mutated_positions(sequence, parent)}
     )
-    return _llr_from_logprobs(sequences, parent, _masked_marginals(parent, positions, model))
+    scoring = variant(model).likelihood_scoring
+    read = _wt_marginals if scoring == "wt" else _masked_marginals
+    return _llr_from_logprobs(sequences, parent, read(parent, positions, model))
 
 
 def _llr_from_logprobs(
@@ -109,6 +120,53 @@ def _llr_from_logprobs(
             unscored,
         )
     return scores
+
+
+def _wt_marginals(
+    parent: str, positions: list[int], model_name: str = DEFAULT_VARIANT
+) -> dict[int, dict[str, float]]:
+    """`{position: {residue: log p(residue | the unmasked parent)}}`, in **one** pass.
+
+    The other protocol in the variant-effect literature, and the one VESM's released code
+    uses: run the parent as-is and read the distribution at each position without hiding
+    the residue that is already there. Masked marginals score better for ESM-2 itself and
+    remain its default -- but a model distilled under this protocol has to be read under
+    it, which is the measured reason VESM2's own LLR looked worse than stock ESM-2's when
+    both were scored by masking.
+
+    It is also *cheaper*, by a lot: one forward pass for the whole parent rather than one
+    per distinct mutated position. The catch that makes it a different quantity rather
+    than a free lunch is that the model can see the wild-type residue it is being asked
+    about, so `log p(wild type)` is inflated by its own presence.
+    """
+    if not positions:
+        return {}
+
+    import torch
+
+    tokenizer, model, device = _loaded_mlm(model_name)
+    residue_ids = {residue: tokenizer.convert_tokens_to_ids(residue) for residue in _RESIDUES}
+    ids, offset = residue_token_offset(tokenizer, parent)
+
+    with torch.no_grad():
+        batch = ids.unsqueeze(0).to(device)
+        logits = model(input_ids=batch, attention_mask=torch.ones_like(batch)).logits
+        log_probabilities = torch.log_softmax(logits.float(), dim=-1)[0]
+
+    marginals = {
+        position: {
+            residue: float(log_probabilities[offset + position, token_id])
+            for residue, token_id in residue_ids.items()
+            if token_id is not None
+        }
+        for position in positions
+    }
+    logger.info(
+        "Read %d positions of a %d-residue parent from one unmasked pass.",
+        len(positions),
+        len(parent),
+    )
+    return marginals
 
 
 def _masked_marginals(
