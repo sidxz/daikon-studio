@@ -66,6 +66,19 @@ RDKIT_DESCRIPTORS = ConditionSpec(
 )
 
 
+COUNT_FINGERPRINTS = ConditionSpec(
+    key="count_fingerprints",
+    label="Count repeated substructures",
+    type=ConditionType.BOOL,
+    default=False,
+    help=(
+        "Records how many times each substructure occurs instead of only whether it is "
+        "present. Usually a small gain, and largest where a structure repeats itself — "
+        "peptides, polymers and long chains."
+    ),
+)
+
+
 def positive_weight(y_train: np.ndarray, mode: str) -> float | None:
     """The loss weight on one binary label's positives, from its training labels only.
 

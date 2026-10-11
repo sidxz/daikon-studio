@@ -32,6 +32,7 @@ async def test_engines_are_listed_with_their_conditions(client):
         "learning_rate",
         "positive_weighting",
         "rdkit_descriptors",
+        "count_fingerprints",
     }
     depth = next(c for c in xgb["conditions"] if c["key"] == "max_depth")
     assert depth["type"] == "integer" and depth["default"] == 6

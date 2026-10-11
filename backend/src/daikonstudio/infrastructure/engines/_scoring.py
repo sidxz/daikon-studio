@@ -46,6 +46,7 @@ from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.chem.featurize import (
     DESCRIPTOR_NAMES,
     ecfp4,
+    ecfp4_counts,
     rdkit_descriptors,
 )
 from daikonstudio.infrastructure.protein.descriptors import (
@@ -383,6 +384,21 @@ def _ecfp4_with_descriptors(smiles_list: list[str]) -> np.ndarray:
 _FEATURIZERS["ecfp4+rdkit_descriptors"] = _ecfp4_with_descriptors
 _FEATURE_NAMES["ecfp4+rdkit_descriptors"] = DESCRIPTOR_NAMES
 
+
+def _counts_with_descriptors(smiles_list: list[str]) -> np.ndarray:
+    """`_ecfp4_with_descriptors` over occurrence counts rather than bits."""
+    return np.hstack(
+        [
+            ecfp4_counts(smiles_list).astype(np.float32),
+            rdkit_descriptors(smiles_list).astype(np.float32),
+        ]
+    )
+
+
+_FEATURIZERS["ecfp4_counts"] = ecfp4_counts
+_FEATURIZERS["ecfp4_counts+rdkit_descriptors"] = _counts_with_descriptors
+_FEATURE_NAMES["ecfp4_counts+rdkit_descriptors"] = DESCRIPTOR_NAMES
+
 #: The one featurizer here that reads the structure column as an amino-acid sequence
 #: rather than as SMILES. Registered by name like the others so a fitted artifact can
 #: say which representation it was trained on and `predict` can rebuild it from bytes.
@@ -450,9 +466,15 @@ def esm2_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
 
 
 def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
-    """The bundle key and featurizer an ECFP4 tree engine fits with, from its settings."""
-    key = "ecfp4+rdkit_descriptors" if conditions.get("rdkit_descriptors") else "ecfp4"
-    return key, _FEATURIZERS[key]
+    """The bundle key and featurizer an ECFP4 tree engine fits with, from its settings.
+
+    Two independent toggles, so four keys. `"ecfp4"` stays the name of the default so
+    that every artifact fitted before either toggle existed still reads back -- see
+    `bundle_features`, which writes nothing at all for it.
+    """
+    base = "ecfp4_counts" if conditions.get("count_fingerprints") else "ecfp4"
+    chosen = f"{base}+rdkit_descriptors" if conditions.get("rdkit_descriptors") else base
+    return chosen, _FEATURIZERS[chosen]
 
 
 def bundle_features(featurizer_key: str) -> dict[str, Any]:

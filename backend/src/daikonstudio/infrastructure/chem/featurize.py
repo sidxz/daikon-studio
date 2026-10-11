@@ -35,6 +35,35 @@ def ecfp4(smiles_list: list[str]) -> np.ndarray:
     return rows
 
 
+def ecfp4_counts(smiles_list: list[str]) -> np.ndarray:
+    """ECFP4 occurrence counts rather than bits. Invalid SMILES yield an all-zero row.
+
+    Beside `ecfp4`, never instead of it. A substructure occurring three times is not the
+    same molecule as one where it occurs once, and on the same leakage-aware peptide
+    benchmark counts measure +4.03 AUPRC over binary bits for ECFP (+7.00 for
+    topological torsion, +9.23 for RDKit fingerprints). Peptides are where this bites
+    hardest: a repeated residue is a repeated environment, and a bit vector flattens the
+    difference between a homopolymer and a single occurrence.
+
+    `ecfp4` stays binary because `tanimoto_gp`'s kernel needs binary input to remain
+    positive semi-definite. Swapping counts in underneath it would go on producing
+    numbers from a kernel that is no longer a valid covariance. MinMax is the PSD
+    generalisation to counts; a GP that wants them needs that kernel and an argument,
+    not this function.
+
+    uint32, not uint8: a bit vector cannot overflow but a count can, and the long
+    molecules counts exist for are exactly where it would. Wrapping at 255 would turn a
+    256-fold repeat into zero -- "absent" -- which is worse than the binary bit this
+    replaces.
+    """
+    rows = np.zeros((len(smiles_list), 2048), dtype=np.uint32)
+    for index, smiles in enumerate(smiles_list):
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is not None:
+            rows[index] = _GENERATOR.GetCountFingerprintAsNumPy(mol)
+    return rows
+
+
 def rdkit_descriptors(smiles_list: list[str]) -> np.ndarray:
     """All RDKit 2D descriptors, one row per structure. Anything unmeasurable is NaN.
 

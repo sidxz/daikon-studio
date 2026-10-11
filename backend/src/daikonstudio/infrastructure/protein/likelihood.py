@@ -39,7 +39,11 @@ import numpy as np
 
 from daikonstudio.application.data.assign_split import consensus, mutated_positions
 from daikonstudio.domain.shared.errors import ValidationError
-from daikonstudio.infrastructure.protein.embed import CHECKPOINT, MAX_RESIDUES
+from daikonstudio.infrastructure.protein.embed import (
+    CHECKPOINT,
+    MAX_RESIDUES,
+    torch_and_device,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -186,28 +190,9 @@ def _loaded_mlm() -> tuple[Any, Any, Any]:
     head on a cached download rather than a second download -- as long as `HF_HOME`
     points where that module points it, which is why the same `setdefault` runs here.
     """
-    import os
+    _torch, device = torch_and_device()
 
-    from daikonstudio.settings import Settings
-
-    os.environ.setdefault("HF_HOME", str(os.path.expanduser(Settings().pretrained_weights_dir)))
-
-    try:
-        import torch
-        from transformers import AutoModelForMaskedLM, AutoTokenizer
-    except ImportError as exc:
-        raise ValidationError(
-            "This runner does not have the GPU dependencies that ESM-2 scoring "
-            "requires. An administrator can register a runner for the 'gpu' lane on "
-            "the Runners page."
-        ) from exc
-
-    if torch.cuda.is_available():
-        device = torch.device("cuda")
-    elif torch.backends.mps.is_available():
-        device = torch.device("mps")
-    else:
-        device = torch.device("cpu")
+    from transformers import AutoModelForMaskedLM, AutoTokenizer
 
     tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT)
     model = AutoModelForMaskedLM.from_pretrained(CHECKPOINT).to(device)

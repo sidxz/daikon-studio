@@ -20,7 +20,12 @@ import numpy as np
 import polars as pl
 import pytest
 
-from daikonstudio.infrastructure.protein.embed import MAX_RESIDUES, _batches, _clean
+from daikonstudio.infrastructure.protein.embed import (
+    MAX_RESIDUES,
+    _batches,
+    _clean,
+    esm2_650m,
+)
 
 _WEIGHTS_DIR = Path(
     os.environ.get("STUDIO_PRETRAINED_WEIGHTS_DIR", "~/.cache/daikon-studio/weights")
@@ -49,14 +54,14 @@ _SEQUENCES = [
 def test_truncation_is_counted_not_silent() -> None:
     """The whole point of `_clean` returning a count: RpoB and EmbB exceed the cap, so a
     silent cut would quietly describe only part of the protein."""
-    cleaned, truncated = _clean(("M" * (MAX_RESIDUES + 500), "MAKV"))
+    cleaned, truncated, _unrepresentable = _clean(("M" * (MAX_RESIDUES + 500), "MAKV"))
     assert truncated == 1
     assert len(cleaned[0]) == MAX_RESIDUES
     assert cleaned[1] == "MAKV"
 
 
 def test_clean_normalizes_whitespace_gaps_and_case() -> None:
-    cleaned, truncated = _clean(("ma kv\n", "MA-KV", "MA.KV"))
+    cleaned, truncated, _unrepresentable = _clean(("ma kv\n", "MA-KV", "MA.KV"))
     assert cleaned == ["MAKV", "MAKV", "MAKV"]
     assert truncated == 0
 
@@ -150,3 +155,87 @@ def test_regression_trains_predicts_and_round_trips() -> None:
     assert predictions.height == 3
     assert set(predictions.columns) >= {"row_id", "value"}
     assert predictions["value"].null_count() == 0
+
+
+# --- reproducibility, measured rather than assumed ---------------------------------
+
+
+@needs_weights
+def test_embedding_is_batch_composition_stable_only_to_float32_tolerance() -> None:
+    """The guarantee this module actually has, pinned so nobody upgrades it in a comment.
+
+    A batch pads to its longest member, so the same sequence beside different neighbours
+    goes through differently shaped matmuls and the reduction order changes. `allclose`
+    holds; `array_equal` does not, and PyTorch never promised it would.
+
+    Asserting the inequality too, deliberately. If a future change DOES make this
+    bitwise stable -- embedding the whole frame once and slicing is the way -- this test
+    fails and whoever did it gets to delete the tolerance and the paragraph in
+    `esm2_650m` that explains it, rather than leaving a stale caveat behind.
+    """
+    target = "MAKVQLSRLSGEQLLDELMAKVQLSRLSGEQLLDEL"
+    neighbours = ["M" + "AKVQLSRLSGEQLLDEL" * 20] * 6
+
+    alone = esm2_650m([target])[0]
+    batched = esm2_650m([target, *neighbours])[0]
+    reordered = esm2_650m([*neighbours, target])[-1]
+
+    assert np.allclose(alone, batched, atol=1e-5)
+    assert np.allclose(alone, reordered, atol=1e-5)
+    assert not np.array_equal(alone, batched), (
+        "bitwise stability would be better than the tolerance this pins -- see docstring"
+    )
+
+
+def test_a_silent_precision_downgrade_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`DNNL_DEFAULT_FPMATH_MODE=BF16` appears in AWS's own recommended Graviton recipe,
+    and it makes every "fp32" matmul lower precision without saying so. A deployment can
+    acquire it without anyone choosing it, so the loader refuses rather than quietly
+    reporting scores computed at a precision the artifact does not record."""
+    from daikonstudio.domain.shared.errors import ValidationError
+    from daikonstudio.infrastructure.protein.embed import torch_and_device
+
+    monkeypatch.setenv("DNNL_DEFAULT_FPMATH_MODE", "BF16")
+
+    with pytest.raises(ValidationError, match="lower precision"):
+        torch_and_device()
+
+
+def test_strict_and_unset_precision_are_both_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    from daikonstudio.infrastructure.protein.embed import torch_and_device
+
+    monkeypatch.setenv("DNNL_DEFAULT_FPMATH_MODE", "strict")
+    torch_and_device()  # does not raise
+
+    monkeypatch.delenv("DNNL_DEFAULT_FPMATH_MODE")
+    torch_and_device()
+
+
+# --- residues ESM-2 cannot represent -----------------------------------------------
+
+
+def test_unrepresentable_residues_are_counted_not_silent() -> None:
+    """`*` is the one character that passes our sequence detection and still lands on
+    ESM-2's `<unk>` token: `X`, `B`, `Z`, `U` and `O` are all real tokens it was trained
+    with. Degrading one row rather than killing the fit is the right policy -- but it
+    has to be visible, exactly as truncation is, or a nonsense variant is embedded as if
+    it were an ordinary protein."""
+    cleaned, truncated, unrepresentable = _clean(("MAKV*QLSR", "MAKVQLSR", "MXBZUO"))
+
+    assert truncated == 0
+    assert unrepresentable == 1, "only the stop codon is outside ESM-2's alphabet"
+    assert cleaned[0] == "MAKV*QLSR", "counted, not rewritten -- the row still trains"
+
+
+@needs_weights
+def test_the_embeddable_alphabet_matches_the_real_tokenizer() -> None:
+    """`_EMBEDDABLE` is hardcoded so `_clean` can run without loading 2.6 GB. This is
+    what keeps it honest: every residue it claims is representable must be a real token,
+    and the one it excludes must actually be `<unk>`."""
+    from daikonstudio.infrastructure.protein.embed import _EMBEDDABLE, _loaded
+
+    tokenizer, _model, _device = _loaded()
+
+    for residue in sorted(_EMBEDDABLE):
+        assert tokenizer.convert_tokens_to_ids(residue) != tokenizer.unk_token_id, residue
+    assert tokenizer.convert_tokens_to_ids("*") == tokenizer.unk_token_id

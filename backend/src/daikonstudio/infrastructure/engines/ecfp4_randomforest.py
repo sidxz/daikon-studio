@@ -24,6 +24,7 @@ from daikonstudio.application.engines.manifest import (
     validate_conditions,
 )
 from daikonstudio.infrastructure.engines._options import (
+    COUNT_FINGERPRINTS,
     POSITIVE_WEIGHTING,
     RDKIT_DESCRIPTORS,
     positive_weight,
@@ -57,6 +58,7 @@ _MANIFEST = EngineManifest(
         ),
         POSITIVE_WEIGHTING,
         RDKIT_DESCRIPTORS,
+        COUNT_FINGERPRINTS,
     ),
     is_baseline=True,
 )

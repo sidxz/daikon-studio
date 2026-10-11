@@ -44,14 +44,22 @@ class StructureKind(StrEnum):
 
 
 def normalize_sequence(text: str) -> str:
-    """Upper-case, with whitespace and alignment gaps removed.
+    """Upper-case, with whitespace, alignment gaps and a terminal stop codon removed.
 
     All the canonicalization a sequence gets, and all it needs: unlike SMILES there is no
     choice of spelling to resolve, so the stored value stays the one the scientist
     uploaded apart from presentation. `embed.py:_clean` applies the same rules before
     embedding, so what is stored is what is featurized.
+
+    A trailing `*` goes because translated-CDS exports routinely carry one and it is not
+    part of the protein -- and because leaving it on makes a single-parent series ragged,
+    which the POSITION split and the log-likelihood feature both refuse with a message
+    about sequence lengths that sends the reader looking in the wrong place. An
+    **internal** `*` stays: a nonsense mutation is a real variant, used as a negative
+    control in deep-mutational-scanning sets, and `embed._clean` counts it as
+    unrepresentable so the `<unk>` it becomes is visible rather than silent.
     """
-    return "".join(text.split()).replace("-", "").replace(".", "").upper()
+    return "".join(text.split()).replace("-", "").replace(".", "").upper().rstrip("*")
 
 
 def looks_like_sequence(text: str) -> bool:

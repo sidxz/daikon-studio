@@ -139,3 +139,19 @@ def test_a_scaffold_split_is_refused_on_sequences():
 )
 def test_the_sensible_combinations_are_allowed(strategy: SplitStrategy, kind: StructureKind):
     assert _split_kind_error(strategy, kind) is None
+
+
+def test_a_terminal_stop_codon_is_dropped() -> None:
+    """Translated-CDS exports routinely end in `*`. It is not part of the protein, and
+    leaving it on makes a single-parent series ragged -- which the POSITION split and the
+    log-likelihood feature both refuse, with a message about lengths that would send the
+    scientist looking in the wrong place."""
+    assert normalize_sequence("MAKVQLSRLSGEQLLDEL*") == "MAKVQLSRLSGEQLLDEL"
+    assert normalize_sequence("MAKVQLSRLSGEQLLDEL**") == "MAKVQLSRLSGEQLLDEL"
+
+
+def test_an_internal_stop_codon_is_kept() -> None:
+    """A nonsense mutation is a real variant and deep-mutational-scanning sets use them
+    as negative controls, so this is data rather than noise. It stays, and `embed._clean`
+    counts it as unrepresentable so the `<unk>` it becomes is visible."""
+    assert normalize_sequence("MAKV*QLSRLSGEQLLDEL") == "MAKV*QLSRLSGEQLLDEL"
