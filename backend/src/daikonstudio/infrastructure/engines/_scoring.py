@@ -57,6 +57,8 @@ from daikonstudio.infrastructure.protein.descriptors import (
     protein_descriptors,
 )
 from daikonstudio.infrastructure.protein.embed import (
+    DEFAULT_VARIANT,
+    PROTEIN_MODELS,
     aligned_parent,
     esm2_650m,
     esm2_with_sites,
@@ -421,9 +423,9 @@ _FEATURIZERS[PROTEIN_DESCRIPTOR_FEATURIZER] = protein_descriptors
 _FEATURE_NAMES[PROTEIN_DESCRIPTOR_FEATURIZER] = PROTEIN_DESCRIPTOR_NAMES
 
 ESM2_FEATURIZER = "esm2-650m"
-_FEATURIZERS[ESM2_FEATURIZER] = esm2_650m
-# No entry in `_FEATURE_NAMES`: the 1280 embedding dimensions have no names that could
-# drift, exactly as ECFP4's hashed bits have none. Width is asserted at the forward pass.
+# No entry in `_FEATURE_NAMES`: the embedding dimensions have no names that could drift,
+# exactly as ECFP4's hashed bits have none. Width is asserted at the forward pass, and it
+# differs per variant -- `esm2-150m` is 640 wide, not 1280.
 
 
 def _sequences(sequence_list: list[str]) -> np.ndarray:
@@ -447,30 +449,55 @@ ESM2_SITE_FEATURIZER = "esm2-650m+site"
 ESM2_SITE_LLR_FEATURIZER = "esm2-650m+site+llr"
 
 #: The representations scored against a reference sequence, and how to bind one to its
-#: parent. A plain embedding describes a sequence; these three describe a *substitution*,
-#: so they are a function of the row **and** the parent -- and the parent belongs to the
-#: fit, not to whichever list reaches the featurizer. See `embed.aligned_parent` for what
+#: parent. A plain embedding describes a sequence; these describe a *substitution*, so
+#: they are a function of the row **and** the parent -- and the parent belongs to the fit,
+#: not to whichever list reaches the featurizer. See `embed.aligned_parent` for what
 #: inferring it per call costs: a single-row predict frame elects its own variant as the
 #: parent and reports zero mutations against a model fitted on real ones.
-_PARENT_SCORED: dict[str, Callable[[str | None], Featurizer]] = {
-    ESM2_LLR_FEATURIZER: lambda parent: (
-        lambda sequences: np.hstack([esm2_650m(sequences), esm2_llr(sequences, parent)]).astype(
-            np.float32
-        )
-    ),
-    ESM2_SITE_FEATURIZER: lambda parent: lambda sequences: esm2_with_sites(sequences, parent),
-    ESM2_SITE_LLR_FEATURIZER: lambda parent: (
+_PARENT_SCORED: dict[str, Callable[[str | None], Featurizer]] = {}
+
+
+def _register_protein_featurizers(model: str) -> None:
+    """The four representations one set of ESM-2 weights offers, under keys that name it.
+
+    A key is `{weights}`, optionally `+site`, optionally `+llr`, and it has to determine
+    the representation completely, because `_load_bundle` rebuilds a stored model's input
+    from that string alone. `esm2-650m` and its three suffixes therefore keep their exact
+    spellings now that they are one variant among several -- every artifact fitted before
+    the others existed names itself that way.
+    """
+
+    def pooled(sequences: list[str]) -> np.ndarray:
+        return esm2_650m(sequences, model)
+
+    def sites(sequences: list[str]) -> np.ndarray:
+        return esm2_with_sites(sequences, None, model)
+
+    _FEATURIZERS[model] = pooled
+    _FEATURIZERS[f"{model}+site"] = sites
+    _PARENT_SCORED[f"{model}+llr"] = lambda parent: (
         lambda sequences: np.hstack(
-            [esm2_with_sites(sequences, parent), esm2_llr(sequences, parent)]
+            [esm2_650m(sequences, model), esm2_llr(sequences, parent, model)]
         ).astype(np.float32)
-    ),
-}
+    )
+    _PARENT_SCORED[f"{model}+site"] = lambda parent: (
+        lambda sequences: esm2_with_sites(sequences, parent, model)
+    )
+    _PARENT_SCORED[f"{model}+site+llr"] = lambda parent: (
+        lambda sequences: np.hstack(
+            [esm2_with_sites(sequences, parent, model), esm2_llr(sequences, parent, model)]
+        ).astype(np.float32)
+    )
+
+
+for _model in PROTEIN_MODELS:
+    _register_protein_featurizers(_model)
 
 # Registered unbound too, so `_FEATURIZERS` stays the single list of known
 # representations and an unknown bundle key still raises a KeyError rather than
 # featurizing as something else.
 for _bundle_key, _bind in _PARENT_SCORED.items():
-    _FEATURIZERS[_bundle_key] = _bind(None)
+    _FEATURIZERS.setdefault(_bundle_key, _bind(None))
 
 
 def esm2_featurizer(
@@ -478,9 +505,9 @@ def esm2_featurizer(
 ) -> tuple[str, Featurizer, str | None]:
     """The bundle key, featurizer and recorded parent the ESM-2 engine fits with.
 
-    Two independent toggles, so four keys, composed the way `tree_featurizer` composes
-    its own -- and `"esm2-650m"` and `"esm2-650m+llr"` keep their exact spellings so that
-    every artifact fitted before the site block existed still reads back.
+    A choice of weights and two independent toggles, composed the way `tree_featurizer`
+    composes its own -- and `"esm2-650m"` and `"esm2-650m+llr"` keep their exact
+    spellings, so every artifact fitted before either existed still reads back.
 
     `sequences` is the column of the **whole frame this fit sees** -- every partition of
     it, not just the training one. Under `FanOut` that is the target-filtered frame, and
@@ -493,7 +520,9 @@ def esm2_featurizer(
     The local is not called `key`: `key = <UPPERCASE_CONSTANT>` is exactly the shape
     gitleaks' generic-api-key rule looks for, and the pre-commit hook rejected it.
     """
-    chosen = ESM2_SITE_FEATURIZER if conditions.get("site_features") else ESM2_FEATURIZER
+    chosen = str(conditions.get("protein_model") or DEFAULT_VARIANT)
+    if conditions.get("site_features"):
+        chosen = f"{chosen}+site"
     if conditions.get("likelihood_feature"):
         chosen = f"{chosen}+llr"
     bind = _PARENT_SCORED.get(chosen)

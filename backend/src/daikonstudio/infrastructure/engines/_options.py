@@ -13,6 +13,31 @@ import sys
 import numpy as np
 
 from daikonstudio.application.engines.manifest import ConditionSpec, ConditionType, TaskType
+from daikonstudio.infrastructure.protein.embed import (
+    DEFAULT_VARIANT,
+    PROTEIN_MODEL_LABELS,
+    PROTEIN_MODELS,
+)
+
+PROTEIN_MODEL = ConditionSpec(
+    key="protein_model",
+    label="Protein model",
+    type=ConditionType.ENUM,
+    default=DEFAULT_VARIANT,
+    options=PROTEIN_MODELS,
+    option_labels=PROTEIN_MODEL_LABELS,
+    help=(
+        "Which pretrained protein model reads the sequences. ESM-2 650M is the "
+        "best-established choice and the default. VESM2 650M is the same model with "
+        "published refinements aimed specifically at judging single substitutions, so it "
+        "is worth trying when the dataset is variants of one protein. ESM-2 150M is "
+        "about four times faster and uses far less memory, at a cost that depends on the "
+        "split: close to nothing when the test sequences resemble the training ones, but "
+        "measurably worse -- up to 0.16 in rank correlation -- when they do not, which "
+        "is exactly what a grouped or held-out-position split is for. Prefer the larger "
+        "model whenever the split is a hard one."
+    ),
+)
 
 POSITIVE_WEIGHTING = ConditionSpec(
     key="positive_weighting",

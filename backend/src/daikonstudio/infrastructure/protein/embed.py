@@ -33,6 +33,7 @@ Deliberately not here yet:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any
 
@@ -50,8 +51,71 @@ logger = logging.getLogger(__name__)
 #: `trust_remote_code`.
 CHECKPOINT = "facebook/esm2_t33_650M_UR50D"
 
-#: Embedding width, asserted after the first forward pass rather than trusted.
+#: Embedding width of `CHECKPOINT`, asserted after the forward pass rather than trusted.
+#: Per-variant widths live on `Variant.dim`; this is the default's, kept as a module
+#: constant because `SITE_DIM` and a good deal of test arithmetic are written against it.
 DIM = 1280
+
+
+@dataclass(frozen=True)
+class Variant:
+    """One set of weights this module can embed and score with.
+
+    Three fields rather than a bare checkpoint string, because the two additions to the
+    roster differ along two independent axes. A smaller ESM-2 is a *different checkpoint
+    with a different width*; VESM2 is the *same checkpoint with weights laid over it*.
+    Collapsing either into the other loses the distinction that matters at load time.
+    """
+
+    #: The `transformers` architecture and the base weights, from the Hub.
+    checkpoint: str
+    #: Embedding width. Asserted against the real forward pass, never trusted.
+    dim: int
+    #: What the engine picker calls it.
+    label: str
+    #: A `_pretrained.WEIGHT_SETS` name whose partial state dict is laid over the base
+    #: weights, or `None` to use them as published.
+    overlay: str | None = None
+
+
+#: The default, and the only one the engines offered before the others existed.
+DEFAULT_VARIANT = "esm2-650m"
+
+VARIANTS: dict[str, Variant] = {
+    DEFAULT_VARIANT: Variant(checkpoint=CHECKPOINT, dim=DIM, label="ESM-2 650M"),
+    # VESM2: ESM-2 650M with a co-distilled partial state dict laid over it. Same
+    # architecture, same width, same 1022-residue ceiling, so it costs no new code path
+    # -- and MIT, per the model card's body. Its published advantage is on *variant
+    # effect* benchmarks, which are zero-shot log-likelihood-ratio tasks, so the honest
+    # expectation is a better LLR rather than better embeddings; the embedding side is
+    # unmeasured either way. VESM3 is ESM3-derived and non-commercial -- excluded.
+    "vesm2-650m": Variant(
+        checkpoint=CHECKPOINT, dim=DIM, label="VESM2 650M", overlay="VESM2-650M"
+    ),
+    # 150M rather than 35M or 8M as the small option. The price of shrinking is not
+    # uniform: under a leakage-aware split, 650M -> 8M costs about 0.02 Spearman on
+    # thermostability but up to 0.16 on hard fitness extrapolation -- nearly free when
+    # the model interpolates and expensive exactly when the user extrapolates. 150M
+    # keeps most of the speed and much less of that risk.
+    "esm2-150m": Variant(
+        checkpoint="facebook/esm2_t30_150M_UR50D", dim=640, label="ESM-2 150M (faster)"
+    ),
+}
+
+#: The variant names, in the order an engine offers them.
+PROTEIN_MODELS: tuple[str, ...] = tuple(VARIANTS)
+PROTEIN_MODEL_LABELS: tuple[str, ...] = tuple(one.label for one in VARIANTS.values())
+
+
+def variant(name: str) -> Variant:
+    """The named weight set, or a refusal naming the ones that exist."""
+    try:
+        return VARIANTS[name]
+    except KeyError:
+        raise ValidationError(
+            f"Unknown protein model '{name}'. Available: {', '.join(sorted(VARIANTS))}."
+        ) from None
+
 
 #: ESM-2 has 1026 position embeddings, two of which are the start and end tokens, so
 #: 1022 residues is the real ceiling. Sequences longer than this are truncated and
@@ -68,7 +132,7 @@ MAX_RESIDUES = 1022
 _TOKEN_BUDGET = 16384
 
 
-def esm2_650m(sequences: list[str]) -> np.ndarray:
+def esm2_650m(sequences: list[str], model: str = DEFAULT_VARIANT) -> np.ndarray:
     """Mean-pooled last-hidden-state embeddings, one row per input, aligned with it.
 
     Shape `(len(sequences), DIM)`, float32.
@@ -102,11 +166,11 @@ def esm2_650m(sequences: list[str]) -> np.ndarray:
     Until then, treat equality here as `allclose`, never `array_equal`, and see
     `tests/unit/engines/test_esm2_xgboost.py` for the test that pins it.
     """
-    return _embed(tuple(sequences))
+    return _embed(tuple(sequences), model)
 
 
 @lru_cache(maxsize=6)
-def _embed(sequences: tuple[str, ...]) -> np.ndarray:
+def _embed(sequences: tuple[str, ...], model_name: str = DEFAULT_VARIANT) -> np.ndarray:
     """Cached on the exact input tuple, because the callers repeat themselves.
 
     One fit featurizes the train, validation and test partitions separately, and
@@ -130,8 +194,9 @@ def _embed(sequences: tuple[str, ...]) -> np.ndarray:
     """
     import torch
 
+    width = variant(model_name).dim
     if not sequences:
-        return np.zeros((0, DIM), dtype=np.float32)
+        return np.zeros((0, width), dtype=np.float32)
 
     cleaned, truncated, unrepresentable = _clean(sequences)
     if truncated:
@@ -152,13 +217,13 @@ def _embed(sequences: tuple[str, ...]) -> np.ndarray:
             len(sequences),
         )
 
-    tokenizer, model, device = _loaded()
+    tokenizer, model, device = _loaded(model_name)
 
     # Longest first, so a batch's padding is set by sequences of similar length and the
     # first batch is the one most likely to run out of memory -- better to fail in the
     # first second than forty minutes in.
     order = sorted(range(len(cleaned)), key=lambda i: len(cleaned[i]), reverse=True)
-    out = np.zeros((len(cleaned), DIM), dtype=np.float32)
+    out = np.zeros((len(cleaned), width), dtype=np.float32)
 
     with torch.no_grad():
         for batch in _batches(cleaned, order):
@@ -174,10 +239,10 @@ def _embed(sequences: tuple[str, ...]) -> np.ndarray:
 
             mask = encoded["attention_mask"] * (1 - special.to(device))
             vectors = _pool(hidden, mask).cpu().numpy()
-            if vectors.shape[1] != DIM:
+            if vectors.shape[1] != width:
                 raise AssertionError(
-                    f"{CHECKPOINT} returned {vectors.shape[1]}-dimensional embeddings, "
-                    f"not the expected {DIM}."
+                    f"{model_name} returned {vectors.shape[1]}-dimensional embeddings, "
+                    f"not the expected {width}."
                 )
             for row, index in enumerate(batch):
                 out[index] = vectors[row]
@@ -263,7 +328,14 @@ def _clean(sequences: tuple[str, ...]) -> tuple[list[str], int, int]:
 SITE_DIM = 3 * DIM + 2
 
 
-def esm2_with_sites(sequences: list[str], parent: str | None = None) -> np.ndarray:
+def site_dim(model: str = DEFAULT_VARIANT) -> int:
+    """`SITE_DIM` for a variant: three embeddings wide plus the two site scalars."""
+    return 3 * variant(model).dim + 2
+
+
+def esm2_with_sites(
+    sequences: list[str], parent: str | None = None, model: str = DEFAULT_VARIANT
+) -> np.ndarray:
     """Embeddings that say *where* the change is, not only that there was one.
 
     Shape `(len(sequences), SITE_DIM)`, float32: the mean-pooled embedding this module
@@ -297,13 +369,15 @@ def esm2_with_sites(sequences: list[str], parent: str | None = None) -> np.ndarr
     per call is wrong in every path that matters.
     """
     if not sequences:
-        return np.zeros((0, SITE_DIM), dtype=np.float32)
+        return np.zeros((0, site_dim(model)), dtype=np.float32)
     normalized, reference = aligned_parent(sequences, parent)
-    return _site_features(tuple(normalized), reference)
+    return _site_features(tuple(normalized), reference, model)
 
 
 @lru_cache(maxsize=4)
-def _site_features(sequences: tuple[str, ...], parent: str) -> np.ndarray:
+def _site_features(
+    sequences: tuple[str, ...], parent: str, model_name: str = DEFAULT_VARIANT
+) -> np.ndarray:
     """Cached on the exact input, like `_embed`, and for the same repeated callers.
 
     Pooling happens here rather than through `esm2_650m` so that the whole feature block
@@ -320,7 +394,8 @@ def _site_features(sequences: tuple[str, ...], parent: str) -> np.ndarray:
     """
     import torch
 
-    tokenizer, model, device = _loaded()
+    width = variant(model_name).dim
+    tokenizer, model, device = _loaded(model_name)
 
     # Mutated positions come from the residues as given, so a stop codon still reads as
     # the mutation it is; the forward pass gets the X-substituted copy, so that every
@@ -341,7 +416,7 @@ def _site_features(sequences: tuple[str, ...], parent: str) -> np.ndarray:
         )
 
     parent_ids, offset = residue_token_offset(tokenizer, as_embeddable(parent)[0])
-    out = np.zeros((len(sequences), SITE_DIM), dtype=np.float32)
+    out = np.zeros((len(sequences), 3 * width + 2), dtype=np.float32)
 
     # All one length, so the budget divides evenly and no length sort is needed -- the
     # same simplification `likelihood._masked_marginals` gets from an aligned series.
@@ -351,10 +426,10 @@ def _site_features(sequences: tuple[str, ...], parent: str) -> np.ndarray:
         parent_hidden = model(
             input_ids=parent_input, attention_mask=torch.ones_like(parent_input)
         ).last_hidden_state[0]
-        if parent_hidden.shape[-1] != DIM:
+        if parent_hidden.shape[-1] != width:
             raise AssertionError(
-                f"{CHECKPOINT} returned {parent_hidden.shape[-1]}-dimensional "
-                f"embeddings, not the expected {DIM}."
+                f"{model_name} returned {parent_hidden.shape[-1]}-dimensional "
+                f"embeddings, not the expected {width}."
             )
         parent_states = parent_hidden.to(torch.float32).cpu().numpy()
 
@@ -391,16 +466,16 @@ def _site_features(sequences: tuple[str, ...], parent: str) -> np.ndarray:
 
             for index in range(len(chunk)):
                 row = start + index
-                out[row, :DIM] = pooled_rows[index]
+                out[row, :width] = pooled_rows[index]
                 positions = sites[row]
                 if not positions:
                     continue
                 tokens = [offset + position for position in positions]
                 at_site = states[index, tokens]
-                out[row, DIM : 2 * DIM] = at_site.mean(axis=0)
-                out[row, 2 * DIM : 3 * DIM] = (at_site - parent_states[tokens]).mean(axis=0)
-                out[row, 3 * DIM] = sum(positions) / len(positions) / len(parent)
-                out[row, 3 * DIM + 1] = len(positions)
+                out[row, width : 2 * width] = at_site.mean(axis=0)
+                out[row, 2 * width : 3 * width] = (at_site - parent_states[tokens]).mean(axis=0)
+                out[row, 3 * width] = sum(positions) / len(positions) / len(parent)
+                out[row, 3 * width + 1] = len(positions)
 
     logger.info(
         "Embedded %d sequences with site features against a %d-residue parent.",
@@ -519,27 +594,99 @@ def _batches(cleaned: list[str], order: list[int]) -> list[list[int]]:
     return batches
 
 
-@lru_cache(maxsize=1)
-def _loaded() -> tuple[Any, Any, Any]:
-    """Tokenizer, model and device, built once per process.
+def overlay_state_dict(name: str) -> dict[str, Any]:
+    """The partial state dict for an overlay weight set, keyed as its publisher keys it.
 
-    `transformers` caches the weights on disk itself, so there is nothing for
-    `_pretrained.py` to do here -- that module exists for checksummed URL downloads, and
-    ESM-2 comes off the Hub as a first-class architecture.
+    `weights_only=True`, and not as a formality: these are `.pth` pickles from the Hub,
+    so loading one without it executes whatever the file says to execute. The checksum in
+    `_pretrained.WEIGHT_SETS` is the other half of that trust boundary.
+    """
+    import torch
+
+    from daikonstudio.infrastructure.engines._pretrained import weights_path
+    from daikonstudio.settings import Settings
+
+    path = weights_path(name, Settings().pretrained_weights_dir)
+    loaded: dict[str, Any] = torch.load(path, weights_only=True, map_location="cpu")
+    return loaded
+
+
+#: The prefix an `EsmForMaskedLM` state dict puts on the keys of the `EsmModel` inside it.
+_MLM_PREFIX = "esm."
+
+
+def apply_overlay(model: Any, state: dict[str, Any], *, for_masked_lm: bool) -> int:
+    """Lay a published partial state dict over `model`; return how many tensors landed.
+
+    **Returning the count is the point, and the caller must check it.** VESM2 publishes an
+    `EsmForMaskedLM` state dict -- every key prefixed `esm.` or `lm_head.` -- while the
+    embedding path loads an `EsmModel`, whose keys carry neither. `load_state_dict(...,
+    strict=False)` is therefore not a tolerant load here, it is a silent no-op: measured
+    on `VESM_650M.pth`, 87 of 87 keys match `EsmForMaskedLM`, **0 of 87** match `EsmModel`
+    as published, and 81 of 81 match it once the prefix is stripped. A no-op returns stock
+    ESM-2 embeddings from an engine the user selected a different model on, with nothing
+    anywhere saying so.
+
+    Partial is expected rather than tolerated: `VESM_650M.pth` is 100M parameters against
+    the base model's 652M, because it overrides the embeddings, the top encoder layers and
+    the head and leaves the rest of the tower alone.
+    """
+    if not for_masked_lm:
+        state = {
+            name[len(_MLM_PREFIX) :]: tensor
+            for name, tensor in state.items()
+            if name.startswith(_MLM_PREFIX)
+        }
+    known = set(model.state_dict())
+    landed = {name: tensor for name, tensor in state.items() if name in known}
+    model.load_state_dict(landed, strict=False)
+    return len(landed)
+
+
+def _overlaid(model: Any, chosen: Variant, name: str, *, for_masked_lm: bool) -> Any:
+    """`model` with `chosen`'s overlay applied, or a refusal if none of it applied."""
+    if chosen.overlay is None:
+        return model
+    landed = apply_overlay(model, overlay_state_dict(chosen.overlay), for_masked_lm=for_masked_lm)
+    if landed == 0:
+        raise ValidationError(
+            f"None of the weights published for '{name}' matched the model they are "
+            f"meant to override, so the fit would silently have used stock "
+            f"{chosen.checkpoint}. This is a packaging mismatch rather than anything a "
+            f"scientist can fix by changing settings."
+        )
+    logger.info("Laid %d tensors from %s over %s.", landed, chosen.overlay, chosen.checkpoint)
+    return model
+
+
+@lru_cache(maxsize=1)
+def _loaded(name: str = DEFAULT_VARIANT) -> tuple[Any, Any, Any]:
+    """Tokenizer, model and device for one variant, built once per process.
+
+    `transformers` caches the base weights on disk itself, so there is nothing for
+    `_pretrained.py` to do for those -- that module exists for checksummed URL downloads,
+    and ESM-2 comes off the Hub as a first-class architecture. An *overlay* does come
+    through `_pretrained`, because it is a `.pth` fetched by URL and a checksum is the
+    only thing standing between it and `torch.load`.
+
+    `maxsize=1`, so selecting a different variant evicts the last. Deliberate: each entry
+    is 0.6-2.6 GB of weights, and one fit uses one variant.
 
     No revision pin, unlike `molformer_xl.py`. That pin exists because MoLFormer needs
     `trust_remote_code=True` and therefore executes Python fetched from the Hub, which
     must be the code that was reviewed. ESM-2 executes nothing: the architecture ships
     inside `transformers`, so only the weights come over the wire.
     """
+    chosen = variant(name)
     _torch, device = torch_and_device()
 
     from transformers import AutoModel, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT)
-    model = AutoModel.from_pretrained(CHECKPOINT).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(chosen.checkpoint)
+    model = AutoModel.from_pretrained(chosen.checkpoint)
+    model = _overlaid(model, chosen, name, for_masked_lm=False).to(device)
     model.eval()
-    logger.info("Loaded %s on %s for embedding.", CHECKPOINT, device)
+    logger.info("Loaded %s (%s) on %s for embedding.", name, chosen.checkpoint, device)
     return tokenizer, model, device
 
 

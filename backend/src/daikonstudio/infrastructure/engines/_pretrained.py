@@ -44,6 +44,16 @@ WEIGHT_SETS: dict[str, WeightSet] = {
         md5="6a80b54fdb7de37ef0374d302f01e8ce",
         filename="chemeleon_mp.pt",
     ),
+    # VESM2 650M: a 100M-parameter partial `EsmForMaskedLM` state dict laid over stock
+    # ESM-2 650M. MIT, but note the Hub repo carries **no licence tag and no LICENSE
+    # file** -- the grant is in the model card's body only, so a future reader checking
+    # the repo metadata will find nothing. VESM3 in the same repo is ESM3-derived and
+    # non-commercial; it is deliberately absent here.
+    "VESM2-650M": WeightSet(
+        url="https://huggingface.co/ntranoslab/vesm/resolve/main/VESM_650M.pth",
+        md5="4002cc3e6709c65b6a0ceb72269dc522",
+        filename="VESM_650M.pth",
+    ),
 }
 
 

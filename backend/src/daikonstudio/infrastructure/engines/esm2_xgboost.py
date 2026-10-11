@@ -45,7 +45,11 @@ from daikonstudio.application.engines.manifest import (
     validate_conditions,
 )
 from daikonstudio.domain.data.structure_kind import StructureKind
-from daikonstudio.infrastructure.engines._options import POSITIVE_WEIGHTING, positive_weight
+from daikonstudio.infrastructure.engines._options import (
+    POSITIVE_WEIGHTING,
+    PROTEIN_MODEL,
+    positive_weight,
+)
 from daikonstudio.infrastructure.engines._scoring import (
     _predict_with_tree_ensemble,
     _scored,
@@ -96,6 +100,7 @@ _MANIFEST = EngineManifest(
             help="How much each boosting round is allowed to correct the last. Lower "
             "values need more rounds but usually generalize better.",
         ),
+        PROTEIN_MODEL,
         ConditionSpec(
             key="site_features",
             label="Tell the model where each mutation is",

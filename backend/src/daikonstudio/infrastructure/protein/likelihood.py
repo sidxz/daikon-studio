@@ -39,10 +39,12 @@ import numpy as np
 
 from daikonstudio.application.data.assign_split import mutated_positions
 from daikonstudio.infrastructure.protein.embed import (
-    CHECKPOINT,
+    DEFAULT_VARIANT,
+    _overlaid,
     aligned_parent,
     residue_token_offset,
     torch_and_device,
+    variant,
 )
 
 logger = logging.getLogger(__name__)
@@ -55,7 +57,9 @@ logger = logging.getLogger(__name__)
 _RESIDUES = "ACDEFGHIKLMNPQRSTVWY"
 
 
-def esm2_llr(sequences: list[str], parent: str | None = None) -> np.ndarray:
+def esm2_llr(
+    sequences: list[str], parent: str | None = None, model: str = DEFAULT_VARIANT
+) -> np.ndarray:
     """One column: each variant's masked-marginal LLR against the series' parent.
 
     Shape `(len(sequences), 1)`, float32, so it concatenates onto any feature matrix.
@@ -74,7 +78,7 @@ def esm2_llr(sequences: list[str], parent: str | None = None) -> np.ndarray:
     positions = sorted(
         {position for sequence in sequences for position in mutated_positions(sequence, parent)}
     )
-    return _llr_from_logprobs(sequences, parent, _masked_marginals(parent, positions))
+    return _llr_from_logprobs(sequences, parent, _masked_marginals(parent, positions, model))
 
 
 def _llr_from_logprobs(
@@ -107,7 +111,9 @@ def _llr_from_logprobs(
     return scores
 
 
-def _masked_marginals(parent: str, positions: list[int]) -> dict[int, dict[str, float]]:
+def _masked_marginals(
+    parent: str, positions: list[int], model_name: str = DEFAULT_VARIANT
+) -> dict[int, dict[str, float]]:
     """`{position: {residue: log p(residue | parent with that position masked)}}`.
 
     One forward pass per position, batched. The masked copies are all the same length as
@@ -119,7 +125,7 @@ def _masked_marginals(parent: str, positions: list[int]) -> dict[int, dict[str, 
 
     import torch
 
-    tokenizer, model, device = _loaded_mlm()
+    tokenizer, model, device = _loaded_mlm(model_name)
     mask_id = tokenizer.mask_token_id
     residue_ids = {residue: tokenizer.convert_tokens_to_ids(residue) for residue in _RESIDUES}
 
@@ -155,7 +161,7 @@ _TOKEN_BUDGET = 16384
 
 
 @lru_cache(maxsize=1)
-def _loaded_mlm() -> tuple[Any, Any, Any]:
+def _loaded_mlm(name: str = DEFAULT_VARIANT) -> tuple[Any, Any, Any]:
     """Tokenizer, masked-LM model and device, built once per process.
 
     `AutoModelForMaskedLM`, not `AutoModel`: the plain class drops `lm_head`, which is
@@ -167,12 +173,18 @@ def _loaded_mlm() -> tuple[Any, Any, Any]:
     head on a cached download rather than a second download -- as long as `HF_HOME`
     points where that module points it, which is why the same `setdefault` runs here.
     """
+    chosen = variant(name)
     _torch, device = torch_and_device()
 
     from transformers import AutoModelForMaskedLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(CHECKPOINT)
-    model = AutoModelForMaskedLM.from_pretrained(CHECKPOINT).to(device)
+    tokenizer = AutoTokenizer.from_pretrained(chosen.checkpoint)
+    model = AutoModelForMaskedLM.from_pretrained(chosen.checkpoint)
+    # `for_masked_lm=True`: a published overlay is keyed for this class, so here the
+    # keys land as-is. The embedding path has to strip a prefix; see `apply_overlay`.
+    model = _overlaid(model, chosen, name, for_masked_lm=True).to(device)
     model.eval()
-    logger.info("Loaded %s on %s for masked-marginal scoring.", CHECKPOINT, device)
+    logger.info(
+        "Loaded %s (%s) on %s for masked-marginal scoring.", name, chosen.checkpoint, device
+    )
     return tokenizer, model, device
