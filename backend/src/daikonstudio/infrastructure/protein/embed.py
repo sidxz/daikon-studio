@@ -85,10 +85,23 @@ VARIANTS: dict[str, Variant] = {
     DEFAULT_VARIANT: Variant(checkpoint=CHECKPOINT, dim=DIM, label="ESM-2 650M"),
     # VESM2: ESM-2 650M with a co-distilled partial state dict laid over it. Same
     # architecture, same width, same 1022-residue ceiling, so it costs no new code path
-    # -- and MIT, per the model card's body. Its published advantage is on *variant
-    # effect* benchmarks, which are zero-shot log-likelihood-ratio tasks, so the honest
-    # expectation is a better LLR rather than better embeddings; the embedding side is
-    # unmeasured either way. VESM3 is ESM3-derived and non-commercial -- excluded.
+    # -- and MIT, per the model card's body.
+    #
+    # **Measured on the TEM-1 pilot, and it splits the opposite way to the prediction.**
+    # Under the position holdout, as an embedding it is clearly better than stock ESM-2
+    # (0.6928 Spearman / 0.4725 r2 against 0.6575 / 0.4195) -- but *its own* LLR is
+    # worse: adding it drops VESM2 to 0.6860 / 0.4483, where ESM-2's LLR lifts ESM-2 to
+    # 0.7100 / 0.4866. The expectation going in, from the published benchmarks being
+    # variant-effect ones, was precisely the reverse.
+    #
+    # The likely cause is a scoring-protocol mismatch, and it is actionable. VESM's own
+    # released code reads log-likelihood ratios off the logits of the **unmasked**
+    # sequence -- wt-marginals -- while `likelihood.py` masks each position in turn and
+    # reads masked marginals. Their weights were distilled under their protocol. So the
+    # honest reading is "VESM2 is a better featurizer here, and we are scoring its head
+    # the wrong way", not "VESM2 is worse". One split draw, no paired test.
+    #
+    # VESM3 is ESM3-derived and non-commercial -- excluded.
     "vesm2-650m": Variant(
         checkpoint=CHECKPOINT, dim=DIM, label="VESM2 650M", overlay="VESM2-650M"
     ),

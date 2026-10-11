@@ -29,8 +29,10 @@ PROTEIN_MODEL = ConditionSpec(
     help=(
         "Which pretrained protein model reads the sequences. ESM-2 650M is the "
         "best-established choice and the default. VESM2 650M is the same model with "
-        "published refinements aimed specifically at judging single substitutions, so it "
-        "is worth trying when the dataset is variants of one protein. ESM-2 150M is "
+        "published refinements aimed at judging single substitutions. On the one dataset "
+        "we have measured ourselves it read sequences better than ESM-2 did, but it did "
+        "worse when also asked for its opinion of each substitution, so prefer it with "
+        "that setting off. ESM-2 150M is "
         "about four times faster and uses far less memory, at a cost that depends on the "
         "split: close to nothing when the test sequences resemble the training ones, but "
         "measurably worse -- up to 0.16 in rank correlation -- when they do not, which "
