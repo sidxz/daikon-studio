@@ -435,7 +435,7 @@ def _variants(
 
     # The parent is the per-position modal residue, with the tie broken on the residue
     # letter so the consensus is a pure function of the data and not of row order --
-    # the same rule `assign_split._consensus` uses, and for the same reason.
+    # the same rule `assign_split.consensus` uses, and for the same reason.
     columns = list(zip(*sequences, strict=True))
     consensus = "".join(
         max(set(column), key=lambda residue: (column.count(residue), residue))

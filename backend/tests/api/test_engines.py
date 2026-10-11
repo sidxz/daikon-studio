@@ -22,6 +22,7 @@ async def test_engines_are_listed_with_their_conditions(client):
         "molformer-xl",
         "esm2-xgboost",
         "protein-descriptors-randomforest",
+        "site-mean-fitness",
     }
     xgb = next(e for e in engines if e["id"] == "ecfp4-xgboost")
     keys = {c["key"] for c in xgb["conditions"]}

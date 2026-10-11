@@ -402,6 +402,22 @@ _FEATURIZERS[ESM2_FEATURIZER] = esm2_650m
 # drift, exactly as ECFP4's hashed bits have none. Width is asserted at the forward pass.
 
 
+def _sequences(sequence_list: list[str]) -> np.ndarray:
+    """The structures themselves, unchanged, as an object array.
+
+    The identity featurizer, for a model that reads the sequence rather than a vector
+    derived from it -- `site_mean_fitness` compares each sequence to its parent, so
+    featurizing first would throw away the only thing it needs. It is a real entry in
+    this registry rather than a special case in the predict path, so such a model
+    round-trips through `_load_bundle` with every other engine.
+    """
+    return np.array(sequence_list, dtype=object)
+
+
+SEQUENCE_FEATURIZER = "sequences"
+_FEATURIZERS[SEQUENCE_FEATURIZER] = _sequences
+
+
 def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
     """The bundle key and featurizer an ECFP4 tree engine fits with, from its settings."""
     key = "ecfp4+rdkit_descriptors" if conditions.get("rdkit_descriptors") else "ecfp4"

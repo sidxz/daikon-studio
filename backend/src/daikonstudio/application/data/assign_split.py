@@ -404,18 +404,11 @@ def _position_labels(
             f"different proteins, or align the series to a common parent first."
         )
 
-    consensus = _consensus(sequences)
+    parent = consensus(sequences)
     # ponytail: O(rows x residues) char comparison in Python -- ~10M compares at the
     # 33k x 300 shape measured in `infrastructure/protein/cluster.py`, a few seconds
     # once per dataset build. Vectorize with numpy if a series an order larger shows up.
-    mutated = [
-        frozenset(
-            index
-            for index, (residue, parent) in enumerate(zip(sequence, consensus, strict=True))
-            if residue != parent
-        )
-        for sequence in sequences
-    ]
+    mutated = [mutated_positions(sequence, parent) for sequence in sequences]
     component_of = _co_mutation_components(mutated)
     group_keys = [
         f"position-component-{component_of[min(positions)]}"
@@ -440,7 +433,23 @@ def _position_labels(
     return _grouped_labels(group_keys, spec, describe_dominant)
 
 
-def _consensus(sequences: list[str]) -> str:
+def mutated_positions(sequence: str, parent: str) -> frozenset[int]:
+    """The indices where `sequence` differs from `parent`; empty for the wild type.
+
+    Public, and shared with `infrastructure/engines/site_mean_fitness.py`, so that the
+    site-mean floor and the POSITION holdout agree on what a position is. Two
+    definitions here would mean the baseline scored a different notion of "same site"
+    from the split that held it out -- a disagreement no test would catch, because both
+    would still produce numbers.
+    """
+    return frozenset(
+        index
+        for index, (residue, wild_type) in enumerate(zip(sequence, parent, strict=True))
+        if residue != wild_type
+    )
+
+
+def consensus(sequences: list[str]) -> str:
     """The parent sequence: the modal residue at each position.
 
     Inferred rather than asked for, because the parent is not a field any upload
