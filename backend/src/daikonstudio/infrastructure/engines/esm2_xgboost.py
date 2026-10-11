@@ -97,6 +97,17 @@ _MANIFEST = EngineManifest(
             "values need more rounds but usually generalize better.",
         ),
         ConditionSpec(
+            key="site_features",
+            label="Tell the model where each mutation is",
+            type=ConditionType.BOOL,
+            default=False,
+            help="Adds what the model reads at the mutated site itself, and how that "
+            "site differs from the parent sequence's. Without it a prediction rests on "
+            "an average over the whole protein, which barely moves when one residue "
+            "changes. Only meaningful for variants of a single parent protein, and it "
+            "needs every sequence to be the same length.",
+        ),
+        ConditionSpec(
             key="likelihood_feature",
             label="Add ESM-2's opinion of each substitution",
             type=ConditionType.BOOL,
@@ -125,7 +136,14 @@ class Esm2XGBoost:
 
         # Before the fit, not inside it: embedding is the slow half, and a run that is
         # already cancelled should not spend minutes on a forward pass first.
-        featurizer_key, featurizer = esm2_featurizer(conditions)
+        #
+        # The whole frame's column, not `train_rows`': for a position-scored
+        # representation this is where the parent sequence is settled, and it has to be
+        # the same one for the training partition, the partitions `_scored` featurizes
+        # afterwards, and every later predict call.
+        featurizer_key, featurizer, parent = esm2_featurizer(
+            conditions, ctx.frame[ctx.structure_column].to_list()
+        )
         ctx.report(0.0, "Embedding sequences with ESM-2")
         x_train = featurizer(train_rows[ctx.structure_column].to_list())
         y_train = train_rows[ctx.target_column].to_numpy()
@@ -162,7 +180,7 @@ class Esm2XGBoost:
                 "is_classification": is_classification,
                 # Names the representation so `_predict_with_tree_ensemble` can rebuild
                 # it from bytes alone -- the predict call site knows only the artifact.
-                **bundle_features(featurizer_key),
+                **bundle_features(featurizer_key, parent),
             }
         )
         metrics, validation_metrics, cutoffs = _scored(model, ctx, is_classification, featurizer)

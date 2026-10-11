@@ -21,6 +21,7 @@ never calculate it in the first place.
 
 from __future__ import annotations
 
+import logging
 import pickle
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -55,13 +56,19 @@ from daikonstudio.infrastructure.protein.descriptors import (
 from daikonstudio.infrastructure.protein.descriptors import (
     protein_descriptors,
 )
-from daikonstudio.infrastructure.protein.embed import esm2_650m
+from daikonstudio.infrastructure.protein.embed import (
+    aligned_parent,
+    esm2_650m,
+    esm2_with_sites,
+)
 from daikonstudio.infrastructure.protein.likelihood import esm2_llr
 
 #: How a fitted artifact names the representation it was trained on. `predict` reads the
 #: name off the bundle rather than taking it as an argument, because nothing at the
 #: predict call site knows which engine produced the artifact -- `_predict_with_tree_
 #: ensemble` is reached through `Engine.predict`, which only has bytes and a frame.
+logger = logging.getLogger(__name__)
+
 Featurizer = Callable[[list[str]], np.ndarray]
 _FEATURIZERS: dict[str, Featurizer] = {"ecfp4": ecfp4, "rdkit_descriptors": rdkit_descriptors}
 
@@ -435,34 +442,63 @@ SEQUENCE_FEATURIZER = "sequences"
 _FEATURIZERS[SEQUENCE_FEATURIZER] = _sequences
 
 
-def _esm2_with_likelihood(sequences: list[str]) -> np.ndarray:
-    """ESM-2 embeddings with the masked-marginal log-likelihood ratio as a final column.
-
-    One extra column on 1280, and the reason it is worth a second forward pass is that
-    the two carry different things: the embedding describes the sequence, the LLR
-    describes the *substitution* against the series' parent. Kermut attributes about half
-    its advantage over a plain embedding head to this signal, and it lands on the hard
-    splits -- see `protein/likelihood.py`.
-
-    Opt-in rather than default, because an LLR only means anything for variants of one
-    parent: `esm2_llr` refuses a ragged series, so switching it on for a set of unrelated
-    proteins is an error rather than a silently worse fit.
-    """
-    return np.hstack([esm2_650m(sequences), esm2_llr(sequences)]).astype(np.float32)
-
-
 ESM2_LLR_FEATURIZER = "esm2-650m+llr"
-_FEATURIZERS[ESM2_LLR_FEATURIZER] = _esm2_with_likelihood
+ESM2_SITE_FEATURIZER = "esm2-650m+site"
+ESM2_SITE_LLR_FEATURIZER = "esm2-650m+site+llr"
+
+#: The representations scored against a reference sequence, and how to bind one to its
+#: parent. A plain embedding describes a sequence; these three describe a *substitution*,
+#: so they are a function of the row **and** the parent -- and the parent belongs to the
+#: fit, not to whichever list reaches the featurizer. See `embed.aligned_parent` for what
+#: inferring it per call costs: a single-row predict frame elects its own variant as the
+#: parent and reports zero mutations against a model fitted on real ones.
+_PARENT_SCORED: dict[str, Callable[[str | None], Featurizer]] = {
+    ESM2_LLR_FEATURIZER: lambda parent: (
+        lambda sequences: np.hstack([esm2_650m(sequences), esm2_llr(sequences, parent)]).astype(
+            np.float32
+        )
+    ),
+    ESM2_SITE_FEATURIZER: lambda parent: lambda sequences: esm2_with_sites(sequences, parent),
+    ESM2_SITE_LLR_FEATURIZER: lambda parent: (
+        lambda sequences: np.hstack(
+            [esm2_with_sites(sequences, parent), esm2_llr(sequences, parent)]
+        ).astype(np.float32)
+    ),
+}
+
+# Registered unbound too, so `_FEATURIZERS` stays the single list of known
+# representations and an unknown bundle key still raises a KeyError rather than
+# featurizing as something else.
+for _bundle_key, _bind in _PARENT_SCORED.items():
+    _FEATURIZERS[_bundle_key] = _bind(None)
 
 
-def esm2_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
-    """The bundle key and featurizer the ESM-2 engine fits with, from its settings.
+def esm2_featurizer(
+    conditions: dict[str, Any], sequences: list[str]
+) -> tuple[str, Featurizer, str | None]:
+    """The bundle key, featurizer and recorded parent the ESM-2 engine fits with.
+
+    Two independent toggles, so four keys, composed the way `tree_featurizer` composes
+    its own -- and `"esm2-650m"` and `"esm2-650m+llr"` keep their exact spellings so that
+    every artifact fitted before the site block existed still reads back.
+
+    `sequences` is the **whole frame's** column, not the training partition's, because
+    the parent returned here is what the artifact records and what every later partition
+    and predict call scores against. Inferring it per partition would let a small test
+    partition elect a different modal residue from the train partition, which is a
+    train/test feature mismatch no metric would attribute to its cause.
 
     The local is not called `key`: `key = <UPPERCASE_CONSTANT>` is exactly the shape
     gitleaks' generic-api-key rule looks for, and the pre-commit hook rejected it.
     """
-    chosen = ESM2_LLR_FEATURIZER if conditions.get("likelihood_feature") else ESM2_FEATURIZER
-    return chosen, _FEATURIZERS[chosen]
+    chosen = ESM2_SITE_FEATURIZER if conditions.get("site_features") else ESM2_FEATURIZER
+    if conditions.get("likelihood_feature"):
+        chosen = f"{chosen}+llr"
+    bind = _PARENT_SCORED.get(chosen)
+    if bind is None:
+        return chosen, _FEATURIZERS[chosen], None
+    parent = aligned_parent(sequences)[1] if sequences else None
+    return chosen, bind(parent), parent
 
 
 def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
@@ -477,17 +513,26 @@ def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
     return chosen, _FEATURIZERS[chosen]
 
 
-def bundle_features(featurizer_key: str) -> dict[str, Any]:
+def bundle_features(featurizer_key: str, parent: str | None = None) -> dict[str, Any]:
     """What a tree bundle records about its input, so predict featurizes identically and
     `_require_matching_features` can refuse a descriptor list that has since changed.
 
     Nothing for plain ECFP4: a default fit's bundle stays exactly what it was before this
     existed, and `_load_bundle` reads a bundle with no key as ECFP4, as it always has.
+
+    `parent` is recorded for a parent-scored representation, and it is as much part of
+    the representation as the descriptor list is -- a stored model that scored its
+    training variants against one reference and its predictions against another is
+    computing a different feature at the two ends.
     """
     if featurizer_key == "ecfp4":
         return {}
     names = _FEATURE_NAMES.get(featurizer_key)
-    return {"featurizer": featurizer_key} | ({"feature_names": names} if names else {})
+    return (
+        {"featurizer": featurizer_key}
+        | ({"feature_names": names} if names else {})
+        | ({"parent": parent} if parent is not None else {})
+    )
 
 
 def _require_matching_features(bundle: dict[str, Any]) -> None:
@@ -530,7 +575,22 @@ def _load_bundle(ctx: PredictContext) -> tuple[dict[str, Any], np.ndarray]:
 
     # Default, not `bundle["featurizer"]`: every artifact written before the descriptor
     # engine existed is an ECFP4 one and has no such key. Those models still predict.
-    featurizer = _FEATURIZERS[bundle.get("featurizer", "ecfp4")]
+    featurizer_key = bundle.get("featurizer", "ecfp4")
+    featurizer = _FEATURIZERS[featurizer_key]
+    bind = _PARENT_SCORED.get(featurizer_key)
+    if bind is not None:
+        # An LLR artifact written before the parent was recorded falls back to inferring
+        # one from the predict frame, which is what it did when it was fitted. Warned
+        # about rather than refused: it still predicts, just less well on a small frame,
+        # and refusing would strand a model somebody has already trained.
+        parent = bundle.get("parent")
+        if parent is None:
+            logger.warning(
+                "This model records no parent sequence, so its position-scored features "
+                "are being computed against a parent inferred from the rows being "
+                "predicted. Retrain it to score them against the one it was fitted on."
+            )
+        featurizer = bind(parent)
     _require_matching_features(bundle)
     return bundle, featurizer(ctx.frame[ctx.structure_column].to_list())
 

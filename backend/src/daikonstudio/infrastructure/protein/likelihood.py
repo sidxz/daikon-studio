@@ -37,11 +37,11 @@ from typing import Any
 
 import numpy as np
 
-from daikonstudio.application.data.assign_split import consensus, mutated_positions
-from daikonstudio.domain.shared.errors import ValidationError
+from daikonstudio.application.data.assign_split import mutated_positions
 from daikonstudio.infrastructure.protein.embed import (
     CHECKPOINT,
-    MAX_RESIDUES,
+    aligned_parent,
+    residue_token_offset,
     torch_and_device,
 )
 
@@ -55,33 +55,22 @@ logger = logging.getLogger(__name__)
 _RESIDUES = "ACDEFGHIKLMNPQRSTVWY"
 
 
-def esm2_llr(sequences: list[str]) -> np.ndarray:
+def esm2_llr(sequences: list[str], parent: str | None = None) -> np.ndarray:
     """One column: each variant's masked-marginal LLR against the series' parent.
 
     Shape `(len(sequences), 1)`, float32, so it concatenates onto any feature matrix.
     Deterministic: the model runs in eval mode under `no_grad`, and the parent is the
     modal residue per position with a tie broken by residue letter, so re-sorting the
     upload cannot move a score.
+
+    `parent` is the reference the fit recorded, and passing it is what makes this column
+    a property of the row rather than of the list the row arrived in -- see
+    `embed.aligned_parent`.
     """
     if not sequences:
         return np.zeros((0, 1), dtype=np.float32)
 
-    lengths = {len(sequence) for sequence in sequences}
-    if len(lengths) > 1:
-        raise ValidationError(
-            f"A log-likelihood ratio scores a variant against a reference sequence, so "
-            f"it needs an aligned single-parent series: every sequence must have the "
-            f"same length, but these range from {min(lengths)} to {max(lengths)} "
-            f"residues."
-        )
-    if next(iter(lengths)) > MAX_RESIDUES:
-        raise ValidationError(
-            f"These sequences are {next(iter(lengths))} residues, beyond ESM-2's "
-            f"{MAX_RESIDUES}-residue context. Truncating them would move every position "
-            f"past the cut, so a position-scored feature cannot be computed for them."
-        )
-
-    parent = consensus(sequences)
+    sequences, parent = aligned_parent(sequences, parent)
     positions = sorted(
         {position for sequence in sequences for position in mutated_positions(sequence, parent)}
     )
@@ -134,19 +123,7 @@ def _masked_marginals(parent: str, positions: list[int]) -> dict[int, dict[str, 
     mask_id = tokenizer.mask_token_id
     residue_ids = {residue: tokenizer.convert_tokens_to_ids(residue) for residue in _RESIDUES}
 
-    encoded = tokenizer(parent, return_tensors="pt", return_special_tokens_mask=True)
-    special = encoded.pop("special_tokens_mask")[0]
-    ids = encoded["input_ids"][0]
-    # Which token index holds residue 0. Derived from the special-token mask rather than
-    # assumed to be 1: ESM-2 prefixes one <cls>, but trusting that silently offsets every
-    # masked position by one if a checkpoint ever differs, and an off-by-one here scores
-    # the wrong site while still returning a plausible number.
-    offset = int((special == 0).nonzero()[0].item())
-    if ids[offset + len(parent) - 1] != residue_ids.get(parent[-1], -1):
-        raise ValidationError(
-            "This ESM-2 tokenizer does not map residues to tokens one-for-one, so a "
-            "masked-marginal score cannot be aligned to a residue position."
-        )
+    ids, offset = residue_token_offset(tokenizer, parent)
 
     rows = [ids.clone() for _ in positions]
     for row, position in zip(rows, positions, strict=True):

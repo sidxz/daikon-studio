@@ -38,6 +38,9 @@ from typing import Any
 
 import numpy as np
 
+from daikonstudio.application.data.assign_split import consensus, mutated_positions
+from daikonstudio.domain.shared.errors import ValidationError
+
 logger = logging.getLogger(__name__)
 
 #: `facebook/esm2_t33_650M_UR50D`, MIT licence, 652M parameters, 1280-dimensional
@@ -83,8 +86,16 @@ def esm2_650m(sequences: list[str]) -> np.ndarray:
     is featurized in one call, so a partition's composition is fixed. What it does touch
     is any comparison *across* calls -- `predict` featurizes the frame it is handed, not
     the training partitions, and the optimism-gap comparison re-partitions the same rows
-    -- where the same sequence can carry features differing in the sixth decimal. A tree
-    threshold sitting inside that interval could land either way.
+    -- where the same sequence can carry features differing in the sixth decimal.
+
+    **A tree threshold sitting inside that interval lands either way, and that is
+    measured, not hypothetical.** On the eight-sequence fixture in
+    `tests/unit/engines/test_esm2_xgboost.py`, predicting one training row alone rather
+    than beside the other seven moved its feature vector by 1.9e-06 and its prediction
+    from 0.86 to 3.00. A four-row fit is the worst case -- `hist` bins put split
+    boundaries on observed values, and with four rows every boundary is on one -- so this
+    is not the magnitude a real fit should expect. It is still the same mechanism, and it
+    is the clearest argument for the fix below.
 
     The fix is not a tolerance but a single call: embed the whole frame once and slice
     per partition, which also halves the work every protein run currently does twice.
@@ -161,15 +172,8 @@ def _embed(sequences: tuple[str, ...]) -> np.ndarray:
             encoded = {k: v.to(device) for k, v in encoded.items()}
             hidden = model(**encoded).last_hidden_state
 
-            # Pool over residues only: the attention mask keeps padding out, and
-            # dropping the special tokens keeps ESM-2's start and end tokens out. Both
-            # matter -- a short sequence is otherwise two tokens of noise in a mean over
-            # a handful of residues.
             mask = encoded["attention_mask"] * (1 - special.to(device))
-            mask = mask.unsqueeze(-1).to(hidden.dtype)
-            pooled = (hidden * mask).sum(dim=1) / mask.sum(dim=1).clamp(min=1.0)
-
-            vectors = pooled.to(torch.float32).cpu().numpy()
+            vectors = _pool(hidden, mask).cpu().numpy()
             if vectors.shape[1] != DIM:
                 raise AssertionError(
                     f"{CHECKPOINT} returned {vectors.shape[1]}-dimensional embeddings, "
@@ -222,6 +226,207 @@ def _clean(sequences: tuple[str, ...]) -> tuple[list[str], int, int]:
             unrepresentable += 1
         cleaned.append(residues)
     return cleaned, truncated, unrepresentable
+
+
+#: The site block's width: pooled embedding, mutated-site embedding, WT-relative site
+#: delta, then the two site scalars (mean relative position, number of mutations).
+SITE_DIM = 3 * DIM + 2
+
+
+def esm2_with_sites(sequences: list[str], parent: str | None = None) -> np.ndarray:
+    """Embeddings that say *where* the change is, not only that there was one.
+
+    Shape `(len(sequences), SITE_DIM)`, float32: the mean-pooled embedding this module
+    already produced, then the hidden state at the mutated site, then that site's state
+    minus the parent's at the same site, then the mean relative position and the number
+    of mutations.
+
+    The problem it fixes. A row here is "one sequence -> one number", so a per-sequence
+    mean over 286 residues moves by about 1/286 for a point mutation: the model is handed
+    the average of a whole protein and cannot express which residue changed. The
+    per-residue state at the mutated site can, and it is the published difference between
+    0.744 and 0.782 Spearman on ProteinGym's random split, structure-free.
+
+    **The WT-relative delta here is per-*site*, which is the only version that carries
+    information to a tree.** A pooled `variant - parent` delta subtracts the same constant
+    from every row, and a tree splits one feature at a time, so a threshold on
+    `feature_i - c_i` is the same tree as a threshold on `feature_i` -- a pooled delta is
+    a no-op, not a feature. (It is also a no-op for an isotropic RBF kernel, which sees
+    only `||a - b||`.) The site delta is not, because each row subtracts the parent's
+    state *at its own position*, and different rows mutate different positions. It is also
+    the half that survives a POSITION holdout, where the site's identity is by
+    construction useless.
+
+    A row that mutates nothing -- the wild type itself -- gets zeros for both site blocks
+    and `0` for both scalars. Zeros rather than a fabricated vector, with the mutation
+    count beside them so the tree can learn that the site block means nothing on that row.
+    A multiple mutant averages over its sites, matching how `likelihood.py` sums over
+    them: one row, one feature vector.
+
+    `parent` is the reference the fit recorded; see `aligned_parent` for why inferring it
+    per call is wrong in every path that matters.
+    """
+    if not sequences:
+        return np.zeros((0, SITE_DIM), dtype=np.float32)
+    normalized, reference = aligned_parent(sequences, parent)
+    return _site_features(tuple(normalized), reference)
+
+
+@lru_cache(maxsize=4)
+def _site_features(sequences: tuple[str, ...], parent: str) -> np.ndarray:
+    """Cached on the exact input, like `_embed`, and for the same repeated callers.
+
+    Pooling happens here rather than through `esm2_650m` so that the whole feature block
+    costs **one** forward pass over the variants. Calling both would embed every sequence
+    twice, and embedding is already 323 s of a measured 465 s fit.
+    """
+    import torch
+
+    tokenizer, model, device = _loaded()
+    parent_ids, offset = residue_token_offset(tokenizer, parent)
+    sites = [sorted(mutated_positions(sequence, parent)) for sequence in sequences]
+    out = np.zeros((len(sequences), SITE_DIM), dtype=np.float32)
+
+    # All one length, so the budget divides evenly and no length sort is needed -- the
+    # same simplification `likelihood._masked_marginals` gets from an aligned series.
+    per_batch = max(1, _TOKEN_BUDGET // (len(parent) + 2))
+    with torch.no_grad():
+        parent_input = parent_ids.unsqueeze(0).to(device)
+        parent_hidden = model(
+            input_ids=parent_input, attention_mask=torch.ones_like(parent_input)
+        ).last_hidden_state[0]
+        if parent_hidden.shape[-1] != DIM:
+            raise AssertionError(
+                f"{CHECKPOINT} returned {parent_hidden.shape[-1]}-dimensional "
+                f"embeddings, not the expected {DIM}."
+            )
+
+        for start in range(0, len(sequences), per_batch):
+            chunk = sequences[start : start + per_batch]
+            encoded = tokenizer(
+                list(chunk),
+                return_tensors="pt",
+                padding=True,
+                return_special_tokens_mask=True,
+            )
+            special = encoded.pop("special_tokens_mask")
+            encoded = {k: v.to(device) for k, v in encoded.items()}
+            hidden = model(**encoded).last_hidden_state
+            pooled = _pool(hidden, encoded["attention_mask"] * (1 - special.to(device)))
+
+            for index in range(len(chunk)):
+                row = start + index
+                out[row, :DIM] = pooled[index].cpu().numpy()
+                positions = sites[row]
+                if not positions:
+                    continue
+                tokens = [offset + position for position in positions]
+                at_site = hidden[index, tokens].to(torch.float32)
+                reference = parent_hidden[tokens].to(torch.float32)
+                out[row, DIM : 2 * DIM] = at_site.mean(dim=0).cpu().numpy()
+                out[row, 2 * DIM : 3 * DIM] = (at_site - reference).mean(dim=0).cpu().numpy()
+                out[row, 3 * DIM] = sum(positions) / len(positions) / len(parent)
+                out[row, 3 * DIM + 1] = len(positions)
+
+    logger.info(
+        "Embedded %d sequences with site features against a %d-residue parent.",
+        len(sequences),
+        len(parent),
+    )
+    # Handed out of a cache, so make it read-only rather than trust every caller.
+    out.flags.writeable = False
+    return out
+
+
+def aligned_parent(sequences: list[str], parent: str | None = None) -> tuple[list[str], str]:
+    """`(normalized sequences, their parent)` for a feature that scores a *position*.
+
+    One definition of "the series' parent", shared by the masked-marginal LLR and the
+    site featurizer, for the reason `assign_split.mutated_positions` is shared: two
+    notions of what the wild type is would make the two features disagree about which
+    residue a variant replaced, and both would still produce plausible numbers.
+
+    **Pass `parent` whenever one is known, and it is known in every path that matters.**
+    Inferring it from the list in hand is only right when that list is the whole series,
+    and the two paths that featurize are not: a fit featurizes train, validation and test
+    separately, and `predict` featurizes whatever frame it is handed. A small test
+    partition can elect a different modal residue from the train partition, and a predict
+    frame holding *one* variant elects that variant as its own parent -- so it reads as
+    zero mutations, its LLR comes out 0 and its site block comes out zeros, against a
+    model fitted on real values. Nothing about that is visible in the output. So the
+    parent is computed once from the whole frame, recorded in the artifact, and passed
+    back in here.
+
+    Normalization comes before the length check and before the consensus, which is not
+    cosmetic: an upload with lowercase residues would otherwise have `a` and `A` counted
+    as different residues, so every such row would read as a mutation of a parent that
+    exists in no well. Gaps are **not** stripped, unlike `_clean` -- removing a `-`
+    shifts every position after it, and these features are indexed by position.
+    """
+    normalized = ["".join(str(sequence).split()).upper() for sequence in sequences]
+    lengths = {len(sequence) for sequence in normalized}
+    if parent is not None and lengths - {len(parent)}:
+        raise ValidationError(
+            f"This model scores each variant against the {len(parent)}-residue parent "
+            f"sequence recorded when it was trained, but these sequences are "
+            f"{', '.join(str(length) for length in sorted(lengths))} residues. Predict "
+            f"with variants of the same protein, or train a model on this one."
+        )
+    if len(lengths) > 1:
+        raise ValidationError(
+            f"A position-scored feature compares each variant with the series' parent, "
+            f"so it needs an aligned single-parent series: every sequence must have the "
+            f"same length, but these range from {min(lengths)} to {max(lengths)} "
+            f"residues."
+        )
+    if max(lengths) > MAX_RESIDUES:
+        raise ValidationError(
+            f"These sequences are {max(lengths)} residues, beyond ESM-2's "
+            f"{MAX_RESIDUES}-residue context. Truncating them would move every position "
+            f"past the cut, so a position-scored feature cannot be computed for them."
+        )
+    return normalized, consensus(normalized) if parent is None else parent
+
+
+def residue_token_offset(tokenizer: Any, sequence: str) -> tuple[Any, int]:
+    """`(token ids, the token index holding residue 0)` for one sequence.
+
+    Derived from the special-token mask rather than assumed to be 1: ESM-2 prefixes one
+    `<cls>`, but trusting that silently offsets every position by one if a checkpoint
+    ever differs, and an off-by-one reads the wrong site while still returning a
+    plausible number. Raises unless the residues occupy one contiguous token each, which
+    is the condition that makes `offset + position` mean anything at all.
+    """
+    encoded = tokenizer(sequence, return_tensors="pt", return_special_tokens_mask=True)
+    special = encoded.pop("special_tokens_mask")[0]
+    residues = [int(index) for index in (special == 0).nonzero().flatten()]
+    offset = residues[0] if residues else 0
+    if residues != list(range(offset, offset + len(sequence))):
+        raise ValidationError(
+            "This ESM-2 tokenizer does not map residues to tokens one-for-one, so a "
+            "position-scored feature cannot be aligned to a residue position."
+        )
+    ids: Any = encoded["input_ids"][0]
+    return ids, offset
+
+
+def _pool(hidden: Any, mask: Any) -> Any:
+    """Mean over residues only, as float32.
+
+    The attention mask keeps padding out and dropping the special tokens keeps ESM-2's
+    start and end tokens out. Both matter -- a short sequence is otherwise two tokens of
+    noise in a mean over a handful of residues.
+
+    One function rather than the same four lines in two forward passes: `_site_features`
+    pools the same hidden states it gathers per-residue vectors from, and a pooled column
+    that disagreed with this engine's other pooled column by two special tokens would be
+    a difference no test looks for.
+    """
+    import torch
+
+    weights = mask.unsqueeze(-1).to(hidden.dtype)
+    pooled = (hidden * weights).sum(dim=1) / weights.sum(dim=1).clamp(min=1.0)
+    return pooled.to(torch.float32)
 
 
 def _batches(cleaned: list[str], order: list[int]) -> list[list[int]]:

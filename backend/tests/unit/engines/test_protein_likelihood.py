@@ -112,5 +112,7 @@ def test_the_engine_offers_the_likelihood_condition() -> None:
 def test_switching_it_on_changes_the_featurizer() -> None:
     from daikonstudio.infrastructure.engines._scoring import esm2_featurizer
 
-    assert esm2_featurizer({})[0] == "esm2-650m"
-    assert esm2_featurizer({"likelihood_feature": True})[0] == "esm2-650m+llr"
+    series = [_PARENT, _POS9_A, _POS17_V]
+
+    assert esm2_featurizer({}, series)[0] == "esm2-650m"
+    assert esm2_featurizer({"likelihood_feature": True}, series)[0] == "esm2-650m+llr"

@@ -157,6 +157,79 @@ def test_regression_trains_predicts_and_round_trips() -> None:
     assert predictions["value"].null_count() == 0
 
 
+@needs_weights
+def test_site_features_round_trip_and_score_a_lone_row_against_the_fitted_parent() -> None:
+    """The whole chain with the site block on: featurize, fit, persist, reload, predict.
+
+    The single-row frame is the point, and it is asserted on the features rather than on
+    the prediction. A position-scored feature has to be a property of the row, and before
+    the parent was recorded in the artifact it was not: a one-row frame's consensus is
+    that row, so the variant featurized as the wild type -- zero mutations, an empty site
+    block -- and the model scored a sequence it had never been shown.
+
+    Why not assert the two predictions are equal, which is what a reader expects here.
+    They are not, and not because of the parent: embedding is only batch-composition
+    stable to float32, and on a four-row fit a tree threshold sits inside that interval.
+    Measured on this fixture, 1.9e-06 of feature noise moved the prediction from 0.86 to
+    3.00. That is the caveat on `esm2_650m` biting at the tree level, it is the same for
+    the plain embedding, and the fix for it is embedding the frame once and slicing --
+    not something this test can assert around.
+    """
+    import pickle
+
+    from daikonstudio.application.engines.context import PredictContext, TrainContext
+    from daikonstudio.application.engines.manifest import TaskType
+    from daikonstudio.infrastructure.engines.esm2_xgboost import Esm2XGBoost
+
+    frame = pl.DataFrame(
+        {
+            "sequence": _SEQUENCES,
+            "mic": [0.5, 2.0, 4.0, 0.6, 1.0, 8.0, 0.4, 0.7],
+            "split": ["train"] * 4 + ["validation", "validation", "test", "test"],
+        }
+    )
+    engine = Esm2XGBoost()
+    result = engine.train(
+        TrainContext(
+            frame=frame,
+            targets={"mic": TaskType.REGRESSION},
+            structure_column="sequence",
+            conditions={"n_estimators": 20, "max_depth": 2, "site_features": True},
+            seed=7,
+        )
+    )
+    bundle = pickle.loads(result.artifact)
+
+    assert bundle["featurizer"] == "esm2-650m+site"
+    # Settled from the whole frame, so the two rows held out in `test` cannot move it.
+    assert bundle["parent"] == _SEQUENCES[0]
+
+    def context(sequences: list[str]) -> PredictContext:
+        return PredictContext(
+            frame=pl.DataFrame({"sequence": sequences}),
+            structure_column="sequence",
+            artifact=result.artifact,
+            conditions={},
+            target_columns=("mic",),
+        )
+
+    # Through `_load_bundle`, which is the predict path's own featurization, so this is
+    # the stored artifact scoring the row and not the engine scoring it again.
+    from daikonstudio.infrastructure.engines._scoring import _load_bundle
+
+    _reloaded, lone = _load_bundle(context([_SEQUENCES[3]]))
+    _reloaded, in_series = _load_bundle(context(list(_SEQUENCES)))
+
+    assert lone.shape == (1, in_series.shape[1])
+    assert lone[0, -1] == 1.0, "one mutation against the parent the fit recorded"
+    assert lone[0, -2] == pytest.approx(9 / 18), "at position 9, not at no position"
+    assert np.allclose(lone[0], in_series[3], atol=1e-4)
+
+    predictions = engine.predict(context([_SEQUENCES[3]]))
+    assert predictions.height == 1
+    assert predictions["value"].null_count() == 0
+
+
 # --- reproducibility, measured rather than assumed ---------------------------------
 
 
