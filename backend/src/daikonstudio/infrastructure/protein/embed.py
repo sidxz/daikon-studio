@@ -228,11 +228,16 @@ def _embed(sequences: tuple[str, ...], model_name: str = DEFAULT_VARIANT) -> np.
     if the double fit hurts first: embed the whole frame once and slice per partition,
     which turns the comparison fit into just the tree refit.
     """
-    import torch
-
+    # The empty case is answered before the import, not after: no sequences means no
+    # forward pass, so it must not require the `gpu` extra to be installed. The width is
+    # a property of the variant and needs nothing loaded. A test for an empty partition
+    # otherwise passes on this machine and fails in CI, which is the same shape as the
+    # failure that turned `main` red in 506e864.
     width = variant(model_name).dim
     if not sequences:
         return np.zeros((0, width), dtype=np.float32)
+
+    import torch
 
     cleaned, truncated, unrepresentable = _clean(sequences)
     if truncated:
@@ -362,6 +367,51 @@ def _clean(sequences: tuple[str, ...]) -> tuple[list[str], int, int]:
 #: The site block's width: pooled embedding, mutated-site embedding, WT-relative site
 #: delta, then the two site scalars (mean relative position, number of mutations).
 SITE_DIM = 3 * DIM + 2
+
+
+@lru_cache(maxsize=2)
+def embedding_map(sequences: tuple[str, ...], model: str = DEFAULT_VARIANT) -> dict[str, Any]:
+    """`{sequence: its pooled embedding}` for a whole frame, from **one** forward pass.
+
+    This is the "embed once and slice" that `_embed`'s docstring asks for, and the reason
+    it belongs here rather than in a caller is what the key has to be. A fit embeds its
+    train, validation and test partitions separately -- which costs nothing extra, since
+    they are disjoint -- but a protocol run fits the same rows *several times*: the
+    optimism gap re-partitions them randomly for a comparison leg, and every split draw
+    adds another leg. Those legs differ only in the `split` column, so the frame's
+    sequence column is identical across all of them, and keying on it makes the second
+    and later legs free. **Measured on the 4,996-row TEM-1 pilot: the first leg costs
+    471.9 s and the second 0.0 s**, where before the change each leg paid the full pass.
+
+    Keyed by sequence rather than by position, so duplicate rows are embedded once. The
+    values are views into `_embed`'s cached read-only array, not copies, so this costs
+    dictionary overhead and not a second 51 MB.
+    """
+    unique = tuple(dict.fromkeys(sequences))
+    vectors = _embed(unique, model)
+    return dict(zip(unique, vectors, strict=True))
+
+
+@lru_cache(maxsize=2)
+def site_map(
+    sequences: tuple[str, ...], parent: str, model: str = DEFAULT_VARIANT
+) -> dict[str, Any]:
+    """`{sequence: its site-feature block}` for a whole frame, from one forward pass.
+
+    The same trick as `embedding_map`, for the representation that costs three embeddings
+    a row. `parent` is part of the key because the block is scored against it -- a
+    different reference is a different feature, not a cache hit.
+
+    The keys are the sequences **as given** and the blocks are computed from their
+    normalized forms, which is not a detail: `esm2_with_sites` normalizes before
+    `_site_features`, and skipping that here would compare a raw row against a normalized
+    parent and read a lowercase sequence as mutated at every position. The two paths have
+    to agree, since a fit can reach either.
+    """
+    unique = tuple(dict.fromkeys(sequences))
+    normalized, reference = aligned_parent(list(unique), parent)
+    blocks = _site_features(tuple(normalized), reference, model)
+    return dict(zip(unique, blocks, strict=True))
 
 
 def site_dim(model: str = DEFAULT_VARIANT) -> int:

@@ -60,8 +60,10 @@ from daikonstudio.infrastructure.protein.embed import (
     DEFAULT_VARIANT,
     PROTEIN_MODELS,
     aligned_parent,
+    embedding_map,
     esm2_650m,
     esm2_with_sites,
+    site_map,
 )
 from daikonstudio.infrastructure.protein.likelihood import esm2_llr
 
@@ -525,11 +527,48 @@ def esm2_featurizer(
         chosen = f"{chosen}+site"
     if conditions.get("likelihood_feature"):
         chosen = f"{chosen}+llr"
-    bind = _PARENT_SCORED.get(chosen)
-    if bind is None:
-        return chosen, _FEATURIZERS[chosen], None
-    parent = aligned_parent(sequences)[1] if sequences else None
-    return chosen, bind(parent), parent
+    parent = aligned_parent(sequences)[1] if chosen in _PARENT_SCORED and sequences else None
+    return chosen, _sliced_from_one_pass(chosen, sequences, parent), parent
+
+
+def _sliced_from_one_pass(
+    bundle_key: str, whole_frame: list[str], parent: str | None
+) -> Featurizer:
+    """A featurizer that embeds `whole_frame` once and serves each partition from it.
+
+    The partitions of one fit are disjoint, so embedding them separately wastes nothing
+    -- but a protocol run fits the same rows several times. The optimism gap re-partitions
+    them for its comparison leg and each split draw adds another, and those legs differ
+    only in the `split` column. Keying the pass on the frame's sequence column therefore
+    makes every leg after the first free; see `embed.embedding_map`. It also makes the
+    partitions of a single run mutually consistent, since every row is now embedded in
+    one batch composition rather than three.
+
+    Falls back to the unprimed featurizer for a row the frame does not contain. That
+    cannot happen on the fit path -- the partitions come from this very frame -- so it
+    exists to keep the function total rather than to paper over a case we expect.
+    """
+    direct = _FEATURIZERS[bundle_key] if parent is None else _PARENT_SCORED[bundle_key](parent)
+    if not whole_frame:
+        return direct
+    frame = tuple(whole_frame)
+    model, _sep, suffix = bundle_key.partition("+")
+    llr = suffix.endswith("llr")
+
+    def served(sequences: list[str]) -> np.ndarray:
+        blocks = (
+            site_map(frame, parent, model)
+            if suffix.startswith("site") and parent is not None
+            else embedding_map(frame, model)
+        )
+        if not all(sequence in blocks for sequence in sequences):
+            return direct(sequences)
+        base = np.stack([blocks[sequence] for sequence in sequences])
+        if not llr:
+            return base.astype(np.float32)
+        return np.hstack([base, esm2_llr(sequences, parent, model)]).astype(np.float32)
+
+    return served
 
 
 def tree_featurizer(conditions: dict[str, Any]) -> tuple[str, Featurizer]:
