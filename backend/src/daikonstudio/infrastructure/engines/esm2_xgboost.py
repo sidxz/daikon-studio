@@ -47,13 +47,12 @@ from daikonstudio.application.engines.manifest import (
 from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.infrastructure.engines._options import POSITIVE_WEIGHTING, positive_weight
 from daikonstudio.infrastructure.engines._scoring import (
-    ESM2_FEATURIZER,
     _predict_with_tree_ensemble,
     _scored,
     bundle_features,
+    esm2_featurizer,
 )
 from daikonstudio.infrastructure.engines.ecfp4_xgboost import fit_on_device
-from daikonstudio.infrastructure.protein.embed import esm2_650m
 
 _MANIFEST = EngineManifest(
     id="esm2-xgboost",
@@ -97,6 +96,16 @@ _MANIFEST = EngineManifest(
             help="How much each boosting round is allowed to correct the last. Lower "
             "values need more rounds but usually generalize better.",
         ),
+        ConditionSpec(
+            key="likelihood_feature",
+            label="Add ESM-2's opinion of each substitution",
+            type=ConditionType.BOOL,
+            default=False,
+            help="Scores every variant against the series' parent sequence, asking the "
+            "model how likely the new residue is at that site compared with the one it "
+            "replaced. Only meaningful for variants of a single parent protein, and it "
+            "costs one extra pass per mutated position.",
+        ),
         POSITIVE_WEIGHTING,
     ),
     lane="gpu",
@@ -116,8 +125,9 @@ class Esm2XGBoost:
 
         # Before the fit, not inside it: embedding is the slow half, and a run that is
         # already cancelled should not spend minutes on a forward pass first.
+        featurizer_key, featurizer = esm2_featurizer(conditions)
         ctx.report(0.0, "Embedding sequences with ESM-2")
-        x_train = esm2_650m(train_rows[ctx.structure_column].to_list())
+        x_train = featurizer(train_rows[ctx.structure_column].to_list())
         y_train = train_rows[ctx.target_column].to_numpy()
         ctx.report(0.5, "Fitting")
 
@@ -152,10 +162,10 @@ class Esm2XGBoost:
                 "is_classification": is_classification,
                 # Names the representation so `_predict_with_tree_ensemble` can rebuild
                 # it from bytes alone -- the predict call site knows only the artifact.
-                **bundle_features(ESM2_FEATURIZER),
+                **bundle_features(featurizer_key),
             }
         )
-        metrics, validation_metrics, cutoffs = _scored(model, ctx, is_classification, esm2_650m)
+        metrics, validation_metrics, cutoffs = _scored(model, ctx, is_classification, featurizer)
         return TrainResult(
             artifact=artifact,
             metrics=metrics,
