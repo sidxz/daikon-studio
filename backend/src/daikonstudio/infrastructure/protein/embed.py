@@ -201,6 +201,29 @@ def _embed(sequences: tuple[str, ...]) -> np.ndarray:
 _EMBEDDABLE = frozenset("ACDEFGHIKLMNPQRSTVWYBXZUO")
 
 
+def as_embeddable(residues: str) -> tuple[str, bool]:
+    """`(residues with every unembeddable character replaced by X, whether any was)`.
+
+    `X` is ESM-2's own unknown-residue token, which is what an unrepresentable residue
+    *is*; `<unk>` is the tokenizer's "I have never seen this string". The difference
+    matters for more than tidiness, because `EsmTokenizer._tokenize` is `text.split()`
+    and the trie only splits on vocabulary tokens: **a run of two or more unembeddable
+    characters collapses into a single `<unk>` token.** Measured on the real tokenizer,
+    `MA**V` is five residues and four tokens, and so is `MAJJKV` at six -- it is not
+    specific to stop codons. Every residue after such a run then sits one token earlier
+    than its position says, so anything that indexes a token by residue position reads a
+    neighbour and returns a finite, plausible, wrong number.
+
+    Substituting rather than refusing, because an internal stop is a legitimate DMS
+    control that `_clean` deliberately keeps -- see `050fc8d`. One token per residue is
+    the invariant; which token it is was already a degraded answer, counted and warned
+    about.
+    """
+    if _EMBEDDABLE.issuperset(residues):
+        return residues, False
+    return "".join(residue if residue in _EMBEDDABLE else "X" for residue in residues), True
+
+
 def _clean(sequences: tuple[str, ...]) -> tuple[list[str], int, int]:
     """Upper-case, drop whitespace and gaps, truncate, and count both kinds of loss.
 
@@ -213,6 +236,13 @@ def _clean(sequences: tuple[str, ...]) -> tuple[list[str], int, int]:
     warned about; an `<unk>` substitution was not, so a nonsense variant embedded exactly
     like an ordinary protein and nothing said so. Counting it is the same discipline
     applied to the same class of loss.
+
+    The unembeddable residues are now also replaced by `X` rather than left for the
+    tokenizer to turn into `<unk>`, which changes the embedding of exactly the rows this
+    function already counts and warns about. It is a fix, not a tidy-up: a run of two or
+    more such characters collapses into a *single* `<unk>`, so this function's own
+    promise that the mean covers the sequence's residues was false for them -- a 286-mer
+    with a `**` run was pooled over 285 tokens. `as_embeddable` has the measurement.
     """
     cleaned: list[str] = []
     truncated = 0
@@ -222,8 +252,8 @@ def _clean(sequences: tuple[str, ...]) -> tuple[list[str], int, int]:
         if len(residues) > MAX_RESIDUES:
             truncated += 1
             residues = residues[:MAX_RESIDUES]
-        if not _EMBEDDABLE.issuperset(residues):
-            unrepresentable += 1
+        residues, substituted = as_embeddable(residues)
+        unrepresentable += substituted
         cleaned.append(residues)
     return cleaned, truncated, unrepresentable
 
@@ -279,12 +309,38 @@ def _site_features(sequences: tuple[str, ...], parent: str) -> np.ndarray:
     Pooling happens here rather than through `esm2_650m` so that the whole feature block
     costs **one** forward pass over the variants. Calling both would embed every sequence
     twice, and embedding is already 323 s of a measured 465 s fit.
+
+    Four entries and not `_embed`'s six, because a row here is three embeddings wide:
+    about 154 MB per entry at 10k sequences against that module's 51 MB, so this cache is
+    the larger of the two at 615 MB full. Four is enough for the re-use that exists -- one
+    fit featurizes train, then validation and test inside `_scored` -- and the comparison
+    fit behind the optimism gap re-partitions the same rows, so its tuples miss anyway.
+    That miss is item 16's to fix by embedding the frame once and slicing, not this
+    cache's to absorb by growing.
     """
     import torch
 
     tokenizer, model, device = _loaded()
-    parent_ids, offset = residue_token_offset(tokenizer, parent)
+
+    # Mutated positions come from the residues as given, so a stop codon still reads as
+    # the mutation it is; the forward pass gets the X-substituted copy, so that every
+    # residue is exactly one token and `offset + position` cannot drift. See
+    # `as_embeddable`. This is also the counting `_clean` does for the pooled path, which
+    # this path does not go through -- without it a nonsense variant would be embedded at
+    # an unknown-residue token and nothing would say so.
     sites = [sorted(mutated_positions(sequence, parent)) for sequence in sequences]
+    embeddable = [as_embeddable(sequence) for sequence in sequences]
+    unrepresentable = sum(substituted for _residues, substituted in embeddable)
+    if unrepresentable:
+        logger.warning(
+            "%d of %d sequences contain a residue ESM-2 has no token for (a stop codon, "
+            "most often) and were embedded with an unknown-residue token in its place; "
+            "those rows are described less precisely than the rest.",
+            unrepresentable,
+            len(sequences),
+        )
+
+    parent_ids, offset = residue_token_offset(tokenizer, as_embeddable(parent)[0])
     out = np.zeros((len(sequences), SITE_DIM), dtype=np.float32)
 
     # All one length, so the budget divides evenly and no length sort is needed -- the
@@ -300,31 +356,49 @@ def _site_features(sequences: tuple[str, ...], parent: str) -> np.ndarray:
                 f"{CHECKPOINT} returned {parent_hidden.shape[-1]}-dimensional "
                 f"embeddings, not the expected {DIM}."
             )
+        parent_states = parent_hidden.to(torch.float32).cpu().numpy()
 
         for start in range(0, len(sequences), per_batch):
-            chunk = sequences[start : start + per_batch]
+            chunk = [residues for residues, _substituted in embeddable[start : start + per_batch]]
             encoded = tokenizer(
-                list(chunk),
+                chunk,
                 return_tensors="pt",
                 padding=True,
                 return_special_tokens_mask=True,
             )
             special = encoded.pop("special_tokens_mask")
+            # The indexing invariant, asserted rather than trusted: one token per residue
+            # plus two special tokens, on every row. `as_embeddable` guarantees it, so
+            # this can only fire if the tokenizer's contract changes under us -- which is
+            # worth a crash, because the alternative is a silently shifted read.
+            expected = len(chunk) * (len(parent) + 2)
+            if int(encoded["attention_mask"].sum().item()) != expected:
+                raise AssertionError(
+                    f"{CHECKPOINT} tokenized a batch of {len(chunk)} sequences of "
+                    f"{len(parent)} residues into something other than {expected} "
+                    f"tokens, so a residue position cannot be indexed by token."
+                )
             encoded = {k: v.to(device) for k, v in encoded.items()}
             hidden = model(**encoded).last_hidden_state
             pooled = _pool(hidden, encoded["attention_mask"] * (1 - special.to(device)))
 
+            # Both tensors off the device once per batch, not once per row. A batch is
+            # about 80 MB of float32 and a row's gather is a handful of 1280-wide slices,
+            # so the per-row version paid two device syncs each -- ten thousand of them
+            # on the TEM-1 pilot -- for arithmetic numpy does on the host.
+            pooled_rows = pooled.cpu().numpy()
+            states = hidden.to(torch.float32).cpu().numpy()
+
             for index in range(len(chunk)):
                 row = start + index
-                out[row, :DIM] = pooled[index].cpu().numpy()
+                out[row, :DIM] = pooled_rows[index]
                 positions = sites[row]
                 if not positions:
                     continue
                 tokens = [offset + position for position in positions]
-                at_site = hidden[index, tokens].to(torch.float32)
-                reference = parent_hidden[tokens].to(torch.float32)
-                out[row, DIM : 2 * DIM] = at_site.mean(dim=0).cpu().numpy()
-                out[row, 2 * DIM : 3 * DIM] = (at_site - reference).mean(dim=0).cpu().numpy()
+                at_site = states[index, tokens]
+                out[row, DIM : 2 * DIM] = at_site.mean(axis=0)
+                out[row, 2 * DIM : 3 * DIM] = (at_site - parent_states[tokens]).mean(axis=0)
                 out[row, 3 * DIM] = sum(positions) / len(positions) / len(parent)
                 out[row, 3 * DIM + 1] = len(positions)
 

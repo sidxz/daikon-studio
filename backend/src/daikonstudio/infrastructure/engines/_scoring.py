@@ -482,11 +482,13 @@ def esm2_featurizer(
     its own -- and `"esm2-650m"` and `"esm2-650m+llr"` keep their exact spellings so that
     every artifact fitted before the site block existed still reads back.
 
-    `sequences` is the **whole frame's** column, not the training partition's, because
-    the parent returned here is what the artifact records and what every later partition
-    and predict call scores against. Inferring it per partition would let a small test
-    partition elect a different modal residue from the train partition, which is a
-    train/test feature mismatch no metric would attribute to its cause.
+    `sequences` is the column of the **whole frame this fit sees** -- every partition of
+    it, not just the training one. Under `FanOut` that is the target-filtered frame, and
+    that is correct: each target's artifact records the parent its own features were
+    scored against. What matters is that the parent is settled before the frame is split:
+    inferring it per partition would let a small test partition elect a different modal
+    residue from the train partition, which is a train/test feature mismatch no metric
+    would attribute to its cause.
 
     The local is not called `key`: `key = <UPPERCASE_CONSTANT>` is exactly the shape
     gitleaks' generic-api-key rule looks for, and the pre-commit hook rejected it.

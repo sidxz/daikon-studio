@@ -89,6 +89,40 @@ def test_the_likelihood_feature_shares_the_guard() -> None:
         esm2_llr([_PARENT, _PARENT[:-1]])
 
 
+def test_an_unembeddable_run_cannot_shift_a_residue_position() -> None:
+    """`EsmTokenizer._tokenize` is `text.split()`, and the trie only splits on vocabulary
+    tokens, so a run of two or more unembeddable characters becomes ONE `<unk>`. Measured
+    on the real tokenizer, `MA**V` is five residues and four tokens -- and `MAJJKV` is
+    six and five, so it is not about stop codons. Every later residue then sits one token
+    earlier than its position says.
+
+    Asserted on the substitution rather than on the tokenizer, so it runs without the
+    checkpoint: one token per residue is what makes `offset + position` mean anything.
+    """
+    from daikonstudio.infrastructure.protein.embed import as_embeddable
+
+    assert as_embeddable("MA**V") == ("MAXXV", True)
+    assert as_embeddable("MAJJKV") == ("MAXXKV", True)
+    assert as_embeddable(_PARENT) == (_PARENT, False), "a clean sequence is untouched"
+    # One character out, one character back: the length is the invariant that matters.
+    assert len(as_embeddable("MA**V")[0]) == len("MA**V")
+
+
+@needs_weights
+def test_a_stop_run_features_exactly_as_the_unknown_residue_it_stands_for() -> None:
+    """The same test against the model. `XX` tokenizes to two tokens and `**` to one, so
+    before the substitution these two rows could not have matched -- which is the shift,
+    observable from outside."""
+    stops = _PARENT[:2] + "**" + _PARENT[4:]
+    unknowns = _PARENT[:2] + "XX" + _PARENT[4:]
+
+    with_stops = esm2_with_sites([_PARENT, stops], parent=_PARENT)
+    with_unknowns = esm2_with_sites([_PARENT, unknowns], parent=_PARENT)
+
+    assert np.allclose(with_stops[1], with_unknowns[1], atol=1e-5)
+    assert with_stops[1, 3 * DIM + 1] == 2.0, "two mutated positions, both still seen"
+
+
 def test_no_sequences_is_an_empty_block_of_the_right_width() -> None:
     assert esm2_with_sites([]).shape == (0, SITE_DIM)
     assert SITE_DIM == 3 * DIM + 2

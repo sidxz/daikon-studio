@@ -49,7 +49,8 @@ def normalize_sequence(text: str) -> str:
     All the canonicalization a sequence gets, and all it needs: unlike SMILES there is no
     choice of spelling to resolve, so the stored value stays the one the scientist
     uploaded apart from presentation. `embed.py:_clean` applies the same rules before
-    embedding, so what is stored is what is featurized.
+    embedding, so what is stored is what is featurized -- with one deliberate exception,
+    below.
 
     A trailing `*` goes because translated-CDS exports routinely carry one and it is not
     part of the protein -- and because leaving it on makes a single-parent series ragged,
@@ -57,7 +58,10 @@ def normalize_sequence(text: str) -> str:
     about sequence lengths that sends the reader looking in the wrong place. An
     **internal** `*` stays: a nonsense mutation is a real variant, used as a negative
     control in deep-mutational-scanning sets, and `embed._clean` counts it as
-    unrepresentable so the `<unk>` it becomes is visible rather than silent.
+    unrepresentable so the substitution it undergoes is visible rather than silent. That
+    substitution is the exception to "stored is featurized": it is embedded as `X`,
+    ESM-2's unknown-residue token, because consecutive `<unk>` tokens merge into one and
+    would shift every later residue's position. See `embed.as_embeddable`.
     """
     return "".join(text.split()).replace("-", "").replace(".", "").upper().rstrip("*")
 

@@ -153,5 +153,5 @@ def test_a_terminal_stop_codon_is_dropped() -> None:
 def test_an_internal_stop_codon_is_kept() -> None:
     """A nonsense mutation is a real variant and deep-mutational-scanning sets use them
     as negative controls, so this is data rather than noise. It stays, and `embed._clean`
-    counts it as unrepresentable so the `<unk>` it becomes is visible."""
+    counts it as unrepresentable so the `X` it is embedded as is visible."""
     assert normalize_sequence("MAKV*QLSRLSGEQLLDEL") == "MAKV*QLSRLSGEQLLDEL"

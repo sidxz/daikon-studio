@@ -307,12 +307,21 @@ def test_unrepresentable_residues_are_counted_not_silent() -> None:
     ESM-2's `<unk>` token: `X`, `B`, `Z`, `U` and `O` are all real tokens it was trained
     with. Degrading one row rather than killing the fit is the right policy -- but it
     has to be visible, exactly as truncation is, or a nonsense variant is embedded as if
-    it were an ordinary protein."""
+    it were an ordinary protein.
+
+    The policy is unchanged and the representation is not: the character is now rewritten
+    to `X`, ESM-2's own unknown-residue token, rather than left for the tokenizer to turn
+    into `<unk>`. That is load-bearing rather than cosmetic, because `<unk>` tokens
+    *merge* -- `MA**V` is five residues and four tokens -- so leaving them cost this
+    function's own promise that the pooled mean covers the sequence's residues, and cost
+    any reader that indexes a token by residue position. See `as_embeddable`.
+    """
     cleaned, truncated, unrepresentable = _clean(("MAKV*QLSR", "MAKVQLSR", "MXBZUO"))
 
     assert truncated == 0
     assert unrepresentable == 1, "only the stop codon is outside ESM-2's alphabet"
-    assert cleaned[0] == "MAKV*QLSR", "counted, not rewritten -- the row still trains"
+    assert cleaned[0] == "MAKVXQLSR", "the row still trains, as an explicit unknown residue"
+    assert len(cleaned[0]) == len("MAKV*QLSR"), "one residue in, one token out"
 
 
 @needs_weights
