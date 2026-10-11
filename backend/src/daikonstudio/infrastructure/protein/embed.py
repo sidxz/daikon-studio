@@ -274,6 +274,30 @@ def _loaded() -> tuple[Any, Any, Any]:
 _FPMATH_MODE = "DNNL_DEFAULT_FPMATH_MODE"
 
 
+def refuse_lowered_precision() -> None:
+    """Raise if the environment has silently downgraded fp32 matmuls.
+
+    Separate from `torch_and_device`, and called by it before the torch import, for two
+    reasons. A deployment that has this set is misconfigured whether or not torch is
+    installed, so the clearer error is the one about precision. And it makes the guard
+    testable without the `gpu` extra -- the API tier and CI both install without it, and
+    a test that reached for torch to check an environment variable failed there while
+    passing locally.
+    """
+    import os
+
+    from daikonstudio.domain.shared.errors import ValidationError
+
+    declared = os.environ.get(_FPMATH_MODE, "").strip().upper()
+    if declared not in ("", "STRICT"):
+        raise ValidationError(
+            f"This runner sets {_FPMATH_MODE}={declared}, which makes every fp32 "
+            f"matrix multiplication run at lower precision. Scores computed under it "
+            f"would not match the ones this model reports. Unset it, or set it to "
+            f"STRICT, and retrain."
+        )
+
+
 def torch_and_device() -> tuple[Any, Any]:
     """`torch` plus the device to run on, with the environment prepared first.
 
@@ -293,14 +317,7 @@ def torch_and_device() -> tuple[Any, Any]:
 
     os.environ.setdefault("HF_HOME", str(os.path.expanduser(Settings().pretrained_weights_dir)))
 
-    declared = os.environ.get(_FPMATH_MODE, "").strip().upper()
-    if declared not in ("", "STRICT"):
-        raise ValidationError(
-            f"This runner sets {_FPMATH_MODE}={declared}, which makes every fp32 "
-            f"matrix multiplication run at lower precision. Scores computed under it "
-            f"would not match the ones this model reports. Unset it, or set it to "
-            f"STRICT, and retrain."
-        )
+    refuse_lowered_precision()
 
     try:
         import torch

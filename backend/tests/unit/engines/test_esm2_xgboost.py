@@ -190,8 +190,33 @@ def test_embedding_is_batch_composition_stable_only_to_float32_tolerance() -> No
 def test_a_silent_precision_downgrade_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     """`DNNL_DEFAULT_FPMATH_MODE=BF16` appears in AWS's own recommended Graviton recipe,
     and it makes every "fp32" matmul lower precision without saying so. A deployment can
-    acquire it without anyone choosing it, so the loader refuses rather than quietly
-    reporting scores computed at a precision the artifact does not record."""
+    acquire it without anyone choosing it, so this refuses rather than quietly reporting
+    scores computed at a precision the artifact does not record."""
+    from daikonstudio.domain.shared.errors import ValidationError
+    from daikonstudio.infrastructure.protein.embed import refuse_lowered_precision
+
+    monkeypatch.setenv("DNNL_DEFAULT_FPMATH_MODE", "BF16")
+
+    with pytest.raises(ValidationError, match="lower precision"):
+        refuse_lowered_precision()
+
+
+def test_strict_and_unset_precision_are_both_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
+    from daikonstudio.infrastructure.protein.embed import refuse_lowered_precision
+
+    monkeypatch.setenv("DNNL_DEFAULT_FPMATH_MODE", "strict")
+    refuse_lowered_precision()  # does not raise
+
+    monkeypatch.delenv("DNNL_DEFAULT_FPMATH_MODE")
+    refuse_lowered_precision()
+
+
+def test_the_guard_runs_before_the_torch_import(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Proves the guard is actually wired into the loader, and wired *first*: this passes
+    whether or not the `gpu` extra is installed, because a misconfigured precision is the
+    more useful complaint either way. Asserting on the message, not just the type -- both
+    failure modes raise ValidationError, and the earlier version of this test passed
+    locally while failing CI precisely because it could not tell them apart."""
     from daikonstudio.domain.shared.errors import ValidationError
     from daikonstudio.infrastructure.protein.embed import torch_and_device
 
@@ -199,16 +224,6 @@ def test_a_silent_precision_downgrade_is_refused(monkeypatch: pytest.MonkeyPatch
 
     with pytest.raises(ValidationError, match="lower precision"):
         torch_and_device()
-
-
-def test_strict_and_unset_precision_are_both_accepted(monkeypatch: pytest.MonkeyPatch) -> None:
-    from daikonstudio.infrastructure.protein.embed import torch_and_device
-
-    monkeypatch.setenv("DNNL_DEFAULT_FPMATH_MODE", "strict")
-    torch_and_device()  # does not raise
-
-    monkeypatch.delenv("DNNL_DEFAULT_FPMATH_MODE")
-    torch_and_device()
 
 
 # --- residues ESM-2 cannot represent -----------------------------------------------
