@@ -12,6 +12,15 @@ it does reuse from that module is the shape of the thing -- a `GaussianProcessRe
 with `normalize_y`, a fitted `WhiteKernel`, a training-size ceiling, and `return_std`
 wired to the Scorecard's uncertainty column.
 
+Measured on the TEM-1 pilot under a position holdout, it beats the tree head in three of
+the four feature configurations tried, and by the most with everything switched on:
+**0.7680 Spearman / 0.5769 r2 on VESM2 with the site block and the likelihood, against
+the tree's 0.7167 / 0.5100.** So this is the engine to reach for on single-parent variant
+data, not only the small-n fallback. The site block in particular is worth more here than
+to a tree and worth *more* as the embeddings improve (+0.021 on ESM-2, +0.036 on VESM2),
+which is what an isotropic RBF reading a per-site delta through `||a - b||` should do,
+where a tree has to spend split candidates on 2,560 extra columns.
+
 **Regression only, and that is a statement about uncertainty rather than a gap.** This
 engine exists to report a posterior standard deviation in the target's own units.
 `GaussianProcessClassifier`'s Laplace approximation exposes no latent variance, so a
@@ -143,8 +152,11 @@ _MANIFEST = EngineManifest(
             type=ConditionType.BOOL,
             default=False,
             help="Adds what the model reads at the mutated site, and how that site "
-            "differs from the parent sequence's. Only meaningful for variants of a "
-            "single parent protein, and it needs every sequence to be the same length.",
+            "differs from the parent sequence's. On the one dataset we have measured it "
+            "was this engine's largest single improvement, and it helped more with the "
+            "better protein model rather than less, so switching it on is the "
+            "recommended starting point here. Only meaningful for variants of a single "
+            "parent protein, and it needs every sequence to be the same length.",
         ),
     ),
     lane="gpu",
