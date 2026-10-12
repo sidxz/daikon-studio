@@ -61,3 +61,30 @@ def test_trainable_state_round_trips_into_a_fresh_model() -> None:
 def test_a_state_from_another_model_is_refused() -> None:
     with pytest.raises(ValidationError):
         _lora.load_trainable(_attached(), {"nowhere.lora_A.weight": torch.zeros(1)})
+
+
+def test_a_trainable_weight_missing_from_the_artifact_is_refused() -> None:
+    """Widening the target list after a fit leaves new adapters at their zero init --
+    a no-op that would predict confidently. The reload has to notice."""
+    model = _attached()
+    state = _lora.trainable_state(model)
+    dropped = next(name for name in state if "lora_A" in name)
+    del state[dropped]
+    with pytest.raises(ValidationError, match="missing from this saved model"):
+        _lora.load_trainable(_attached(), state)
+
+
+def test_settings_that_disagree_with_this_version_are_refused() -> None:
+    """`alpha` rescales every adapter's contribution while the state dict still loads
+    cleanly, so matching key names are not enough to prove the artifact is readable."""
+    model = _attached()
+    stale = _lora.settings(("query", "value")) | {"alpha": _lora.ALPHA + 1}
+    with pytest.raises(ValidationError, match="different LoRA settings"):
+        _lora.load_trainable(_attached(), _lora.trainable_state(model), stale)
+
+
+def test_matching_settings_load() -> None:
+    model = _attached()
+    _lora.load_trainable(
+        _attached(), _lora.trainable_state(model), _lora.settings(("query", "value"))
+    )

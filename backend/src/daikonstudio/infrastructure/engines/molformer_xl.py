@@ -45,7 +45,7 @@ limitation; do not justify this guard with stereochemistry.
 Two settings choose *what* trains and *which* published weights it starts from, and
 neither is an accuracy claim. `training` offers the whole model, LoRA adapters, or the
 output layer alone; LoRA's measured value at this size is the artifact -- a few
-megabytes instead of about 190 -- and not speed or memory, which it saves neither of
+megabytes instead of about 174 -- and not speed or memory, which it saves neither of
 (`_lora.py`). `checkpoint` offers IBM's 10%-sample weights or DeepChem's c3 release of
 the same architecture pretrained on all 1.1 billion molecules. Nothing here has been
 compared on a dataset yet, so neither setting carries an accuracy claim in either
@@ -70,7 +70,7 @@ over 10,000 resamples:
 
 Every interval contains zero. So on this dataset a fine-tuned 46.8M-parameter transformer
 is **not** distinguishable from a fingerprint forest that fits in a second, more
-pretraining data does not help, and LoRA matches a full fine-tune while saving 166 MB per
+pretraining data does not help, and LoRA matches a full fine-tune while saving 165 MB per
 Protocol. Read the ordering as noise, not as a ranking: `full` leads `head` by 0.0056,
 which is a fifth of the width of its own interval. One dataset, one split, regression
 only -- the honest claim is "no measured difference", and the reason to pick a mode is
@@ -820,7 +820,9 @@ class MolformerXL:
         # Restore the selected epoch before anything is scored or saved, so the
         # numbers on the Scorecard and the weights in the artifact are one model.
         if keep_best.best_state is not None:
-            module.load_state_dict(keep_best.best_state)
+            # strict=False: the snapshot deliberately omits frozen parameters, which
+            # cannot have changed between epochs (see `keep_best_epoch`).
+            module.load_state_dict(keep_best.best_state, strict=False)
 
         def infer(rows: pl.DataFrame) -> Any:
             loader = _loader(
@@ -856,14 +858,14 @@ class MolformerXL:
         )
 
         # `full` and `head` save the whole fine-tuned model, not just the head. Under
-        # `head` most of those ~190 MB duplicate the public checkpoint, which is
+        # `head` most of those ~174 MB duplicate the public checkpoint, which is
         # wasteful -- and deliberate: a published Protocol then keeps predicting even if
         # the Hub is unreachable or the repository is withdrawn.
         #
         # `lora` is the upgrade path the ponytail comment here used to name, now taken:
         # it saves only the parameters whose `requires_grad` was true and rebuilds the
         # rest from `_REVISION` at predict time, which is a few megabytes per Protocol
-        # instead of 190 -- in exchange for needing the checkpoint to be reachable (or
+        # instead of 174 -- in exchange for needing the checkpoint to be reachable (or
         # already in the weights directory) to predict at all.
         bundle: dict[str, Any] = {
             "is_classification": is_classification,
@@ -878,6 +880,8 @@ class MolformerXL:
             bundle["lora_state"] = _lora.trainable_state(module.backbone) | _random_features(
                 module.backbone
             )
+            # So a future edit to _lora's constants cannot reinterpret this artifact.
+            bundle["lora_settings"] = _lora.settings(_lora_targets(module.backbone))
         else:
             # Without the loss: a weighted fit's `pos_weight` is a buffer of it, and
             # `predict` builds its module with no loss weights to load it into.
@@ -931,7 +935,9 @@ class MolformerXL:
         if training == "lora":
             # The adapters, the head, and the linear-attention random features the fit
             # ended on -- see `_random_features` for why those travel with them.
-            _lora.load_trainable(module.backbone, bundle["lora_state"])
+            _lora.load_trainable(
+                module.backbone, bundle["lora_state"], bundle.get("lora_settings")
+            )
         else:
             # Restores the fine-tuned weights *and* the linear-attention `weight`
             # buffer, which is what makes these predictions identical to the ones the

@@ -22,12 +22,24 @@ NAN = math.nan
 
 
 class _Module:
+    """A trainable weight, a frozen one, and a buffer -- the three kinds the snapshot
+    treats differently. `base` stands in for a frozen pretrained trunk, which is the
+    thing that must not be cloned once an epoch."""
+
     def __init__(self) -> None:
         self.weight = torch.tensor([0.0])
+        self.base = torch.nn.Parameter(torch.tensor([7.0]), requires_grad=False)
         self.logged: dict[str, float] = {}
 
     def state_dict(self) -> dict[str, Any]:
-        return {"weight": self.weight}
+        # A buffer has no entry in `named_parameters`, so it is kept by exclusion.
+        return {"weight": self.weight, "base": self.base, "features": torch.tensor([1.0])}
+
+    def named_parameters(self) -> list[tuple[str, torch.nn.Parameter]]:
+        return [
+            ("weight", torch.nn.Parameter(self.weight, requires_grad=True)),
+            ("base", self.base),
+        ]
 
     def log(self, key: str, value: float) -> None:
         self.logged[key] = value
@@ -127,3 +139,22 @@ def test_the_run_page_gets_the_averaged_scores_and_the_kept_epoch():
 
     assert points[0].scores == {"auprc": 0.6, "auroc": 0.8}
     assert (points[0].kept_epoch, points[0].kept_by) == (5, "auprc")
+
+
+def test_the_snapshot_leaves_out_the_frozen_trunk_but_keeps_buffers() -> None:
+    """What the kept epoch has to record, and what it must not.
+
+    A frozen parameter cannot change between epochs, so cloning it copies the base
+    checkpoint once per improving epoch and carries it into every training-state save --
+    about 2.6 GB an epoch for a LoRA fit over ESM-2 650M, which gives back exactly the
+    size LoRA was chosen for. Buffers stay regardless of size, because MoLFormer's
+    linear-attention random features are buffers that *are* redrawn every training pass,
+    and restoring an epoch without them would score a different model than the one saved.
+    """
+    callback, _module = _fit("auprc")
+    assert callback.best_state is not None
+    assert "weight" in callback.best_state, "the trained weight has to be recorded"
+    assert "features" in callback.best_state, "a buffer can change in training mode"
+    assert "base" not in callback.best_state, (
+        "the frozen trunk was cloned into the snapshot: this is the 2.6 GB regression"
+    )

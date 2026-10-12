@@ -177,9 +177,25 @@ def keep_best_epoch(*, by: str = "loss", predict: Callable[[Any, Any], Any] | No
             if value > self.best:
                 self.best = value
                 self.best_epoch = trainer.current_epoch + 1
+                frozen = {
+                    name
+                    for name, parameter in module.named_parameters()
+                    if not parameter.requires_grad
+                }
                 # Detached clones: the live tensors keep training after this.
+                #
+                # Only what can actually differ between epochs: parameters being trained,
+                # plus every buffer. A frozen parameter cannot change, so cloning it would
+                # copy the base checkpoint once per improving epoch and carry it into each
+                # training-state save -- 2.6 GB an epoch for a LoRA fit over ESM-2 650M,
+                # which is the whole point of LoRA given back. Buffers are kept whatever
+                # their size, because MoLFormer's linear-attention random features are
+                # buffers that *are* redrawn every training pass (see `molformer_xl`), and
+                # restoring the best epoch without them would score a different model.
                 self.best_state = {
-                    key: tensor.detach().clone() for key, tensor in module.state_dict().items()
+                    key: tensor.detach().clone()
+                    for key, tensor in module.state_dict().items()
+                    if key not in frozen
                 }
 
         # Saved with the training state and restored on resume (Lightning calls these),

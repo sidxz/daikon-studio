@@ -708,7 +708,9 @@ class ChempropDMPNN:
             # model. Restoring in place matters: `trainer.save_checkpoint` below
             # serializes the module the trainer holds, which is this object.
             if keep_best.best_state is not None:
-                model.load_state_dict(keep_best.best_state)
+                # strict=False: the snapshot deliberately omits frozen parameters, which
+                # cannot have changed between epochs (see `keep_best_epoch`).
+                model.load_state_dict(keep_best.best_state, strict=False)
             if members == 1:
                 return model, trainer
             data = _model_bytes(model)

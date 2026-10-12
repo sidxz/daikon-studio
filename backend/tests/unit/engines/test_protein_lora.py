@@ -561,3 +561,51 @@ def test_a_classification_fit_predicts_probabilities() -> None:
     predictions = _predict(result.artifact, frame)
 
     assert all(0.0 <= value <= 1.0 for value in predictions["value"].to_list())
+
+
+@needs_weights
+def test_the_ranking_objective_also_receives_gradients() -> None:
+    """The gradient trap, on the other objective.
+
+    The regression path was the one that caught reentrant checkpointing starving the
+    adapters. Ranking is a different model class (`AutoModelForMaskedLM`), a different
+    forward and a different loss, so it needs its own proof that a backward pass reaches
+    the adapters -- otherwise the fit completes and scores an untrained model.
+    """
+    import torch
+
+    from daikonstudio.infrastructure.engines.protein_lora import _load_backbone
+
+    tokenizer, backbone = _load_backbone("esm2-150m", ranking=True)
+    backbone.train()
+
+    encoded = tokenizer([_PARENT], return_tensors="pt")
+    torch.log_softmax(backbone(**encoded).logits, dim=-1).sum().backward()
+
+    gradients = [
+        parameter.grad for name, parameter in backbone.named_parameters() if "lora_B" in name
+    ]
+    assert gradients, "no LoRA adapter landed at all"
+    assert all(gradient is not None for gradient in gradients), (
+        "an adapter received no gradient on the ranking path"
+    )
+    assert any(gradient.abs().sum() > 0 for gradient in gradients), (
+        "every adapter gradient was exactly zero"
+    )
+
+
+@needs_weights
+@pytest.mark.parametrize("objective", ["regression", "ranking"])
+def test_a_fit_actually_moves_the_adapters(objective: str) -> None:
+    """peft zero-initialises `lora_B`, so an adapter that never trained is still exactly
+    zero. Nothing else in this file would fail if the optimiser step did nothing: the
+    round-trip tests compare the fit's own metrics with predict's, and both would agree
+    on an untrained model."""
+    import io
+
+    import torch
+
+    result = ProteinLora().train(_context(_frame(), TaskType.REGRESSION, objective=objective))
+    saved = torch.load(io.BytesIO(result.artifact), weights_only=False)["lora_state"]
+    moved = [name for name, tensor in saved.items() if "lora_B" in name and tensor.abs().sum() > 0]
+    assert moved, f"every lora_B is still zero after a {objective} fit: nothing trained"

@@ -13,9 +13,9 @@ comparison against our fingerprint or descriptor engines has been measured yet.*
 Pooling is the CLS token, `last_hidden_state[:, 0, :]`, because that is what the
 authors' own code does: their `examples/cls_embedding.ipynb` extracts exactly that
 vector, and the checkpoint's `config.json` sets `classifier_pooling: "cls"`, so a
-fine-tune of theirs reads the same position. Their notebook also carries a caveat worth
-repeating where a scientist can see it, and the engine's help text does: CLS embeddings
-are most meaningful *after* fine-tuning on the task, and nothing fine-tunes here. Mean
+fine-tune of theirs reads the same position. Their notebook also carries a caveat that
+belongs with any Scorecard from this engine: CLS embeddings are most meaningful *after*
+fine-tuning on the task, and nothing fine-tunes here. Mean
 pooling over the non-special tokens is the obvious alternative and is not offered,
 because the authors' convention is the one their published numbers come from; add the
 alternative only if a measurement asks for it.

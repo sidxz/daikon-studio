@@ -1018,7 +1018,9 @@ class ProteinLora:
         # Restore the selected epoch before anything is scored or saved, so the numbers on
         # the Scorecard and the weights in the artifact are one model.
         if keep_best.best_state is not None:
-            module.load_state_dict(keep_best.best_state)
+            # strict=False: the snapshot deliberately omits frozen parameters, which
+            # cannot have changed between epochs (see `keep_best_epoch`).
+            module.load_state_dict(keep_best.best_state, strict=False)
 
         def infer(rows: pl.DataFrame) -> Any:
             loader = _loader(examples(rows), collate=collate, batch_size=_PREDICT_BATCH_SIZE)
@@ -1070,6 +1072,8 @@ class ProteinLora:
         torch.save(
             {
                 "lora_state": _lora.trainable_state(module.backbone),
+                # So a future edit to _lora's constants cannot reinterpret this artifact.
+                "lora_settings": _lora.settings(chosen.target_modules),
                 "head_state": None if ranking else module.head.state_dict(),
                 "protein_model": model_name,
                 "objective": objective,
@@ -1142,7 +1146,7 @@ class ProteinLora:
             ]
             collate = _collate(tokenizer)
 
-        _lora.load_trainable(module.backbone, bundle["lora_state"])
+        _lora.load_trainable(module.backbone, bundle["lora_state"], bundle.get("lora_settings"))
         if not ranking:
             module.head.load_state_dict(bundle["head_state"])
 
