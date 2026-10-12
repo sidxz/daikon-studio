@@ -89,6 +89,18 @@ class Variant:
     #: A `_pretrained.WEIGHT_SETS` name whose partial state dict is laid over the base
     #: weights, or `None` to use them as published.
     overlay: str | None = None
+
+    @property
+    def prose(self) -> str:
+        """The name to use inside a sentence, without the picker's parenthetical.
+
+        `label` is written for the engine picker, where "ESM-2 150M (faster)" is a useful
+        hint. Dropped into a message it reads "ESM-2 150M (faster)'s own likelihood", so
+        prose gets the name alone. Derived rather than a second field, so there is nothing
+        to keep in sync -- a label with no parenthetical comes back unchanged.
+        """
+        return self.label.split(" (")[0]
+
     #: How a log-likelihood ratio is read off this model: `"masked"` masks each position
     #: of the parent in turn and reads the distribution there, `"wt"` reads them all off
     #: one forward pass of the unmasked parent. **A property of the weights, not a user
@@ -242,7 +254,7 @@ def likelihood_protocol(name: str) -> str:
     scoring = variant(name).likelihood_scoring
     if scoring is None:
         raise ValidationError(
-            f"The likelihood feature is not yet available for {variant(name).label}. How a "
+            f"The likelihood feature is not yet available for {variant(name).prose}. How a "
             "log-likelihood ratio should be read off this model depends on how it was "
             "trained, and reading it the wrong way produces plausible numbers that are "
             "quietly wrong, so it is refused rather than guessed. Turn the setting off, "
@@ -722,7 +734,7 @@ def aligned_parent(
     cap = variant(model).max_residues
     if max(lengths) > cap:
         raise ValidationError(
-            f"These sequences are {max(lengths)} residues, beyond {variant(model).label}'s "
+            f"These sequences are {max(lengths)} residues, beyond {variant(model).prose}'s "
             f"{cap}-residue context. Truncating them would move every position past the "
             f"cut, so a position-scored feature cannot be computed for them."
         )

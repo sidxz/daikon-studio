@@ -780,7 +780,7 @@ def _refuse_unrankable(ctx: TrainContext, *, model_name: str, is_classification:
     chosen = variant(model_name)
     if chosen.likelihood_scoring is None:
         raise ValidationError(
-            f"Ranking variants trains {chosen.label}'s own likelihood, and how a "
+            f"Ranking variants trains {chosen.prose}'s own likelihood, and how a "
             "likelihood should be read off this particular model has not been "
             "established yet. Reading it the wrong way produces plausible numbers that "
             "are quietly wrong, so it is refused rather than guessed. Choose 'Predict "
@@ -848,7 +848,7 @@ class ProteinLora:
         chosen = variant(model_name)
         lightning.seed_everything(ctx.seed, workers=True)
 
-        ctx.report(0.0, f"Loading {chosen.label}")
+        ctx.report(0.0, f"Loading {chosen.prose}")
         tokenizer, backbone = _load_backbone(model_name, ranking=ranking)
 
         train_rows = ctx.frame.filter(pl.col("split") == "train")
@@ -957,7 +957,7 @@ class ProteinLora:
             # worker thread. Naming the device is not decoration -- see chemprop_dmpnn.
             ctx.report(
                 (trainer.current_epoch + 1) / epochs,
-                f"Training {chosen.label} adapters on {trainer.strategy.root_device}",
+                f"Training {chosen.prose} adapters on {trainer.strategy.root_device}",
             )
 
         keep_best = (

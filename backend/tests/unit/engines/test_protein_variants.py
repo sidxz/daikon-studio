@@ -353,3 +353,11 @@ def test_esm_c_maps_one_token_per_residue() -> None:
 
     assert len(ids) == len(sequence) + 2, "one token per residue plus two special tokens"
     assert offset == 1
+
+
+def test_prose_drops_the_pickers_parenthetical() -> None:
+    """A variant's name has to read correctly inside a sentence, not just in the picker."""
+    assert variant("esmc-600m").label == "ESM C 600M (faster)"
+    assert variant("esmc-600m").prose == "ESM C 600M"
+    # No parenthetical to drop: unchanged, so every message site can use prose.
+    assert variant("esm2-650m").prose == variant("esm2-650m").label
