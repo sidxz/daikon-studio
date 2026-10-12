@@ -114,13 +114,18 @@ def test_a_structure_over_the_context_limit_is_refused_not_truncated() -> None:
 
 @needs_weights
 def test_embeddings_are_the_right_shape_and_reproducible() -> None:
-    first = molencoder.embed(_SMILES[:8])
+    first = np.array(molencoder.embed(_SMILES[:8]))
+    # The cache is dropped between the two calls on purpose: without this, `embed`
+    # returns the very same array and the comparison below holds whatever the model did.
+    molencoder._embed.cache_clear()
     second = molencoder.embed(list(_SMILES[:8]))
 
     assert first.shape == (8, molencoder.DIM)
     assert first.dtype == np.float32
     # Reproducible inference is load-bearing: a reloaded artifact must reproduce the
-    # numbers its own Scorecard reported.
+    # numbers its own Scorecard reported. Exact, because the batch composition is
+    # identical here; across different compositions compare with a tolerance (see
+    # `embed`'s docstring for the measured size of that difference).
     np.testing.assert_allclose(first, second, rtol=0, atol=0)
     # Distinct molecules must not collapse onto one vector, or the representation is
     # useless whatever head sits on it.
