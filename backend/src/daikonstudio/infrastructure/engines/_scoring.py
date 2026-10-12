@@ -50,6 +50,7 @@ from daikonstudio.infrastructure.chem.featurize import (
     ecfp4_counts,
     rdkit_descriptors,
 )
+from daikonstudio.infrastructure.chem.molencoder import embed as molencoder_embed
 from daikonstudio.infrastructure.protein.descriptors import (
     DESCRIPTOR_NAMES as PROTEIN_DESCRIPTOR_NAMES,
 )
@@ -409,6 +410,16 @@ def _counts_with_descriptors(smiles_list: list[str]) -> np.ndarray:
 _FEATURIZERS["ecfp4_counts"] = ecfp4_counts
 _FEATURIZERS["ecfp4_counts+rdkit_descriptors"] = _counts_with_descriptors
 _FEATURE_NAMES["ecfp4_counts+rdkit_descriptors"] = DESCRIPTOR_NAMES
+
+#: A frozen transformer read over the SMILES string -- the molecule-side counterpart of
+#: the ESM-2 entries below. No entry in `_FEATURE_NAMES`: its 384 dimensions have no
+#: names that could drift, exactly as ECFP4's hashed bits have none.
+#:
+#: Safe to name here despite needing torch, for the same reason `protein_descriptors`
+#: below is: `chem.molencoder` keeps every torch and transformers import inside a
+#: function. Do not "tidy" that by hoisting them.
+MOLENCODER_FEATURIZER = "molencoder"
+_FEATURIZERS[MOLENCODER_FEATURIZER] = molencoder_embed
 
 #: The one featurizer here that reads the structure column as an amino-acid sequence
 #: rather than as SMILES. Registered by name like the others so a fitted artifact can
