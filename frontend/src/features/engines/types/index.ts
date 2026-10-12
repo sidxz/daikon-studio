@@ -116,4 +116,5 @@ export const ENGINE_FIGURE: Record<string, EngineFigure> = {
   "tanimoto-gp": "gaussian-process",
   "chemprop-dmpnn": "message-passing",
   "molformer-xl": "attention",
+  "protein-lora": "attention",
 };

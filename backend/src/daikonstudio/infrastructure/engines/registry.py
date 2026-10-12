@@ -31,6 +31,7 @@ from daikonstudio.infrastructure.engines.molformer_xl import MolformerXL
 from daikonstudio.infrastructure.engines.protein_descriptors_randomforest import (
     ProteinDescriptorsRandomForest,
 )
+from daikonstudio.infrastructure.engines.protein_lora import ProteinLora
 from daikonstudio.infrastructure.engines.site_mean_fitness import SiteMeanFitness
 from daikonstudio.infrastructure.engines.tanimoto_gp import TanimotoGP
 
@@ -45,6 +46,7 @@ _ENGINES: tuple[Engine, ...] = (
     MolEncoderXGBoost(),
     Esm2XGBoost(),
     Esm2GP(),
+    ProteinLora(),
     ProteinDescriptorsRandomForest(),
     SiteMeanFitness(),
 )

@@ -23,6 +23,7 @@ async def test_engines_are_listed_with_their_conditions(client):
         "molencoder-xgboost",
         "esm2-xgboost",
         "esm2-gp",
+        "protein-lora",
         "protein-descriptors-randomforest",
         "site-mean-fitness",
     }
@@ -92,7 +93,7 @@ async def test_every_manifest_says_whether_it_learns_targets_jointly(client):
     response = await client.get("/api/v1/engines")
     assert response.status_code == 200, response.text
     joint = {e["id"] for e in response.json() if e["supports_multitask"]}
-    assert joint == {"chemprop-dmpnn", "molformer-xl"}
+    assert joint == {"chemprop-dmpnn", "molformer-xl", "protein-lora"}
 
 
 async def test_conditions_carry_all_form_metadata(client):
