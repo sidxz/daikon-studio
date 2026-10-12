@@ -20,6 +20,7 @@ async def test_engines_are_listed_with_their_conditions(client):
         "tanimoto-gp",
         "chemprop-dmpnn",
         "molformer-xl",
+        "molencoder-xgboost",
         "esm2-xgboost",
         "esm2-gp",
         "protein-descriptors-randomforest",
