@@ -53,6 +53,28 @@ direction.
 
 The LoRA artifact holds the adapters, the output layer **and** the linear-attention
 random-feature buffers, which is not a detail: see `_random_features`.
+
+**Measured 2026-10-12, and the result is that none of these choices matters here.**
+Polaris SARS-CoV-2 Mpro potency, the published partition (758 train / 84 validation /
+263 test), every arm fit through `train` and scored through `predict` on identical rows,
+each compared with `ecfp4-randomforest` by a paired bootstrap of the Spearman difference
+over 10,000 resamples:
+
+    molformer-xl  full   0.8538   +0.0233 [-0.0039, +0.0494]
+    molformer-xl  lora   0.8501   +0.0197 [-0.0083, +0.0473]
+    molformer-xl  head   0.8482   +0.0178 [-0.0111, +0.0453]
+    molformer-c3  full   0.8465   +0.0160 [-0.0091, +0.0411]
+    molformer-c3  lora   0.8355   +0.0051 [-0.0240, +0.0334]
+    molformer-c3  head   0.8334   +0.0029 [-0.0277, +0.0326]
+    ecfp4-randomforest   0.8304   (reference, one second to fit)
+
+Every interval contains zero. So on this dataset a fine-tuned 46.8M-parameter transformer
+is **not** distinguishable from a fingerprint forest that fits in a second, more
+pretraining data does not help, and LoRA matches a full fine-tune while saving 166 MB per
+Protocol. Read the ordering as noise, not as a ranking: `full` leads `head` by 0.0056,
+which is a fifth of the width of its own interval. One dataset, one split, regression
+only -- the honest claim is "no measured difference", and the reason to pick a mode is
+cost and artifact size.
 """
 
 from __future__ import annotations
@@ -205,14 +227,16 @@ _MANIFEST = EngineManifest(
                 "LoRA adapters",
                 "Output layer only",
             ),
-            help="Fine-tuning the whole model updates all 46 million weights and "
-            "usually performs better with thousands of measurements. LoRA trains small "
-            "adapter matrices inside each attention layer and leaves the pretrained "
-            "weights untouched; the saved model is a few megabytes instead of about "
-            "190, and we have not yet measured an accuracy difference between it and "
-            "fine-tuning the whole model. Output layer only trains on top of the frozen "
-            "pretrained representation, which is much faster and far harder to overfit, "
-            "and so is the better choice on small assays.",
+            help="Fine-tuning the whole model updates all 46 million weights. LoRA "
+            "trains small adapter matrices inside each attention layer and leaves the "
+            "pretrained weights untouched, so the saved model is about 8 megabytes "
+            "instead of 174. Output layer only trains on top of the frozen pretrained "
+            "representation, which is the fastest and the hardest to overfit. On the one "
+            "dataset we have measured — 758 training molecules of SARS-CoV-2 Mpro "
+            "potency — the three choices scored 0.85, 0.85 and 0.85 in rank "
+            "correlation, differences too small to separate from measurement noise, and "
+            "none of them was distinguishable from the fingerprint baseline. Choose on "
+            "cost and model size rather than on expected accuracy.",
         ),
         ConditionSpec(
             key="checkpoint",
@@ -228,9 +252,11 @@ _MANIFEST = EngineManifest(
             "44-million-parameter architecture with the same tokenizer. MoLFormer-XL is "
             "IBM's release, pretrained on a 10% sample of 1.1 billion molecules, and is "
             "the default. MoLFormer-c3 is DeepChem's release of the same model "
-            "pretrained on all of them. Where we have compared them, the two score "
-            "within measurement noise of each other, so neither is established as the "
-            "better starting point.",
+            "pretrained on all of them. More pretraining data did not help on the one "
+            "dataset we have measured: on SARS-CoV-2 Mpro potency, MoLFormer-c3 scored "
+            "at or slightly below MoLFormer-XL in every training mode, by margins "
+            "inside measurement noise. Neither is established as the better starting "
+            "point.",
         ),
         POSITIVE_WEIGHTING,
         EPOCH_SELECTION,

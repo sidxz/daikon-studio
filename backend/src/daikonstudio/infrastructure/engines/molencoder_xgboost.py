@@ -5,8 +5,9 @@ fine-tunes 46.8M parameters for minutes to hours; this reads a 15M-parameter enc
 once, frozen, and fits boosted trees on the result in seconds. That is the whole claim:
 **a cheap second opinion from a different inductive bias**, not a better one. The
 published evidence behind the roster says no 2025-26 SMILES transformer beats ECFP4 plus
-a forest or Chemprop under a leakage-aware split, and we have measured nothing here
-against the fingerprint engines yet, so the help text promises nothing about accuracy.
+a forest or Chemprop under a leakage-aware split, and the one comparison we have run
+since agrees and then some -- see the measurement below, which puts this engine behind
+the fingerprint forest by more than noise.
 
 Two things to know before reading a Scorecard from it. The representation is the CLS
 token, whose authors note it is most meaningful after fine-tuning on the task -- and
@@ -17,6 +18,18 @@ descriptor engine's can.
 `lane="gpu"` because it imports torch, as chemprop, MoLFormer and the ESM-2 engines do.
 It resolves to CUDA, MPS or CPU on whatever runs it; the lane is a statement about the
 dependency, not about the hardware.
+
+Measured 2026-10-12, Polaris SARS-CoV-2 Mpro potency (758 train / 84 validation / 263
+test, the published partition), against `ecfp4-randomforest` on the same rows: test
+Spearman **0.7552 against 0.8304**, a paired bootstrap of the difference over 10,000
+resamples giving **-0.0752 [-0.1241, -0.0283]**. The interval excludes zero, so this
+engine is *really* behind the fingerprint forest here rather than within noise of it --
+the one measured comparison on the roster where a new engine is established as worse.
+
+Worth knowing before concluding the featurizer is weak: the same frozen embeddings under
+a ridge head reached 0.844 Spearman in the research pass that selected this checkpoint.
+The head, not the embedding, is what differs. A ridge or GP head over `molencoder` is the
+obvious follow-up and is not built.
 """
 
 from __future__ import annotations
@@ -53,8 +66,11 @@ _MANIFEST = EngineManifest(
         "15-million-parameter transformer pretrained on about a million ChEMBL molecules, "
         "read here as a fixed featurizer rather than retrained, so a fit takes seconds "
         "to minutes. It reads the SMILES string rather than the molecular graph or a "
-        "fingerprint, which makes it a different view of a molecule; we have not measured "
-        "an accuracy advantage over the fingerprint or descriptor engines."
+        "fingerprint, which makes it a different view of a molecule. On the one dataset "
+        "we have measured — 758 training molecules of SARS-CoV-2 Mpro potency — it "
+        "ranked compounds less well than the fingerprint baseline, 0.76 against 0.83 in "
+        "rank correlation, and that gap was larger than measurement noise. Reach for it "
+        "as a second opinion, not as the stronger model."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(
