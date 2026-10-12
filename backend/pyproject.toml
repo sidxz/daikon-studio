@@ -49,7 +49,7 @@ azure = ["adlfs>=2024.7"]
 # The GPU lane. chemprop pulls torch, lightning and rdkit itself and owns their floors;
 # torch is listed bare, with no version, only so [tool.uv.sources] below can pick its
 # build (uv applies sources to direct dependencies only).
-gpu = ["chemprop>=2.2,<3", "transformers>=4.44", "torch"]
+gpu = ["chemprop>=2.2,<3", "transformers>=5.16", "peft>=0.21", "torch"]
 
 [dependency-groups]
 dev = [
