@@ -41,6 +41,18 @@ and checked here on the pinned snapshot: it does not collapse stereochemistry. `
 and `[C@@H]` are separate tokens (ids 15 and 16) and the pre-tokenizer keeps bracket
 atoms whole, so a D- and an L-residue tokenize differently. Length is the real
 limitation; do not justify this guard with stereochemistry.
+
+Two settings choose *what* trains and *which* published weights it starts from, and
+neither is an accuracy claim. `training` offers the whole model, LoRA adapters, or the
+output layer alone; LoRA's measured value at this size is the artifact -- a few
+megabytes instead of about 190 -- and not speed or memory, which it saves neither of
+(`_lora.py`). `checkpoint` offers IBM's 10%-sample weights or DeepChem's c3 release of
+the same architecture pretrained on all 1.1 billion molecules. Nothing here has been
+compared on a dataset yet, so neither setting carries an accuracy claim in either
+direction.
+
+The LoRA artifact holds the adapters, the output layer **and** the linear-attention
+random-feature buffers, which is not a detail: see `_random_features`.
 """
 
 from __future__ import annotations
@@ -63,6 +75,7 @@ from daikonstudio.application.engines.manifest import (
     validate_conditions,
 )
 from daikonstudio.domain.shared.errors import ValidationError
+from daikonstudio.infrastructure.engines import _lora
 from daikonstudio.infrastructure.engines._lightning import (
     keep_best_epoch,
     record_epochs,
@@ -99,15 +112,52 @@ _MAX_TOKENS = 202
 
 _PREDICT_BATCH_SIZE = 64
 
+#: The two `checkpoint` options. `CHECKPOINT_XL` is what every artifact written before
+#: this setting existed was trained on, so it is both the default and what a bundle with
+#: no `checkpoint` key means.
+CHECKPOINT_XL = "molformer-xl"
+CHECKPOINT_C3 = "molformer-c3"
+
+#: DeepChem's release of the same 44M-parameter architecture, pretrained on *all* of
+#: ZINC20 and PubChem rather than the 10% sample IBM published weights for.
+#:
+#: Only its tensors are used. The repository's own `config.json` and
+#: `tokenizer_config.json` point `auto_map` at IBM's repo **@main** with no revision,
+#: and IBM deleted the tokenizer code there on 2026-07-23 -- so loading it the way it
+#: declares raises today, and on any day it did not it would execute unpinned Python.
+#: The tokenizer and the model class therefore come from `_MODEL_ID` at `_REVISION`
+#: exactly as for the 10% weights, and only the state dict is laid over the result.
+#: Verified on this snapshot: the vocabularies are identical token for token, and the
+#: load reports 0 missing and 0 unexpected keys.
+_C3_MODEL_ID = "DeepChem/MoLFormer-c3-1.1B"
+_C3_REVISION = "9f1b9ea3590833bd0ea1a70e789c5d3da11ba7ed"
+_C3_WEIGHTS = "model.safetensors"
+
+#: What the c3 file prefixes its encoder keys with. `MolformerForSequenceClassification`
+#: holds the same encoder as `.molformer`, whose own keys carry no prefix, and the
+#: `lm_head.*` the file also contains has no home in a classification model.
+_C3_PREFIX = "molformer."
+
+#: The Linear layers LoRA adapts, by their leaf name. Read off `named_modules()` of the
+#: real checkpoint, not from peft's built-in map, which has no entry for the `molformer`
+#: architecture at all -- see `_lora.py` for why a wrong name is the dangerous case.
+_LORA_TARGETS = ("query", "key", "value", "dense")
+
+#: What `training` replaced. A stored condition dict can still carry it -- an in-flight
+#: run being resumed reads back the conditions it was enqueued with -- and
+#: `validate_conditions` rejects any key the manifest does not declare, so without the
+#: map below a resumed fit would fail instead of continuing.
+_LEGACY_FREEZE = "freeze_encoder"
+
 _MANIFEST = EngineManifest(
     id="molformer-xl",
-    version="1.0.0",
+    version="1.1.0",
     name="MoLFormer-XL",
     description=(
         "A transformer pretrained on ~1.1 billion molecules that reads the SMILES "
         "string directly instead of the molecular graph. Learns every target of a "
-        "dataset in one model. Fine-tuning takes minutes to hours on a GPU; freezing "
-        "the encoder trains only the output layer, in a fraction of the time."
+        "dataset in one model. Fine-tuning takes minutes to hours on a GPU; training "
+        "only the output layer takes a fraction of the time."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(
@@ -140,18 +190,47 @@ _MANIFEST = EngineManifest(
             minimum=1e-6,
             maximum=1e-2,
             help="Step size of each weight update. Fine-tuning a pretrained transformer "
-            "needs a small value (about 3 × 10⁻⁵); increase it toward 10⁻³ when the "  # noqa: RUF001
-            "encoder is frozen, because only the output layer is trained.",
+            "needs a small value (about 3 × 10⁻⁵); increase it toward 10⁻³ when only the "  # noqa: RUF001
+            "output layer is trained, and to about 10⁻⁴–10⁻³ for LoRA adapters, which "  # noqa: RUF001
+            "start at zero and have far fewer weights to move.",
         ),
         ConditionSpec(
-            key="freeze_encoder",
-            label="Freeze the pretrained encoder",
-            type=ConditionType.BOOL,
-            default=False,
-            help="Train only the output layer on top of the frozen pretrained "
-            "representation. Much faster and far harder to overfit, which makes it the "
-            "better choice on small assays; fine-tuning the whole model usually performs "
-            "better with thousands of measurements.",
+            key="training",
+            label="What to train",
+            type=ConditionType.ENUM,
+            default="full",
+            options=("full", "lora", "head"),
+            option_labels=(
+                "Fine-tune the whole model",
+                "LoRA adapters",
+                "Output layer only",
+            ),
+            help="Fine-tuning the whole model updates all 46 million weights and "
+            "usually performs better with thousands of measurements. LoRA trains small "
+            "adapter matrices inside each attention layer and leaves the pretrained "
+            "weights untouched; the saved model is a few megabytes instead of about "
+            "190, and we have not yet measured an accuracy difference between it and "
+            "fine-tuning the whole model. Output layer only trains on top of the frozen "
+            "pretrained representation, which is much faster and far harder to overfit, "
+            "and so is the better choice on small assays.",
+        ),
+        ConditionSpec(
+            key="checkpoint",
+            label="Pretrained weights",
+            type=ConditionType.ENUM,
+            default=CHECKPOINT_XL,
+            options=(CHECKPOINT_XL, CHECKPOINT_C3),
+            option_labels=(
+                "MoLFormer-XL (10% of pretraining data)",
+                "MoLFormer-c3 (full 1.1B-molecule pretraining)",
+            ),
+            help="Which published weights the fit starts from. Both are the same "
+            "44-million-parameter architecture with the same tokenizer. MoLFormer-XL is "
+            "IBM's release, pretrained on a 10% sample of 1.1 billion molecules, and is "
+            "the default. MoLFormer-c3 is DeepChem's release of the same model "
+            "pretrained on all of them. Where we have compared them, the two score "
+            "within measurement noise of each other, so neither is established as the "
+            "better starting point.",
         ),
         POSITIVE_WEIGHTING,
         EPOCH_SELECTION,
@@ -181,7 +260,54 @@ def _require_transformers(weights_dir: str) -> None:
         ) from exc
 
 
-def _load_backbone(*, freeze_encoder: bool, num_labels: int) -> tuple[Any, Any]:
+def _load_c3_weights(model: Any) -> None:
+    """Lay the full-data c3 tensors over `model.molformer`, refusing a partial fit.
+
+    `strict=False` is unavoidable -- the file also carries a masked-LM head this model
+    does not have -- and on its own it is exactly the silent no-op that
+    `protein/embed.apply_overlay` documents: a prefix that stopped matching would leave
+    every weight at the 10% checkpoint's value and report a Scorecard for weights the
+    scientist did not choose. So both key counts are checked, not just one.
+    """
+    from huggingface_hub import hf_hub_download
+    from safetensors.torch import load_file
+
+    path = hf_hub_download(_C3_MODEL_ID, _C3_WEIGHTS, revision=_C3_REVISION)
+    published = load_file(path)
+    encoder = {
+        name[len(_C3_PREFIX) :]: tensor
+        for name, tensor in published.items()
+        if name.startswith(_C3_PREFIX)
+    }
+    result = model.molformer.load_state_dict(encoder, strict=False)
+    if result.missing_keys or result.unexpected_keys:
+        raise ValidationError(
+            f"The MoLFormer-c3 weights do not fit this model: "
+            f"{len(result.missing_keys)} of its tensors are absent from the published "
+            f"file and {len(result.unexpected_keys)} of the file's have no home in it. "
+            "The two checkpoints have diverged, which needs a code change rather than a "
+            "different setting."
+        )
+
+
+def _lora_targets(model: Any) -> list[str]:
+    """`_LORA_TARGETS` inside the encoder, by full module name.
+
+    Full names rather than the leaf names peft matches by suffix, because the
+    classification head's first layer is **also** called `dense`: a bare `"dense"` would
+    put an adapter inside the head at the same time as `modules_to_save` asks for the
+    head to train in full, which is two owners for one layer. Naming the encoder's own
+    is unambiguous, and an architecture that stopped having them would reach `attach`'s
+    zero-match refusal rather than quietly training only the head.
+    """
+    return [
+        f"molformer.{name}"
+        for name, _child in model.molformer.named_modules()
+        if name.rsplit(".", 1)[-1] in _LORA_TARGETS
+    ]
+
+
+def _load_backbone(*, training: str, checkpoint: str, num_labels: int) -> tuple[Any, Any]:
     """The tokenizer and the classification model, both pinned to `_REVISION`.
 
     One logit per target (`num_labels`), read as a value for regression and through a
@@ -190,6 +316,10 @@ def _load_backbone(*, freeze_encoder: bool, num_labels: int) -> tuple[Any, Any]:
     `problem_type` inference would pick mean-squared error for a single label -- which
     is wrong for a probability. Logits and an explicit loss keep both tasks on one
     code path with nothing inferred.
+
+    `training` decides what carries a gradient, and `predict` calls this too -- with
+    `"lora"` whenever the artifact holds adapters, because the adapters have to exist
+    before their saved weights can be loaded into them.
     """
     from transformers import AutoModelForSequenceClassification, AutoTokenizer
 
@@ -206,10 +336,48 @@ def _load_backbone(*, freeze_encoder: bool, num_labels: int) -> tuple[Any, Any]:
         # on each call.
         deterministic_eval=True,
     )
-    if freeze_encoder:
+    if checkpoint == CHECKPOINT_C3:
+        _load_c3_weights(model)
+    if training == "head":
         # The `classifier` head stays trainable; only the pretrained trunk is pinned.
         model.molformer.requires_grad_(False)
+    elif training == "lora":
+        # The head trains in full beside the adapters: it is randomly initialized here,
+        # so a rank-8 correction to it would be a correction to noise.
+        model = _lora.attach(model, _lora_targets(model), modules_to_save=("classifier",))
     return tokenizer, model
+
+
+def _random_features(model: Any) -> dict[str, Any]:
+    """The linear-attention random features, which are buffers rather than parameters.
+
+    `_lora.trainable_state` saves what trained, and these did not -- but a *training*
+    forward pass redraws them (see this module's docstring), so the draw behind the
+    numbers on the Scorecard is the one the fit ended on, not the one in the published
+    checkpoint. Left out of a LoRA artifact, `predict` would rebuild the base from the
+    Hub, get the published draw, and quietly return different numbers from the ones the
+    model reported about itself. Twelve tensors of 64 x 32, about 100 kB.
+    """
+    return {
+        name: buffer.detach().cpu()
+        for name, buffer in model.named_buffers()
+        if name.endswith("feature_map.weight")
+    }
+
+
+def _without_legacy_freezing(conditions: dict[str, Any]) -> dict[str, Any]:
+    """`conditions` with a stored `freeze_encoder` read as the `training` mode it meant.
+
+    `true` trained the head alone and `false` trained everything, which are two of the
+    three modes that replaced it. An explicit `training` wins, so a caller sending both
+    is not overridden by the older key.
+    """
+    if _LEGACY_FREEZE not in conditions:
+        return conditions
+    mapped = dict(conditions)
+    frozen = bool(mapped.pop(_LEGACY_FREEZE))
+    mapped.setdefault("training", "head" if frozen else "full")
+    return mapped
 
 
 def _validation_scores(module: Any, batch: Any) -> tuple[Any, Any]:
@@ -418,7 +586,7 @@ def _build_module(
             return self(input_ids, attention_mask)
 
         def configure_optimizers(self) -> Any:
-            # Only the parameters that are actually learning: under `freeze_encoder`
+            # Only the parameters that are actually learning: under `head` or `lora`,
             # handing AdamW the frozen trunk would allocate optimizer state for 46M
             # parameters that never receive a gradient.
             trainable = [p for p in self.parameters() if p.requires_grad]
@@ -484,11 +652,14 @@ class MolformerXL:
         from lightning import pytorch as lightning
         from lightning.pytorch.callbacks import LambdaCallback
 
-        conditions: dict[str, Any] = validate_conditions(_MANIFEST, ctx.conditions)
+        conditions: dict[str, Any] = validate_conditions(
+            _MANIFEST, _without_legacy_freezing(ctx.conditions)
+        )
         epochs = int(conditions["epochs"])
         batch_size = int(conditions["batch_size"])
         learning_rate = float(conditions["learning_rate"])
-        freeze_encoder = bool(conditions["freeze_encoder"])
+        training = str(conditions["training"])
+        checkpoint = str(conditions["checkpoint"])
         weighting = str(conditions["positive_weighting"])
         selection = str(conditions["epoch_selection"])
         columns = ctx.target_columns
@@ -523,7 +694,9 @@ class MolformerXL:
                 for smiles, row in zip(structures, rows.select(columns).rows(), strict=True)
             ]
 
-        tokenizer, model = _load_backbone(freeze_encoder=freeze_encoder, num_labels=len(columns))
+        tokenizer, model = _load_backbone(
+            training=training, checkpoint=checkpoint, num_labels=len(columns)
+        )
         pos_weight = (
             [
                 positive_weight(train_rows[column].to_numpy(), weighting) or 1.0
@@ -656,33 +829,39 @@ class MolformerXL:
             None if validation_values is None else score(validation_rows, validation_values)
         )
 
-        # The whole fine-tuned model, not just the head. Under `freeze_encoder` most
-        # of these ~190 MB duplicate the public checkpoint, which is wasteful -- and
-        # deliberate: a published Protocol then keeps predicting even if the Hub is
-        # unreachable or the repository is withdrawn, and predict needs no branch for
-        # which parts were trained.
+        # `full` and `head` save the whole fine-tuned model, not just the head. Under
+        # `head` most of those ~190 MB duplicate the public checkpoint, which is
+        # wasteful -- and deliberate: a published Protocol then keeps predicting even if
+        # the Hub is unreachable or the repository is withdrawn.
         #
-        # ponytail: ~190 MB per Protocol regardless of what was trained. Upgrade path
-        # if storage bites: save only parameters whose `requires_grad` was true, and
-        # rebuild the rest from `_REVISION`.
+        # `lora` is the upgrade path the ponytail comment here used to name, now taken:
+        # it saves only the parameters whose `requires_grad` was true and rebuilds the
+        # rest from `_REVISION` at predict time, which is a few megabytes per Protocol
+        # instead of 190 -- in exchange for needing the checkpoint to be reachable (or
+        # already in the weights directory) to predict at all.
+        bundle: dict[str, Any] = {
+            "is_classification": is_classification,
+            "target_mean": target_mean,
+            "target_std": target_std,
+            "n_tasks": len(columns),
+            "revision": _REVISION,
+            "training": training,
+            "checkpoint": checkpoint,
+        }
+        if training == "lora":
+            bundle["lora_state"] = _lora.trainable_state(module.backbone) | _random_features(
+                module.backbone
+            )
+        else:
+            # Without the loss: a weighted fit's `pos_weight` is a buffer of it, and
+            # `predict` builds its module with no loss weights to load it into.
+            bundle["state_dict"] = {
+                key: value
+                for key, value in module.state_dict().items()
+                if not key.startswith("_loss.")
+            }
         buffer = io.BytesIO()
-        torch.save(
-            {
-                # Without the loss: a weighted fit's `pos_weight` is a buffer of it, and
-                # `predict` builds its module with no loss weights to load it into.
-                "state_dict": {
-                    key: value
-                    for key, value in module.state_dict().items()
-                    if not key.startswith("_loss.")
-                },
-                "is_classification": is_classification,
-                "target_mean": target_mean,
-                "target_std": target_std,
-                "n_tasks": len(columns),
-                "revision": _REVISION,
-            },
-            buffer,
-        )
+        torch.save(bundle, buffer)
 
         return TrainResult(
             artifact=buffer.getvalue(),
@@ -706,17 +885,32 @@ class MolformerXL:
         # An artifact from before targets could be several has no `n_tasks` and a scalar
         # mean and deviation; one task, and `_to_values` broadcasts the scalars.
         n_tasks = int(bundle.get("n_tasks", 1))
+        # An artifact written before these settings existed holds a full state dict
+        # trained on the 10% checkpoint, which is what both defaults say.
+        training = str(bundle.get("training", "full"))
+        checkpoint = str(bundle.get("checkpoint", CHECKPOINT_XL))
 
-        # `freeze_encoder=False` here regardless of how it was trained: the flag only
-        # controls which parameters receive gradients, and nothing is training now.
-        tokenizer, model = _load_backbone(freeze_encoder=False, num_labels=n_tasks)
+        # `"full"` for a `head` artifact regardless of how it was trained: that setting
+        # only controls which parameters receive gradients, and nothing is training now.
+        # `lora` is the one case the distinction survives into prediction -- the adapter
+        # layers have to be in the model before their saved weights can land in them.
+        tokenizer, model = _load_backbone(
+            training="lora" if training == "lora" else "full",
+            checkpoint=checkpoint,
+            num_labels=n_tasks,
+        )
         module = _build_module(
             model=model, learning_rate=1e-4, is_classification=is_classification
         )
-        # Restores the fine-tuned weights *and* the linear-attention `weight` buffer,
-        # which is what makes these predictions identical to the ones the Scorecard
-        # was built from.
-        module.load_state_dict(bundle["state_dict"])
+        if training == "lora":
+            # The adapters, the head, and the linear-attention random features the fit
+            # ended on -- see `_random_features` for why those travel with them.
+            _lora.load_trainable(module.backbone, bundle["lora_state"])
+        else:
+            # Restores the fine-tuned weights *and* the linear-attention `weight`
+            # buffer, which is what makes these predictions identical to the ones the
+            # Scorecard was built from.
+            module.load_state_dict(bundle["state_dict"])
 
         loader = _loader(
             _unlabelled(ctx.frame[ctx.structure_column].to_list(), n_tasks),

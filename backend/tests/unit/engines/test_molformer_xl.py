@@ -33,10 +33,15 @@ _WEIGHTS_DIR = Path(
     os.environ.get("STUDIO_PRETRAINED_WEIGHTS_DIR", "~/.cache/daikon-studio/weights")
 ).expanduser()
 _SNAPSHOT = _WEIGHTS_DIR / "hub" / "models--ibm-research--MoLFormer-XL-both-10pct"
+_C3_SNAPSHOT = _WEIGHTS_DIR / "hub" / "models--DeepChem--MoLFormer-c3-1.1B"
 
 needs_weights = pytest.mark.skipif(
     not _SNAPSHOT.exists(),
     reason="MoLFormer-XL weights not cached; CI does not download 179 MB",
+)
+needs_c3_weights = pytest.mark.skipif(
+    not (_SNAPSHOT.exists() and _C3_SNAPSHOT.exists()),
+    reason="MoLFormer-c3 weights not cached; CI does not download 187 MB",
 )
 
 _SMILES = [
@@ -54,7 +59,7 @@ _SMILES = [
     "CCc1ccncc1",
 ]
 _SPLITS = ["train"] * 6 + ["validation"] * 3 + ["test"] * 3
-_FAST = {"epochs": 2, "batch_size": 8, "freeze_encoder": True}
+_FAST = {"epochs": 2, "batch_size": 8, "training": "head"}
 
 
 def _frame(targets: list[float]) -> pl.DataFrame:
@@ -77,11 +82,44 @@ def test_manifest_declares_the_gpu_lane() -> None:
     assert MolformerXL.manifest().lane == "gpu"
 
 
-def test_the_manifest_offers_freezing_the_encoder() -> None:
-    spec = next(c for c in MolformerXL.manifest().conditions if c.key == "freeze_encoder")
+def test_the_manifest_offers_three_training_modes_and_two_checkpoints() -> None:
+    """`full` is the default for both, because it is what the engine did before either
+    setting existed -- a stored Protocol that names neither must fit the same model."""
+    conditions = {c.key: c for c in MolformerXL.manifest().conditions}
 
-    assert spec.type is ConditionType.BOOL
-    assert spec.default is False
+    training = conditions["training"]
+    assert training.type is ConditionType.ENUM
+    assert training.options == ("full", "lora", "head")
+    assert training.default == "full"
+    assert len(training.option_labels) == 3
+
+    checkpoint = conditions["checkpoint"]
+    assert checkpoint.type is ConditionType.ENUM
+    assert checkpoint.options == ("molformer-xl", "molformer-c3")
+    assert checkpoint.default == "molformer-xl"
+    assert "freeze_encoder" not in conditions
+
+
+def test_a_stored_freeze_encoder_condition_is_read_as_a_training_mode() -> None:
+    """The setting `training` replaced. A run stopped by its time limit is resumed with
+    the conditions it was enqueued with, so a dict holding the old key still reaches
+    `train` -- and `validate_conditions` rejects any key the manifest does not declare,
+    which would fail the resumed fit rather than continue it.
+
+    Pure, so it runs without the 179 MB checkpoint.
+    """
+    from daikonstudio.infrastructure.engines.molformer_xl import _without_legacy_freezing
+
+    assert _without_legacy_freezing({"epochs": 3, "freeze_encoder": True}) == {
+        "epochs": 3,
+        "training": "head",
+    }
+    assert _without_legacy_freezing({"freeze_encoder": False}) == {"training": "full"}
+    # An explicit choice wins over the key it replaced, and a dict without it is untouched.
+    assert _without_legacy_freezing({"freeze_encoder": True, "training": "lora"}) == {
+        "training": "lora"
+    }
+    assert _without_legacy_freezing({"epochs": 1}) == {"epochs": 1}
 
 
 def test_the_checkpoint_revision_is_pinned_to_a_commit_not_a_branch() -> None:
@@ -212,13 +250,38 @@ def test_classification_predictions_are_probabilities() -> None:
 
 
 @needs_weights
-def test_freezing_the_encoder_leaves_only_the_head_trainable() -> None:
+def test_training_only_the_output_layer_leaves_only_the_head_trainable() -> None:
     from daikonstudio.infrastructure.engines.molformer_xl import _load_backbone
 
-    _tokenizer, model = _load_backbone(freeze_encoder=True, num_labels=1)
+    _tokenizer, model = _load_backbone(training="head", checkpoint="molformer-xl", num_labels=1)
 
     assert not any(p.requires_grad for p in model.molformer.parameters())
     assert all(p.requires_grad for p in model.classifier.parameters())
+
+
+@needs_weights
+def test_lora_adapts_every_encoder_attention_layer_and_not_the_head() -> None:
+    """The failure this guards is silent: peft matches `target_modules` by name, finds
+    nothing, and returns a model that trains only the head under the LoRA name. The
+    head's own first layer is also called `dense`, so the names have to be the
+    encoder's, not bare leaf names.
+    """
+    from daikonstudio.infrastructure.engines.molformer_xl import _load_backbone, _lora_targets
+
+    _tokenizer, plain = _load_backbone(training="full", checkpoint="molformer-xl", num_labels=1)
+    targets = _lora_targets(plain)
+    # Twelve layers x (query, key, value, and the three `dense` layers around them).
+    assert len(targets) == 72
+    assert all(name.startswith("molformer.encoder.") for name in targets)
+
+    _tokenizer, model = _load_backbone(training="lora", checkpoint="molformer-xl", num_labels=1)
+    adapters = [name for name, _ in model.named_modules() if name.endswith("lora_A")]
+    assert len(adapters) == 72
+    assert not any("classifier" in name for name in adapters)
+
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    assert 0 < trainable < total / 10
 
 
 @needs_weights
@@ -570,3 +633,142 @@ def test_a_fit_stopped_by_its_time_limit_resumes_at_the_next_epoch() -> None:
     assert training[0] == pytest.approx(2 / 3)  # epoch 2 of 3 is the first one run
     assert any(p.startswith("Resuming") for _, p in reported)
     assert result.metrics["y"]
+
+
+# --- training modes and checkpoints -------------------------------------------------
+
+
+@needs_weights
+def test_a_lora_artifact_is_a_few_megabytes_and_reproduces_its_own_predictions() -> None:
+    """The whole argument for LoRA on this roster: the artifact, not speed or memory.
+
+    A fresh engine instance has to rebuild the base from the pinned revision, attach
+    adapters, load the saved ones into them, and land on the same numbers the fit
+    reported. Two things could break that silently -- a saved tensor finding no home
+    (`_lora.load_trainable` refuses), and the linear-attention random features, which
+    are buffers rather than parameters and are redrawn by every training pass, so the
+    published draw is not the one the Scorecard's numbers came from.
+    """
+    trained = MolformerXL().train(
+        _context(
+            _frame([float(i) for i in range(12)]),
+            TaskType.REGRESSION,
+            training="lora",
+            learning_rate=1e-3,
+        )
+    )
+
+    # The full model is about 190 MB; adapters plus the head plus the random features
+    # are single-digit megabytes.
+    assert len(trained.artifact) < 20 * 1024 * 1024
+
+    ctx = PredictContext(
+        frame=pl.DataFrame({"smiles": _SMILES}),
+        structure_column="smiles",
+        artifact=trained.artifact,
+        conditions={},
+        target_columns=("y",),
+    )
+    first = MolformerXL().predict(ctx)["value"].to_list()
+    second = MolformerXL().predict(ctx)["value"].to_list()
+
+    assert first == second
+    # Not a constant: a fit whose adapters never landed would return one number.
+    assert len(set(first)) > 1
+
+
+@needs_weights
+def test_a_lora_artifact_holds_the_adapters_rather_than_the_model() -> None:
+    import io
+
+    import torch
+
+    trained = MolformerXL().train(
+        _context(_frame([float(i) for i in range(12)]), TaskType.REGRESSION, training="lora")
+    )
+    bundle = torch.load(io.BytesIO(trained.artifact), weights_only=True)
+
+    assert bundle["training"] == "lora"
+    assert bundle["checkpoint"] == "molformer-xl"
+    assert "state_dict" not in bundle
+    saved = bundle["lora_state"]
+    assert any("lora_A" in key for key in saved)
+    assert any("classifier" in key for key in saved)
+    # The random features travel with them, or predict would use the published draw.
+    assert sum(key.endswith("feature_map.weight") for key in saved) == 12
+
+
+@needs_weights
+def test_a_fine_tuned_artifact_still_holds_the_whole_model() -> None:
+    """`full` and `head` keep the format every stored Protocol was written in, so
+    nothing already trained has to be refitted for the new settings."""
+    import io
+
+    import torch
+
+    trained = MolformerXL().train(
+        _context(
+            _frame([1000.0 + i for i in range(12)]), TaskType.REGRESSION, epochs=1, training="full"
+        )
+    )
+    bundle = torch.load(io.BytesIO(trained.artifact), weights_only=True)
+    assert "lora_state" not in bundle
+    assert any(key.startswith("backbone.molformer.") for key in bundle["state_dict"])
+
+    predictions = MolformerXL().predict(
+        PredictContext(
+            frame=pl.DataFrame({"smiles": _SMILES}),
+            structure_column="smiles",
+            artifact=trained.artifact,
+            conditions={},
+            target_columns=("y",),
+        )
+    )
+    assert all(900.0 < value < 1100.0 for value in predictions["value"].to_list())
+
+
+@needs_c3_weights
+def test_the_c3_weights_load_over_the_pinned_model_with_no_key_left_over() -> None:
+    """The c3 repository cannot be loaded the way it declares -- its `auto_map` points
+    at IBM's repo @main, where the tokenizer code was deleted -- so its tensors are laid
+    over the pinned 10% model instead. `strict=False` is unavoidable (the file carries a
+    masked-LM head this model has not), which makes a prefix mismatch a silent no-op
+    rather than an error. Both key counts are therefore asserted.
+    """
+    import torch
+
+    from daikonstudio.infrastructure.engines.molformer_xl import _load_backbone
+
+    _tokenizer, xl = _load_backbone(training="full", checkpoint="molformer-xl", num_labels=1)
+    _tokenizer, c3 = _load_backbone(training="full", checkpoint="molformer-c3", num_labels=1)
+
+    # `_load_c3_weights` raises on any missing or unexpected key, so reaching here is
+    # the zero-key assertion. That the weights actually changed is the other half.
+    assert not torch.equal(
+        xl.molformer.embeddings.word_embeddings.weight,
+        c3.molformer.embeddings.word_embeddings.weight,
+    )
+
+
+@needs_c3_weights
+def test_a_c3_fit_records_its_checkpoint_and_predicts_through_it() -> None:
+    result = MolformerXL().train(
+        _context(
+            _frame([float(i) for i in range(12)]),
+            TaskType.REGRESSION,
+            training="lora",
+            checkpoint="molformer-c3",
+        )
+    )
+
+    predictions = MolformerXL().predict(
+        PredictContext(
+            frame=pl.DataFrame({"smiles": _SMILES}),
+            structure_column="smiles",
+            artifact=result.artifact,
+            conditions={},
+            target_columns=("y",),
+        )
+    )
+    assert predictions.height == len(_SMILES)
+    assert len(set(predictions["value"].to_list())) > 1
