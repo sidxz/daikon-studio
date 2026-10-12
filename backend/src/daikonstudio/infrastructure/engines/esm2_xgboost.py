@@ -109,12 +109,12 @@ _MANIFEST = EngineManifest(
             help="Adds what the model reads at the mutated site itself, and how that "
             "site differs from the parent sequence's. Without it a prediction rests on "
             "an average over the whole protein, which barely moves when one residue "
-            "changes. On the one dataset we have measured, it helped this engine with "
-            "ESM-2 selected and slightly hurt it with VESM2, which already judges "
-            "substitutions well on its own -- the extra columns appear to crowd out the "
-            "ones a tree would otherwise split on. The Gaussian process engine uses it "
-            "more effectively. Only meaningful for variants of a single parent protein, "
-            "and it needs every sequence to be the same length.",
+            "changes. On the one dataset we have measured we could not establish a "
+            "reliable difference either way for this engine -- it looked slightly "
+            "better with ESM-2 and slightly worse with VESM2, both within the "
+            "measurement noise. The Gaussian process engine is where it measurably "
+            "helps. Only meaningful for variants of a single parent protein, and it "
+            "needs every sequence to be the same length.",
         ),
         ConditionSpec(
             key="likelihood_feature",
