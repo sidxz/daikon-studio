@@ -15,6 +15,7 @@ real file: 87 of 87 keys match the masked-LM class, 0 of 87 match the embedding 
 from __future__ import annotations
 
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -25,10 +26,14 @@ from daikonstudio.domain.shared.errors import ValidationError
 from daikonstudio.infrastructure.protein.embed import (
     DEFAULT_VARIANT,
     DIM,
+    MAX_RESIDUES,
     PROTEIN_MODEL_LABELS,
     PROTEIN_MODELS,
     VARIANTS,
+    _clean,
+    aligned_parent,
     apply_overlay,
+    likelihood_protocol,
     site_dim,
     variant,
 )
@@ -44,6 +49,10 @@ needs_weights = pytest.mark.skipif(
 needs_vesm = pytest.mark.skipif(
     not (_WEIGHTS_DIR / "VESM_650M.pth").exists(),
     reason="VESM2 650M weights not cached; CI does not download 400 MB",
+)
+needs_esmc = pytest.mark.skipif(
+    not (_WEIGHTS_DIR / "hub" / "models--biohub--ESMC-600M").exists(),
+    reason="ESM C 600M weights not cached; CI does not download 2.3 GB",
 )
 
 
@@ -157,6 +166,95 @@ def test_an_unknown_model_is_refused_by_name() -> None:
         variant("esm2-3b")
 
 
+# --- ESM C -----------------------------------------------------------------------------
+
+
+def test_esm_c_is_pinned_to_a_commit() -> None:
+    """A mirror republished next week is a different set of weights under the same name,
+    and the one on the roster is the one that was checked."""
+    assert re.fullmatch(r"[0-9a-f]{40}", variant("esmc-600m").revision or "")
+    assert variant("esmc-600m").checkpoint == "biohub/ESMC-600M"
+
+
+def test_esm_c_carries_its_own_width_cap_and_layer_names() -> None:
+    """All three differ from ESM-2's, and all three are read from the variant rather
+    than from a module constant -- a LoRA fit that used ESM-2's layer names here would
+    attach to nothing, and `_lora.attach` would refuse."""
+    chosen = variant("esmc-600m")
+
+    assert chosen.dim == 1152
+    assert chosen.max_residues == 2048
+    assert chosen.target_modules == (
+        "q_proj",
+        "k_proj",
+        "v_proj",
+        "o_proj",
+        "gate_proj",
+        "up_proj",
+        "down_proj",
+    )
+    assert variant(DEFAULT_VARIANT).max_residues == MAX_RESIDUES == 1022
+    assert variant(DEFAULT_VARIANT).target_modules == ("query", "key", "value", "dense")
+
+
+def test_the_residue_cap_is_the_chosen_models_and_truncation_is_counted() -> None:
+    """Review item 5. The silent-loss rule is unchanged -- what changes is whose ceiling
+    it is measured against. Truncating an ESM C run at ESM-2's 1,022 would throw away
+    half a long protein, and truncating ESM-2 at 2,048 would hand it positions it has no
+    embedding for."""
+    long_one = ("M" * 2100,)
+
+    cleaned, truncated, _unrepresentable = _clean(long_one, variant("esmc-600m").max_residues)
+    assert truncated == 1, "over-length is counted, never silent"
+    assert len(cleaned[0]) == 2048
+
+    cleaned, truncated, _unrepresentable = _clean(long_one, variant(DEFAULT_VARIANT).max_residues)
+    assert truncated == 1
+    assert len(cleaned[0]) == 1022
+
+
+def test_a_sequence_inside_esm_cs_context_is_not_refused_under_esm_2s() -> None:
+    """`aligned_parent` guards the position-scored features, and its ceiling is the
+    chosen model's too: a 1,500-residue protein is inside ESM C and outside ESM-2, and
+    refusing it under the wrong number would read as a limit of the data."""
+    series = ["M" * 1500, "A" + "M" * 1499]
+
+    assert aligned_parent(series, None, "esmc-600m")[1] == "M" * 1500
+    with pytest.raises(ValidationError, match="residue context"):
+        aligned_parent(series, None, DEFAULT_VARIANT)
+
+
+def test_the_likelihood_feature_is_refused_for_esm_c_rather_than_guessed() -> None:
+    """The VESM2 lesson, applied before it costs anything. How a log-likelihood ratio is
+    read off a checkpoint is a property of how that checkpoint was trained; scoring VESM2
+    by ESM-2's protocol cost 0.147 Spearman and read as a weakness of the weights. Nobody
+    has read Biohub's scoring code, so there is no protocol to use and the feature says
+    so instead of picking one."""
+    from daikonstudio.infrastructure.protein.likelihood import esm2_llr
+
+    assert variant("esmc-600m").likelihood_scoring is None
+    assert likelihood_protocol(DEFAULT_VARIANT) == "masked"
+    assert likelihood_protocol("vesm2-650m") == "wt"
+
+    with pytest.raises(ValidationError, match="not yet available"):
+        likelihood_protocol("esmc-600m")
+    # No weights load on either path: both refuse before any forward pass.
+    with pytest.raises(ValidationError, match="not yet available"):
+        esm2_llr(["MAKVQLSRLSGEQLLDEL"], None, "esmc-600m")
+
+
+def test_the_engine_refuses_the_llr_toggle_before_it_embeds_anything() -> None:
+    """The user path, which is the one that matters: the toggle is refused where the
+    featurizer is resolved, not minutes later inside the forward pass."""
+    from daikonstudio.infrastructure.engines._scoring import esm2_featurizer
+
+    series = ["MAKVQLSRLSGEQLLDEL", "MAKVQLSRLAGEQLLDEL"]
+
+    assert esm2_featurizer({"protein_model": "esmc-600m"}, series)[0] == "esmc-600m"
+    with pytest.raises(ValidationError, match="not yet available"):
+        esm2_featurizer({"protein_model": "esmc-600m", "likelihood_feature": True}, series)
+
+
 # --- the user path -------------------------------------------------------------------
 
 
@@ -229,3 +327,29 @@ def test_the_small_model_embeds_at_its_own_width() -> None:
     from daikonstudio.infrastructure.protein.embed import esm2_650m
 
     assert esm2_650m(["MAKVQLSRLSGEQLLDEL"], "esm2-150m").shape == (1, 640)
+
+
+@needs_esmc
+def test_esm_c_embeds_at_its_own_width() -> None:
+    """1,152 against ESM-2's 1,280, asserted on the real forward pass and not on the
+    dataclass -- and the forward pass is also the only proof that `EsmcModel` loads
+    through plain `AutoModel`, with no `trust_remote_code` and no `esm` package."""
+    from daikonstudio.infrastructure.protein.embed import esm2_650m
+
+    assert esm2_650m(["MAKVQLSRLSGEQLLDEL"], "esmc-600m").shape == (1, 1152)
+
+
+@needs_esmc
+def test_esm_c_maps_one_token_per_residue() -> None:
+    """What `residue_token_offset` and every site feature are indexed by. A tokenizer
+    that merged two residues into one token would shift every position after it and read
+    a neighbouring residue while still returning a plausible number."""
+    from daikonstudio.infrastructure.protein.embed import _loaded, residue_token_offset
+
+    sequence = "MKTAYIAKQR"
+    tokenizer, _model, _device = _loaded("esmc-600m")
+
+    ids, offset = residue_token_offset(tokenizer, sequence)
+
+    assert len(ids) == len(sequence) + 2, "one token per residue plus two special tokens"
+    assert offset == 1

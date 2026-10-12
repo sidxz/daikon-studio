@@ -38,7 +38,14 @@ PROTEIN_MODEL = ConditionSpec(
         "split: close to nothing when the test sequences resemble the training ones, but "
         "measurably worse -- up to 0.16 in rank correlation -- when they do not, which "
         "is exactly what a grouped or held-out-position split is for. Prefer the larger "
-        "model whenever the split is a hard one."
+        "model whenever the split is a hard one. "
+        "ESM C 600M is a more recent model, and the reasons to pick it are its speed and "
+        "its reach: it reads sequences of up to 2,048 residues, where the ESM-2 models "
+        "stop at 1,022 and anything longer is cut off. It is not the more accurate "
+        "choice on the comparisons published so far, where it scores slightly below "
+        "ESM-2 650M, and we have not measured the two against each other on our own "
+        "data. Its opinion of a substitution cannot be read yet, so the likelihood "
+        "setting is unavailable with it."
     ),
 )
 

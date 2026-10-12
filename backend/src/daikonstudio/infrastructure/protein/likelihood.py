@@ -48,6 +48,7 @@ from daikonstudio.infrastructure.protein.embed import (
     DEFAULT_VARIANT,
     _overlaid,
     aligned_parent,
+    likelihood_protocol,
     residue_token_offset,
     torch_and_device,
     variant,
@@ -83,11 +84,14 @@ def esm2_llr(
     if not sequences:
         return np.zeros((0, 1), dtype=np.float32)
 
-    sequences, parent = aligned_parent(sequences, parent)
+    # Before the alignment check and long before any weights load: a model whose scoring
+    # protocol nobody has read yet cannot produce this column at all, and that is a
+    # clearer thing to say than a refusal about sequence lengths.
+    scoring = likelihood_protocol(model)
+    sequences, parent = aligned_parent(sequences, parent, model)
     positions = sorted(
         {position for sequence in sequences for position in mutated_positions(sequence, parent)}
     )
-    scoring = variant(model).likelihood_scoring
     read = _wt_marginals if scoring == "wt" else _masked_marginals
     return _llr_from_logprobs(sequences, parent, read(parent, positions, model))
 
@@ -236,8 +240,8 @@ def _loaded_mlm(name: str = DEFAULT_VARIANT) -> tuple[Any, Any, Any]:
 
     from transformers import AutoModelForMaskedLM, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(chosen.checkpoint)
-    model = AutoModelForMaskedLM.from_pretrained(chosen.checkpoint)
+    tokenizer = AutoTokenizer.from_pretrained(chosen.checkpoint, revision=chosen.revision)
+    model = AutoModelForMaskedLM.from_pretrained(chosen.checkpoint, revision=chosen.revision)
     # `for_masked_lm=True`: a published overlay is keyed for this class, so here the
     # keys land as-is. The embedding path has to strip a prefix; see `apply_overlay`.
     model = _overlaid(model, chosen, name, for_masked_lm=True).to(device)

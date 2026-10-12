@@ -64,6 +64,7 @@ from daikonstudio.infrastructure.protein.embed import (
     embedding_map,
     esm2_650m,
     esm2_with_sites,
+    likelihood_protocol,
     site_map,
 )
 from daikonstudio.infrastructure.protein.likelihood import esm2_llr
@@ -533,12 +534,20 @@ def esm2_featurizer(
     The local is not called `key`: `key = <UPPERCASE_CONSTANT>` is exactly the shape
     gitleaks' generic-api-key rule looks for, and the pre-commit hook rejected it.
     """
-    chosen = str(conditions.get("protein_model") or DEFAULT_VARIANT)
+    model = str(conditions.get("protein_model") or DEFAULT_VARIANT)
+    chosen = model
     if conditions.get("site_features"):
         chosen = f"{chosen}+site"
     if conditions.get("likelihood_feature"):
+        # Here rather than only inside `esm2_llr`, so a model whose scoring protocol
+        # nobody has read is refused before the fit spends minutes embedding.
+        likelihood_protocol(model)
         chosen = f"{chosen}+llr"
-    parent = aligned_parent(sequences)[1] if chosen in _PARENT_SCORED and sequences else None
+    parent = (
+        aligned_parent(sequences, None, model)[1]
+        if chosen in _PARENT_SCORED and sequences
+        else None
+    )
     return chosen, _sliced_from_one_pass(chosen, sequences, parent), parent
 
 

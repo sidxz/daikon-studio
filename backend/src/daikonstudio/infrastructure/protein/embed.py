@@ -57,6 +57,19 @@ CHECKPOINT = "facebook/esm2_t33_650M_UR50D"
 DIM = 1280
 
 
+#: ESM-2 has 1026 position embeddings, two of which are the start and end tokens, so
+#: 1022 residues is the real ceiling. Sequences longer than this are truncated and
+#: **counted** -- see `_clean`. Silence here is a data-integrity bug: `esm-extract`
+#: truncates without a word and the Hugging Face tokenizer does not truncate at all by
+#: default, and one published dataset had 9.3% of its sequences over the limit. It bites
+#: immediately on real targets: M. tuberculosis RpoB is ~1,178 residues and EmbB ~1,098.
+#:
+#: ESM-2's number, and the default of `Variant.max_residues`, which is what every
+#: truncation and refusal actually reads: ESM C is rotary and has no such ceiling, so its
+#: cap is a choice of ours rather than the architecture's.
+MAX_RESIDUES = 1022
+
+
 @dataclass(frozen=True)
 class Variant:
     """One set of weights this module can embed and score with.
@@ -82,7 +95,22 @@ class Variant:
     #: preference** -- it is the protocol the publisher trained or distilled under, and
     #: scoring a model the other way is what made VESM2's own LLR look worse than stock
     #: ESM-2's. So it lives here and no engine offers it as a setting.
-    likelihood_scoring: str = "masked"
+    #:
+    #: `None` means *nobody has read the publisher's scoring code yet*, and every
+    #: likelihood path then refuses rather than picking one. See `likelihood_protocol`.
+    likelihood_scoring: str | None = "masked"
+    #: The `torch.nn.Linear` names a LoRA fine-tune attaches to, for `_lora.attach`.
+    #: Per-variant because the names are the architecture's: ESM-2's attention
+    #: projections are `query/key/value/dense`, ESM C's are `q_proj ... down_proj`, and
+    #: peft has no built-in map for either. A wrong name trains nothing but the head.
+    target_modules: tuple[str, ...] = ("query", "key", "value", "dense")
+    #: The longest sequence this checkpoint is read over. Truncation and the counting
+    #: that goes with it read this, not the module constant.
+    max_residues: int = MAX_RESIDUES
+    #: A Hub commit to pin `from_pretrained` to, or `None` for whatever the repo's
+    #: default branch holds. Pinned where the weights are new enough that the repository
+    #: is still moving; ESM-2's snapshots have been stable for years.
+    revision: str | None = None
 
 
 #: The default, and the only one the engines offered before the others existed.
@@ -136,6 +164,50 @@ VARIANTS: dict[str, Variant] = {
     "esm2-150m": Variant(
         checkpoint="facebook/esm2_t30_150M_UR50D", dim=640, label="ESM-2 150M (faster)"
     ),
+    # ESM C 600M, EvolutionaryScale's 2024 encoder as mirrored by Arc Institute's Biohub
+    # under MIT for the weights *and* the code. It is on the roster for three measured
+    # properties, none of which is accuracy:
+    #
+    # * **Context.** Rotary positions and no learned position table, so it reads a
+    #   2,500-residue protein without raising -- where ESM-2 stops at 1,022 and every
+    #   residue past that is silently dropped by anyone who forgets to count. The cap
+    #   below is therefore ours, not the architecture's.
+    # * **Speed and width.** 1,152 dimensions against ESM-2 650M's 1,280, and its
+    #   published throughput is the reason it exists.
+    # * **Licence.** MIT, like ESM-2, and unlike ESM3 and everything derived from it --
+    #   our runner images are public, which is distribution.
+    #
+    # **It is not the more accurate model.** On ProteinGym zero-shot, read fairly, ESM C
+    # 600M is *behind* ESM-2 650M (0.405 against 0.414). Nothing here has measured the
+    # two against each other on our own data yet, and the help text says so.
+    #
+    # Loaded through native `transformers` as `EsmcModel` -- not the repository's
+    # `modeling_esmc_remote.py`, which needs `trust_remote_code=True` and pulls in the
+    # `esm` package and its CUDA dependencies. Pinned to a commit anyway: a mirror
+    # republished a week later is a different set of weights under the same name, and
+    # this one is what was measured.
+    #
+    # `likelihood_scoring=None` is the deliberate gap. ESM C's own scoring code has not
+    # been read, and the one thing this project knows for certain about likelihood
+    # protocols is that guessing one costs 0.147 Spearman and reads as a model
+    # regression (see `vesm2-650m` above). So the feature refuses instead.
+    "esmc-600m": Variant(
+        checkpoint="biohub/ESMC-600M",
+        dim=1152,
+        label="ESM C 600M (faster)",
+        likelihood_scoring=None,
+        target_modules=(
+            "q_proj",
+            "k_proj",
+            "v_proj",
+            "o_proj",
+            "gate_proj",
+            "up_proj",
+            "down_proj",
+        ),
+        max_residues=2048,
+        revision="fcc9d36f5fff97d9bb69a36e3252de61cc78c968",
+    ),
 }
 
 #: The variant names, in the order an engine offers them.
@@ -153,13 +225,31 @@ def variant(name: str) -> Variant:
         ) from None
 
 
-#: ESM-2 has 1026 position embeddings, two of which are the start and end tokens, so
-#: 1022 residues is the real ceiling. Sequences longer than this are truncated and
-#: **counted** -- see `_clean`. Silence here is a data-integrity bug: `esm-extract`
-#: truncates without a word and the Hugging Face tokenizer does not truncate at all by
-#: default, and one published dataset had 9.3% of its sequences over the limit. It bites
-#: immediately on real targets: M. tuberculosis RpoB is ~1,178 residues and EmbB ~1,098.
-MAX_RESIDUES = 1022
+def likelihood_protocol(name: str) -> str:
+    """How a log-likelihood ratio is read off this variant, or a refusal.
+
+    One function so that the refusal cannot be forgotten at one of the several places a
+    likelihood is reached from -- the LLR feature column, the engine condition that turns
+    it on, and the ranking objective that trains against it.
+
+    **A missing protocol is refused, never guessed**, and the cost of the alternative is
+    measured: reading VESM2 by ESM-2's masked-marginal protocol made its own LLR look
+    0.147 Spearman worse than stock ESM-2's, which read for weeks as a weakness of the
+    weights rather than as our bug. Somebody has to read the publisher's scoring code
+    first; until then this is a capability we do not have, which is a better thing to
+    report than a number computed the wrong way.
+    """
+    scoring = variant(name).likelihood_scoring
+    if scoring is None:
+        raise ValidationError(
+            f"The likelihood feature is not yet available for {variant(name).label}. How a "
+            "log-likelihood ratio should be read off this model depends on how it was "
+            "trained, and reading it the wrong way produces plausible numbers that are "
+            "quietly wrong, so it is refused rather than guessed. Turn the setting off, "
+            "or choose ESM-2 650M, VESM2 650M or ESM-2 150M."
+        )
+    return scoring
+
 
 #: Tokens per batch rather than sequences per batch, so one long sequence in a set of
 #: short ones cannot blow up memory. Paired with the length sort in `_embed`, which is
@@ -239,15 +329,17 @@ def _embed(sequences: tuple[str, ...], model_name: str = DEFAULT_VARIANT) -> np.
 
     import torch
 
-    cleaned, truncated, unrepresentable = _clean(sequences)
+    cap = variant(model_name).max_residues
+    cleaned, truncated, unrepresentable = _clean(sequences, cap)
     if truncated:
         logger.warning(
             "%d of %d sequences were longer than %d residues and were truncated for "
-            "ESM-2; predictions for those rows describe only the first %d residues.",
+            "%s; predictions for those rows describe only the first %d residues.",
             truncated,
             len(sequences),
-            MAX_RESIDUES,
-            MAX_RESIDUES,
+            cap,
+            model_name,
+            cap,
         )
     if unrepresentable:
         logger.warning(
@@ -330,8 +422,15 @@ def as_embeddable(residues: str) -> tuple[str, bool]:
     return "".join(residue if residue in _EMBEDDABLE else "X" for residue in residues), True
 
 
-def _clean(sequences: tuple[str, ...]) -> tuple[list[str], int, int]:
+def _clean(
+    sequences: tuple[str, ...], max_residues: int = MAX_RESIDUES
+) -> tuple[list[str], int, int]:
     """Upper-case, drop whitespace and gaps, truncate, and count both kinds of loss.
+
+    `max_residues` is the chosen variant's, not the module constant's: ESM C reads four
+    times as far as ESM-2, and truncating it at ESM-2's ceiling would throw away two
+    thirds of a long protein for no reason. The default keeps ESM-2's number for the
+    callers that have no variant in hand.
 
     Returns `(cleaned, truncated, unrepresentable)`. Residue-alphabet *validation* still
     belongs to the dataset layer alongside SMILES canonicalization, and the policy here
@@ -355,9 +454,9 @@ def _clean(sequences: tuple[str, ...]) -> tuple[list[str], int, int]:
     unrepresentable = 0
     for sequence in sequences:
         residues = "".join(str(sequence).split()).replace("-", "").replace(".", "").upper()
-        if len(residues) > MAX_RESIDUES:
+        if len(residues) > max_residues:
             truncated += 1
-            residues = residues[:MAX_RESIDUES]
+            residues = residues[:max_residues]
         residues, substituted = as_embeddable(residues)
         unrepresentable += substituted
         cleaned.append(residues)
@@ -409,7 +508,7 @@ def site_map(
     to agree, since a fit can reach either.
     """
     unique = tuple(dict.fromkeys(sequences))
-    normalized, reference = aligned_parent(list(unique), parent)
+    normalized, reference = aligned_parent(list(unique), parent, model)
     blocks = _site_features(tuple(normalized), reference, model)
     return dict(zip(unique, blocks, strict=True))
 
@@ -456,7 +555,7 @@ def esm2_with_sites(
     """
     if not sequences:
         return np.zeros((0, site_dim(model)), dtype=np.float32)
-    normalized, reference = aligned_parent(sequences, parent)
+    normalized, reference = aligned_parent(sequences, parent, model)
     return _site_features(tuple(normalized), reference, model)
 
 
@@ -535,7 +634,8 @@ def _site_features(
             expected = len(chunk) * (len(parent) + 2)
             if int(encoded["attention_mask"].sum().item()) != expected:
                 raise AssertionError(
-                    f"{CHECKPOINT} tokenized a batch of {len(chunk)} sequences of "
+                    f"{variant(model_name).checkpoint} tokenized a batch of "
+                    f"{len(chunk)} sequences of "
                     f"{len(parent)} residues into something other than {expected} "
                     f"tokens, so a residue position cannot be indexed by token."
                 )
@@ -573,7 +673,9 @@ def _site_features(
     return out
 
 
-def aligned_parent(sequences: list[str], parent: str | None = None) -> tuple[list[str], str]:
+def aligned_parent(
+    sequences: list[str], parent: str | None = None, model: str = DEFAULT_VARIANT
+) -> tuple[list[str], str]:
     """`(normalized sequences, their parent)` for a feature that scores a *position*.
 
     One definition of "the series' parent", shared by the masked-marginal LLR and the
@@ -614,11 +716,15 @@ def aligned_parent(sequences: list[str], parent: str | None = None) -> tuple[lis
             f"same length, but these range from {min(lengths)} to {max(lengths)} "
             f"residues."
         )
-    if max(lengths) > MAX_RESIDUES:
+    # The chosen variant's ceiling, not ESM-2's: a 1,500-residue protein is inside ESM C's
+    # context and outside ESM-2's, and refusing it under the wrong number would read as a
+    # limit of the data rather than of the model that was picked.
+    cap = variant(model).max_residues
+    if max(lengths) > cap:
         raise ValidationError(
-            f"These sequences are {max(lengths)} residues, beyond ESM-2's "
-            f"{MAX_RESIDUES}-residue context. Truncating them would move every position "
-            f"past the cut, so a position-scored feature cannot be computed for them."
+            f"These sequences are {max(lengths)} residues, beyond {variant(model).label}'s "
+            f"{cap}-residue context. Truncating them would move every position past the "
+            f"cut, so a position-scored feature cannot be computed for them."
         )
     return normalized, consensus(normalized) if parent is None else parent
 
@@ -638,7 +744,8 @@ def residue_token_offset(tokenizer: Any, sequence: str) -> tuple[Any, int]:
     offset = residues[0] if residues else 0
     if residues != list(range(offset, offset + len(sequence))):
         raise ValidationError(
-            "This ESM-2 tokenizer does not map residues to tokens one-for-one, so a "
+            "This protein model's tokenizer does not map residues to tokens "
+            "one-for-one, so a "
             "position-scored feature cannot be aligned to a residue position."
         )
     ids: Any = encoded["input_ids"][0]
@@ -768,8 +875,8 @@ def _loaded(name: str = DEFAULT_VARIANT) -> tuple[Any, Any, Any]:
 
     from transformers import AutoModel, AutoTokenizer
 
-    tokenizer = AutoTokenizer.from_pretrained(chosen.checkpoint)
-    model = AutoModel.from_pretrained(chosen.checkpoint)
+    tokenizer = AutoTokenizer.from_pretrained(chosen.checkpoint, revision=chosen.revision)
+    model = AutoModel.from_pretrained(chosen.checkpoint, revision=chosen.revision)
     model = _overlaid(model, chosen, name, for_masked_lm=False).to(device)
     model.eval()
     logger.info("Loaded %s (%s) on %s for embedding.", name, chosen.checkpoint, device)
