@@ -1,7 +1,6 @@
 """Deleting datasets and draft protocols: who may, and what goes with them."""
 
 import asyncio
-import threading
 import uuid
 
 from sqlalchemy import text
@@ -217,21 +216,14 @@ async def test_only_the_creator_or_an_admin_may_delete_a_dataset(
 
 
 async def test_a_dataset_deleted_while_its_profile_computes_stays_deleted(
-    client, csv_upload, monkeypatch, workspace_id, tmp_path
+    client, csv_upload, profile_computer, workspace_id, tmp_path
 ):
-    release = threading.Event()
-    real = get_dataset_profile.build_profile
-
-    def slow_build(**kwargs):
-        release.wait(timeout=10)
-        return real(**kwargs)
-
-    monkeypatch.setattr(get_dataset_profile, "build_profile", slow_build)
+    profile_computer.release = asyncio.Event()
     dataset_id = await _create_dataset(client, csv_upload)
     assert (await client.get(f"/api/v1/datasets/{dataset_id}/profile")).status_code == 202
 
     assert (await client.delete(f"/api/v1/datasets/{dataset_id}")).status_code == 204
-    release.set()
+    profile_computer.release.set()
     for _ in range(200):
         if not get_dataset_profile._RUNNING:
             break

@@ -52,6 +52,18 @@ class RdkitStructureNormalizer:
         return high_similarity_pairs(structures, threshold=threshold, limit=limit)
 
 
+#: True in the profile child process only (`chem/profile.py` sets it, and nothing else
+#: may). A dataset profile already runs in a spawned child with its own GIL, and the
+#: Tanimoto search inside it would otherwise clear `LARGE_SEARCH_PAIRS` and spawn a
+#: grandchild: a second interpreter, a second copy of the fingerprints over a pipe, and
+#: not one blocked caller freed, because the only thing waiting is the child itself.
+#: Explicit rather than inferred -- "am I already a child?" has no answer a process can
+#: ask for, and guessing at one (a process name, a parent pid) would silently take the
+#: in-process branch in the API itself, which is the outage this whole mechanism exists
+#: to prevent.
+PROFILING_IN_CHILD = False
+
+
 def _search(query: list[str], reference: list[str], k: int) -> tuple[np.ndarray, np.ndarray]:
     """`nearest_neighbours_tanimoto`, in a child process when the search is large.
 
@@ -62,9 +74,10 @@ def _search(query: list[str], reference: list[str], k: int) -> tuple[np.ndarray,
     2026-10-05). A child has its own GIL, so the caller's other work goes on while it
     waits. Spawned, not forked: a fresh interpreter carries no torch, no event loop and
     no locks held by other threads. Small searches stay in-process, where starting a
-    child would cost more than the search.
+    child would cost more than the search, and so does any search already running in the
+    profile child (`PROFILING_IN_CHILD` above).
     """
-    if len(query) * len(reference) < LARGE_SEARCH_PAIRS:
+    if PROFILING_IN_CHILD or len(query) * len(reference) < LARGE_SEARCH_PAIRS:
         return nearest_neighbours_tanimoto(query, reference, k)
     spawn = multiprocessing.get_context("spawn")
     with ProcessPoolExecutor(max_workers=1, mp_context=spawn) as pool:

@@ -21,6 +21,12 @@ a reload, a second tab, a second reader -- joins the same computation, and once
 the result is saved every request reads it. One viewer waits once, and never
 starts a second copy of the work by reloading.
 
+Background is not enough on its own: the pass holds the GIL for as long as it
+runs, so on a 400k-compound dataset it stalled every other request in the API
+for the half hour it took (prod, 2026-10-20). It therefore runs through a
+`ProfileComputer`, in a child process with its own GIL, and only one at a time --
+see the port and `_COMPUTE_LOCKS` below for why each of those is necessary.
+
 ponytail: the structure-only sections (similarity, scaffolds, descriptors) are
 recomputed for every target's profile. Split the profile into a structure half and
 per-target halves if multi-target datasets are profiled often.
@@ -29,28 +35,25 @@ per-target halves if multi-target datasets are profiled often.
 from __future__ import annotations
 
 import asyncio
-import io
 import json
 import logging
 import uuid
+import weakref
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
-import polars as pl
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated
-from daikonstudio.application.data.build_profile import build_profile
 from daikonstudio.application.data.snapshot import snapshot_key
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
-from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.application.ports.profile_computer import ProfileComputer
 from daikonstudio.domain.data.dataset import Dataset
 from daikonstudio.domain.data.profile import (
     PROFILE_VERSION,
     DatasetProfile,
     profile_from_dict,
-    profile_to_dict,
 )
 from daikonstudio.domain.shared.errors import (
     ConflictError,
@@ -96,17 +99,41 @@ _RUNNING: dict[_Key, tuple[datetime, asyncio.Task[None]]] = {}
 #: The cause goes to the log, not the reader: raw exception text names internals.
 _FAILED: set[_Key] = set()
 
+#: One profile computation at a time in this process, keyed by the loop it runs on.
+#:
+#: Load-bearing, not tidiness. `_RUNNING` is keyed per target, so a four-target dataset
+#: opened once starts four computations; each peaks around 3-4 GB, and the API container
+#: is limited to 8 GiB. Four at once would be killed for running out of memory, which is
+#: a worse failure than the stall this serialization accompanies -- a queued profile is
+#: late, an OOM-killed API is gone. The queue is bounded by the targets a dataset has.
+#:
+#: Per loop because one module-level `asyncio.Lock` binds itself to the first loop that
+#: waits on it and raises on every later one; the suite runs a loop per test. Weak keys
+#: so a finished loop's lock goes with it.
+_COMPUTE_LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
+    weakref.WeakKeyDictionary()
+)
+
+
+def _compute_lock() -> asyncio.Lock:
+    loop = asyncio.get_running_loop()
+    lock = _COMPUTE_LOCKS.get(loop)
+    if lock is None:
+        lock = asyncio.Lock()
+        _COMPUTE_LOCKS[loop] = lock
+    return lock
+
 
 class GetDatasetProfile:
     def __init__(
         self,
         repository: DatasetRepository,
         store: BlobStore,
-        normalizer: StructureNormalizer,
+        computer: ProfileComputer,
     ) -> None:
         self._repository = repository
         self._store = store
-        self._normalizer = normalizer
+        self._computer = computer
 
     async def __call__(
         self, query: GetDatasetProfileQuery, auth: AuthContext | None = None
@@ -171,25 +198,28 @@ class GetDatasetProfile:
 
     async def _compute(self, key: _Key, dataset: Dataset, raw: bytes) -> None:
         """Runs in the background, past the request that started it: a reader who
-        leaves or reloads does not cancel it, and the saved result serves them."""
+        leaves or reloads does not cancel it, and the saved result serves them.
+
+        The computation itself is off this process entirely (`ProfileComputer`), and one
+        at a time; `started_at` is therefore when the profile was *asked for*, which is
+        what a reader waiting on a queued one wants told anyway. Reading the snapshot and
+        saving the result stay here, so nothing but plain data crosses the process
+        boundary and the cache has one owner.
+        """
         try:
-            # Off-thread for the same reason `GetScorecard` moves `build_scorecard`
-            # off it: this is minutes of RDKit and BLAS on a large dataset, and on
-            # the event loop it would stall every other request in the process.
-            profile = await asyncio.to_thread(
-                build_profile,
-                frame=pl.read_parquet(io.BytesIO(raw)),
-                structure_column=dataset.structure_column,
-                target=dataset.targets[key[2]],
-                normalizer=self._normalizer,
-                structure_kind=dataset.validation_report.structure_kind,
-            )
+            async with _compute_lock():
+                profile = await self._computer.compute(
+                    raw=raw,
+                    structure_column=dataset.structure_column,
+                    target=dataset.targets[key[2]],
+                    structure_kind=dataset.validation_report.structure_kind,
+                )
             if not self._store.exists(snapshot_key(dataset.workspace_id, dataset.id)):
                 # Deleted while this ran: saving would recreate its folder.
                 return
             self._store.put_bytes(
                 profile_key(dataset.workspace_id, dataset.id, target=key[2]),
-                json.dumps(profile_to_dict(profile)).encode(),
+                json.dumps(profile).encode(),
             )
         except Exception:
             logger.exception("Profiling dataset %s failed", dataset.id)

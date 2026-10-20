@@ -34,8 +34,10 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from jwt import PyJWKClient
 from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker
+from tests.fakes.profile_computer import InProcessProfileComputer
 from tests.fakes.protocol_access import FakeProtocolAccess
 
+from daikonstudio.application.ports.profile_computer import ProfileComputer
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.interface.app import create_app
@@ -155,7 +157,13 @@ def protocol_access() -> FakeProtocolAccess:
 
 
 @pytest.fixture
-def app(tmp_path, session_factory, protocol_access):
+def profile_computer() -> InProcessProfileComputer:
+    """Dataset profiles computed in this process -- see the fake's docstring."""
+    return InProcessProfileComputer()
+
+
+@pytest.fixture
+def app(tmp_path, session_factory, protocol_access, profile_computer):
     """The real app, with the database and blob store pointed at test-owned ones.
 
     Overriding is a child container: lagom refuses a second ``define`` on the same
@@ -171,6 +179,7 @@ def app(tmp_path, session_factory, protocol_access):
     )
     container.define(async_sessionmaker, Singleton(lambda: session_factory))
     container.define(ProtocolAccess, Singleton(lambda: protocol_access))  # type: ignore[type-abstract]
+    container.define(ProfileComputer, Singleton(lambda: profile_computer))  # type: ignore[type-abstract]
     application.state.container = container
     return application
 

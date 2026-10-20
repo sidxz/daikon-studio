@@ -99,6 +99,7 @@ from daikonstudio.application.ports.dataset_build_repository import DatasetBuild
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.folder_repository import FolderRepository
 from daikonstudio.application.ports.page_repository import PageRepository
+from daikonstudio.application.ports.profile_computer import ProfileComputer
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
@@ -113,6 +114,7 @@ from daikonstudio.application.runners.manage import (
     RevokeRunner,
 )
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
+from daikonstudio.infrastructure.chem.profile import ChildProcessProfileComputer
 from daikonstudio.infrastructure.chemcellar.client import HttpChemCellar
 from daikonstudio.infrastructure.duar.auth import get_duar
 from daikonstudio.infrastructure.duar.protocol_access import DuarProtocolAccess
@@ -160,6 +162,11 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         StructureNormalizer,  # type: ignore[type-abstract]
         Singleton(RdkitStructureNormalizer),
+    )
+    # Stateless: it starts a child process per call and keeps nothing between them.
+    container.define(
+        ProfileComputer,  # type: ignore[type-abstract]
+        Singleton(ChildProcessProfileComputer),
     )
     # Stateless, and it shells out to `mmseqs` per call -- so one instance, and a
     # missing binary is reported when a split actually asks for it, not at boot.
@@ -286,7 +293,7 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(ListDatasets, lambda c: ListDatasets(_datasets(c)))
     container.define(
         GetDatasetProfile,
-        lambda c: GetDatasetProfile(_datasets(c), c[BlobStore], c[StructureNormalizer]),
+        lambda c: GetDatasetProfile(_datasets(c), c[BlobStore], c[ProfileComputer]),
     )
     container.define(
         DeleteDataset,

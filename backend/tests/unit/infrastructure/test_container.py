@@ -22,6 +22,8 @@ from lagom import Container, Singleton
 from sqlalchemy.ext.asyncio import async_sessionmaker
 
 from daikonstudio.application.execution.enqueue import JobEnqueuer
+from daikonstudio.application.ports.profile_computer import ProfileComputer
+from daikonstudio.infrastructure.chem.profile import ChildProcessProfileComputer
 from daikonstudio.infrastructure.di.container import create_container
 from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
 from daikonstudio.settings import Settings
@@ -64,3 +66,14 @@ def test_the_db_enqueuer_branch_also_binds_to_its_own_containers_sessionmaker() 
     assert isinstance(enqueuer_b, DbEnqueuer)
     assert enqueuer_a._queue._sessions is sessions_a  # type: ignore[attr-defined]
     assert enqueuer_b._queue._sessions is sessions_b  # type: ignore[attr-defined]
+
+
+def test_dataset_profiles_are_computed_off_process() -> None:
+    """The wiring is itself the availability fix, so it is asserted rather than assumed:
+    a `ProfileComputer` that runs in this process holds the GIL for the whole pass and
+    stalls every other request in the API (prod, 2026-10-20). Nothing else in the suite
+    resolves this binding -- the API tests override it with an in-process fake."""
+    assert isinstance(
+        create_container(Settings())[ProfileComputer],  # type: ignore[type-abstract]
+        ChildProcessProfileComputer,
+    )
