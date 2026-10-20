@@ -108,10 +108,10 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in th
 	@nohup sh -c '$(call BUILD_INFO,frontend) && $(FRONTEND) && exec pnpm dev' \
 		> $(LOGDIR)/frontend.log 2>&1 & echo "$$!" > $(LOGDIR)/frontend.pid
 	@echo "Starting runner agent (default lane)..."
-	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
+	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
 	@echo "Starting runner agent (gpu lane)..."
-	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
+	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@sleep 1
 	@echo ""
@@ -151,14 +151,14 @@ dev-fe: ## (Re)start the frontend only, in the background
 dev-worker: ## (Re)start the default-lane runner agent only, in the background
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker.pid ] && kill $$(cat $(LOGDIR)/worker.pid) 2>/dev/null || true
-	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
+	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER)' \
 		> $(LOGDIR)/worker.log 2>&1 & echo "$$!" > $(LOGDIR)/worker.pid
 	@echo "Default-lane runner agent (re)started (log $(LOGDIR)/worker.log)"
 
 dev-worker-gpu: ## (Re)start the gpu-lane runner agent only (chemprop; Mac GPU via MPS)
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
-	@nohup sh -c '$(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
+	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@echo "GPU-lane runner agent (re)started (log $(LOGDIR)/worker-gpu.log)"
 
