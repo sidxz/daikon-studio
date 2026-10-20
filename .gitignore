@@ -20,3 +20,4 @@ deploy/.env
 docs/
 .DS_Store
 .pnpm-store/
+internal-docs/
