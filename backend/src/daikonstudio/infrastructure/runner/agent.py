@@ -128,15 +128,26 @@ async def _abandon_hung_job(ctx: dict[str, object], run_id: uuid.UUID, limit: fl
     _exit(3)
 
 
-async def _report_build_identity(api: httpx.AsyncClient) -> None:
-    """Tell the studio which build this process is. Once, at start: the identity
-    comes from the image's own environment and can only change by restarting.
+async def _report_build_identity(api: httpx.AsyncClient, *, first_try: bool = True) -> bool:
+    """Tell the studio which build this process is, and say whether that worked.
 
-    Every failure is logged and swallowed. A studio older than this route answers
-    404, and a runner that cannot introduce itself must still claim work -- the
-    row's columns stay NULL and the Runners page says "unknown", which is the
-    truth. `ValidationError` is caught for the same reason: a malformed
+    The identity comes from the image's own environment and can only change by
+    restarting, so one successful report is enough -- but the *first* attempt is
+    the one most likely to fail. A `docker stack deploy` restarts the API and the
+    runners together, so an agent that reports only at start races a studio that
+    is not resolvable yet, loses, and leaves its row NULL: the Runners page then
+    says "unknown" for a runner that is in fact up to date, which is exactly the
+    stale-runner signal this column exists to give. Observed on the first real
+    deploy of this feature (ned, 2026-10-20, "Name or service not known"), where
+    it took a manual runner restart to fill in. So `main` keeps calling this from
+    the poll loop until it lands.
+
+    Every failure is still logged and swallowed. A studio older than this route
+    answers 404 forever, and a runner that cannot introduce itself must still
+    claim work. `ValidationError` is caught for the same reason: a malformed
     `APP_VERSION` is a cosmetic problem, not a reason to refuse to run jobs.
+    Only the first failure is logged at warning -- the retries are once per poll,
+    and a studio that stays unreachable already says so through `poll_once`.
     """
     info = build_info()
     try:
@@ -146,7 +157,14 @@ async def _report_build_identity(api: httpx.AsyncClient) -> None:
         response = await api.post("/api/v1/runner/identity", json=identity.model_dump())
         response.raise_for_status()
     except (httpx.HTTPError, ValidationError) as exc:
-        _logger.warning("could not report this runner's build", error=str(exc))
+        if first_try:
+            _logger.warning("could not report this runner's build", error=str(exc))
+        return False
+    if not first_try:
+        # Worth a line: it says the gap between "agent up" and "studio knows which
+        # build it is" has closed, which is what someone watching a deploy wants.
+        _logger.info("reported this runner's build", version=info.version)
+    return True
 
 
 async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
@@ -259,8 +277,13 @@ async def main() -> None:
         # The log line above only helps whoever is reading this container's logs;
         # the operator looking at the Runners page is the one who needs to see a
         # runner left behind by a deploy, so report the same identity upstream.
-        await _report_build_identity(api)
+        reported = await _report_build_identity(api)
         while True:
             executed = await poll_once(api, settings)
+            if not reported:
+                # Retried here rather than on a timer of its own: the poll loop is
+                # already the thing that waits for the studio to come back, and a
+                # claim proves it is reachable.
+                reported = await _report_build_identity(api, first_try=False)
             if not executed:
                 await asyncio.sleep(settings.poll_seconds)

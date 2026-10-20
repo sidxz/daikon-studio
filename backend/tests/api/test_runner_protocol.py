@@ -1109,6 +1109,35 @@ async def test_a_studio_without_the_identity_route_does_not_stop_the_agent(app, 
         await _report_build_identity(api)  # must not raise
 
 
+async def test_a_failed_report_says_so_and_a_later_one_lands(app, monkeypatch):
+    """The deploy race this column exists to survive.
+
+    `docker stack deploy` restarts the API and the runners together, so an agent's
+    first report can hit a studio that is not resolvable yet. Observed on ned,
+    2026-10-20: the report failed with "Name or service not known", the warning
+    scrolled past, and the row stayed NULL -- a runner on the newest image showing
+    as "unknown", which is the opposite of what the Build column is for. So the
+    call reports whether it landed, and `main` retries it from the poll loop.
+    """
+    runner_id, headers = await _register_runner(app, ["default"])
+
+    async with _agent_client(app, headers) as api:
+        real_post = api.post
+        monkeypatch.setattr(
+            api,
+            "post",
+            lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("Name or service not known")),
+        )
+        assert await _report_build_identity(api) is False
+
+        monkeypatch.setattr(api, "post", real_post)
+        assert await _report_build_identity(api, first_try=False) is True
+
+    runner = await app.state.container[RunnerRepository].get(runner_id)
+    assert runner is not None
+    assert runner.build_version is not None, "the retry never reached the row"
+
+
 async def test_reporting_identity_without_a_runner_token_is_401(anonymous_client):
     response = await anonymous_client.post(
         "/api/v1/runner/identity",
