@@ -3,6 +3,15 @@ import { ease, easeInOut, lerp, seg } from "../math/tween";
 import { S } from "./styles";
 
 export const GP_MS = 7000;
+/** The same picture for a protein model's embeddings.
+ *
+ * Only the last clause differs, and it has to: Tanimoto similarity is a
+ * fingerprint measure, and this engine's kernel reads distances between
+ * embedding vectors instead. Naming the wrong one would describe a kernel the
+ * engine does not use. */
+export const GP_SEQUENCE_CAPTION =
+  "Before any data, every value is equally plausible. Each observation pins the curve near itself, and the shaded band, two standard deviations wide, narrows there. Far from the data the band stays wide. Shown in one dimension; Studio measures closeness as the distance between the protein model's embeddings.";
+
 export const GP_CAPTION =
   "Before any data, every value is equally plausible. Each observation pins the curve near itself, and the shaded band, two standard deviations wide, narrows there. Far from the data the band stays wide. Shown in one dimension; Studio measures closeness with Tanimoto similarity.";
 

@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 import { AttentionFigure, SEQUENCE_ENCODER } from "./attention";
+import { SiteMeanFigure } from "./site-mean";
 import { BoostingFigure } from "./boosting";
 import { type BootstrapData, BootstrapFigure } from "./bootstrap";
 import { DomainFigure } from "./domain";
@@ -55,6 +56,7 @@ const FIGURES: [string, (t: number) => ReactElement][] = [
   ["message passing", (t) => <MessagePassingFigure t={t} />],
   ["attention", (t) => <AttentionFigure t={t} />],
   ["attention, sequence", (t) => <AttentionFigure t={t} encoder={SEQUENCE_ENCODER} />],
+  ["site mean", (t) => <SiteMeanFigure t={t} />],
   ["split, scaffold", (t) => <SplitFigure t={t} strategy="scaffold" />],
   ["split, random", (t) => <SplitFigure t={t} strategy="random" />],
   ["split, identity", (t) => <SplitFigure t={t} strategy="identity" />],
@@ -97,7 +99,7 @@ describe("BootstrapFigure", () => {
     expect(screen.getByText("0.586 to 0.864 (95% interval)")).toBeInTheDocument();
     expect(
       screen.getByText(
-        /\(1\.248\) is outside the model's likely range, so the model is genuinely better/,
+        /\(1\.248\) is outside the model's 95% interval\. The observed score favors the model/,
       ),
     ).toBeInTheDocument();
   });
@@ -107,7 +109,7 @@ describe("BootstrapFigure", () => {
   });
   it("says the baseline leads when it is outside on the better side", () => {
     render(<BootstrapFigure t={1} data={{ ...MCC, baseline: 0.9 }} />);
-    expect(screen.getByText(/so the baseline is genuinely better/)).toBeInTheDocument();
+    expect(screen.getByText(/The observed score favors the baseline/)).toBeInTheDocument();
   });
   it("names a baseline too far for the axis at its edge instead of crushing the dots", () => {
     render(<BootstrapFigure t={1} data={{ ...RMSE, baseline: 9 }} />);
@@ -121,7 +123,7 @@ describe("BootstrapFigure", () => {
       screen.getByText(/RMSE, model minus baseline \(lower favors the model\)/),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Every likely difference favors the model, so its lead holds up/),
+      screen.getByText(/95% interval for the score difference excludes zero and favors the model/),
     ).toBeInTheDocument();
   });
   it("keeps the range label off the zero line, and signs it as the card does", () => {
@@ -148,7 +150,11 @@ describe("BootstrapFigure", () => {
   });
   it("says the baseline leads when the whole range is on its side", () => {
     render(<BootstrapFigure t={1} data={{ ...DIFF, interval: [0.05, 0.1] }} />);
-    expect(screen.getByText(/Every likely difference favors the baseline/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /95% interval for the score difference excludes zero and favors the baseline/,
+      ),
+    ).toBeInTheDocument();
   });
 });
 

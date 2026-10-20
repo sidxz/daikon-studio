@@ -20,6 +20,7 @@ import {
 } from "@/shared/components/explainers/figures/forest";
 import {
   GP_CAPTION,
+  GP_SEQUENCE_CAPTION,
   GP_MS,
   GaussianProcessFigure,
 } from "@/shared/components/explainers/figures/gaussian-process";
@@ -28,6 +29,11 @@ import {
   MESSAGE_PASSING_MS,
   MessagePassingFigure,
 } from "@/shared/components/explainers/figures/message-passing";
+import {
+  SITE_MEAN_CAPTION,
+  SITE_MEAN_MS,
+  SiteMeanFigure,
+} from "@/shared/components/explainers/figures/site-mean";
 import type { ComponentType } from "react";
 import { ENGINE_FIGURE, type EngineFigure } from "../types";
 
@@ -44,6 +50,12 @@ const FIGURES: Record<
     caption: MESSAGE_PASSING_CAPTION,
   },
   attention: { Figure: AttentionFigure, ms: ATTENTION_MS, caption: ATTENTION_CAPTION },
+  "gaussian-process-sequence": {
+    Figure: GaussianProcessFigure,
+    ms: GP_MS,
+    caption: GP_SEQUENCE_CAPTION,
+  },
+  "site-mean": { Figure: SiteMeanFigure, ms: SITE_MEAN_MS, caption: SITE_MEAN_CAPTION },
   "attention-sequence": {
     Figure: ({ t }) => <AttentionFigure t={t} encoder={SEQUENCE_ENCODER} />,
     ms: ATTENTION_MS,

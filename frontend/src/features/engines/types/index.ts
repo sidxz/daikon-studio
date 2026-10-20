@@ -107,7 +107,9 @@ export type EngineFigure =
   | "gaussian-process"
   | "message-passing"
   | "attention"
-  | "attention-sequence";
+  | "attention-sequence"
+  | "gaussian-process-sequence"
+  | "site-mean";
 
 export const ENGINE_FIGURE: Record<string, EngineFigure> = {
   "ecfp4-randomforest": "forest",
@@ -121,4 +123,12 @@ export const ENGINE_FIGURE: Record<string, EngineFigure> = {
   // pretraining corpus this engine never saw and a frozen-encoder mode it does not
   // offer, which is two false claims on the card of a protein engine.
   "protein-lora": "attention-sequence",
+  // The frozen-featurizer engines run the same estimator as their molecule
+  // counterparts, so they reuse those figures; the forest and boosting captions
+  // name no modality. The GP's does -- it says Tanimoto -- hence a sequence variant.
+  "molencoder-xgboost": "boosting",
+  "esm2-xgboost": "boosting",
+  "esm2-gp": "gaussian-process-sequence",
+  "protein-descriptors-randomforest": "forest",
+  "site-mean-fitness": "site-mean",
 };
