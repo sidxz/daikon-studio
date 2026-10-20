@@ -14,6 +14,9 @@ import asyncio
 
 from tests.api import test_protocols
 
+from daikonstudio.application.data import get_dataset_profile
+from daikonstudio.domain.data.profile import PROFILE_VERSION
+
 # A 20-compound dataset with a random split, shared with the protocol suite.
 _create_dataset = test_protocols._create_dataset
 
@@ -94,6 +97,55 @@ async def test_a_failed_computation_is_reported_once_then_retried(
     profile_computer.error = None
     retried = await client.get(f"/api/v1/datasets/{dataset_id}/profile")
     assert retried.status_code == 202
+
+
+async def test_a_computation_that_never_returns_gives_up_and_frees_the_queue(
+    client, csv_upload, profile_computer, monkeypatch
+):
+    """A child that neither returns nor dies -- RDKit on a pathological molecule, a
+    result pickle blocking on a full pipe -- would otherwise hold the process-wide
+    compute lock forever, with `_RUNNING` never cleared and every reader of every
+    dataset polling 202 until someone restarts the API. The real bound is hours; a
+    fifth of a second stands in for it here.
+    """
+    monkeypatch.setattr(get_dataset_profile, "_COMPUTE_TIMEOUT", 0.2)
+    dataset_id = await _create_dataset(client, csv_upload)
+    profile_computer.release = asyncio.Event()  # never set: the computation hangs
+
+    assert (await client.get(f"/api/v1/datasets/{dataset_id}/profile")).status_code == 202
+    # A short window on purpose: the fake would eventually give up on its own, and this
+    # has to be the timeout here that answered, not that.
+    assert (await _until_ready(client, dataset_id, attempts=20)).status_code == 409
+
+    # And the queue is free: the next reader's profile computes normally.
+    profile_computer.release = None
+    assert (await _until_ready(client, dataset_id)).status_code == 200
+
+
+async def test_a_profile_the_reader_could_not_parse_is_never_stored(
+    client, csv_upload, profile_computer, workspace_id, tmp_path, monkeypatch
+):
+    """The port returns a plain dict, so a shape `profile_from_dict` rejects can only be
+    caught here. Storing one would not be cosmetic: a cached profile that fails to parse
+    is silently recomputed, so every poll of every reader would recompute it, rewrite
+    the same unreadable blob and reject it again -- an unbounded loop, each pass holding
+    the one process-wide compute lock. It must take the ordinary failure path instead.
+    """
+    dataset_id = await _create_dataset(client, csv_upload)
+
+    async def computes_nonsense(**kwargs) -> dict:
+        profile_computer.calls += 1
+        return {"version": PROFILE_VERSION, "compounds": 20}  # and nothing else
+
+    monkeypatch.setattr(profile_computer, "compute", computes_nonsense)
+
+    assert (await client.get(f"/api/v1/datasets/{dataset_id}/profile")).status_code == 202
+    failed = await _until_ready(client, dataset_id)
+
+    assert failed.status_code == 409
+    assert profile_computer.calls == 1, "it recomputed instead of failing"
+    stored = tmp_path / str(workspace_id) / "datasets" / dataset_id / "profile.json"
+    assert not stored.exists()
 
 
 async def test_two_targets_are_profiled_one_after_the_other(client, csv_upload, profile_computer):

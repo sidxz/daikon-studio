@@ -101,11 +101,18 @@ _FAILED: set[_Key] = set()
 
 #: One profile computation at a time in this process, keyed by the loop it runs on.
 #:
-#: Load-bearing, not tidiness. `_RUNNING` is keyed per target, so a four-target dataset
-#: opened once starts four computations; each peaks around 3-4 GB, and the API container
-#: is limited to 8 GiB. Four at once would be killed for running out of memory, which is
-#: a worse failure than the stall this serialization accompanies -- a queued profile is
-#: late, an OOM-killed API is gone. The queue is bounded by the targets a dataset has.
+#: Load-bearing, not tidiness. Each computation peaks around 3-4 GB and the API
+#: container is limited to 8 GiB, so two at once is already close enough to the cap to
+#: be killed for running out of memory -- a worse failure than the wait this serializes
+#: into, because a queued profile is late while an OOM-killed API is gone.
+#:
+#: The lock is keyed only by the event loop, so it is one queue for the whole process:
+#: every dataset in every workspace waits behind every other, not just the targets of
+#: one dataset. That is the trade taken deliberately -- memory is the hard limit, and a
+#: profile is already a background job whose reader is told "computing" and polls --
+#: and `_COMPUTE_TIMEOUT` below bounds how long any one holder can block the queue.
+#: ponytail: a semaphore sized from the container's memory limit would let small
+#: datasets through two at a time; worth it only once the queue is a real complaint.
 #:
 #: Per loop because one module-level `asyncio.Lock` binds itself to the first loop that
 #: waits on it and raises on every later one; the suite runs a loop per test. Weak keys
@@ -113,6 +120,16 @@ _FAILED: set[_Key] = set()
 _COMPUTE_LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
     weakref.WeakKeyDictionary()
 )
+
+
+#: How long one computation may hold that queue before it is given up on.
+#:
+#: Generous on purpose: a legitimate 400k-compound profile is ~23 minutes and larger
+#: datasets exist, so this is not a performance budget -- it is the bound that keeps a
+#: child which neither returns nor dies (RDKit on a pathological molecule, a result
+#: pickle blocking on a full pipe) from holding the process-wide lock forever, with
+#: every reader of every dataset polling 202 until the API is restarted.
+_COMPUTE_TIMEOUT = 6 * 60 * 60
 
 
 def _compute_lock() -> asyncio.Lock:
@@ -153,7 +170,11 @@ class GetDatasetProfile:
 
         key = profile_key(dataset.workspace_id, dataset.id, target=query.target)
         try:
-            cached = self._store.get_bytes(key)
+            # In a thread: `get_bytes` is a blocking fsspec call, and on S3 or Azure a
+            # bare one stalls the event loop for the whole round trip -- the same class
+            # of stall this use case moved the computation itself out of the process to
+            # remove. Same for every store call below.
+            cached = await asyncio.to_thread(self._store.get_bytes, key)
         except FileNotFoundError:
             cached = None
         if cached is not None:
@@ -181,22 +202,30 @@ class GetDatasetProfile:
                     "The dataset profile could not be computed. Reload the page to try again."
                 )
             )
-        # No `await` from the cache check above to the registration below: a running
-        # computation can only save its result and leave `_RUNNING` while this
-        # coroutine is suspended, so it cannot slip between the two checks.
+        # `exists`, not the bytes: the snapshot is read in `_compute`, once the lock is
+        # held, so one copy of a hundreds-of-megabytes file is live at a time instead of
+        # one per queued target. The check stays here so a Dataset row whose stored file
+        # is missing still answers 404 rather than 202 and then a 409 ten minutes later.
+        #
+        # Above the `_RUNNING` check, not inside it: there must be no `await` between
+        # reading `_RUNNING` and registering in it, or two readers arriving together
+        # would both find it empty and start the same computation twice.
+        if not await asyncio.to_thread(
+            self._store.exists, snapshot_key(dataset.workspace_id, dataset.id)
+        ):
+            return Failure(NotFoundError("Stored dataset file", str(dataset.id)))
+        # A running computation can only save its result and leave `_RUNNING` while this
+        # coroutine is suspended, so it cannot slip between the check and the
+        # registration.
         running = _RUNNING.get(running_key)
         if running is None:
-            try:
-                raw = self._store.get_bytes(snapshot_key(dataset.workspace_id, dataset.id))
-            except FileNotFoundError:
-                return Failure(NotFoundError("Stored dataset file", str(dataset.id)))
             started_at = datetime.now(UTC)
-            task = asyncio.create_task(self._compute(running_key, dataset, raw))
+            task = asyncio.create_task(self._compute(running_key, dataset))
             running = (started_at, task)
             _RUNNING[running_key] = running
         return Success(ProfileComputing(started_at=running[0], compounds=dataset.row_count))
 
-    async def _compute(self, key: _Key, dataset: Dataset, raw: bytes) -> None:
+    async def _compute(self, key: _Key, dataset: Dataset) -> None:
         """Runs in the background, past the request that started it: a reader who
         leaves or reloads does not cancel it, and the saved result serves them.
 
@@ -206,21 +235,45 @@ class GetDatasetProfile:
         saving the result stay here, so nothing but plain data crosses the process
         boundary and the cache has one owner.
         """
+        snapshot = snapshot_key(dataset.workspace_id, dataset.id)
         try:
             async with _compute_lock():
-                profile = await self._computer.compute(
-                    raw=raw,
-                    structure_column=dataset.structure_column,
-                    target=dataset.targets[key[2]],
-                    structure_kind=dataset.validation_report.structure_kind,
-                )
-            if not self._store.exists(snapshot_key(dataset.workspace_id, dataset.id)):
+                if not await asyncio.to_thread(self._store.exists, snapshot):
+                    # Deleted while this waited its turn. Checked here as well as after
+                    # the computation because the computation is up to ~23 minutes of a
+                    # core and 3-4 GB holding the one queue, and spending it on a
+                    # dataset nobody can read any more delays every profile behind it.
+                    return
+                raw = await asyncio.to_thread(self._store.get_bytes, snapshot)
+                async with asyncio.timeout(_COMPUTE_TIMEOUT):
+                    profile = await self._computer.compute(
+                        raw=raw,
+                        structure_column=dataset.structure_column,
+                        target=dataset.targets[key[2]],
+                        structure_kind=dataset.validation_report.structure_kind,
+                    )
+            # Parsed before it is stored, and the result thrown away: what matters is
+            # that it parses. `__call__` reads the cache back through `profile_from_dict`
+            # and silently recomputes anything it rejects, so storing a shape it rejects
+            # is an unbounded recompute loop -- every reader's poll starting the same
+            # computation again, each one holding the process-wide lock. Failing here
+            # instead takes the ordinary failure path: one 409, logged, and a retry.
+            profile_from_dict(profile)
+            if not await asyncio.to_thread(self._store.exists, snapshot):
                 # Deleted while this ran: saving would recreate its folder.
                 return
-            self._store.put_bytes(
+            await asyncio.to_thread(
+                self._store.put_bytes,
                 profile_key(dataset.workspace_id, dataset.id, target=key[2]),
                 json.dumps(profile).encode(),
             )
+        except TimeoutError:
+            logger.error(
+                "Profiling dataset %s gave up after %s seconds; the child was terminated",
+                dataset.id,
+                _COMPUTE_TIMEOUT,
+            )
+            _FAILED.add(key)
         except Exception:
             logger.exception("Profiling dataset %s failed", dataset.id)
             _FAILED.add(key)

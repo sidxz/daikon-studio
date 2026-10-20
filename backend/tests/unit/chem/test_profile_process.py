@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import io
+import time
+from concurrent.futures import ProcessPoolExecutor
 
 import polars as pl
 import pytest
@@ -21,8 +23,12 @@ from daikonstudio.domain.data.profile import profile_to_dict
 from daikonstudio.domain.data.structure_kind import StructureKind
 from daikonstudio.domain.data.target import TargetKind, TargetSpec
 from daikonstudio.infrastructure.chem import normalizer as normalizer_module
+from daikonstudio.infrastructure.chem import profile as profile_module
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
-from daikonstudio.infrastructure.chem.profile import ChildProcessProfileComputer
+from daikonstudio.infrastructure.chem.profile import (
+    ChildProcessProfileComputer,
+    _profile_in_child,
+)
 
 _STRUCTURES = [
     "Cc1ccc(cc1)-c1cc(nn1-c1ccc(cc1)S(N)(=O)=O)C(F)(F)F",
@@ -121,3 +127,108 @@ def test_the_profile_child_keeps_its_tanimoto_search_in_process(monkeypatch) -> 
 
     monkeypatch.setattr(normalizer_module, "PROFILING_IN_CHILD", True)
     assert normalizer_module._search(["CCO"], ["CCN"], 1) == ("in-process", 1)
+
+
+def test_the_child_entry_point_cannot_mark_this_process_as_the_child(monkeypatch) -> None:
+    """`_profile_in_child` is an ordinary module-level function, so nothing stops it
+    being called right here -- a test avoiding the cost of a spawn, a future "small
+    datasets in-process" fallback. If it set `PROFILING_IN_CHILD` that flag would stay
+    set for the rest of the interpreter's life, and the next large Tanimoto search in
+    the API would run a 40k x 323k comparison on the event-loop thread: verbatim the
+    outage `normalizer.py::_search` documents. The flag belongs to the pool's
+    initializer, which only ever runs in a worker process.
+
+    (`monkeypatch` restores the flag, so a regression fails this test rather than
+    quietly leaking the in-process branch into every test that follows.)
+    """
+    monkeypatch.setattr(normalizer_module, "PROFILING_IN_CHILD", False)
+    buffer = io.BytesIO()
+    _frame().write_parquet(buffer)
+
+    _profile_in_child(buffer.getvalue(), "smiles", _TARGET, StructureKind.MOLECULE)
+
+    assert normalizer_module.PROFILING_IN_CHILD is False
+
+
+#: Six structures repeated: around six seconds of work in the child on a developer
+#: laptop, which is long enough that a cancellation lands mid-computation and a worker
+#: left running would still be running when this test checks.
+_SLOW_REPEATS = 5000
+
+
+def _slow_frame() -> pl.DataFrame:
+    rows = len(_STRUCTURES) * _SLOW_REPEATS
+    return pl.DataFrame(
+        {
+            "smiles": _STRUCTURES * _SLOW_REPEATS,
+            "value": [float(i % 7) for i in range(rows)],
+            # A tiny test split on purpose: the nearest-neighbour section is quadratic
+            # in train x test, and the descriptor pass is the part that needs to be slow.
+            "split": ["test" if i % 500 == 0 else "train" for i in range(rows)],
+        }
+    )
+
+
+async def test_a_cancelled_profile_kills_its_child_rather_than_leaving_it_running(
+    monkeypatch,
+) -> None:
+    """The one path nobody exercises, and the one that would reinstate the bug.
+
+    `shutdown(wait=False)` does not stop a worker that is already computing -- it stops
+    *scheduling*. `concurrent.futures.process._python_exit`, registered with
+    `threading._register_atexit`, then joins the executor's manager thread at
+    interpreter exit, and that join waits for the running work item: a SIGTERM
+    mid-profile hangs until the container's grace period kills the API, and Ctrl-C under
+    `make dev` hangs the same way. Meanwhile `GetDatasetProfile` has dropped the lock
+    that keeps two 3-4 GB children from overlapping in an 8 GiB container, so the
+    orphan is still holding a core and its gigabytes when the next profile's child
+    starts beside it.
+
+    Both halves are asserted against a real child: the `await` gives up at once, and no
+    worker survives it.
+    """
+    buffer = io.BytesIO()
+    _slow_frame().write_parquet(buffer)
+
+    pools: list[ProcessPoolExecutor] = []
+    real_pool = profile_module.ProcessPoolExecutor
+
+    def _remember(*args: object, **kwargs: object) -> ProcessPoolExecutor:
+        pool = real_pool(*args, **kwargs)  # type: ignore[arg-type]
+        pools.append(pool)
+        return pool
+
+    monkeypatch.setattr(profile_module, "ProcessPoolExecutor", _remember)
+
+    task = asyncio.create_task(
+        ChildProcessProfileComputer().compute(
+            raw=buffer.getvalue(),
+            structure_column="smiles",
+            target=_TARGET,
+            structure_kind=StructureKind.MOLECULE,
+        )
+    )
+    # Long enough for the spawned interpreter to import polars and RDKit (~0.3 s) and
+    # get into `build_profile`: cancelling before the child is working proves nothing.
+    await asyncio.sleep(1.0)
+    [pool] = pools
+    workers = list(pool._processes.values())
+    assert workers, "the child never started, so nothing here is being tested"
+
+    task.cancel()
+    gave_up_at = time.monotonic()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    # Promptly: the event loop must not be held for the seconds of work the child has
+    # left. Measured on the loop, which is the thread that would have been held.
+    assert time.monotonic() - gave_up_at < 2.0
+
+    # Well inside the payload's remaining work, so a worker merely left to finish is
+    # still alive here.
+    for _ in range(40):
+        if all(worker.exitcode is not None for worker in workers):
+            break
+        await asyncio.sleep(0.05)
+    assert all(worker.exitcode is not None for worker in workers), (
+        "a worker survived the cancellation, still holding a core and its gigabytes"
+    )

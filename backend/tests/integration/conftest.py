@@ -21,6 +21,7 @@ from tests.api.conftest import (  # noqa: F401
     client,
     client_user_id,
     csv_upload,
+    profile_computer,
     protocol_access,
     session_factory,
     signing_key,
