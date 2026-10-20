@@ -22,4 +22,10 @@ class RunnerRepository(Protocol):
 
     async def touch_last_seen(self, runner_id: uuid.UUID) -> None: ...
 
+    async def record_build(
+        self, runner_id: uuid.UUID, *, version: str, git_sha: str, build_date: str
+    ) -> None:
+        """Store the build identity the agent reported at start."""
+        ...
+
     async def revoke(self, runner_id: uuid.UUID) -> None: ...

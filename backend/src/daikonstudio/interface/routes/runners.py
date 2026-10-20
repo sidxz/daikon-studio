@@ -71,6 +71,12 @@ class RunnerResponse(BaseModel):
     revoked: bool
     current_run_id: uuid.UUID | None
     created_at: datetime
+    # The build the agent last reported at start. Null for a runner whose agent
+    # has not restarted since the studio began asking (or runs an older agent)
+    # -- the UI shows that as "unknown" rather than inventing a version.
+    build_version: str | None
+    build_git_sha: str | None
+    build_date: str | None
 
     @classmethod
     def from_domain(cls, view: RunnerStatusView) -> RunnerResponse:
@@ -84,6 +90,9 @@ class RunnerResponse(BaseModel):
             revoked=runner.is_revoked,
             current_run_id=view.current_run_id,
             created_at=runner.created_at,
+            build_version=runner.build_version,
+            build_git_sha=runner.build_git_sha,
+            build_date=runner.build_date,
         )
 
 

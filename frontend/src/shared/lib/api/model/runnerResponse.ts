@@ -4,6 +4,9 @@
  */
 import type { RunnerResponseLastSeenAt } from './runnerResponseLastSeenAt';
 import type { RunnerResponseCurrentRunId } from './runnerResponseCurrentRunId';
+import type { RunnerResponseBuildVersion } from './runnerResponseBuildVersion';
+import type { RunnerResponseBuildGitSha } from './runnerResponseBuildGitSha';
+import type { RunnerResponseBuildDate } from './runnerResponseBuildDate';
 
 export interface RunnerResponse {
   id: string;
@@ -14,4 +17,7 @@ export interface RunnerResponse {
   revoked: boolean;
   current_run_id: RunnerResponseCurrentRunId;
   created_at: string;
+  build_version: RunnerResponseBuildVersion;
+  build_git_sha: RunnerResponseBuildGitSha;
+  build_date: RunnerResponseBuildDate;
 }

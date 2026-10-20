@@ -44,14 +44,16 @@ import uuid
 
 import httpx
 import structlog
+from pydantic import ValidationError
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from daikonstudio.application.engines.checkpoints import DEFAULT_INTERVAL_SECONDS
 from daikonstudio.infrastructure import jobs
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.runner.ports import build_http_ctx
-from daikonstudio.infrastructure.runner.wire import ClaimResponse
+from daikonstudio.infrastructure.runner.wire import BuildIdentityWire, ClaimResponse
 from daikonstudio.logging import configure_logging
+from daikonstudio.version import build_info
 
 _logger = structlog.get_logger(__name__)
 
@@ -124,6 +126,27 @@ async def _abandon_hung_job(ctx: dict[str, object], run_id: uuid.UUID, limit: fl
     except Exception:
         _logger.exception("could not record the failure before exiting", run_id=str(run_id))
     _exit(3)
+
+
+async def _report_build_identity(api: httpx.AsyncClient) -> None:
+    """Tell the studio which build this process is. Once, at start: the identity
+    comes from the image's own environment and can only change by restarting.
+
+    Every failure is logged and swallowed. A studio older than this route answers
+    404, and a runner that cannot introduce itself must still claim work -- the
+    row's columns stay NULL and the Runners page says "unknown", which is the
+    truth. `ValidationError` is caught for the same reason: a malformed
+    `APP_VERSION` is a cosmetic problem, not a reason to refuse to run jobs.
+    """
+    info = build_info()
+    try:
+        identity = BuildIdentityWire(
+            version=info.version, git_sha=info.git_sha, build_date=info.build_date
+        )
+        response = await api.post("/api/v1/runner/identity", json=identity.model_dump())
+        response.raise_for_status()
+    except (httpx.HTTPError, ValidationError) as exc:
+        _logger.warning("could not report this runner's build", error=str(exc))
 
 
 async def poll_once(api: httpx.AsyncClient, settings: AgentSettings) -> bool:
@@ -225,11 +248,18 @@ async def main() -> None:
         # restarting it fails the run with a bare `UnknownEngineError(<id>)` after the
         # API -- which does reload -- has already listed and accepted that engine. One
         # line of log turns that into a diagnosis you can read instead of infer.
+        info = build_info()
         _logger.info(
             "runner agent started",
             url=settings.url,
+            version=info.version,
+            git_sha=info.git_sha,
             engines=sorted(m.id for m in default_registry().manifests()),
         )
+        # The log line above only helps whoever is reading this container's logs;
+        # the operator looking at the Runners page is the one who needs to see a
+        # runner left behind by a deploy, so report the same identity upstream.
+        await _report_build_identity(api)
         while True:
             executed = await poll_once(api, settings)
             if not executed:

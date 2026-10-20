@@ -32,8 +32,10 @@ from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.domain.catalog.protocol import ProtocolStatus
 from daikonstudio.domain.execution.run import RunKind
 from daikonstudio.infrastructure.di.container import create_container
+from daikonstudio.infrastructure.runner.agent import _report_build_identity
 from daikonstudio.interface.app import create_app
 from daikonstudio.settings import Settings
+from daikonstudio.version import DEV_VERSION
 
 _HEADLINE_METRICS = {
     "targets": [{"column": "y", "primary_metric": "mcc", "value": 0.6, "baseline_value": 0.5}]
@@ -1040,3 +1042,101 @@ async def test_a_runner_may_not_reach_another_runs_saved_progress_by_respelling_
 
     assert response.status_code == 403, response.text
     assert store.get_bytes(f"{other_root}model/lightning/training-state.a") == b"theirs"
+
+
+# --------------------------------------------------------------------------
+# Build identity: what the agent reports at start, via the agent's own code.
+# --------------------------------------------------------------------------
+
+
+def _agent_client(app, headers: dict[str, str]) -> httpx.AsyncClient:
+    """The client `agent.main()` holds: the runner's bearer token on every
+    request, no Duar headers anywhere."""
+    return httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://testserver", headers=headers
+    )
+
+
+async def test_the_agents_own_report_lands_on_the_runner_row(app, monkeypatch):
+    """Drives `agent._report_build_identity` -- not a hand-written POST -- so the
+    agent, the route and the column are proven to agree. The values come from
+    `daikonstudio.version.build_info`, which reads the image's `APP_*`
+    environment; this is the one source, the same one `GET /version` serves."""
+    monkeypatch.setenv("APP_VERSION", "0.9.1")
+    monkeypatch.setenv("APP_GIT_SHA", "abc1234")
+    monkeypatch.setenv("APP_BUILD_DATE", "2026-10-20T09:00:00Z")
+    runner_id, headers = await _register_runner(app, ["gpu"])
+
+    async with _agent_client(app, headers) as api:
+        await _report_build_identity(api)
+
+    runner = await app.state.container[RunnerRepository].get(runner_id)
+    assert runner is not None
+    assert runner.build_version == "0.9.1"
+    assert runner.build_git_sha == "abc1234"
+    assert runner.build_date == "2026-10-20T09:00:00Z"
+
+
+async def test_an_agent_with_nothing_baked_into_its_image_reports_the_dev_fallback(
+    app, monkeypatch
+):
+    """`build_info()`'s honest answer for an unbaked build is still an answer, so
+    this records "0.0.0+dev"/"unknown" rather than leaving the columns NULL --
+    NULL means no agent has reported at all."""
+    for name in ("APP_VERSION", "APP_GIT_SHA", "APP_BUILD_DATE"):
+        monkeypatch.delenv(name, raising=False)
+    runner_id, headers = await _register_runner(app, ["default"])
+
+    async with _agent_client(app, headers) as api:
+        await _report_build_identity(api)
+
+    runner = await app.state.container[RunnerRepository].get(runner_id)
+    assert runner is not None
+    assert runner.build_version == DEV_VERSION
+    assert runner.build_git_sha == "unknown"
+
+
+async def test_a_studio_without_the_identity_route_does_not_stop_the_agent(app, monkeypatch):
+    """Deploy order (RELEASING.md) can put a new agent in front of an old API.
+    The 404 is logged and swallowed: claiming runs must not depend on being able
+    to introduce yourself."""
+    _, headers = await _register_runner(app, ["default"])
+
+    async with _agent_client(app, headers) as api:
+        monkeypatch.setattr(
+            api, "post", lambda *a, **k: (_ for _ in ()).throw(httpx.ConnectError("no studio"))
+        )
+        await _report_build_identity(api)  # must not raise
+
+
+async def test_reporting_identity_without_a_runner_token_is_401(anonymous_client):
+    response = await anonymous_client.post(
+        "/api/v1/runner/identity",
+        json={"version": "0.9.1", "git_sha": "abc1234", "build_date": "today"},
+    )
+    assert response.status_code == 401, response.text
+
+
+async def test_identity_rejects_a_body_with_an_unexpected_field(anonymous_client, app):
+    _, headers = await _register_runner(app, ["default"])
+    response = await anonymous_client.post(
+        "/api/v1/runner/identity",
+        headers=headers,
+        json={"version": "0.9.1", "git_sha": "a", "build_date": "b", "engines": ["rf"]},
+    )
+    assert response.status_code == 422, response.text
+
+
+async def test_a_second_report_replaces_the_first(app, monkeypatch):
+    """An agent restarted onto a new image: the row names the build running now."""
+    runner_id, headers = await _register_runner(app, ["default"])
+
+    async with _agent_client(app, headers) as api:
+        monkeypatch.setenv("APP_VERSION", "0.8.0")
+        await _report_build_identity(api)
+        monkeypatch.setenv("APP_VERSION", "0.9.0")
+        await _report_build_identity(api)
+
+    runner = await app.state.container[RunnerRepository].get(runner_id)
+    assert runner is not None
+    assert runner.build_version == "0.9.0"

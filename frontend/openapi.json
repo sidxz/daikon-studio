@@ -2617,6 +2617,41 @@
         }
       }
     },
+    "/api/v1/runner/identity": {
+      "post": {
+        "tags": [
+          "runner-protocol"
+        ],
+        "summary": "Report Identity",
+        "description": "The agent introducing its build, once per process start -- the only moment\nit can change (`infrastructure/runner/agent.py`). Stored so `GET /api/v1/runners`\ncan show an operator a runner left on a stale image, which otherwise shows up\nonly as `UnknownEngineError` on a run the UI had already offered.",
+        "operationId": "report_identity_api_v1_runner_identity_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BuildIdentityWire"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runner/runs/{run_id}": {
       "get": {
         "tags": [
@@ -4300,6 +4335,34 @@
         ],
         "title": "BootstrapHistogramResponse",
         "description": "`edges` is one longer than `counts`: the primary metric on each of the\ninterval's redraws, binned. Its own name for the same reason as\n`ResidualHistogramResponse`, and so the client type says what it holds."
+      },
+      "BuildIdentityWire": {
+        "properties": {
+          "version": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Version"
+          },
+          "git_sha": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Git Sha"
+          },
+          "build_date": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Build Date"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "version",
+          "git_sha",
+          "build_date"
+        ],
+        "title": "BuildIdentityWire",
+        "description": "Which build a runner agent is running, agent to API, sent once at start\n(`POST /api/v1/runner/identity`). Field-for-field `daikonstudio.version.BuildInfo`,\nwhich is the one source for these values -- the API serves the same three on\n`GET /version`. \"unknown\" is a legitimate value for a sha or a date: that is\nwhat `build_info()` reports when nothing was baked into the image.\n\nBounded because the strings come from an image's environment and end up in a\nrow and on a page; 200 is far above any real version, sha or timestamp."
       },
       "ChemCellarImportResponse": {
         "properties": {
@@ -8503,6 +8566,39 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "build_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Version"
+          },
+          "build_git_sha": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Git Sha"
+          },
+          "build_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Build Date"
           }
         },
         "type": "object",
@@ -8514,7 +8610,10 @@
           "last_seen_at",
           "revoked",
           "current_run_id",
-          "created_at"
+          "created_at",
+          "build_version",
+          "build_git_sha",
+          "build_date"
         ],
         "title": "RunnerResponse"
       },

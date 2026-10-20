@@ -35,6 +35,7 @@ from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_repository import RunRepository
+from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.domain.catalog.protocol import ProtocolStatus
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import (
@@ -46,6 +47,7 @@ from daikonstudio.domain.shared.errors import (
 )
 from daikonstudio.infrastructure.runner.wire import (
     BlobPutResponse,
+    BuildIdentityWire,
     ClaimResponse,
     DatasetEnvelope,
     EpochBatchWire,
@@ -69,6 +71,7 @@ ClaimRunDep = Annotated[ClaimRun, Depends(use_case(ClaimRun))]
 RunRepositoryDep = Annotated[RunRepository, Depends(use_case(RunRepository))]
 DatasetRepositoryDep = Annotated[DatasetRepository, Depends(use_case(DatasetRepository))]
 ProtocolRepositoryDep = Annotated[ProtocolRepository, Depends(use_case(ProtocolRepository))]
+RunnerRepositoryDep = Annotated[RunnerRepository, Depends(use_case(RunnerRepository))]
 BlobStoreDep = Annotated[BlobStore, Depends(use_case(BlobStore))]
 SettingsDep = Annotated[Settings, Depends(use_case(Settings))]
 
@@ -88,6 +91,20 @@ async def claim(runner: RunnerDep, service: ClaimRunDep) -> Response:
         lease_seconds=lease_seconds,
     )
     return JSONResponse(content=envelope.model_dump(mode="json"))
+
+
+@router.post("/identity", status_code=204)
+async def report_identity(
+    runner: RunnerDep, body: BuildIdentityWire, runners: RunnerRepositoryDep
+) -> Response:
+    """The agent introducing its build, once per process start -- the only moment
+    it can change (`infrastructure/runner/agent.py`). Stored so `GET /api/v1/runners`
+    can show an operator a runner left on a stale image, which otherwise shows up
+    only as `UnknownEngineError` on a run the UI had already offered."""
+    await runners.record_build(
+        runner.id, version=body.version, git_sha=body.git_sha, build_date=body.build_date
+    )
+    return Response(status_code=204)
 
 
 @router.get("/runs/{run_id}", response_model=RunEnvelope)

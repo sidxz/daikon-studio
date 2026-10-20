@@ -26,6 +26,7 @@ import {
 import Link from "next/link";
 import { useState } from "react";
 import { useRevokeRunner, useRunners } from "../hooks/use-runners";
+import { buildDetail, shortSha } from "../lib/format-build";
 import { formatLastSeen } from "../lib/format-last-seen";
 import { LANE_LABELS, type Runner } from "../types";
 import { NewRunnerDialog } from "./new-runner-dialog";
@@ -53,6 +54,37 @@ function statusLabel(runner: Runner): string {
   if (runner.revoked) return "Revoked";
   if (!runner.online) return "Offline";
   return runner.current_run_id ? "Busy" : "Online";
+}
+
+/**
+ * The build the runner's agent reported when it started. Version in the column,
+ * commit and build date on hover: the version is what an operator scans for
+ * after a deploy, the rest is what they read once one row looks wrong.
+ *
+ * A runner that reported nothing says "unknown". It has not restarted since the
+ * studio began asking, so there is no version to show and none to invent.
+ */
+function BuildCell({ runner }: { runner: Runner }) {
+  if (!runner.build_version) {
+    return (
+      <span
+        className="text-muted-foreground"
+        title="This runner has not reported a build. It will the next time its agent starts."
+      >
+        unknown
+      </span>
+    );
+  }
+  return (
+    <span className="flex flex-col" title={buildDetail(runner)}>
+      <span>{runner.build_version}</span>
+      {runner.build_git_sha && (
+        <span className="mt-0.5 font-mono text-xs text-muted-foreground">
+          {shortSha(runner.build_git_sha)}
+        </span>
+      )}
+    </span>
+  );
 }
 
 export function RunnerList() {
@@ -100,6 +132,7 @@ export function RunnerList() {
                 <TableHead>Name</TableHead>
                 <TableHead>Lanes</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead>Build</TableHead>
                 <TableHead>Last seen</TableHead>
                 <TableHead>Current run</TableHead>
                 <TableHead className="text-right">
@@ -125,6 +158,9 @@ export function RunnerList() {
                       <StatusDot runner={runner} />
                       {statusLabel(runner)}
                     </span>
+                  </TableCell>
+                  <TableCell>
+                    <BuildCell runner={runner} />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
                     {formatLastSeen(runner.last_seen_at)}

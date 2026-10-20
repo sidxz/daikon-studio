@@ -6,7 +6,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import DateTime, String, UniqueConstraint
+from sqlalchemy import DateTime, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -25,6 +25,15 @@ class RunnerModel(Base, EntityModelMixin, VersionMixin):
     token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # The build the agent reports at start (`POST /api/v1/runner/identity`), so an
+    # operator can tell a runner on a stale image from one on the current one. All
+    # three are nullable on purpose -- a runner that has not checked in since this
+    # column existed reports nothing, and must keep claiming runs. `Text`, not a
+    # bounded `String`: the values come from the image's own `APP_*` environment,
+    # and a bound only buys a DataError (a 500) in exchange for nothing.
+    build_version: Mapped[str | None] = mapped_column(Text, nullable=True)
+    build_git_sha: Mapped[str | None] = mapped_column(Text, nullable=True)
+    build_date: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     __table_args__ = (
         UniqueConstraint("name", name="uq_runners_name"),

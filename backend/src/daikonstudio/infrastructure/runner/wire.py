@@ -440,6 +440,24 @@ class ProtocolEnvelope(BaseModel):
         )
 
 
+class BuildIdentityWire(BaseModel):
+    """Which build a runner agent is running, agent to API, sent once at start
+    (`POST /api/v1/runner/identity`). Field-for-field `daikonstudio.version.BuildInfo`,
+    which is the one source for these values -- the API serves the same three on
+    `GET /version`. "unknown" is a legitimate value for a sha or a date: that is
+    what `build_info()` reports when nothing was baked into the image.
+
+    Bounded because the strings come from an image's environment and end up in a
+    row and on a page; 200 is far above any real version, sha or timestamp.
+    """
+
+    model_config = _FORBID
+
+    version: str = Field(max_length=200)
+    git_sha: str = Field(max_length=200)
+    build_date: str = Field(max_length=200)
+
+
 class ClaimResponse(BaseModel):
     """What a runner gets back for claiming a queued run: the run itself,
     plus two DIFFERENT numbers a runner must not conflate (Important 1+2,

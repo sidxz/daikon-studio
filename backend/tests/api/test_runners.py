@@ -124,3 +124,18 @@ async def test_a_name_longer_than_the_column_is_a_422_not_a_500(admin_client):
         "/api/v1/runners", json={"name": "x" * 129, "lanes": ["default"]}
     )
     assert response.status_code == 422, response.text
+
+
+async def test_a_runner_that_has_not_reported_a_build_lists_nulls(admin_client):
+    """What the UI renders as "unknown". A runner registered a moment ago has
+    not had an agent start against it, so the honest answer is no answer."""
+    created = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-09", "lanes": ["default"]}
+    )
+    assert created.status_code == 201, created.text
+
+    response = await admin_client.get("/api/v1/runners")
+    item = next(item for item in response.json() if item["name"] == "gpu-09")
+    assert item["build_version"] is None
+    assert item["build_git_sha"] is None
+    assert item["build_date"] is None

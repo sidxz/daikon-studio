@@ -47,6 +47,13 @@ class FakeRunnerRepository:
     async def touch_last_seen(self, runner_id: uuid.UUID) -> None:
         raise NotImplementedError
 
+    async def record_build(
+        self, runner_id: uuid.UUID, *, version: str, git_sha: str, build_date: str
+    ) -> None:
+        self._by_id[runner_id].record_build(
+            version=version, git_sha=git_sha, build_date=build_date
+        )
+
     async def revoke(self, runner_id: uuid.UUID) -> None:
         self.revoked_ids.append(runner_id)
 

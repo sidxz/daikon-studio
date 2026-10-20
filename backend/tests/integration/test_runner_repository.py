@@ -125,3 +125,50 @@ async def test_add_duplicate_name_raises_conflict(session_factory):
 
     with pytest.raises(ConflictError):
         await repository.add(_runner(name="dup"))
+
+
+async def test_record_build_round_trips_the_three_values(session_factory):
+    repository = SqlAlchemyRunnerRepository(session_factory)
+    runner = _runner()
+    await repository.add(runner)
+    assert runner.build_version is None
+
+    await repository.record_build(
+        runner.id, version="0.8.0", git_sha="deadbee", build_date="2026-10-20T09:00:00Z"
+    )
+
+    fetched = await repository.get(runner.id)
+    assert fetched is not None
+    assert fetched.build_version == "0.8.0"
+    assert fetched.build_git_sha == "deadbee"
+    assert fetched.build_date == "2026-10-20T09:00:00Z"
+
+
+async def test_record_build_replaces_an_earlier_report(session_factory):
+    repository = SqlAlchemyRunnerRepository(session_factory)
+    runner = _runner()
+    await repository.add(runner)
+
+    await repository.record_build(runner.id, version="0.7.0", git_sha="old", build_date="then")
+    await repository.record_build(runner.id, version="0.8.0", git_sha="new", build_date="now")
+
+    fetched = await repository.get(runner.id)
+    assert fetched is not None
+    assert (fetched.build_version, fetched.build_git_sha) == ("0.8.0", "new")
+
+
+async def test_a_runner_that_never_reported_a_build_reads_back_as_none(session_factory):
+    """The nullable columns are the whole point: an older agent reports
+    nothing, and the row must still load and still be usable."""
+    repository = SqlAlchemyRunnerRepository(session_factory)
+    runner = _runner()
+    await repository.add(runner)
+
+    fetched = await repository.get(runner.id)
+    assert fetched is not None
+    assert (fetched.build_version, fetched.build_git_sha, fetched.build_date) == (
+        None,
+        None,
+        None,
+    )
+    assert fetched.is_revoked is False

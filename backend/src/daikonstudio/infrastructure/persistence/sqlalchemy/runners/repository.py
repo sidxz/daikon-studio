@@ -29,6 +29,9 @@ def _to_domain(model: RunnerModel) -> Runner:
         token_hash=model.token_hash,
         last_seen_at=model.last_seen_at,
         revoked_at=model.revoked_at,
+        build_version=model.build_version,
+        build_git_sha=model.build_git_sha,
+        build_date=model.build_date,
         created_at=model.created_at,
         updated_at=model.updated_at,
         version=model.version,
@@ -43,6 +46,9 @@ def _to_model(runner: Runner) -> RunnerModel:
         token_hash=runner.token_hash,
         last_seen_at=runner.last_seen_at,
         revoked_at=runner.revoked_at,
+        build_version=runner.build_version,
+        build_git_sha=runner.build_git_sha,
+        build_date=runner.build_date,
         version=runner.version,
         # Explicit, rather than the column's server_default: otherwise the
         # created_at in a response body (the aggregate's own clock) and the
@@ -86,6 +92,20 @@ class SqlAlchemyRunnerRepository:
                 sa_update(RunnerModel)
                 .where(RunnerModel.id == runner_id)
                 .values(last_seen_at=datetime.now(UTC))
+            )
+            await session.commit()
+
+    async def record_build(
+        self, runner_id: uuid.UUID, *, version: str, git_sha: str, build_date: str
+    ) -> None:
+        """What the agent reported at start. Like `touch_last_seen`, a targeted
+        update that does not bump `version`: an agent restarting on a new image
+        is not an edit anyone holds a stale copy of."""
+        async with self._sessions() as session:
+            await session.execute(
+                sa_update(RunnerModel)
+                .where(RunnerModel.id == runner_id)
+                .values(build_version=version, build_git_sha=git_sha, build_date=build_date)
             )
             await session.commit()
 

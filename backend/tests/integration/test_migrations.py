@@ -1,10 +1,13 @@
+import asyncio
 import importlib.util
 import json
 import uuid
 from pathlib import Path
 
 import pytest
+from alembic import command
 from alembic.autogenerate import compare_metadata
+from alembic.config import Config
 from alembic.migration import MigrationContext
 from sqlalchemy import text
 
@@ -297,3 +300,62 @@ async def test_migrating_in_process_leaves_the_apps_logging_alone(_migrated_engi
     await asyncio.wait_for(asyncio.to_thread(upgrade_to_head, url), timeout=120)
 
     assert (list(root.handlers), root.level) == before
+
+
+_BUILD_COLUMNS = text("""
+    SELECT column_name, is_nullable, data_type FROM information_schema.columns
+    WHERE table_name = 'runners' AND column_name LIKE 'build\\_%'
+    ORDER BY column_name
+""")
+
+
+@pytest.mark.asyncio
+async def test_019_adds_the_runner_build_columns_and_takes_them_away_again(_migrated_engine):
+    """Both directions, against a real database. A column migration that cannot
+    downgrade strands an operator on the release they are trying to roll back,
+    and `op.add_column` is exactly the kind of statement that looks reversible
+    and is not. Runs on its own fresh database: downgrading the session's shared
+    one would pull the schema out from under every other test.
+    """
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    fresh = f"migration_019_{uuid.uuid4().hex}"
+    admin = create_async_engine(
+        _migrated_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{fresh}"'))
+    url = _migrated_engine.url.set(database=fresh).render_as_string(hide_password=False)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    engine = create_async_engine(url, poolclass=NullPool)
+
+    async def build_columns() -> list[tuple[str, str, str]]:
+        async with engine.connect() as connection:
+            return [tuple(row) for row in (await connection.execute(_BUILD_COLUMNS)).all()]
+
+    try:
+        # alembic's env.py runs its own event loop -- hence the thread, same as
+        # the `_migrated_engine` fixture.
+        await asyncio.to_thread(command.upgrade, config, "head")
+        assert await build_columns() == [
+            ("build_date", "YES", "text"),
+            ("build_git_sha", "YES", "text"),
+            ("build_version", "YES", "text"),
+        ]
+
+        await asyncio.to_thread(command.downgrade, config, "018")
+        assert await build_columns() == []
+
+        await asyncio.to_thread(command.upgrade, config, "019")
+        assert [name for name, _, _ in await build_columns()] == [
+            "build_date",
+            "build_git_sha",
+            "build_version",
+        ]
+    finally:
+        await engine.dispose()
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE IF EXISTS "{fresh}" WITH (FORCE)'))
+        await admin.dispose()
