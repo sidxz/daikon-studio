@@ -3,10 +3,10 @@
 import { Explainer } from "@/shared/components/explainers/explainer";
 import {
   ATTENTION_CAPTION,
-  ATTENTION_SEQUENCE_CAPTION,
-  SEQUENCE_ENCODER,
   ATTENTION_MS,
+  ATTENTION_SEQUENCE_CAPTION,
   AttentionFigure,
+  SEQUENCE_ENCODER,
 } from "@/shared/components/explainers/figures/attention";
 import {
   BOOSTING_CAPTION,
@@ -20,8 +20,8 @@ import {
 } from "@/shared/components/explainers/figures/forest";
 import {
   GP_CAPTION,
-  GP_SEQUENCE_CAPTION,
   GP_MS,
+  GP_SEQUENCE_CAPTION,
   GaussianProcessFigure,
 } from "@/shared/components/explainers/figures/gaussian-process";
 import {

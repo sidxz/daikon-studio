@@ -2,13 +2,13 @@ import { render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 import { AttentionFigure, SEQUENCE_ENCODER } from "./attention";
-import { SiteMeanFigure } from "./site-mean";
 import { BoostingFigure } from "./boosting";
 import { type BootstrapData, BootstrapFigure } from "./bootstrap";
 import { DomainFigure } from "./domain";
 import { ForestFigure } from "./forest";
 import { GaussianProcessFigure } from "./gaussian-process";
 import { MessagePassingFigure } from "./message-passing";
+import { SiteMeanFigure } from "./site-mean";
 import { SplitFigure, splitCaption } from "./split";
 
 /** RMSE redraws around 0.72, the shape of a real scaffold-split card. */
