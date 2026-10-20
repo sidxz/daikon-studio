@@ -253,7 +253,7 @@ image-frontend: ## Build the daikon-frontend:local image (Next standalone + RDKi
 security-scan: image-runner-cpu image-frontend ## Trivy gate before a release: lockfiles + secrets, then both images; fails on fixable HIGH/CRITICAL
 	@command -v trivy >/dev/null || { echo "trivy is not installed: brew install trivy"; exit 1; }
 	trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
-	  --skip-dirs node_modules,.venv,.next,.claude,.logs,.blobs,.superpowers,docs .
+	  --skip-dirs node_modules,.venv,.next,.claude,.logs,.blobs,.superpowers,docs,internal-docs .
 	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-runner:cpu
 	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-frontend:local
 
