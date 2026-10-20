@@ -3,6 +3,8 @@
 import { Explainer } from "@/shared/components/explainers/explainer";
 import {
   ATTENTION_CAPTION,
+  ATTENTION_SEQUENCE_CAPTION,
+  SEQUENCE_ENCODER,
   ATTENTION_MS,
   AttentionFigure,
 } from "@/shared/components/explainers/figures/attention";
@@ -42,6 +44,11 @@ const FIGURES: Record<
     caption: MESSAGE_PASSING_CAPTION,
   },
   attention: { Figure: AttentionFigure, ms: ATTENTION_MS, caption: ATTENTION_CAPTION },
+  "attention-sequence": {
+    Figure: ({ t }) => <AttentionFigure t={t} encoder={SEQUENCE_ENCODER} />,
+    ms: ATTENTION_MS,
+    caption: ATTENTION_SEQUENCE_CAPTION,
+  },
 };
 
 export function EngineExplainer({ engineId }: { engineId: string }) {

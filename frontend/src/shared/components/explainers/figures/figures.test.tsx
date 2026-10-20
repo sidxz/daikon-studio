@@ -1,7 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import type { ReactElement } from "react";
 import { describe, expect, it } from "vitest";
-import { AttentionFigure } from "./attention";
+import { AttentionFigure, SEQUENCE_ENCODER } from "./attention";
 import { BoostingFigure } from "./boosting";
 import { type BootstrapData, BootstrapFigure } from "./bootstrap";
 import { DomainFigure } from "./domain";
@@ -54,6 +54,7 @@ const FIGURES: [string, (t: number) => ReactElement][] = [
   ["gaussian process", (t) => <GaussianProcessFigure t={t} />],
   ["message passing", (t) => <MessagePassingFigure t={t} />],
   ["attention", (t) => <AttentionFigure t={t} />],
+  ["attention, sequence", (t) => <AttentionFigure t={t} encoder={SEQUENCE_ENCODER} />],
   ["split, scaffold", (t) => <SplitFigure t={t} strategy="scaffold" />],
   ["split, random", (t) => <SplitFigure t={t} strategy="random" />],
   ["split, identity", (t) => <SplitFigure t={t} strategy="identity" />],

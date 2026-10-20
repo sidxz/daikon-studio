@@ -106,7 +106,8 @@ export type EngineFigure =
   | "boosting"
   | "gaussian-process"
   | "message-passing"
-  | "attention";
+  | "attention"
+  | "attention-sequence";
 
 export const ENGINE_FIGURE: Record<string, EngineFigure> = {
   "ecfp4-randomforest": "forest",
@@ -116,8 +117,8 @@ export const ENGINE_FIGURE: Record<string, EngineFigure> = {
   "tanimoto-gp": "gaussian-process",
   "chemprop-dmpnn": "message-passing",
   "molformer-xl": "attention",
-  // Deliberately no entry for protein-lora: the attention figure's caption is written
-  // about molecules ("pretrained on ~1.1 billion molecules") and about freezing the
-  // encoder to train an output layer, neither of which is true of a protein LoRA fit.
-  // The other sequence engines carry no figure either.
+  // Same drawing as MoLFormer's, told for a sequence: the molecule variant names a
+  // pretraining corpus this engine never saw and a frozen-encoder mode it does not
+  // offer, which is two false claims on the card of a protein engine.
+  "protein-lora": "attention-sequence",
 };

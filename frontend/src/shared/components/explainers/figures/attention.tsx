@@ -5,6 +5,19 @@ export const ATTENTION_MS = 7200;
 export const ATTENTION_CAPTION =
   "The input is split into tokens. Each token weighs every other token when building its representation; arc width shows the weight. This step is called attention. The encoder arrives pretrained, and training on your data either fine-tunes it or, with the encoder frozen, trains only the output layer.";
 
+/** The same picture, told for a protein model trained through LoRA adapters.
+ *
+ * The drawing is right for any transformer; only two lines of it are not. The
+ * molecule caption above names a pretraining corpus this engine never saw and
+ * offers a frozen-encoder mode it does not have, so a protein engine shown the
+ * default text makes two false claims to a scientist reading its card. */
+export const ATTENTION_SEQUENCE_CAPTION =
+  "The sequence is split into tokens, one per amino acid. Each token weighs every other token when building its representation; arc width shows the weight. This step is called attention. The encoder arrives pretrained, and training on your data adjusts small adapter matrices inside it, leaving the published weights untouched.";
+
+/** The encoder's pretraining corpus, as the figure labels it. */
+export const MOLECULE_ENCODER = "encoder, pretrained on ~1.1 billion molecules";
+export const SEQUENCE_ENCODER = "encoder, pretrained on tens of millions of protein sequences";
+
 const WORDS = ["every", "token", "looks", "at", "every", "other", "token"];
 const CHAR_W = 6.1;
 const PAD = 6;
@@ -28,7 +41,13 @@ const FOCI: [number, number, number][] = [
   [2, 0.62, 0.86],
 ];
 
-export function AttentionFigure({ t }: { t: number }) {
+export function AttentionFigure({
+  t,
+  encoder = MOLECULE_ENCODER,
+}: {
+  t: number;
+  encoder?: string;
+}) {
   let focus: number | null = null;
   let env = 0;
   for (const [k, [f, a, b]] of FOCI.entries()) {
@@ -48,11 +67,11 @@ export function AttentionFigure({ t }: { t: number }) {
       viewBox="0 0 360 172"
       className="block h-auto w-full overflow-visible"
       role="img"
-      aria-label="Seven tokens in a sentence. Arcs show how strongly one token attends to each of the others. The pretrained encoder feeds an output layer trained on your data."
+      aria-label={`Seven tokens in a sentence. Arcs show how strongly one token attends to each of the others. The ${encoder} feeds an output layer trained on your data.`}
     >
       <rect x={6} y={4} width={348} height={104} rx={8} className={S.line} strokeWidth={1.25} />
       <text x={14} y={101} className={S.small}>
-        encoder, pretrained on ~1.1 billion molecules
+        {encoder}
       </text>
       {TOKENS.map((token, j) => {
         if (focus === null || j === focus) return null;
