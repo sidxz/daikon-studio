@@ -116,5 +116,8 @@ export const ENGINE_FIGURE: Record<string, EngineFigure> = {
   "tanimoto-gp": "gaussian-process",
   "chemprop-dmpnn": "message-passing",
   "molformer-xl": "attention",
-  "protein-lora": "attention",
+  // Deliberately no entry for protein-lora: the attention figure's caption is written
+  // about molecules ("pretrained on ~1.1 billion molecules") and about freezing the
+  // encoder to train an output layer, neither of which is true of a protein LoRA fit.
+  // The other sequence engines carry no figure either.
 };
