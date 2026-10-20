@@ -1,6 +1,14 @@
 "use client";
 
-import type { Condition } from "../types";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/shared/components/ui/table";
+import { type Condition, TASK_LABELS } from "../types";
 
 /** The label a form shows for one of a condition's option values, or the value itself. */
 function optionLabel(condition: Condition, value: unknown): string {
@@ -27,10 +35,62 @@ function describeBounds(condition: Condition): string | null {
  * a new engine appears here the moment it registers, and the run form that
  * reuses these fields renders itself the same way.
  */
-export function ConditionSummary({ conditions }: { conditions: Condition[] }) {
+export function ConditionSummary({
+  conditions,
+  layout = "list",
+}: { conditions: Condition[]; layout?: "list" | "table" }) {
   if (conditions.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">This engine has no configurable settings.</p>
+    );
+  }
+
+  if (layout === "table") {
+    return (
+      <Table className="table-fixed" aria-label="Engine settings">
+        <TableHeader>
+          <TableRow>
+            <TableHead className="w-1/2">Setting</TableHead>
+            <TableHead className="w-1/5">Default</TableHead>
+            <TableHead className="whitespace-normal">Allowed values</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {conditions.map((condition) => (
+            <TableRow key={condition.key}>
+              <TableCell className="whitespace-normal break-words py-4 align-top">
+                <p className="font-medium">{condition.label}</p>
+                {condition.required && (
+                  <span className="text-xs text-muted-foreground">Required</span>
+                )}
+                {condition.help && (
+                  <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                    {condition.help}
+                  </p>
+                )}
+                {condition.tasks.length > 0 && (
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    For {condition.tasks.map((task) => TASK_LABELS[task] ?? task).join(" · ")}
+                  </p>
+                )}
+              </TableCell>
+              <TableCell className="whitespace-normal break-words py-4 align-top text-xs">
+                {condition.default == null
+                  ? "Not set"
+                  : condition.type === "bool"
+                    ? condition.default
+                      ? "Yes"
+                      : "No"
+                    : optionLabel(condition, condition.default)}
+              </TableCell>
+              <TableCell className="whitespace-normal break-words py-4 align-top text-xs text-muted-foreground">
+                {describeBounds(condition) ??
+                  (condition.type === "bool" ? "Yes · No" : "Not specified")}
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
     );
   }
 
