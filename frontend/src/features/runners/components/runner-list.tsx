@@ -14,6 +14,7 @@ import {
 } from "@/shared/components/ui/alert-dialog";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
+import { ConfirmDialog } from "@/shared/components/ui/confirm-dialog";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import {
   Table,
@@ -25,7 +26,7 @@ import {
 } from "@/shared/components/ui/table";
 import Link from "next/link";
 import { useState } from "react";
-import { useRevokeRunner, useRunners } from "../hooks/use-runners";
+import { useDeleteRunner, useRevokeRunner, useRunners } from "../hooks/use-runners";
 import { buildDetail, shortSha } from "../lib/format-build";
 import { formatLastSeen } from "../lib/format-last-seen";
 import { LANE_LABELS, type Runner } from "../types";
@@ -90,7 +91,9 @@ function BuildCell({ runner }: { runner: Runner }) {
 export function RunnerList() {
   const { data, isLoading, isError, refetch, isFetching } = useRunners();
   const revokeRunner = useRevokeRunner();
+  const deleteRunner = useDeleteRunner();
   const [revokeTarget, setRevokeTarget] = useState<Runner | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Runner | null>(null);
   const runners = data ?? [];
 
   return (
@@ -183,6 +186,19 @@ export function RunnerList() {
                         Revoke
                       </Button>
                     )}
+                    {/* Shown for a revoked runner too: a machine that is done
+                        and has no runs behind it is exactly what delete is for. */}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => {
+                        deleteRunner.reset();
+                        setDeleteTarget(runner);
+                      }}
+                    >
+                      Delete
+                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -222,6 +238,29 @@ export function RunnerList() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Revoke is the recommended way to stop a runner, so delete says plainly
+          what it takes away and what it will not do. A runner with runs behind
+          it is refused by the server, and the toast repeats that. */}
+      <ConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        title={`Delete ${deleteTarget?.name}?`}
+        description={
+          <>
+            This removes the runner from this list for good, with its name, lanes and reported
+            build. It cannot be undone. A runner that has already claimed runs cannot be deleted,
+            because its runs name it — revoke that one instead. Revoking stops a runner from working
+            and keeps the record.
+          </>
+        }
+        confirmLabel={deleteRunner.isPending ? "Deleting…" : "Delete runner"}
+        pending={deleteRunner.isPending}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          deleteRunner.mutate(deleteTarget.id, { onSuccess: () => setDeleteTarget(null) });
+        }}
+      />
     </div>
   );
 }

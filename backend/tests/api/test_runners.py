@@ -139,3 +139,76 @@ async def test_a_runner_that_has_not_reported_a_build_lists_nulls(admin_client):
     assert item["build_version"] is None
     assert item["build_git_sha"] is None
     assert item["build_date"] is None
+
+
+async def test_delete_removes_a_runner_that_never_claimed_a_run(admin_client):
+    created = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-10", "lanes": ["default"]}
+    )
+    runner_id = created.json()["id"]
+
+    deleted = await admin_client.delete(f"/api/v1/runners/{runner_id}")
+    assert deleted.status_code == 204, deleted.text
+    assert deleted.content == b""
+
+    response = await admin_client.get("/api/v1/runners")
+    assert all(item["id"] != runner_id for item in response.json())
+
+
+async def test_delete_is_refused_for_a_runner_that_has_claimed_a_run(
+    admin_client, session_factory, workspace_id
+):
+    """The data-loss trap this feature exists to avoid: `runs.claimed_by` has no
+    foreign key behind it, so the row would go and the run history would name a
+    runner nobody can look up."""
+    created = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-11", "lanes": ["default"]}
+    )
+    runner_id = created.json()["id"]
+
+    run = Run(
+        kind=RunKind.PREDICTION,
+        workspace_id=workspace_id,
+        requested_by=uuid.uuid4(),
+        cache_key="runners-api-delete-test",
+    )
+    await SqlAlchemyRunRepository(session_factory).add(run)
+    queue = SqlAlchemyRunQueue(session_factory)
+    await queue.set_lane(run.id, "default")
+    assert (
+        await queue.claim_next(
+            runner_id=uuid.UUID(runner_id),
+            lanes=["default"],
+            lease_seconds=600,
+            max_active_per_workspace=10,
+            max_attempts=3,
+        )
+        == run.id
+    )
+
+    refused = await admin_client.delete(f"/api/v1/runners/{runner_id}")
+    assert refused.status_code == 409, refused.text
+    assert "Revoke" in refused.json()["message"]
+
+    # Still there, and still revokable -- the refusal names revoke as the way out.
+    listed = await admin_client.get("/api/v1/runners")
+    assert any(item["id"] == runner_id for item in listed.json())
+    assert (await admin_client.post(f"/api/v1/runners/{runner_id}/revoke")).status_code == 204
+
+
+async def test_deleting_an_unknown_runner_is_404(admin_client):
+    response = await admin_client.delete(f"/api/v1/runners/{uuid.uuid4()}")
+    assert response.status_code == 404, response.text
+
+
+async def test_editor_and_viewer_cannot_delete(client, viewer_client, admin_client):
+    created = await admin_client.post(
+        "/api/v1/runners", json={"name": "gpu-12", "lanes": ["default"]}
+    )
+    runner_id = created.json()["id"]
+
+    assert (await client.delete(f"/api/v1/runners/{runner_id}")).status_code == 403
+    assert (await viewer_client.delete(f"/api/v1/runners/{runner_id}")).status_code == 403
+    assert any(
+        item["id"] == runner_id for item in (await admin_client.get("/api/v1/runners")).json()
+    )

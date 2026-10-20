@@ -3165,6 +3165,43 @@
         }
       }
     },
+    "/api/v1/runners/{runner_id}": {
+      "delete": {
+        "tags": [
+          "runners"
+        ],
+        "summary": "Delete Runner",
+        "description": "409 for a runner that has claimed runs -- see `DeleteRunner`. Revoke is\nthe action for a runner that has worked; this one forgets a mistake.",
+        "operationId": "delete_runner_api_v1_runners__runner_id__delete",
+        "parameters": [
+          {
+            "name": "runner_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Runner Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/runs": {
       "post": {
         "tags": [

@@ -1,4 +1,4 @@
-"""Runner management -- register, list, and revoke self-hosted runners.
+"""Runner management -- register, list, revoke and delete self-hosted runners.
 
 Instance-level, not workspace-scoped -- same reason `domain/runners/runner.py`
 gives: a runner serves lanes, and lanes cross workspaces. Creating and revoking
@@ -21,7 +21,12 @@ from daikonstudio.application.auth import AuthContext, require_admin, require_au
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.domain.runners.runner import Runner
-from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
+from daikonstudio.domain.shared.errors import (
+    ConflictError,
+    DomainError,
+    NotFoundError,
+    ValidationError,
+)
 
 # `secrets.token_urlsafe(32)` -- 256 bits, the same budget the stdlib's own docs
 # recommend for a security token. The `drt_` prefix (**d**aikon **r**unner
@@ -148,4 +153,48 @@ class RevokeRunner:
         if runner is None:
             return Failure(NotFoundError("Runner", str(command.runner_id)))
         await self._runners.revoke(command.runner_id)
+        return Success(None)
+
+
+@dataclass(frozen=True)
+class DeleteRunnerCommand:
+    runner_id: uuid.UUID
+
+
+class DeleteRunner:
+    """Forget a runner: the row goes, and with it the name, the lanes and the
+    build the agent reported.
+
+    Refused for a runner that has ever claimed a run. `runs.claimed_by` is a
+    plain id with no foreign key behind it (`RunModel`), so the delete would
+    succeed and leave finished runs pointing at a runner nobody can look up --
+    silent damage to history, in exchange for tidying a list. Revoke is the
+    action for a runner that has worked and must now stop: it invalidates the
+    token and leaves the record standing. Delete is for a runner registered by
+    mistake, or one retired before it ever ran anything.
+    """
+
+    def __init__(self, runners: RunnerRepository, queue: RunQueue) -> None:
+        self._runners = runners
+        self._queue = queue
+
+    async def __call__(
+        self, command: DeleteRunnerCommand, *, auth: AuthContext | None
+    ) -> Result[None, DomainError]:
+        require_authenticated(auth)
+        require_admin(auth)  # same reasoning as CreateRunner
+        runner = await self._runners.get(command.runner_id)
+        if runner is None:
+            return Failure(NotFoundError("Runner", str(command.runner_id)))
+        claimed = await self._queue.claimed_run_count(command.runner_id)
+        if claimed:
+            runs = "run" if claimed == 1 else "runs"
+            return Failure(
+                ConflictError(
+                    f"'{runner.name}' has claimed {claimed} {runs}, and that history names it. "
+                    "Revoke the runner instead; revoking stops it from working and keeps the "
+                    "record."
+                )
+            )
+        await self._runners.delete(command.runner_id)
         return Success(None)

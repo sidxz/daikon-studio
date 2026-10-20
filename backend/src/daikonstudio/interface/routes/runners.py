@@ -1,4 +1,4 @@
-"""Runner endpoints: register, list, revoke self-hosted runners.
+"""Runner endpoints: register, list, revoke and delete self-hosted runners.
 
 Instance-level, not workspace-scoped -- same reason `domain/runners/runner.py`
 gives: a runner serves lanes, and lanes cross workspaces. Every request body
@@ -19,6 +19,8 @@ from daikonstudio.application.runners.manage import (
     CreatedRunner,
     CreateRunner,
     CreateRunnerCommand,
+    DeleteRunner,
+    DeleteRunnerCommand,
     ListRunners,
     RevokeRunner,
     RevokeRunnerCommand,
@@ -33,6 +35,7 @@ router = APIRouter(prefix="/api/v1/runners", tags=["runners"])
 CreateRunnerDep = Annotated[CreateRunner, Depends(use_case(CreateRunner))]
 ListRunnersDep = Annotated[ListRunners, Depends(use_case(ListRunners))]
 RevokeRunnerDep = Annotated[RevokeRunner, Depends(use_case(RevokeRunner))]
+DeleteRunnerDep = Annotated[DeleteRunner, Depends(use_case(DeleteRunner))]
 
 
 class CreateRunnerBody(BaseModel):
@@ -114,4 +117,12 @@ async def list_runners(auth: AuthDep, service: ListRunnersDep) -> list[RunnerRes
 @router.post("/{runner_id}/revoke", status_code=204)
 async def revoke_runner(runner_id: uuid.UUID, auth: AuthDep, service: RevokeRunnerDep) -> Response:
     result_to_response(await service(RevokeRunnerCommand(runner_id=runner_id), auth=auth))
+    return Response(status_code=204)
+
+
+@router.delete("/{runner_id}", status_code=204)
+async def delete_runner(runner_id: uuid.UUID, auth: AuthDep, service: DeleteRunnerDep) -> Response:
+    """409 for a runner that has claimed runs -- see `DeleteRunner`. Revoke is
+    the action for a runner that has worked; this one forgets a mistake."""
+    result_to_response(await service(DeleteRunnerCommand(runner_id=runner_id), auth=auth))
     return Response(status_code=204)

@@ -81,6 +81,13 @@ _SET_LANE = text("""
     WHERE id = :run_id
 """)
 
+# Every run this runner has ever claimed, not just a live one: `DeleteRunner`
+# asks because `claimed_by` has no foreign key behind it, so a delete would
+# leave finished runs naming a runner nobody can look up. No index on
+# `claimed_by` and none added -- this runs once, when an operator presses
+# Delete, not on any hot path.
+_CLAIMED_RUN_COUNT = text("SELECT count(*) FROM runs WHERE claimed_by = :runner_id")
+
 _ACTIVE_RUN_BY_RUNNER = text("""
     SELECT DISTINCT ON (claimed_by) claimed_by, id FROM runs
     WHERE claimed_by IS NOT NULL AND status IN ('pending', 'running')
@@ -153,6 +160,11 @@ class SqlAlchemyRunQueue:
         async with self._sessions() as session:
             await session.execute(_SET_LANE, {"run_id": run_id, "lane": lane})
             await session.commit()
+
+    async def claimed_run_count(self, runner_id: uuid.UUID) -> int:
+        async with self._sessions() as session:
+            count = await session.scalar(_CLAIMED_RUN_COUNT, {"runner_id": runner_id})
+            return count or 0
 
     async def active_run_by_runner(self) -> dict[uuid.UUID, uuid.UUID]:
         async with self._sessions() as session:

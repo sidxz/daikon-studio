@@ -251,4 +251,67 @@ export const useRevokeRunnerApiV1RunnersRunnerIdRevokePost = <TError = HTTPValid
 
       return useMutation(mutationOptions, queryClient);
     }
+    /**
+ * 409 for a runner that has claimed runs -- see `DeleteRunner`. Revoke is
+the action for a runner that has worked; this one forgets a mistake.
+ * @summary Delete Runner
+ */
+export const deleteRunnerApiV1RunnersRunnerIdDelete = (
+    runnerId: string,
+ ) => {
+      
+      
+      return customInstance<void>(
+      {url: `/api/v1/runners/${runnerId}`, method: 'DELETE'
+    },
+      );
+    }
+  
+
+
+export const getDeleteRunnerApiV1RunnersRunnerIdDeleteMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRunnerApiV1RunnersRunnerIdDelete>>, TError,{runnerId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof deleteRunnerApiV1RunnersRunnerIdDelete>>, TError,{runnerId: string}, TContext> => {
+
+const mutationKey = ['deleteRunnerApiV1RunnersRunnerIdDelete'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteRunnerApiV1RunnersRunnerIdDelete>>, {runnerId: string}> = (props) => {
+          const {runnerId} = props ?? {};
+
+          return  deleteRunnerApiV1RunnersRunnerIdDelete(runnerId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteRunnerApiV1RunnersRunnerIdDeleteMutationResult = NonNullable<Awaited<ReturnType<typeof deleteRunnerApiV1RunnersRunnerIdDelete>>>
+    
+    export type DeleteRunnerApiV1RunnersRunnerIdDeleteMutationError = HTTPValidationError
+
+    /**
+ * @summary Delete Runner
+ */
+export const useDeleteRunnerApiV1RunnersRunnerIdDelete = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteRunnerApiV1RunnersRunnerIdDelete>>, TError,{runnerId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof deleteRunnerApiV1RunnersRunnerIdDelete>>,
+        TError,
+        {runnerId: string},
+        TContext
+      > => {
+
+      const mutationOptions = getDeleteRunnerApiV1RunnersRunnerIdDeleteMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
     

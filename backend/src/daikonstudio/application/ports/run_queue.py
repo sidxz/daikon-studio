@@ -44,3 +44,9 @@ class RunQueue(Protocol):
     async def active_run_by_runner(self) -> dict[uuid.UUID, uuid.UUID]:
         """runner_id -> the run it currently holds (claimed pending or running)."""
         ...
+
+    async def claimed_run_count(self, runner_id: uuid.UUID) -> int:
+        """How many runs this runner has ever claimed, in any status -- what
+        `DeleteRunner` refuses on, since run history names a runner by a plain
+        id with no foreign key to protect it."""
+        ...

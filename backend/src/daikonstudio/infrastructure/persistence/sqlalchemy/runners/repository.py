@@ -12,6 +12,7 @@ import uuid
 from datetime import UTC, datetime
 
 from sqlalchemy import Select, select
+from sqlalchemy import delete as sa_delete
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -107,6 +108,14 @@ class SqlAlchemyRunnerRepository:
                 .where(RunnerModel.id == runner_id)
                 .values(build_version=version, build_git_sha=git_sha, build_date=build_date)
             )
+            await session.commit()
+
+    async def delete(self, runner_id: uuid.UUID) -> None:
+        """Removes the row. `DeleteRunner` is what decides a runner may go --
+        `runs.claimed_by` has no foreign key behind it, so nothing here would
+        stop a delete that leaves run history naming a runner that is gone."""
+        async with self._sessions() as session:
+            await session.execute(sa_delete(RunnerModel).where(RunnerModel.id == runner_id))
             await session.commit()
 
     async def revoke(self, runner_id: uuid.UUID) -> None:

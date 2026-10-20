@@ -1,6 +1,6 @@
-import { customInstance } from "@/shared/lib/api/custom-instance";
+import { ApiError, customInstance } from "@/shared/lib/api/custom-instance";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Runner } from "../types";
@@ -80,5 +80,72 @@ describe("RunnerList", () => {
         "This runner has not reported a build. It will the next time its agent starts.",
       ),
     ).toBeTruthy();
+  });
+
+  it("deletes a runner after the confirmation, and says how delete differs from revoke", async () => {
+    serve([runner()]);
+    render(<RunnerList />, { wrapper: Wrapper });
+
+    fireEvent.click(
+      await waitFor(() => within(row("gpu-01")).getByRole("button", { name: "Delete" })),
+    );
+
+    expect(screen.getByText("Delete gpu-01?")).toBeTruthy();
+    const dialog = screen.getByRole("alertdialog");
+    expect(dialog.textContent).toContain("cannot be undone");
+    expect(dialog.textContent).toContain("revoke that one instead");
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete runner" }));
+
+    await waitFor(() =>
+      expect(vi.mocked(customInstance)).toHaveBeenCalledWith(
+        expect.objectContaining({ url: "/api/v1/runners/r1", method: "DELETE" }),
+      ),
+    );
+  });
+
+  it("does not call the API until the dialog is confirmed", async () => {
+    serve([runner()]);
+    render(<RunnerList />, { wrapper: Wrapper });
+
+    fireEvent.click(
+      await waitFor(() => within(row("gpu-01")).getByRole("button", { name: "Delete" })),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(vi.mocked(customInstance).mock.calls.some(([arg]) => arg.method === "DELETE")).toBe(
+      false,
+    );
+  });
+
+  it("keeps the dialog open when the server refuses the delete", async () => {
+    /** The 409 for a runner whose runs name it: the shared mutation toast
+     *  carries the reason, so the dialog must not close as if it had worked. */
+    vi.mocked(customInstance).mockImplementation(async ({ url, method }) => {
+      if (url.endsWith("/runners") && method === "GET") return [runner()];
+      throw new ApiError("'gpu-01' has claimed 3 runs, and that history names it.", 409, {});
+    });
+    render(<RunnerList />, { wrapper: Wrapper });
+
+    fireEvent.click(
+      await waitFor(() => within(row("gpu-01")).getByRole("button", { name: "Delete" })),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Delete runner" }));
+
+    await waitFor(() =>
+      expect(vi.mocked(customInstance).mock.calls.some(([arg]) => arg.method === "DELETE")).toBe(
+        true,
+      ),
+    );
+    expect(screen.getByText("Delete gpu-01?")).toBeTruthy();
+  });
+
+  it("offers delete but not revoke for an already revoked runner", async () => {
+    serve([runner({ revoked: true, online: false })]);
+    render(<RunnerList />, { wrapper: Wrapper });
+
+    const actions = await waitFor(() => row("gpu-01"));
+    expect(within(actions).getByRole("button", { name: "Delete" })).toBeTruthy();
+    expect(within(actions).queryByRole("button", { name: "Revoke" })).toBeNull();
   });
 });

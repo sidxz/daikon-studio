@@ -16,12 +16,19 @@ from daikonstudio.application.runners.manage import (
     CreatedRunner,
     CreateRunner,
     CreateRunnerCommand,
+    DeleteRunner,
+    DeleteRunnerCommand,
     ListRunners,
     RevokeRunner,
     RevokeRunnerCommand,
 )
 from daikonstudio.domain.runners.runner import Runner
-from daikonstudio.domain.shared.errors import AuthorizationError, NotFoundError, ValidationError
+from daikonstudio.domain.shared.errors import (
+    AuthorizationError,
+    ConflictError,
+    NotFoundError,
+    ValidationError,
+)
 from tests.fakes.auth import FakeAuth
 
 
@@ -30,6 +37,7 @@ class FakeRunnerRepository:
         self.added: list[Runner] = []
         self._by_id: dict[uuid.UUID, Runner] = {}
         self.revoked_ids: list[uuid.UUID] = []
+        self.deleted_ids: list[uuid.UUID] = []
 
     async def add(self, runner: Runner) -> None:
         self.added.append(runner)
@@ -57,10 +65,19 @@ class FakeRunnerRepository:
     async def revoke(self, runner_id: uuid.UUID) -> None:
         self.revoked_ids.append(runner_id)
 
+    async def delete(self, runner_id: uuid.UUID) -> None:
+        self.deleted_ids.append(runner_id)
+        self._by_id.pop(runner_id, None)
+
 
 class FakeRunQueue:
-    def __init__(self, active_run_by_runner: dict[uuid.UUID, uuid.UUID] | None = None) -> None:
+    def __init__(
+        self,
+        active_run_by_runner: dict[uuid.UUID, uuid.UUID] | None = None,
+        claimed_counts: dict[uuid.UUID, int] | None = None,
+    ) -> None:
         self._active = active_run_by_runner or {}
+        self._claimed_counts = claimed_counts or {}
 
     async def sweep(self, *, max_attempts: int) -> None:
         raise NotImplementedError
@@ -76,6 +93,9 @@ class FakeRunQueue:
 
     async def active_run_by_runner(self) -> dict[uuid.UUID, uuid.UUID]:
         return self._active
+
+    async def claimed_run_count(self, runner_id: uuid.UUID) -> int:
+        return self._claimed_counts.get(runner_id, 0)
 
 
 # --- CreateRunner ------------------------------------------------------------
@@ -270,3 +290,85 @@ async def test_revoke_refuses_editor_role() -> None:
         await RevokeRunner(repository)(
             RevokeRunnerCommand(runner_id=runner.id), auth=FakeAuth(workspace_role="editor")
         )
+
+
+# --- DeleteRunner ------------------------------------------------------------
+
+
+async def test_delete_removes_a_runner_that_never_claimed_anything() -> None:
+    repository = FakeRunnerRepository()
+    runner = _runner()
+    await repository.add(runner)
+
+    result = await DeleteRunner(repository, FakeRunQueue())(
+        DeleteRunnerCommand(runner_id=runner.id), auth=FakeAuth(workspace_role="admin")
+    )
+
+    assert result.unwrap() is None
+    assert repository.deleted_ids == [runner.id]
+
+
+async def test_delete_refuses_a_runner_whose_runs_name_it() -> None:
+    """`runs.claimed_by` has no foreign key behind it, so the delete would
+    succeed and leave that history pointing at nothing. Refuse instead."""
+    repository = FakeRunnerRepository()
+    runner = _runner()
+    await repository.add(runner)
+    queue = FakeRunQueue(claimed_counts={runner.id: 3})
+
+    result = await DeleteRunner(repository, queue)(
+        DeleteRunnerCommand(runner_id=runner.id), auth=FakeAuth(workspace_role="admin")
+    )
+
+    failure = result.failure()
+    assert isinstance(failure, ConflictError)
+    assert "3 runs" in str(failure)
+    assert "Revoke" in str(failure)
+    assert repository.deleted_ids == []
+
+
+async def test_delete_counts_one_claimed_run_in_the_singular() -> None:
+    repository = FakeRunnerRepository()
+    runner = _runner()
+    await repository.add(runner)
+
+    result = await DeleteRunner(repository, FakeRunQueue(claimed_counts={runner.id: 1}))(
+        DeleteRunnerCommand(runner_id=runner.id), auth=FakeAuth(workspace_role="admin")
+    )
+
+    assert "1 run," in str(result.failure())
+
+
+async def test_delete_refuses_a_revoked_runner_that_has_claimed_runs() -> None:
+    """Revoking first does not make the history safe to orphan."""
+    repository = FakeRunnerRepository()
+    runner = _runner()
+    runner.revoke()
+    await repository.add(runner)
+
+    result = await DeleteRunner(repository, FakeRunQueue(claimed_counts={runner.id: 1}))(
+        DeleteRunnerCommand(runner_id=runner.id), auth=FakeAuth(workspace_role="admin")
+    )
+
+    assert isinstance(result.failure(), ConflictError)
+    assert repository.deleted_ids == []
+
+
+async def test_delete_of_an_unknown_runner_is_not_found() -> None:
+    result = await DeleteRunner(FakeRunnerRepository(), FakeRunQueue())(
+        DeleteRunnerCommand(runner_id=uuid.uuid4()), auth=FakeAuth(workspace_role="admin")
+    )
+
+    assert isinstance(result.failure(), NotFoundError)
+
+
+async def test_delete_refuses_editor_and_unauthenticated_callers() -> None:
+    repository = FakeRunnerRepository()
+    runner = _runner()
+    await repository.add(runner)
+    use_case = DeleteRunner(repository, FakeRunQueue())
+
+    for auth in (FakeAuth(workspace_role="editor"), FakeAuth(workspace_role="viewer"), None):
+        with pytest.raises(AuthorizationError):
+            await use_case(DeleteRunnerCommand(runner_id=runner.id), auth=auth)
+    assert repository.deleted_ids == []

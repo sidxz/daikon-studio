@@ -106,7 +106,12 @@ from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.application.ports.sequence_clusterer import SequenceClusterer
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
-from daikonstudio.application.runners.manage import CreateRunner, ListRunners, RevokeRunner
+from daikonstudio.application.runners.manage import (
+    CreateRunner,
+    DeleteRunner,
+    ListRunners,
+    RevokeRunner,
+)
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.chemcellar.client import HttpChemCellar
 from daikonstudio.infrastructure.duar.auth import get_duar
@@ -335,6 +340,7 @@ def create_container(settings: Settings | None = None) -> Container:
         ),
     )
     container.define(RevokeRunner, lambda c: RevokeRunner(c[RunnerRepository]))
+    container.define(DeleteRunner, lambda c: DeleteRunner(c[RunnerRepository], c[RunQueue]))
     container.define(
         ClaimRun,
         lambda c: ClaimRun(

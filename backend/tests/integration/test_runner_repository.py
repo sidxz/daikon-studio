@@ -172,3 +172,35 @@ async def test_a_runner_that_never_reported_a_build_reads_back_as_none(session_f
         None,
     )
     assert fetched.is_revoked is False
+
+
+async def test_delete_removes_the_row(session_factory):
+    repository = SqlAlchemyRunnerRepository(session_factory)
+    runner = _runner()
+    await repository.add(runner)
+
+    await repository.delete(runner.id)
+
+    assert await repository.get(runner.id) is None
+    assert await repository.get_by_token_hash(runner.token_hash) is None
+
+
+async def test_delete_of_an_unknown_id_is_a_no_op(session_factory):
+    repository = SqlAlchemyRunnerRepository(session_factory)
+    runner = _runner()
+    await repository.add(runner)
+
+    await repository.delete(uuid.uuid4())
+
+    assert await repository.get(runner.id) is not None
+
+
+async def test_the_name_of_a_deleted_runner_can_be_registered_again(session_factory):
+    """`uq_runners_name` is why delete exists at all: a runner registered under
+    a typo'd name holds that name until the row goes."""
+    repository = SqlAlchemyRunnerRepository(session_factory)
+    first = _runner(name="gpu-typo")
+    await repository.add(first)
+
+    await repository.delete(first.id)
+    await repository.add(_runner(name="gpu-typo"))
