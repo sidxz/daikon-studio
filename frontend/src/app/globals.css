@@ -230,11 +230,15 @@
   --icon-collections: #db2777;
   --icon-engines: var(--ds-score-good);
   --icon-runners: #0891b2;
+  --icon-tools: #7c3aed;
+  --icon-plans: #0f766e;
 }
 [data-theme="dark"] {
   --icon-runs: #fbbf24;
   --icon-collections: #f472b6;
   --icon-runners: #22d3ee;
+  --icon-tools: #a78bfa;
+  --icon-plans: #5eead4;
 }
 @theme inline {
   --color-icon-dashboard: var(--icon-dashboard);
@@ -245,6 +249,8 @@
   --color-icon-collections: var(--icon-collections);
   --color-icon-engines: var(--icon-engines);
   --color-icon-runners: var(--icon-runners);
+  --color-icon-tools: var(--icon-tools);
+  --color-icon-plans: var(--icon-plans);
   --animate-status-breathe: status-breathe 2.4s ease-in-out infinite;
 }
 

@@ -40,6 +40,14 @@ dependencies = [
     "openpyxl>=3.1",
     "umap-learn>=0.5.12",
     "threadpoolctl>=3.1",
+    # The planner's two model providers. Both are the vendors' own SDKs rather than
+    # one OpenAI-compatible shim pointed at both: the shim loses Anthropic's typed
+    # parse helper and quietly diverges on anything beyond plain chat.
+    # Core dependencies, not an extra: CI syncs only `--extra s3`, so an import
+    # guarded by another extra is how main went red unnoticed for three pushes.
+    # Both MIT, both pure-Python wrappers over httpx.
+    "anthropic>=0.40",
+    "openai>=1.60",
 ]
 
 [project.optional-dependencies]

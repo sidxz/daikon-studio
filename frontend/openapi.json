@@ -2017,6 +2017,116 @@
         }
       }
     },
+    "/api/v1/plans/providers": {
+      "get": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "List Providers",
+        "description": "The model providers this deployment can actually reach.\n\nA provider with no key is left out rather than listed and broken, so a client\ncan offer the choice honestly. An empty list means no planner is configured.",
+        "operationId": "list_providers_api_v1_plans_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Providers Api V1 Plans Providers Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans/questions": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Ask First",
+        "description": "What the planner needs to know, before it has planned anything.\n\nThe first half of drafting. Asked to do both at once a model asks whether\nIC50 is the readout and, in the same answer, writes a plan that uses IC50\nthroughout -- so the guess is load-bearing before anyone has read the\nquestion. One extra call makes the plan an answer to something.",
+        "operationId": "ask_first_api_v1_plans_questions_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_ask_first_api_v1_plans_questions_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QuestionsResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/plans": {
+      "post": {
+        "tags": [
+          "plans"
+        ],
+        "summary": "Draft Plan",
+        "description": "Draft a plan, given the goal, the shape of the data and whatever the\nscientist said to the questions.\n\n`answers` is a JSON array of `{ask, answer}` sent as a form field, because\nthe rest of the request is multipart and carrying the file alongside it is\nwhat lets the plan be written against both. Answering nothing is allowed; the\nplan then has to say which assumptions it made.\n\nWrites nothing and runs nothing. A plan is a proposal.",
+        "operationId": "draft_plan_api_v1_plans_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_draft_plan_api_v1_plans_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlanResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/protocols": {
       "post": {
         "tags": [
@@ -4223,6 +4333,75 @@
           }
         }
       }
+    },
+    "/api/v1/tools": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "List Tools",
+        "description": "Every tool this server offers, in the order a chemist would perform them.",
+        "operationId": "list_tools_api_v1_tools_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ToolManifestResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Tools Api V1 Tools Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/{tool_id}": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Get Tool",
+        "description": "One tool by id. An unknown id is a 404, through `UnknownToolError`.",
+        "operationId": "get_tool_api_v1_tools__tool_id__get",
+        "parameters": [
+          {
+            "name": "tool_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tool Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolManifestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4319,6 +4498,93 @@
           "uri"
         ],
         "title": "BlobPutResponse"
+      },
+      "Body_ask_first_api_v1_plans_questions_post": {
+        "properties": {
+          "goal": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Goal"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goal"
+        ],
+        "title": "Body_ask_first_api_v1_plans_questions_post"
+      },
+      "Body_draft_plan_api_v1_plans_post": {
+        "properties": {
+          "goal": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Goal"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "file": {
+            "anyOf": [
+              {
+                "type": "string",
+                "contentMediaType": "application/octet-stream"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File"
+          },
+          "answers": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goal"
+        ],
+        "title": "Body_draft_plan_api_v1_plans_post"
       },
       "Body_upload_dataset_file_api_v1_datasets_uploads_post": {
         "properties": {
@@ -6985,6 +7251,82 @@
         ],
         "title": "ParityPointResponse"
       },
+      "PlanResponse": {
+        "properties": {
+          "goal": {
+            "type": "string",
+            "title": "Goal"
+          },
+          "restated_goal": {
+            "type": "string",
+            "title": "Restated Goal"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionResponse"
+            },
+            "type": "array",
+            "title": "Questions"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepResponse"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "checks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Checks"
+          },
+          "stop_conditions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stop Conditions"
+          },
+          "skipped": {
+            "items": {
+              "$ref": "#/components/schemas/ProblemResponse"
+            },
+            "type": "array",
+            "title": "Skipped"
+          },
+          "problems": {
+            "items": {
+              "$ref": "#/components/schemas/ProblemResponse"
+            },
+            "type": "array",
+            "title": "Problems"
+          },
+          "written_by": {
+            "type": "string",
+            "title": "Written By"
+          },
+          "questions_left": {
+            "type": "integer",
+            "title": "Questions Left"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goal",
+          "restated_goal",
+          "questions",
+          "steps",
+          "checks",
+          "stop_conditions",
+          "skipped",
+          "problems",
+          "written_by",
+          "questions_left"
+        ],
+        "title": "PlanResponse"
+      },
       "PredictBody": {
         "properties": {
           "protocol_id": {
@@ -7173,6 +7515,31 @@
         ],
         "title": "PredictionResponse",
         "description": "One scored compound. `readouts` holds one entry per Readout the\nProtocol declares (a numeric value for regression; probability and class\nfor classification), each carrying its own unit and direction so a\nprediction can be lined up against a measurement without a second call --\nsee `PredictionRow`'s own docstring for why `uncertainty` and\n`applicability` are shaped the way they are. `uncertainty` has one entry per\ntarget, keyed by its column."
+      },
+      "ProblemResponse": {
+        "properties": {
+          "step": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "step",
+          "message"
+        ],
+        "title": "ProblemResponse"
       },
       "ProfileComputingResponse": {
         "properties": {
@@ -7526,6 +7893,98 @@
           "note"
         ],
         "title": "ProvenanceResponse"
+      },
+      "ProviderResponse": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "title": "ProviderResponse"
+      },
+      "QuestionResponse": {
+        "properties": {
+          "ask": {
+            "type": "string",
+            "title": "Ask"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options",
+            "default": []
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ask",
+          "why"
+        ],
+        "title": "QuestionResponse"
+      },
+      "QuestionsResponse": {
+        "properties": {
+          "goal": {
+            "type": "string",
+            "title": "Goal"
+          },
+          "restated_goal": {
+            "type": "string",
+            "title": "Restated Goal"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionResponse"
+            },
+            "type": "array",
+            "title": "Questions"
+          },
+          "written_by": {
+            "type": "string",
+            "title": "Written By"
+          },
+          "questions_left": {
+            "type": "integer",
+            "title": "Questions Left"
+          }
+        },
+        "type": "object",
+        "required": [
+          "goal",
+          "restated_goal",
+          "questions",
+          "written_by",
+          "questions_left"
+        ],
+        "title": "QuestionsResponse",
+        "description": "What the planner needs to know, before it has planned anything."
       },
       "RankedPredictionResponse": {
         "properties": {
@@ -9369,6 +9828,35 @@
         ],
         "title": "SimilarityProfileResponse"
       },
+      "SlotResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "optional": {
+            "type": "boolean",
+            "title": "Optional"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "optional"
+        ],
+        "title": "SlotResponse",
+        "description": "One thing a tool consumes or produces. `kind` is the vocabulary a plan is\nwritten in: a planner chains two tools by matching one's output kind to the\nother's input kind."
+      },
       "SplitBody": {
         "properties": {
           "strategy": {
@@ -9517,6 +10005,51 @@
           "predefined"
         ],
         "title": "SplitStrategy"
+      },
+      "StepResponse": {
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "title": "Tool Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "purpose": {
+            "type": "string",
+            "title": "Purpose"
+          },
+          "gated": {
+            "type": "boolean",
+            "title": "Gated"
+          },
+          "expanded_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expanded From"
+          },
+          "always": {
+            "type": "boolean",
+            "title": "Always"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tool_id",
+          "name",
+          "purpose",
+          "gated",
+          "expanded_from",
+          "always"
+        ],
+        "title": "StepResponse"
       },
       "SubmitSweepBody": {
         "properties": {
@@ -10065,6 +10598,96 @@
           "within_count"
         ],
         "title": "ToleranceBinResponse"
+      },
+      "ToolManifestResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "area": {
+            "type": "string",
+            "title": "Area"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/SlotResponse"
+            },
+            "type": "array",
+            "title": "Inputs"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/SlotResponse"
+            },
+            "type": "array",
+            "title": "Outputs"
+          },
+          "library": {
+            "type": "string",
+            "title": "Library"
+          },
+          "judgment": {
+            "type": "boolean",
+            "title": "Judgment"
+          },
+          "resolves_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolves To"
+          },
+          "surface": {
+            "type": "string",
+            "title": "Surface"
+          },
+          "external": {
+            "type": "boolean",
+            "title": "External"
+          },
+          "expands_to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Expands To"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "name",
+          "description",
+          "area",
+          "inputs",
+          "outputs",
+          "library",
+          "judgment",
+          "resolves_to",
+          "surface",
+          "external",
+          "expands_to"
+        ],
+        "title": "ToolManifestResponse",
+        "description": "A tool's manifest: what it does, what it needs, what it gives back."
       },
       "TrainProtocolBody": {
         "properties": {

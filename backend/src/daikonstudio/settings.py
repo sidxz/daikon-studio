@@ -103,3 +103,18 @@ class Settings(BaseSettings):
     # How recently a runner must have heartbeated (`touch_last_seen`) to show as
     # `online` in `ListRunners` -- see `application/runners/manage.py`.
     runner_online_threshold_seconds: int = 15
+
+    # The planner's language models (application/planner, infrastructure/llm).
+    # Both keys empty is a deployment with no planner: /api/v1/plans answers 503
+    # naming the variable to set, and every other part of Studio is unaffected.
+    # Never validated at boot -- a missing model key must not stop training.
+    anthropic_api_key: str = ""
+    openai_api_key: str = ""
+    # Which model each provider uses. Settings rather than constants because a
+    # model is swapped far more often than code is deployed, and because the plan
+    # records which one wrote it, so changing this changes the record.
+    anthropic_model: str = "claude-opus-5-5"
+    openai_model: str = "gpt-5.1"
+    # Which provider answers when a request does not name one. A request may still
+    # name the other; this only decides the default.
+    planner_provider: str = "anthropic"

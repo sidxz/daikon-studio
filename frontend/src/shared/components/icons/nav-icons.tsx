@@ -75,6 +75,25 @@ export const EnginesIcon = (props: SVGProps<SVGSVGElement>) => (
     <Dot cx={17.6} cy={3.8} r={1.4} />
   </Glyph>
 );
+export const PlansIcon = (props: SVGProps<SVGSVGElement>) => (
+  <Glyph {...props}>
+    <circle cx="5" cy="12" r="2.1" />
+    <path d="M8 12h3.2M14.4 7.4h2.2M14.4 16.6h2.2" />
+    <path d="M11.2 12c0-2.6 1-4.6 3.2-4.6M11.2 12c0 2.6 1 4.6 3.2 4.6" />
+    <Dot cx={18.9} cy={7.4} r={1.5} />
+    <Dot cx={18.9} cy={16.6} r={1.5} />
+  </Glyph>
+);
+export const ToolsIcon = (props: SVGProps<SVGSVGElement>) => (
+  <Glyph {...props}>
+    <path d="M4.6 17.4 9.4 12l4.8 5.4M9.4 12l5.2-5.6" />
+    <Dot cx={4.2} cy={17.8} r={1.6} />
+    <circle cx="9.4" cy="12" r="1.9" />
+    <Dot cx={14.6} cy={6.2} r={1.6} />
+    <Dot cx={14.6} cy={17.8} r={1.6} />
+    <path d="M17.6 6.2h2.6M17.6 17.8h2.6" />
+  </Glyph>
+);
 export const RunnersIcon = (props: SVGProps<SVGSVGElement>) => (
   <Glyph {...props}>
     <rect x="3" y="4" width="18" height="7" rx="2" />

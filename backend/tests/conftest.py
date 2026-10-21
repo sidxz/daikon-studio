@@ -30,6 +30,14 @@ os.environ["STUDIO_DUAR_SERVICE_NAME"] = "daikon-studio"
 os.environ["STUDIO_IDP_JWKS_URL"] = "http://127.0.0.1:1/.well-known/jwks.json"
 os.environ["STUDIO_IDP_ISSUER"] = "https://accounts.google.com"
 
+# The planner's provider keys, pinned empty for the same reason as the Duar group:
+# `Settings` reads `backend/.env`, and a developer with a real key there would have
+# the suite reach a paid API on any test that drafts a plan. Empty is also the state
+# the "no planner configured" tests assert on, so a developer's `.env` must not be
+# able to turn it on by accident.
+os.environ["STUDIO_ANTHROPIC_API_KEY"] = ""
+os.environ["STUDIO_OPENAI_API_KEY"] = ""
+
 import pytest_asyncio
 from alembic import command
 from alembic.config import Config

@@ -93,11 +93,14 @@ from daikonstudio.application.pages.manage import (
     RevisePage,
     UploadPageBlob,
 )
+from daikonstudio.application.planner.ask_first import AskFirst
+from daikonstudio.application.planner.draft_plan import WritePlan
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.chemcellar import ChemCellar
 from daikonstudio.application.ports.dataset_build_repository import DatasetBuildRepository
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.folder_repository import FolderRepository
+from daikonstudio.application.ports.llm import LanguageModels
 from daikonstudio.application.ports.page_repository import PageRepository
 from daikonstudio.application.ports.profile_computer import ProfileComputer
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
@@ -107,12 +110,14 @@ from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.application.ports.sequence_clusterer import SequenceClusterer
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.application.ports.table_profiler import TableProfiler
 from daikonstudio.application.runners.manage import (
     CreateRunner,
     DeleteRunner,
     ListRunners,
     RevokeRunner,
 )
+from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.chem.profile import ChildProcessProfileComputer
 from daikonstudio.infrastructure.chemcellar.client import HttpChemCellar
@@ -120,6 +125,9 @@ from daikonstudio.infrastructure.duar.auth import get_duar
 from daikonstudio.infrastructure.duar.protocol_access import DuarProtocolAccess
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
+from daikonstudio.infrastructure.llm.anthropic import AnthropicLanguageModel
+from daikonstudio.infrastructure.llm.openai import OpenAILanguageModel
+from daikonstudio.infrastructure.llm.registry import ConfiguredLanguageModels
 from daikonstudio.infrastructure.persistence.session import create_session_factory
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
@@ -144,6 +152,8 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.runners.repository impor
 )
 from daikonstudio.infrastructure.protein.cluster import Mmseqs2Clusterer
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
+from daikonstudio.infrastructure.tables.profiler import PolarsTableProfiler
+from daikonstudio.infrastructure.tools.catalog import default_registry as default_tool_registry
 from daikonstudio.settings import Settings
 
 
@@ -185,6 +195,40 @@ def create_container(settings: Settings | None = None) -> Container:
     # overridden per test/request, so caching carries none of the JobEnqueuer
     # risk below.
     container.define(EngineRegistry, Singleton(default_registry))
+    # Safe as a Singleton: the catalogue is a module-level tuple of frozen manifests,
+    # so it touches no session factory and nothing can mutate it between tests.
+    container.define(ToolRegistry, Singleton(default_tool_registry))
+    # Singletons, like the ChemCellar client and for the same reason: each holds a
+    # pooled HTTP client it creates lazily on first use. Neither touches the
+    # network at construction, and neither reaches an async_sessionmaker, which is
+    # the thing a Singleton must never capture.
+    container.define(
+        LanguageModels,  # type: ignore[type-abstract]
+        Singleton(
+            lambda: ConfiguredLanguageModels(
+                models={
+                    "anthropic": AnthropicLanguageModel(
+                        api_key=resolved.anthropic_api_key, model=resolved.anthropic_model
+                    ),
+                    "openai": OpenAILanguageModel(
+                        api_key=resolved.openai_api_key, model=resolved.openai_model
+                    ),
+                },
+                configured=frozenset(
+                    name
+                    for name, key in (
+                        ("anthropic", resolved.anthropic_api_key),
+                        ("openai", resolved.openai_api_key),
+                    )
+                    if key
+                ),
+                default=resolved.planner_provider,
+            )
+        ),
+    )
+    container.define(TableProfiler, Singleton(PolarsTableProfiler))  # type: ignore[type-abstract]
+    container.define(AskFirst, lambda c: AskFirst(c[LanguageModels], c[ToolRegistry]))
+    container.define(WritePlan, lambda c: WritePlan(c[LanguageModels], c[ToolRegistry]))
 
     def _datasets(c: Container) -> SqlAlchemyDatasetRepository:
         return SqlAlchemyDatasetRepository(c[async_sessionmaker])
