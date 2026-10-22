@@ -30,11 +30,13 @@ TABLE_KINDS: frozenset[str] = frozenset(
 
 
 # Columns whose values are structures or sequences, by name. Decided here, when a table is
-# encoded, because a header is the one thing an upload does not control: `Molecule`,
-# `CanonicalSMILES` and `parse_error` (which quotes the SMILES it could not read) all carry
-# structures under names no exact list would have.
+# encoded, because a header is the one thing an upload does not control: `CanonicalSMILES`,
+# `Ligand SMILES` and `parse_error` (which quotes the SMILES it could not read) all carry
+# structures under names no exact list would have. `smiles`, `sequence` and `inchi` count
+# anywhere in a header; the plain words only as the whole header, since an export names its
+# rows `molecule_chembl_id`.
 WITHHELD_COLUMNS = re.compile(
-    r"smiles|sequence|inchi|structure|molecule|^mol$|^seq$|^parse_error$", re.I
+    r"smiles|sequence|inchi|^(molecule|structure|mol|seq|parse_error)$", re.I
 )
 # And by what a column holds, without RDKit: a SMILES is one run of the SMILES alphabet with a
 # bond, branch, bracket or stereo mark in it, and a sequence is twenty residues or more.

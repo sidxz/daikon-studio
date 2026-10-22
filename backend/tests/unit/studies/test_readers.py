@@ -226,6 +226,19 @@ def test_a_table_look_is_capped_and_elides_structures() -> None:
         "<structure>: SMILES=<structure>, Molecule=<structure>"
     )
 
+    # An export that names its rows by `molecule_chembl_id` keeps its ids: only a header that
+    # is just "molecule" or "structure" is taken for a structure.
+    chembl, summary = _table(
+        {
+            "canonical_smiles": ["CC(=O)Oc1ccccc1C(=O)O"],
+            "molecule_chembl_id": ["CHEMBL25"],
+            "standard_value": [10.0],
+        }
+    )
+    assert look_table(chembl, Look(step=1), summary) == (
+        "CHEMBL25: canonical_smiles=<structure>, molecule_chembl_id=CHEMBL25, standard_value=10.0"
+    )
+
     # A cell is one short line however it was written.
     noted, summary = _table({"ID": ["a"], "note": ["two\nlines   and " + "x" * 200]})
     assert look_table(noted, Look(step=1), summary) == (
