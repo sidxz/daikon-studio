@@ -1,4 +1,4 @@
-"""What the model says when it wants a study changed.
+"""What the model says about a study: the changes it wants and the claims it makes.
 
 One flat `Action` with a `does` literal rather than a model per edit: the providers'
 structured output closes every object and has no union to offer, and one shape is one
@@ -11,6 +11,10 @@ A `Proposal` is an action the scientist has not yet confirmed. It leaves out wha
 button must never carry: the checks and stop conditions, because a criterion rewritten
 after the data is not a criterion, and the quote, because pressing the button is the
 scientist's word.
+
+A `Claim` is something the agent says about a result, as a reference into it; the reader
+for that kind of result checks it before it is stored. A `Look` asks to see part of a
+table, which the server answers with a bounded slice.
 """
 
 from __future__ import annotations
@@ -23,6 +27,9 @@ from daikonstudio.application.planner.plan import Setting as Setting  # re-expor
 
 Does = Literal["insert", "remove", "swap", "settings", "gate", "terms", "approve", "run"]
 Proposable = Literal["insert", "remove", "swap", "settings", "gate", "approve", "run"]
+Evidence = Literal[
+    "ligand_overlap", "annotated_site", "interface", "lining_residues", "column", "rows"
+]
 
 _STEP = (
     "The step this is about, by its number in the plan you were shown (the first step is 1). "
@@ -116,3 +123,57 @@ class Proposal(BaseModel):
     candidate: int | None = Field(default=None, description=_CANDIDATE)
     until: int | None = Field(default=None, description=_UNTIL)
     why: str = Field(description="One sentence: what this would settle that is open now.")
+
+
+class Claim(BaseModel):
+    """One thing the agent says about a result, as a reference into it."""
+
+    step: int = Field(
+        description=(
+            "The step whose result this is about, by its number in the plan you were "
+            "shown (the first step is 1)."
+        )
+    )
+    candidates: list[int] = Field(
+        default_factory=list,
+        description=(
+            "For pockets: the candidates this is about, by rank. Several ranks mean you are "
+            "saying they are one site that the tool reported separately. Leave empty for a "
+            "table."
+        ),
+    )
+    label: str = Field(
+        description="What this is, named the way a chemist would: 'the zinc cone'.",
+    )
+    evidence: Evidence = Field(
+        description=(
+            "Which part of the result carries this. For pockets: ligand_overlap, "
+            "annotated_site, interface or lining_residues. For a table: column, or rows."
+        )
+    )
+    cites: list[str] = Field(
+        description=(
+            "What you are relying on, spelled exactly as the result spells it: the lining "
+            "residues for pockets; for a table, column names and values of its identifier "
+            "column. Anything not found there costs you the whole claim."
+        )
+    )
+
+
+class Look(BaseModel):
+    """A request to see part of a table, answered with a bounded slice."""
+
+    step: int = Field(
+        description=(
+            "The step whose table you want to see, by its number in the plan you were "
+            "shown (the first step is 1)."
+        )
+    )
+    rows: int = Field(default=20, description="How many rows from the top. At most 50 are shown.")
+    columns: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Which columns to see, by name; leave empty for all of them. Structure and "
+            "sequence columns are never shown, and names the table lacks are ignored."
+        ),
+    )

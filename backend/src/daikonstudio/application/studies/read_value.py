@@ -25,6 +25,24 @@ class ValueView:
     data: Any
 
 
+def decode_view(kind: str, blob: bytes, *, limit: int | None = 200) -> Any:
+    """A value as a page shows it, and as the agent reads it: JSON-safe, without the file text.
+
+    `limit` caps a table's rows or a list's items; `None` means all of them, for a check.
+    """
+    decoded = codecs.decode(kind, blob)
+    # ponytail: 200-row preview; page it when a table is read for more than a look.
+    if isinstance(decoded, pl.DataFrame):
+        frame = decoded if limit is None else decoded.head(limit)
+        # fill_nan: a NaN is not JSON, and a float column can carry one.
+        return frame.fill_nan(None).to_dicts()
+    if isinstance(decoded, dict):
+        return {k: v for k, v in decoded.items() if k != "text"}
+    if isinstance(decoded, list):
+        return decoded[:limit]
+    return decoded
+
+
 class ReadValue:
     def __init__(self, studies: StudyRepository, store: BlobStore) -> None:
         self._get = GetStudy(studies)
@@ -44,18 +62,5 @@ class ReadValue:
         value = next((v for v in found.unwrap().values if v.id == value_id), None)
         if value is None:
             return Failure(NotFoundError("Value", str(value_id)))
-        decoded = codecs.decode(
-            value.kind, await asyncio.to_thread(self._store.get_bytes, value.blob_key)
-        )
-        # ponytail: 200-row preview; page it when a table is read for more than a look.
-        data: Any
-        if isinstance(decoded, pl.DataFrame):
-            # fill_nan: a NaN is not JSON, and a float column can carry one.
-            data = decoded.head(limit).fill_nan(None).to_dicts()
-        elif isinstance(decoded, dict):
-            data = {k: v for k, v in decoded.items() if k != "text"}
-        elif isinstance(decoded, list):
-            data = decoded[:limit]
-        else:
-            data = decoded
-        return Success(ValueView(value, data))
+        blob = await asyncio.to_thread(self._store.get_bytes, value.blob_key)
+        return Success(ValueView(value, decode_view(value.kind, blob, limit=limit)))
