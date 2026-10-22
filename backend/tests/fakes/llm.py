@@ -15,20 +15,24 @@ from daikonstudio.domain.shared.errors import ServiceUnavailableError
 
 
 class ScriptedLanguageModel:
-    """Returns `reply` for every call, recording the prompts it was given."""
+    """Returns its replies in order, then the last one for every call after, recording
+    the prompt and the schema of each call."""
 
-    def __init__(self, reply: BaseModel, *, provider: str = "anthropic") -> None:
-        self._reply = reply
+    def __init__(self, reply: BaseModel, *more: BaseModel, provider: str = "anthropic") -> None:
+        self._replies = (reply, *more)
         self._provider = provider
         self.calls: list[tuple[str, str]] = []
+        self.schemas: list[type[BaseModel]] = []
 
     @property
     def choice(self) -> ModelChoice:
         return ModelChoice(provider=self._provider, model="scripted")
 
     async def parse[T: BaseModel](self, *, system: str, prompt: str, schema: type[T]) -> T:
+        reply = self._replies[min(len(self.calls), len(self._replies) - 1)]
         self.calls.append((system, prompt))
-        return schema.model_validate(self._reply.model_dump())
+        self.schemas.append(schema)
+        return schema.model_validate(reply.model_dump())
 
 
 class ScriptedLanguageModels:

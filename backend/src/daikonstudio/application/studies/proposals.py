@@ -1,133 +1,98 @@
-"""What an agent may ask a study to do, and what is checked before it is offered.
+"""What an agent may offer the study to do, and what is checked before it is offered.
 
 An agent that can only talk ends every useful exchange the same way: it tells the
 scientist to rerun preparation without the zinc, and the scientist scrolls off to
-find the button. The step it wants is one it can name exactly, so it can hand
-over a proposal instead.
+find the button. The change it wants is one it can name exactly, so it hands over a
+proposal instead, and the scientist's press is the word that carries it out.
 
-A proposal is where this stops. The scientist confirms and the study acts; the
-agent never acts on its own. That is the same rule as "a core is approved, never
-computed", applied to the plan rather than to a value, and it is what keeps a
-plan something written before the data rather than something that drifted to fit
-it.
+A proposal is checked by the same checks as the edit it would make, so a button is
+never offered that pressing could not carry out: its step must be in the plan, a swap
+must be to one of the step's alternatives, and settings must be ones the tool takes and
+accepts. Two more hold because a proposal waits to be pressed. A new step must read only
+what the study already holds, since a step whose inputs nothing has produced would be
+offering a failure. And a candidate can be approved only on a finished result of a tool
+that reports candidates. What fails is dropped and counted rather than shown.
 
-**Checks and stop conditions are not proposable at all.** They are the reason a
-result from this study can be trusted, and a criterion rewritten after seeing the
-data is not a criterion. If one is wrong the scientist amends it themselves, in
-the open, and what that costs is theirs to judge.
+**Checks and stop conditions are not proposable at all.** They are the reason a result
+from this study can be trusted, and a criterion rewritten after seeing the data is not a
+criterion. `Proposal` has no way to carry one.
 
-A proposal is checked the way a claim is: the step must exist, the tool must be
-one the catalogue has, its inputs must be things this study already holds, and
-its settings must survive that tool's own parameter model. What fails is dropped
-and counted rather than shown.
+A proposal keeps its steps by id rather than by number, so a button pressed after the
+plan was edited still means the step it meant when it was offered.
 """
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from typing import Literal
+from typing import Any
 
-from pydantic import BaseModel, Field, ValidationError
-
-from daikonstudio.application.planner.plan import Setting
+from daikonstudio.application.studies.edits import _EDITS, _name, _Named, _tool
+from daikonstudio.application.studies.schemas import Action, Proposal
 from daikonstudio.application.tools.registry import ToolRegistry
-from daikonstudio.domain.studies.study import Proposed, Study
+from daikonstudio.domain.studies.study import Proposed, Step, StepStatus, Study
 
 
-class Proposal(BaseModel):
-    """One thing the agent would like done, for the scientist to confirm."""
-
-    does: Literal["rerun", "add"] = Field(
-        description=(
-            "'rerun' runs a step that is already in the plan, optionally with "
-            "different settings. 'add' puts a new step at the end of the plan."
+def _offerable(named: _Named, study: Study, registry: ToolRegistry) -> bool:
+    action, step = named.action, named.step
+    if action.does == "run":
+        return True  # its steps are in the plan; where it stops is the loop's to find
+    if action.does == "approve":
+        # Only a judgment tool says what a chosen candidate becomes.
+        manifest = None if step is None else _tool(registry, step.tool_id)
+        return (
+            step is not None
+            and manifest is not None
+            and manifest.resolves_to is not None
+            and action.candidate is not None
+            and step.status is StepStatus.DONE
+            and bool(study.outputs_of(step.id))
         )
-    )
-    step: int | None = Field(default=None, description="For a rerun: which step, by its position.")
-    tool_id: str | None = Field(
-        default=None,
-        description="For an addition: the tool's id, exactly as the catalogue has it.",
-    )
-    settings: list[Setting] = Field(
-        default_factory=list,
-        description=(
-            "The settings to run with, as name/value pairs. Leave empty to run a "
-            "step exactly as it stands. Only names that tool actually takes."
-        ),
-    )
-    why: str = Field(description="One sentence: what this would settle that is open now.")
+    if action.does == "insert":
+        manifest = _tool(registry, action.tool_id)
+        held = {value.kind for value in study.values}
+        if manifest is None or any(
+            slot.kind.value not in held for slot in manifest.inputs if not slot.optional
+        ):
+            return False
+    # The edit's own checks. They only build the change; nothing is made here.
+    return _EDITS[action.does](study, registry, named) is not None
 
 
-def _settings(proposal: Proposal) -> dict[str, str]:
-    return {s.name: s.value for s in proposal.settings}
+def _plain(named: _Named) -> dict[str, Any]:
+    """The proposal as its button keeps it: every step by id, every setting by name."""
+    action = named.action
+
+    def ref(step: Step | None) -> str | None:
+        return None if step is None else str(step.id)
+
+    return {
+        "does": action.does,
+        "step_id": ref(named.step),
+        "tool_id": action.tool_id,
+        "before_id": ref(named.before),
+        "purpose": action.purpose,
+        "settings": {setting.name: setting.value for setting in action.settings},
+        "gated": action.gated,
+        "candidate": action.candidate,
+        "until_id": ref(named.until),
+    }
 
 
 def vet(
-    proposals: Sequence[Proposal], study: Study, tools: ToolRegistry
+    proposals: Sequence[Proposal], study: Study, registry: ToolRegistry
 ) -> tuple[list[Proposed], int]:
-    """Keep the proposals this study could actually carry out."""
+    """Keep the proposals this study could carry out as it stands, and count the rest.
+
+    Positions mean the plan as it stands now, as the model was shown it.
+    """
+    shown = {step.position: step for step in study.steps}
     kept: list[Proposed] = []
     dropped = 0
-    # What the study already holds, which is what a new step could read.
-    available = {value.kind for value in study.values}
-
     for proposal in proposals:
-        settings = _settings(proposal)
-        if proposal.does == "rerun":
-            step = next((s for s in study.steps if s.position == proposal.step), None)
-            if step is None:
-                dropped += 1
-                continue
-            tool_id = step.tool_id
-        else:
-            tool_id = proposal.tool_id or ""
-            step = None
-
-        try:
-            manifest = tools.get(tool_id)
-        except Exception:
+        named = _name(Action.model_validate(proposal.model_dump(exclude={"why"})), shown)
+        if named is None or not _offerable(named, study, registry):
             dropped += 1
             continue
-
-        if proposal.does == "add":
-            # Automatic steps are placed, never chosen -- by the planner or by an
-            # agent. And a step whose inputs nothing has produced cannot run, so
-            # offering it would be offering a failure.
-            if manifest.automatic:
-                dropped += 1
-                continue
-            if any(
-                slot.kind.value not in available for slot in manifest.inputs if not slot.optional
-            ):
-                dropped += 1
-                continue
-
-        if settings:
-            if manifest.params is None:
-                dropped += 1
-                continue
-            # Names first: a model ignores what it does not declare, so
-            # validation alone accepts an invented setting and the step runs
-            # without it. The scientist would press a button that silently does
-            # nothing of what it said.
-            if any(name not in manifest.params.model_fields for name in settings):
-                dropped += 1
-                continue
-            try:
-                manifest.params.model_validate(settings)
-            except ValidationError:
-                dropped += 1
-                continue
-
-        kept.append(
-            Proposed(
-                id=uuid.uuid4(),
-                does=proposal.does,
-                step=step.position if step is not None else None,
-                tool_id=tool_id,
-                settings=settings,
-                why=proposal.why,
-            )
-        )
+        kept.append(Proposed(id=uuid.uuid4(), action=_plain(named), why=proposal.why))
     return kept, dropped

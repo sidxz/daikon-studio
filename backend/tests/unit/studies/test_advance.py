@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import builtins
-import copy
 import threading
 import time
 import uuid
@@ -19,31 +17,8 @@ from daikonstudio.domain.studies.study import Step, StepStatus, Study, StudyStat
 from daikonstudio.infrastructure.tools.catalog import default_registry
 from tests.fakes.auth import FakeAuth
 from tests.fakes.blob_store import InMemoryBlobStore
+from tests.fakes.studies import InMemoryStudies
 from tests.fakes.tool_executor import InProcessToolExecutor
-
-
-class _Studies:
-    """A dict of copies, so a study changes only when it is updated."""
-
-    def __init__(self) -> None:
-        self.rows: dict[uuid.UUID, Study] = {}
-
-    async def add(self, study: Study) -> None:
-        self.rows[study.id] = copy.deepcopy(study)
-
-    async def update(self, study: Study) -> None:
-        study.version += 1
-        self.rows[study.id] = copy.deepcopy(study)
-
-    async def get(self, workspace_id: uuid.UUID, study_id: uuid.UUID) -> Study | None:
-        row = self.rows.get(study_id)
-        return copy.deepcopy(row) if row and row.workspace_id == workspace_id else None
-
-    async def list(
-        self, workspace_id: uuid.UUID, *, created_by: uuid.UUID | None = None, limit: int = 50
-    ) -> builtins.list[Study]:
-        return [copy.deepcopy(s) for s in self.rows.values() if s.workspace_id == workspace_id]
-
 
 STRUCTURE = {"format": "pdb", "text": "ATOM", "meta": {"uniprot": ["P0AE18"]}}
 
@@ -51,7 +26,7 @@ STRUCTURE = {"format": "pdb", "text": "ATOM", "meta": {"uniprot": ["P0AE18"]}}
 def _setup(impls: Mapping[str, Any], *steps: tuple[str, dict[str, Any], bool]):
     auth = FakeAuth()
     registry = default_registry()
-    studies = _Studies()
+    studies = InMemoryStudies()
     store = InMemoryBlobStore()
     executor = InProcessToolExecutor(store, impls)
     study = Study(
