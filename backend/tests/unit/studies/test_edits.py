@@ -208,14 +208,19 @@ def test_remove_and_swap_renumber_and_recheck() -> None:
         "Changed step 1 from Fetch a deposited structure to Fetch a predicted structure."
     )
 
-    removed = _apply(study, Action(does="remove", step=3))
-    assert removed.dropped == 0 and removed.acted[0].step == pockets.id
-    assert _tools(study) == ["fetch_alphafold", "prepare_structure"]
+    # Taking out the fetch leaves preparation waiting on a structure that the pocket search
+    # still wants, as in a plan drafted before its file is attached: it stays, problem showing.
+    removed = _apply(study, Action(does="remove", step=1))
+    assert removed.dropped == 0 and removed.acted[0].step == fetch.id
+    assert _tools(study) == ["prepare_structure", "find_pockets"]
     assert [s.position for s in study.steps] == [0, 1]
+    assert prepare.problem is not None and "structure" in prepare.problem
+    assert pockets.problem is None  # preparation still stands in for the structure it wants
 
-    # What makes the structure goes, and preparation with it: left in, it would only sit there
-    # with a problem, and the model may not remove it.
-    _apply(study, Action(does="remove", step=1))
+    # Take the search out too and nothing wants a structure: preparation goes with it, rather
+    # than sit there with a problem that the model may not remove.
+    gone = _apply(study, Action(does="remove", step=2))
+    assert gone.dropped == 0 and gone.acted[0].step == pockets.id
     assert _tools(study) == []
 
 

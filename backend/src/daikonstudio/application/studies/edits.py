@@ -34,7 +34,12 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from daikonstudio.application.planner.plan import PlannedStep, automatic_steps, incoherences
+from daikonstudio.application.planner.plan import (
+    PlannedStep,
+    automatic_steps,
+    handed_over,
+    incoherences,
+)
 from daikonstudio.application.studies.schemas import Action, Proposal
 from daikonstudio.application.tools.manifest import SlotKind, ToolManifest
 from daikonstudio.application.tools.registry import ToolRegistry, UnknownToolError
@@ -117,9 +122,11 @@ def _brought(study: Study) -> set[SlotKind]:
     return {kind for kind in SlotKind if kind.value in kinds}
 
 
-def _fed(manifest: ToolManifest, available: set[SlotKind]) -> bool:
-    """Whether everything the tool must have is in hand."""
-    return all(slot.kind in available for slot in manifest.inputs if not slot.optional)
+def _lacks(manifest: ToolManifest, available: set[SlotKind]) -> set[SlotKind]:
+    """The kinds the tool must have and does not yet have in hand."""
+    return {
+        slot.kind for slot in manifest.inputs if not slot.optional and slot.kind not in available
+    }
 
 
 def replace_automatic(study: Study, registry: ToolRegistry) -> None:
@@ -130,14 +137,17 @@ def replace_automatic(study: Study, registry: ToolRegistry) -> None:
     right after the first step that makes what it needs, or at the front when the
     scientist brought it, so it runs before anything else touches the thing it prepares.
     One still waiting that has lost what it prepares, say because the step that fetched
-    the structure was removed, comes out: the model may not remove it, and it would only
-    sit there with a problem. The steps that still want the structure carry the problem
-    instead, and the preparation goes back in once one is brought, so whatever brings a
-    file has to call this again.
+    the structure was removed, comes out when no chosen step wants that kind any more: the
+    model may not remove it, and it would only sit there with a problem. While one does,
+    it stays, as `expand` places it for a file that has not arrived yet, and its problem
+    shows until the file does. Whatever brings a file calls this again, so that the
+    preparation the file makes possible is placed.
     """
     steps = list(study.steps)  # the plan as it was; changes are made as it is walked
     available = _brought(study)
     already = {step.tool_id for step in steps}
+    # What the chosen steps expect to be handed over, read as `expand` reads a draft.
+    wanted = handed_over([step.tool_id for step in steps if not step.always], registry)
     for index in range(-1, len(steps)):  # -1 is before the first step
         if index >= 0:
             step = steps[index]
@@ -145,7 +155,9 @@ def replace_automatic(study: Study, registry: ToolRegistry) -> None:
                 manifest = registry.get(step.tool_id)
             except UnknownToolError:
                 continue  # `recheck` reports it; there is nothing of its to count
-            if step.always and step.status is StepStatus.PENDING and not _fed(manifest, available):
+            lacks = _lacks(manifest, available)
+            orphaned = bool(lacks) and not (lacks & wanted)  # and no chosen step expects it
+            if step.always and step.status is StepStatus.PENDING and orphaned:
                 study.remove_step(step.id)
                 already.discard(step.tool_id)  # it may yet be placed where its input appears
                 continue  # and what it would have made is not in hand

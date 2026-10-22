@@ -11,6 +11,7 @@ gates exist because a person is supposed to look.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from typing import Any
 
 from pydantic import BaseModel, Field, ValidationError
@@ -189,8 +190,8 @@ class PlanProblem(BaseModel):
     message: str
 
 
-def _handed_over(plan: DraftPlan, registry: ToolRegistry) -> set[SlotKind]:
-    """What this plan expects someone to give it: consumed by a step, produced
+def handed_over(tool_ids: Iterable[str], registry: ToolRegistry) -> set[SlotKind]:
+    """What these steps expect someone to give them: consumed by one, produced
     by none of them.
 
     Needed because an upload is optional. Someone can describe a series and
@@ -199,12 +200,15 @@ def _handed_over(plan: DraftPlan, registry: ToolRegistry) -> set[SlotKind]:
     a plan that decomposes R-groups is a plan about compounds whether or not the
     file has arrived, and a plan that only touches a protein is not, however
     much chemistry the goal mentions.
+
+    Over tool ids, so a study's own steps are read the way a planner's are: by
+    `expand` for a plan being written, by `replace_automatic` for one being edited.
     """
     consumed: set[SlotKind] = set()
     produced: set[SlotKind] = set()
-    for step in plan.steps:
+    for tool_id in tool_ids:
         try:
-            manifest = registry.get(step.tool_id)
+            manifest = registry.get(tool_id)
         except UnknownToolError:
             continue
         takes = {slot.kind for slot in manifest.inputs}
@@ -216,6 +220,11 @@ def _handed_over(plan: DraftPlan, registry: ToolRegistry) -> set[SlotKind]:
         if manifest.resolves_to is not None and manifest.resolves_to not in takes:
             produced.add(manifest.resolves_to)
     return consumed - produced
+
+
+def _handed_over(plan: DraftPlan, registry: ToolRegistry) -> set[SlotKind]:
+    """What a draft plan expects someone to give it: `handed_over` of the tools it lists."""
+    return handed_over((step.tool_id for step in plan.steps), registry)
 
 
 def automatic_steps(
