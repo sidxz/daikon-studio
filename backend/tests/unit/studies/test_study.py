@@ -240,12 +240,16 @@ def test_set_params_and_set_gate_edit_a_step_in_place() -> None:
     study = _started("a")
     step = study.steps[0]
     step.params = {"old": 1}
-    _finish(study, step)
+    study.start_step(step.id)
+    study.fail_step(step.id, "no such entry")
+    step.problem = "needs an accession"
     assert study.set_gate(step.id, True) is step
-    assert step.gated is True and step.status is StepStatus.DONE  # a gate changes no result
+    assert step.gated is True and step.status is StepStatus.FAILED  # a gate leaves the outcome
     assert study.set_params(step.id, {"k": 2}) is step
     assert step.params == {"k": 2}  # replaced, not merged: the caller owns the merge
     assert step.status is StepStatus.PENDING  # the old result no longer matches its settings
+    assert step.error is None  # a pending step must not wear the last run's failure
+    assert step.problem == "needs an accession"  # only the plan check knows if this fixes it
 
 
 def test_amend_terms_records_how_many_steps_had_run() -> None:
@@ -263,6 +267,13 @@ def test_amend_terms_records_how_many_steps_had_run() -> None:
     assert draft.stop_conditions == ("a new stop",)
     assert draft.checks == ("a check",)
     assert draft.amended_after_steps is None  # nothing had run, so there is nothing to mark
+
+
+def test_amend_terms_given_nothing_marks_nothing() -> None:
+    study = _started("a", "b")
+    _finish(study, study.steps[0])
+    study.amend_terms(None, None)
+    assert study.amended_after_steps is None  # nothing changed, so there is nothing to mark
 
 
 def test_done_count_counts_finished_steps_not_skipped_ones() -> None:

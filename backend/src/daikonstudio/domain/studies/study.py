@@ -272,6 +272,7 @@ class Study(AggregateRoot):
         return self.steps[self._index(step_id)]
 
     def step_at(self, position: int) -> Step | None:
+        """The step at a stored, 0-based position; the model and error labels speak 1-based."""
         return next((s for s in self.steps if s.position == position), None)
 
     def say(self, turn: Turn) -> Thread:
@@ -383,10 +384,15 @@ class Study(AggregateRoot):
 
     def set_params(self, step_id: uuid.UUID, params: dict[str, Any]) -> Step:
         """Replace a step's settings. Back to pending, so it reads as waiting to run
-        rather than as done with a result that no longer matches the settings beside it."""
+        rather than as done with a result that no longer matches the settings beside it.
+        The last error goes too, as it described the old settings.
+
+        `problem` stays: only the plan check knows whether the new settings fix it.
+        """
         step = self.step(step_id)
         step.params = params
         step.status = StepStatus.PENDING
+        step.error = None
         self._touch()
         return step
 
@@ -404,6 +410,8 @@ class Study(AggregateRoot):
         Once started, the change is marked with how many steps had run, so the
         terms never read as if they were written before the data.
         """
+        if checks is None and stop_conditions is None:
+            return  # nothing changed, so nothing to mark
         if checks is not None:
             self.checks = checks
         if stop_conditions is not None:
