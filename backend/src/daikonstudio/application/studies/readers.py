@@ -4,7 +4,7 @@ The agent is handed a summary of a result, never a table or a structure whole, a
 for a bounded look when a summary is not enough. What it then claims is checked against
 the result itself before it is stored. A claim that reads well and cites a residue the
 pocket does not have is the failure a reader cannot catch for themselves, and the one
-this exists to catch. So a kind can be talked about only where it has a checker: there is
+this exists to catch. So a kind can be claimed about only where it has a checker: there is
 deliberately no permissive default, and adding a kind means writing its checker, not
 loosening this.
 
@@ -16,19 +16,19 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from daikonstudio.application.studies.schemas import LOOK_ROWS_MAX as LOOK_ROWS_MAX
 from daikonstudio.application.studies.schemas import Claim, Look
 from daikonstudio.application.tools import codecs
+from daikonstudio.application.tools.codecs import WITHHELD_COLUMNS as WITHHELD_COLUMNS
 from daikonstudio.domain.studies.study import Pointer
 
-# What one look may show, however many rows it asks for.
-LOOK_ROWS_MAX = 50
-# Columns that hold a structure or a sequence: described to the agent, never shown to it.
-WITHHELD_COLUMNS = re.compile(r"^((canonical_)?smiles|sequence|inchi|mol)$", re.I)
 _IDENTIFIER = re.compile(r"^(id|compound_id|identifier|name)$", re.I)
+# A cell is cut here and its whitespace collapsed, so a row stays one short line.
+_CELL_MAX = 80
 
 
 @dataclass(frozen=True)
@@ -37,12 +37,14 @@ class KindReader:
 
     `look` and `check` are None where a kind offers none. A kind with no `check` can be
     summarized but not claimed about. `notes` are what the agent should know when it
-    reads this kind, beyond what the summary says.
+    reads this kind, beyond what the summary says. Each function is also given the value's
+    stored summary, because some facts, such as which columns hold structures, were decided
+    when the value was encoded and cannot be read back from its rows.
     """
 
     summarize: Callable[[Any, Mapping[str, Any]], str]
-    look: Callable[[Any, Look], str] | None
-    check: Callable[[Sequence[Claim], Any], tuple[list[Pointer], int]] | None
+    look: Callable[[Any, Look, Mapping[str, Any]], str] | None
+    check: Callable[[Sequence[Claim], Any, Mapping[str, Any]], tuple[list[Pointer], int]] | None
     notes: str = ""
 
 
@@ -145,14 +147,34 @@ _POCKET_NOTES = (
 )
 
 
-def identifier_column(columns: Sequence[str]) -> str:
-    """The column that names a row: the first called an id or a name, else the first."""
-    return next((c for c in columns if _IDENTIFIER.match(c)), columns[0])
+def identifier_column(columns: Sequence[str], withheld: Collection[str] = ()) -> str:
+    """The column that names a row: the first called an id or a name, else the first.
+
+    A column whose values are withheld cannot name a row to a reader who never sees them, so
+    it is passed over unless every column is withheld.
+    """
+    shown = [c for c in columns if c not in withheld] or list(columns)
+    return next((c for c in shown if _IDENTIFIER.match(c)), shown[0])
 
 
-def _shown(column: str, value: Any) -> str:
+def _withheld(columns: Sequence[str], summary: Mapping[str, Any]) -> set[str]:
+    """The columns whose values the agent never sees.
+
+    Those the encoder found by what they hold, and any named like a structure, which is all a
+    summary stored before the encoder looked has to go on.
+    """
+    return {c for c in columns if WITHHELD_COLUMNS.search(c)} | set(summary.get("withheld") or ())
+
+
+def _cell(value: Any) -> str:
+    """A value on one short line, as the agent reads it and as a claim must spell it."""
+    text = " ".join(str(value).split())
+    return text if len(text) <= _CELL_MAX else text[: _CELL_MAX - 3] + "..."
+
+
+def _shown(column: str, value: Any, withheld: Collection[str]) -> str:
     """A cell as the agent may see it: a structure or a sequence is withheld."""
-    return "<structure>" if WITHHELD_COLUMNS.match(column) else str(value)
+    return "<structure>" if column in withheld else _cell(value)
 
 
 def summarize_table(data: Any, summary: Mapping[str, Any]) -> str:
@@ -161,10 +183,12 @@ def summarize_table(data: Any, summary: Mapping[str, Any]) -> str:
     Only the stored summary is read, so no row can be quoted and `data` may be None.
     """
     columns: list[str] = summary.get("columns") or []
+    withheld = _withheld(columns, summary)
     profile = {p["name"]: p for p in summary.get("columns_profile") or []}
     lines = [f"Rows: {summary.get('rows', 0)}. Columns: {len(columns)}."]
-    if columns:
-        lines.append(f"Rows are named by the values of {identifier_column(columns)}.")
+    key = identifier_column(columns, withheld) if columns else None
+    if key is not None and key not in withheld:
+        lines.append(f"Rows are named by the values of {key}.")
     # ponytail: one line per column; cap and group them when a table is wide (descriptor
     # tables run to hundreds of columns).
     for name in columns:
@@ -173,7 +197,7 @@ def summarize_table(data: Any, summary: Mapping[str, Any]) -> str:
             lines.append(f"- {name}")
             continue
         facts = [p["dtype"], f"{p['filled']} filled", f"{p['distinct']} distinct"]
-        if WITHHELD_COLUMNS.match(name):
+        if name in withheld:
             facts.append("values withheld")
         elif p.get("min") is not None:
             facts.append(f"from {p['min']:.4g} to {p['max']:.4g}, median {p['median']:.4g}")
@@ -181,29 +205,34 @@ def summarize_table(data: Any, summary: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
-def look_table(data: Sequence[Mapping[str, Any]], look: Look) -> str:
+def look_table(data: Sequence[Mapping[str, Any]], look: Look, summary: Mapping[str, Any]) -> str:
     """The rows asked for, up to the cap, one line each: `identifier: column=value, ...`."""
     rows = data[: max(0, min(look.rows, LOOK_ROWS_MAX))]
     if not rows:
         return "(no rows)"
     present = list(rows[0])
+    withheld = _withheld(present, summary)
     wanted = [c for c in look.columns if c in present] or present
-    key = identifier_column(present)
+    key = identifier_column(present, withheld)
     return "\n".join(
-        f"{_shown(key, row[key])}: " + ", ".join(f"{c}={_shown(c, row[c])}" for c in wanted)
+        f"{_shown(key, row[key], withheld)}: "
+        + ", ".join(f"{c}={_shown(c, row[c], withheld)}" for c in wanted)
         for row in rows
     )
 
 
 def check_table(
-    claims: Sequence[Claim], data: Sequence[Mapping[str, Any]]
+    claims: Sequence[Claim], data: Sequence[Mapping[str, Any]], summary: Mapping[str, Any]
 ) -> tuple[list[Pointer], int]:
     """Keep only the claims whose citations are in this table, spelled as it spells them."""
     if not data:
         return [], len(claims)
     columns = list(data[0])
-    key = identifier_column(columns)
-    rows = {str(row[key]) for row in data if row[key] is not None}
+    withheld = _withheld(columns, summary)
+    key = identifier_column(columns, withheld)
+    # Rows are cited by the identifier as a look showed it; with every column withheld,
+    # a look showed none.
+    rows = set() if key in withheld else {_cell(row[key]) for row in data if row[key] is not None}
     known = {*columns, *rows}
     kept: list[Pointer] = []
     dropped = 0
@@ -247,7 +276,7 @@ READERS: dict[str, KindReader] = {
     "pocket_candidates": KindReader(
         summarize=lambda data, summary: _describe(data),
         look=None,
-        check=_check_pockets,
+        check=lambda claims, data, summary: _check_pockets(claims, data),
         notes=_POCKET_NOTES,
     ),
     **dict.fromkeys(sorted(codecs.TABLE_KINDS), _TABLE),

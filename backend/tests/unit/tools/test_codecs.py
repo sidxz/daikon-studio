@@ -19,6 +19,7 @@ def test_table_round_trip() -> None:
         "b": ("String", 3, 3, None, None, None),
         "c": ("Float64", 2, 2, 0.5, 0.5, 0.5),
     }
+    assert summary["withheld"] == []  # nothing here is a structure or a sequence
     assert decode("compound_table", blob).equals(frame)  # type: ignore[attr-defined]
     assert extension("compound_table") == "parquet"
     assert extension("structure") == "json"

@@ -31,6 +31,10 @@ Evidence = Literal[
     "ligand_overlap", "annotated_site", "interface", "lining_residues", "column", "rows"
 ]
 
+# What one look may show, however many rows it asks for. Defined here, where the model is told,
+# and re-exported by the readers, which enforce it, so the two cannot drift apart.
+LOOK_ROWS_MAX = 50
+
 _STEP = (
     "The step this is about, by its number in the plan you were shown (the first step is 1). "
     "Numbers stay as shown for the whole reply, however many steps are added or removed. "
@@ -148,14 +152,16 @@ class Claim(BaseModel):
     evidence: Evidence = Field(
         description=(
             "Which part of the result carries this. For pockets: ligand_overlap, "
-            "annotated_site, interface or lining_residues. For a table: column, or rows."
+            "annotated_site, interface or lining_residues. For a table: column, when you cite "
+            "column names, or rows, when you cite values of its identifier column."
         )
     )
     cites: list[str] = Field(
         description=(
             "What you are relying on, spelled exactly as the result spells it: the lining "
-            "residues for pockets; for a table, column names and values of its identifier "
-            "column. Anything not found there costs you the whole claim."
+            "residues for pockets; for a table, the column names when the evidence is column, "
+            "and the values of its identifier column when the evidence is rows. Anything not "
+            "found there costs you the whole claim."
         )
     )
 
@@ -169,7 +175,10 @@ class Look(BaseModel):
             "shown (the first step is 1)."
         )
     )
-    rows: int = Field(default=20, description="How many rows from the top. At most 50 are shown.")
+    rows: int = Field(
+        default=20,
+        description=f"How many rows from the top. At most {LOOK_ROWS_MAX} are shown.",
+    )
     columns: list[str] = Field(
         default_factory=list,
         description=(

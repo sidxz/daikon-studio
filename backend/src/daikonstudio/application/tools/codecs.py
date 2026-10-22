@@ -2,13 +2,15 @@
 
 Convention: a tool's non-table output is a dict whose `meta` holds what a reader needs
 without opening the blob; `encode` returns it as the summary. A table's summary is its
-shape and, per column, what it holds, so a reader never needs the rows to say what is there.
+shape and, per column, what it holds, so a reader never needs the rows to say what is there,
+and which columns hold structures or sequences, whose values no reader may show.
 """
 
 from __future__ import annotations
 
 import io
 import json
+import re
 from typing import Any
 
 import polars as pl
@@ -25,6 +27,21 @@ TABLE_KINDS: frozenset[str] = frozenset(
         "series",
     }
 )
+
+
+# Columns whose values are structures or sequences, by name. Decided here, when a table is
+# encoded, because a header is the one thing an upload does not control: `Molecule`,
+# `CanonicalSMILES` and `parse_error` (which quotes the SMILES it could not read) all carry
+# structures under names no exact list would have.
+WITHHELD_COLUMNS = re.compile(
+    r"smiles|sequence|inchi|structure|molecule|^mol$|^seq$|^parse_error$", re.I
+)
+# And by what a column holds, without RDKit: a SMILES is one run of the SMILES alphabet with a
+# bond, branch, bracket or stereo mark in it, and a sequence is twenty residues or more.
+_SMILES = r"^[A-Za-z0-9@+\-\[\]\(\)\\/%=#$.:*]+$"
+_SMILES_MARK = r"[=#()\[\]@]"
+_SEQUENCE = r"^[ACDEFGHIKLMNPQRSTVWYXBZU*-]{20,}$"
+_STRUCTURAL = 0.6  # the share of a column's filled values that must look like one
 
 
 def extension(kind: str) -> str:
@@ -54,6 +71,24 @@ def _profile(frame: pl.DataFrame) -> list[dict[str, Any]]:
     return out
 
 
+def _withheld(frame: pl.DataFrame) -> list[str]:
+    """The columns whose values must never be shown, found by name or by what they hold."""
+    out: list[str] = []
+    for column in frame:
+        values = column.drop_nulls()
+        by_content = False
+        if column.dtype == pl.String and values.len():
+            # ponytail: no RDKit here, so a column of mostly bare SMILES (CCO, c1ccccc1) under a
+            # header no pattern lists is not recognised; parse them here if that ever bites.
+            looks = (values.str.contains(_SMILES) & values.str.contains(_SMILES_MARK)) | (
+                values.str.contains(_SEQUENCE)
+            )
+            by_content = looks.sum() / values.len() >= _STRUCTURAL
+        if by_content or WITHHELD_COLUMNS.search(column.name):
+            out.append(column.name)
+    return out
+
+
 def encode(kind: str, value: object) -> tuple[bytes, dict[str, Any]]:
     if kind in TABLE_KINDS:
         assert isinstance(value, pl.DataFrame)
@@ -63,6 +98,7 @@ def encode(kind: str, value: object) -> tuple[bytes, dict[str, Any]]:
             "rows": value.height,
             "columns": value.columns,
             "columns_profile": _profile(value),
+            "withheld": _withheld(value),
         }
         return buffer.getvalue(), summary
     blob = json.dumps(value, default=str).encode()

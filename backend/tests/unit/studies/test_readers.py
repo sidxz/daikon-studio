@@ -12,6 +12,7 @@ from typing import Any
 
 import polars as pl
 
+from daikonstudio.application.studies.read_value import decode_view
 from daikonstudio.application.studies.readers import (
     LOOK_ROWS_MAX,
     _check_pockets,
@@ -122,13 +123,13 @@ def test_a_pocket_claim_cannot_rest_on_table_evidence() -> None:
     assert dropped == 1
 
 
-ROWS = [
-    {"ID": "a", "SMILES": "CCO", "pIC50": 6.1},
-    {"ID": "b", "SMILES": "CCN", "pIC50": 7.4},
-]
+def _table(columns: dict[str, list[Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """A table as the agent meets it: its decoded rows and the summary stored beside them."""
+    blob, summary = codecs.encode("compound_table", pl.DataFrame(columns))
+    return decode_view("compound_table", blob, limit=None), summary
 
 
-def _cell(**kw: Any) -> Claim:
+def _table_claim(**kw: Any) -> Claim:
     return Claim(
         step=1,
         label=kw.get("label", "potency spans a log"),
@@ -138,41 +139,98 @@ def _cell(**kw: Any) -> Claim:
 
 
 def test_a_table_claim_must_cite_a_column_or_an_identifier() -> None:
-    kept, dropped = check_table([_cell(cites=["pIC50", "a"])], ROWS)
+    # The identifier is second, so it is found by what it is called and not by where it sits.
+    rows, summary = _table({"SMILES": ["CCO", "CCN"], "ID": ["a", "b"], "pIC50": [6.1, 7.4]})
+
+    kept, dropped = check_table([_table_claim(cites=["pIC50", "a"])], rows, summary)
     assert dropped == 0
     assert kept[0].at == "column pIC50"
     assert kept[0].cites == ("pIC50", "a")
     assert kept[0].step is None  # the agent knows which step it was about, the reader does not
 
-    rows, _ = check_table([_cell(evidence="rows", cites=["a", "b"])], ROWS)
-    assert rows[0].at == "rows a, b"
+    kept, _ = check_table([_table_claim(evidence="rows", cites=["a", "b"])], rows, summary)
+    assert kept[0].at == "rows a, b"
 
     # Spelled exactly, nothing the table does not hold, and nothing is an opinion.
-    for cites in (["potency"], ["PIC50"], ["A"], []):
-        assert check_table([_cell(cites=cites)], ROWS) == ([], 1)
+    for evidence, cites in (
+        ("column", ["potency"]),
+        ("column", ["PIC50"]),
+        ("column", ["A"]),
+        ("rows", ["A"]),
+        ("column", []),
+    ):
+        claim = _table_claim(evidence=evidence, cites=cites)
+        assert check_table([claim], rows, summary) == ([], 1)
+    # An identifier cited as a column, and a column cited as rows, each point at the wrong thing.
+    assert check_table([_table_claim(cites=["a"])], rows, summary) == ([], 1)
+    assert check_table([_table_claim(evidence="rows")], rows, summary) == ([], 1)
     # A pocket's words are not a table's.
-    assert check_table([_cell(evidence="lining_residues")], ROWS) == ([], 1)
+    assert check_table([_table_claim(evidence="lining_residues")], rows, summary) == ([], 1)
+
+    # A table that opens with a structure is named by the next column, so its rows can still
+    # be cited, though not by the structures, which the agent was never shown.
+    labelled, summary = _table({"SMILES": ["CCO", "CCN"], "label": ["x1", "x2"]})
+    kept, _ = check_table([_table_claim(evidence="rows", cites=["x1"])], labelled, summary)
+    assert kept[0].at == "rows x1"
+    by_structure = _table_claim(evidence="rows", cites=["CCO"])
+    assert check_table([by_structure], labelled, summary) == ([], 1)
+
+    # An identifier is cited as the look showed it, on one line.
+    untidy, summary = _table({"ID": ["a ", "b\nc"], "pIC50": [6.1, 7.4]})
+    kept, _ = check_table([_table_claim(evidence="rows", cites=["a", "b c"])], untidy, summary)
+    assert kept[0].at == "rows a, b c"
 
 
 def test_a_table_look_is_capped_and_elides_structures() -> None:
-    rows = [
-        {"ID": f"c{i}", "SMILES": f"CC(=O)N{'C' * i}c1ccccc1", "pIC50": 5 + i / 100}
-        for i in range(200)
-    ]
-    seen = look_table(rows, Look(step=1, rows=10_000, columns=["SMILES", "pIC50", "nope"]))
+    smiles = [f"CC(=O)N{'C' * i}c1ccccc1" for i in range(200)]
+    peptides = [f"MKVLAAGIVGLLLAQ{'A' * i}KRRQPSTW" for i in range(200)]
+    rows, summary = _table(
+        {
+            "ID": [f"c{i}" for i in range(200)],
+            "SMILES": smiles,
+            "Molecule": smiles,
+            # Headers no rule lists: found by what the column holds.
+            "Ligand": smiles,
+            "Peptide": peptides,
+            # Quotes the SMILES it could not read, in a sentence no pattern would take for one.
+            "parse_error": [f"Cannot parse '{s}'" for s in smiles],
+            "pIC50": [5 + i / 100 for i in range(200)],
+        }
+    )
+    seen = look_table(rows, Look(step=1, rows=10_000), summary)
     lines = seen.splitlines()
     assert len(lines) == LOOK_ROWS_MAX
-    assert lines[0] == "c0: SMILES=<structure>, pIC50=5.0"
-    assert "nope" not in seen
-    assert not any(row["SMILES"] in seen for row in rows)
+    assert lines[0] == (
+        "c0: ID=c0, SMILES=<structure>, Molecule=<structure>, Ligand=<structure>, "
+        "Peptide=<structure>, parse_error=<structure>, pIC50=5.0"
+    )
+    assert not any(s in seen for s in [*smiles, *peptides])
 
-    # No columns named means all of them; a count below the table's start is not a slice
-    # from its end.
-    assert look_table(rows, Look(step=1, rows=1)) == "c0: ID=c0, SMILES=<structure>, pIC50=5.0"
-    assert len(look_table(rows, Look(step=1, rows=-1)).splitlines()) <= LOOK_ROWS_MAX
+    asked = look_table(
+        rows, Look(step=1, rows=10_000, columns=["SMILES", "pIC50", "nope"]), summary
+    )
+    assert len(asked.splitlines()) == LOOK_ROWS_MAX
+    assert asked.splitlines()[0] == "c0: SMILES=<structure>, pIC50=5.0"
+    assert "nope" not in asked
 
-    # A table with no identifier column is named by its first, which here is a structure.
-    assert "CCO" not in look_table([{"SMILES": "CCO", "pIC50": 6.1}], Look(step=1))
+    # A count below the table's start is not a slice from its end.
+    assert look_table(rows, Look(step=1, rows=-1), summary) == "(no rows)"
+
+    # A table that opens with a structure is named by the next column, also for a summary
+    # stored before columns were judged by what they hold; one of only structures, by none.
+    labelled, summary = _table({"SMILES": ["CCO"], "label": ["x1"]})
+    assert look_table(labelled, Look(step=1), summary) == "x1: SMILES=<structure>, label=x1"
+    assert look_table(labelled, Look(step=1), {}) == "x1: SMILES=<structure>, label=x1"
+    bare, summary = _table({"SMILES": ["CCO"], "Molecule": ["CCN"]})
+    assert look_table(bare, Look(step=1), summary) == (
+        "<structure>: SMILES=<structure>, Molecule=<structure>"
+    )
+
+    # A cell is one short line however it was written.
+    noted, summary = _table({"ID": ["a"], "note": ["two\nlines   and " + "x" * 200]})
+    assert look_table(noted, Look(step=1), summary) == (
+        "a: ID=a, note=" + ("two lines and " + "x" * 200)[:77] + "..."
+    )
 
 
 def test_a_table_summary_never_quotes_a_row() -> None:
@@ -182,8 +240,12 @@ def test_a_table_summary_never_quotes_a_row() -> None:
     told = summarize_table(None, summary)
     assert not any(s in told for s in smiles)
     assert "Rows: 3" in told
+    assert "Rows are named by the values of ID." in told
     assert "SMILES" in told
     assert "pIC50" in told
+    # With every column a structure there is nothing to name the rows by.
+    _, summary = codecs.encode("compound_table", pl.DataFrame({"SMILES": smiles}))
+    assert "Rows are named by" not in summarize_table(None, summary)
 
 
 def test_a_kind_without_a_reader_summarizes_its_meta_and_cannot_be_checked() -> None:
