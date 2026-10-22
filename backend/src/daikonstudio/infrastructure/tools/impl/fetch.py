@@ -13,6 +13,7 @@ import httpx
 import numpy as np
 from pydantic import BaseModel
 
+from daikonstudio.application.tools.structures import ca_chains, ligands, parse_pdb
 from daikonstudio.infrastructure.tools.params import (
     FetchAlphafoldParams,
     FetchPdbParams,
@@ -28,7 +29,6 @@ RCSB_ENTITY = "https://data.rcsb.org/rest/v1/core/polymer_entity/{id}/{entity}"
 UNIPROT_ENTRY = "https://rest.uniprot.org/uniprotkb/{accession}.json"
 UNIPROT_SEARCH = "https://rest.uniprot.org/uniprotkb/search"
 ALPHAFOLD = "https://alphafold.ebi.ac.uk/api/prediction/{accession}"
-CONTACT_ANGSTROM = 4.0
 
 _ACCESSION = re.compile(
     r"^[OPQ][0-9][A-Z0-9]{3}[0-9]$|^[A-NR-Z][0-9]([A-Z][A-Z0-9]{2}[0-9]){1,2}$"
@@ -58,55 +58,6 @@ def _client() -> httpx.Client:
     return httpx.Client(transport=TRANSPORT, timeout=60, follow_redirects=True)
 
 
-def _parse_pdb(text: str) -> list[dict[str, Any]]:
-    """ATOM and HETATM records by their fixed columns."""
-    atoms: list[dict[str, Any]] = []
-    for line in text.splitlines():
-        if line[:6].strip() not in ("ATOM", "HETATM") or len(line) < 54:
-            continue
-        atoms.append(
-            {
-                "het": line.startswith("HETATM"),
-                "name": line[12:16].strip(),
-                "resname": line[17:20].strip(),
-                "chain": line[21],
-                "resseq": int(line[22:26]),
-                "xyz": (float(line[30:38]), float(line[38:46]), float(line[46:54])),
-                "b": float(line[60:66]) if len(line) >= 66 and line[60:66].strip() else 0.0,
-            }
-        )
-    return atoms
-
-
-def _ca_chains(atoms: list[dict[str, Any]]) -> list[str]:
-    return sorted({a["chain"] for a in atoms if a["name"] == "CA" and not a["het"]})
-
-
-def _ligands(atoms: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    protein = [a for a in atoms if not a["het"]]
-    if not protein:
-        return []
-    coords = np.array([a["xyz"] for a in protein])
-    groups: dict[tuple[str, str, int], list[tuple[float, float, float]]] = {}
-    for a in atoms:
-        if a["het"] and a["resname"] != "HOH":
-            groups.setdefault((a["resname"], a["chain"], a["resseq"]), []).append(a["xyz"])
-    out = []
-    for (comp, chain, resseq), xyz in groups.items():
-        dist = np.linalg.norm(coords[:, None, :] - np.array(xyz)[None, :, :], axis=2).min(axis=1)
-        near = {
-            (p["chain"], p["resname"], p["resseq"])
-            for p, d in zip(protein, dist, strict=True)
-            if d <= CONTACT_ANGSTROM
-        }
-        contacts = [
-            {"chain": c, "resname": n, "resseq": s}
-            for c, n, s in sorted(near, key=lambda t: (t[0], t[2]))
-        ]
-        out.append({"comp_id": comp, "chain": chain, "resseq": resseq, "contacts": contacts})
-    return out
-
-
 def fetch_pdb(params: BaseModel | None, inputs: Mapping[str, object]) -> Mapping[str, object]:
     assert isinstance(params, FetchPdbParams)
     pdb_id = params.pdb_id
@@ -125,7 +76,7 @@ def fetch_pdb(params: BaseModel | None, inputs: Mapping[str, object]) -> Mapping
             ):
                 if acc not in uniprot:
                     uniprot.append(acc)
-    atoms = _parse_pdb(text)
+    atoms = parse_pdb(text)
     resolution = (entry.get("rcsb_entry_info", {}).get("resolution_combined") or [None])[0]
     meta = {
         "id": pdb_id,
@@ -133,8 +84,8 @@ def fetch_pdb(params: BaseModel | None, inputs: Mapping[str, object]) -> Mapping
         "title": entry.get("struct", {}).get("title"),
         "method": (entry.get("exptl") or [{}])[0].get("method"),
         "resolution": resolution,
-        "chains": _ca_chains(atoms),
-        "ligands": _ligands(atoms),
+        "chains": ca_chains(atoms),
+        "ligands": ligands(atoms),
         "uniprot": uniprot,
         "predicted": False,
         "mean_plddt": None,
@@ -148,7 +99,10 @@ def fetch_uniprot(params: BaseModel | None, inputs: Mapping[str, object]) -> Map
         query = params.query
         if query is None:
             structure = inputs.get("structure")
-            accessions = structure["meta"]["uniprot"] if isinstance(structure, dict) else []
+            # An attached structure names no accession, so its meta may not have the key.
+            accessions = (
+                structure["meta"].get("uniprot", []) if isinstance(structure, dict) else []
+            )
             if not accessions:
                 raise ValueError("No accession given and no structure to read one from.")
             accession = accessions[0]
@@ -209,7 +163,7 @@ def fetch_alphafold(
         )
         first = listing.json()[0]
         text = _get(client, first["pdbUrl"]).text
-    atoms = _parse_pdb(text)
+    atoms = parse_pdb(text)
     plddt = [a["b"] for a in atoms if a["name"] == "CA"]
     meta = {
         "id": accession,
@@ -217,7 +171,7 @@ def fetch_alphafold(
         "title": f"AlphaFold model of {accession}",
         "method": "AlphaFold",
         "resolution": None,
-        "chains": _ca_chains(atoms),
+        "chains": ca_chains(atoms),
         "ligands": [],
         "uniprot": [accession],
         "predicted": True,

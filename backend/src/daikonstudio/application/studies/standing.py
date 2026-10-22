@@ -91,15 +91,17 @@ def _terms(study: Study) -> str:
 
 def _brought(study: Study) -> str:
     brought = [v for v in study.values if v.produced_by is None]
+    drafting = study.phase != "running"
     lines: list[str] = []
     if brought:
         lines.append("What the scientist brought:")
     for value in brought:
         lines.append(f"- {one_line(value.kind, value.summary)}")
-        # The shape of a table, so the model reads it before it asks about it.
-        if profile := value.summary.get("profile"):
+        # The shape of a table, so the model reads it before it asks about it. Planning-time
+        # only: a started study is read through its results, and this would only crowd them.
+        if drafting and (profile := value.summary.get("profile")):
             lines.append(profile_text(_profile(profile)))
-    if study.phase != "running":
+    if drafting:
         kinds = {value.kind for value in brought}
         lines.append(starting_note({kind for kind in SlotKind if kind.value in kinds}))
     return "\n".join(lines)
