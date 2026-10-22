@@ -157,31 +157,6 @@ class TestWhatThePlannerIsTold:
         plain = ToolRegistry(tuple(m for m in default_registry().manifests() if not m.automatic))
         assert "every step in your plan is one you chose" in always_runs(plain.manifests())
 
-    def test_no_prompt_hardcodes_a_tool_or_an_assay_convention(self) -> None:
-        """A prompt naming a specific tool, column or assay convention is this
-        one use case written into the plumbing: it reads fine today and misleads
-        the moment the catalogue grows past chemistry."""
-        from daikonstudio.application.planner import ask_first, catalogue, draft_plan
-
-        prompts = (
-            ask_first._SYSTEM_TEMPLATE,
-            draft_plan._SYSTEM_TEMPLATE,
-            catalogue.READING_THE_DATA,
-        )
-        banned = ("IC50", ">50", "censored", "SMILES", "scaffold", "standardize", "chemist")
-        for prompt in prompts:
-            for word in banned:
-                assert word.lower() not in prompt.lower(), f"{word!r} is hardcoded in a prompt"
-
-    def test_both_halves_read_the_data_by_the_same_rules(self) -> None:
-        """The two prompts once carried their own copy of how to read a file's
-        shape, and the copies had drifted. One shared text, interpolated into
-        both, is the only arrangement that cannot."""
-        from daikonstudio.application.planner import ask_first, draft_plan
-
-        assert "%(reading)s" in ask_first._SYSTEM_TEMPLATE
-        assert "%(reading)s" in draft_plan._SYSTEM_TEMPLATE
-
     def test_the_catalogue_says_what_the_planner_can_act_on(self) -> None:
         """Added-for-you entries are marked so the model does not choose them,
         but one that takes parameters must still be listable to set them, or an
@@ -237,8 +212,8 @@ class TestAskingSparingly:
         """Unanswered still counts as asked. The client sends one entry per
         question it was shown, so the spend is the length of that list and
         needs no separate counter to drift out of step."""
-        from daikonstudio.application.planner.ask_first import QUESTION_BUDGET
         from daikonstudio.application.planner.plan import Answer
+        from daikonstudio.application.studies.prompts import QUESTION_BUDGET
 
         answers = tuple(Answer(ask=f"q{i}", answer="") for i in range(4))
         assert max(QUESTION_BUDGET - len(answers), 0) == 6

@@ -15,6 +15,12 @@ scientist's word.
 A `Claim` is something the agent says about a result, as a reference into it; the reader
 for that kind of result checks it before it is stored. A `Look` asks to see part of a
 table, which the server answers with a bounded slice.
+
+A turn is what the model fills in one phase of a study, and the schema for each phase is
+what keeps the rules mechanical. Asking has no steps field, so nothing is planned before
+the scientist has been asked; an event turn has no `actions` field, so a result can never
+make the agent do anything; only a reply to a message can act, and it cannot pause. Nothing
+here is a float: a number the agent writes is one no step computed.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from daikonstudio.application.planner.plan import DraftPlan, Interrogation, Question
 from daikonstudio.application.planner.plan import Setting as Setting  # re-exported
 
 Does = Literal["insert", "remove", "swap", "settings", "gate", "terms", "approve", "run"]
@@ -30,6 +37,7 @@ Proposable = Literal["insert", "remove", "swap", "settings", "gate", "approve", 
 Evidence = Literal[
     "ligand_overlap", "annotated_site", "interface", "lining_residues", "column", "rows"
 ]
+About = Literal["step", "check", "stop_condition"]
 
 # What one look may show, however many rows it asks for. Defined here, where the model is told,
 # and re-exported by the readers, which enforce it, so the two cannot drift apart.
@@ -186,3 +194,142 @@ class Look(BaseModel):
             "sequence columns are never shown, and names the table lacks are ignored."
         ),
     )
+
+
+class ProgressClaim(BaseModel):
+    """One thing the agent says about where the study stands."""
+
+    about: About = Field(description="What this is about: a step, a check, or a stop condition.")
+    refers_to: list[int] = Field(
+        description=(
+            "Which ones, by number as shown to you, counting from 1. A step is its number "
+            "in the plan. A check or a stop condition is its place in its list."
+        )
+    )
+    label: str = Field(description="What you are saying about them, in a few words.")
+    cites: list[str] = Field(
+        description=(
+            "The exact words you are relying on: the step's name, or the check or "
+            "stop condition as the plan wrote it. Anything not found costs the claim."
+        )
+    )
+
+
+# The turn before any plan: the restated goal and the questions, and nothing else.
+AskingTurn = Interrogation
+
+
+class PlanningTurn(BaseModel):
+    """What the agent may produce while the plan is being written with the scientist."""
+
+    say: str = Field(
+        description=(
+            "What you tell the scientist. A change to the plan goes in `plan` or `actions`; "
+            "here say why, briefly, rather than describing the steps."
+        )
+    )
+    plan: DraftPlan | None = Field(
+        default=None,
+        description=(
+            "The whole plan. Only for the first draft, or when the scientist asks for a "
+            "different approach and the steps are to be replaced. Leave empty to change a "
+            "plan that exists; that is what `actions` are for."
+        ),
+    )
+    actions: list[Action] = Field(
+        default_factory=list,
+        description=(
+            "Changes to the plan that exists, by step number. The plan is still a draft, so "
+            "nothing runs and a change needs no quote."
+        ),
+    )
+    questions: list[Question] = Field(
+        default_factory=list,
+        description=(
+            "What you still need answered, each with the default you will go on if you can "
+            "defend one. They count against the questions the analysis may still ask."
+        ),
+    )
+
+
+class _Reading(BaseModel):
+    """What the agent says about a study that has started, whatever prompted the turn."""
+
+    say: str = Field(
+        description=(
+            "What you want to tell the scientist. On an event, leave it empty when there "
+            "is nothing worth their reading; silence is allowed."
+        )
+    )
+    claims: list[Claim] = Field(
+        default_factory=list,
+        description=(
+            "What you say about a result, each as a reference into it. Each is checked "
+            "against the result before anyone reads it, and one it does not support is dropped."
+        ),
+    )
+    progress: list[ProgressClaim] = Field(
+        default_factory=list,
+        description=(
+            "What you say about where the study stands against its plan: a step, a check or "
+            "a stop condition, citing the plan's own words."
+        ),
+    )
+    unresolved: list[str] = Field(
+        default_factory=list, description="What cannot be settled yet, one short line each."
+    )
+    proposals: list[Proposal] = Field(
+        default_factory=list,
+        description=(
+            "What you would like done, for the scientist to confirm. Propose only what an "
+            "open question actually needs; an exchange that settles nothing needs none."
+        ),
+    )
+    look: list[Look] = Field(
+        default_factory=list,
+        description=(
+            "Parts of a table result you want to see before you claim anything about its "
+            "rows. You will be asked again with them."
+        ),
+    )
+
+
+_SUMMARY = (
+    "Where the study stands, in one paragraph, for someone opening it cold. It is read in "
+    "place of the turns that have scrolled away, so rewrite it whole and keep what matters."
+)
+
+
+class ObserveTurn(_Reading):
+    """What the agent may produce when a step has finished or failed.
+
+    There is no field here to change the plan or run a step. An event can only be
+    observed; the one thing it can do is end a run the agent was told to drive.
+    """
+
+    pause: bool = Field(
+        default=False,
+        description=(
+            "When you are driving a run for the scientist: stop it after this step. Say why "
+            "in `say`; a pause with nothing in `say` is ignored."
+        ),
+    )
+    summary: str = Field(description=_SUMMARY)
+
+
+class ReplyTurn(_Reading):
+    """What the agent may produce in answer to the scientist's message.
+
+    It may act, and only here. It cannot pause: nothing is running while the scientist
+    is talking to it, and a run it starts is stopped by the next event, not by this turn.
+    """
+
+    actions: list[Action] = Field(
+        default_factory=list,
+        description=(
+            "What you do on the scientist's word: change the plan, run steps, approve a "
+            "candidate. Each quotes the words it carries out. Whatever they did not ask for "
+            "goes in `proposals`, not here."
+        ),
+    )
+    summary: str = Field(description=_SUMMARY)
