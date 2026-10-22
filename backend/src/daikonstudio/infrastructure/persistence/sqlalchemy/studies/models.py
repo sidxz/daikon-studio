@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Index, Text, Uuid, text
+from sqlalchemy import DateTime, Index, Integer, Text, Uuid, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -34,11 +35,12 @@ class StudyModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
     answers: Mapped[list[dict[str, str]]] = mapped_column(
         JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )
-    # The plan the study was started from, as the planner returned it.
-    planning: Mapped[dict[str, Any]] = mapped_column(
+    # None while a draft; Start sets it.
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    mode: Mapped[str] = mapped_column(Text, nullable=False, server_default="run")
+    # How many steps had run when the checks or stop conditions last changed after Start.
+    amended_after_steps: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # The study's one conversation: its turns and the paragraph that stands in for old ones.
+    thread: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=text("'{}'::jsonb")
-    )
-    # One conversation per stage, each with the turns and the paragraph that leaves it.
-    conversations: Mapped[list[dict[str, Any]]] = mapped_column(
-        JSONB, nullable=False, server_default=text("'[]'::jsonb")
     )

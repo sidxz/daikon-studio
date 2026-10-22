@@ -1,7 +1,7 @@
 """SQLAlchemy Study repository.
 
-Steps and values live as JSON on the study row: datetimes as ISO strings, uuids
-as strings. `update` is optimistic on `version`, like the Run repository.
+Steps, values and the thread live as JSON on the study row: datetimes as ISO strings,
+uuids as strings. `update` is optimistic on `version`, like the Run repository.
 """
 
 from __future__ import annotations
@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from daikonstudio.domain.shared.errors import ConcurrencyConflictError
 from daikonstudio.domain.studies.study import (
+    Acted,
     Answered,
+    Asked,
     Pointer,
     Proposed,
     SlotValue,
@@ -38,33 +40,54 @@ def _when(value: str | None) -> datetime | None:
     return datetime.fromisoformat(value) if value else None
 
 
+def _id(value: uuid.UUID | None) -> str | None:
+    return str(value) if value else None
+
+
+def _uuid(value: str | None) -> uuid.UUID | None:
+    return uuid.UUID(value) if value else None
+
+
 def _thread_to_json(t: Thread) -> dict[str, Any]:
     return {
-        "position": t.position,
-        "handoff": t.handoff,
+        "summary": t.summary,
         "turns": [
             {
                 "role": turn.role,
+                "kind": turn.kind,
                 "say": turn.say,
+                "about": _id(turn.about),
+                "questions": [
+                    {"ask": q.ask, "why": q.why, "options": list(q.options), "default": q.default}
+                    for q in turn.questions
+                ],
                 "points": [
-                    {"at": p.at, "label": p.label, "evidence": p.evidence, "cites": list(p.cites)}
+                    {
+                        "step": _id(p.step),
+                        "at": p.at,
+                        "label": p.label,
+                        "evidence": p.evidence,
+                        "cites": list(p.cites),
+                    }
                     for p in turn.points
                 ],
-                "proposes": list(turn.proposes),
                 "proposals": [
                     {
                         "id": str(p.id),
-                        "does": p.does,
-                        "step": p.step,
-                        "tool_id": p.tool_id,
-                        "settings": p.settings,
+                        "action": p.action,
                         "why": p.why,
                         "applied_at": _iso(p.applied_at),
                     }
                     for p in turn.proposals
                 ],
                 "unresolved": list(turn.unresolved),
+                "actions": [
+                    {"does": a.does, "step": _id(a.step), "detail": a.detail, "quoting": a.quoting}
+                    for a in turn.actions
+                ],
+                "looked": list(turn.looked),
                 "dropped": turn.dropped,
+                "silent": turn.silent,
                 "written_by": turn.written_by,
                 "at": _iso(turn.at),
             }
@@ -74,15 +97,27 @@ def _thread_to_json(t: Thread) -> dict[str, Any]:
 
 
 def _thread_from_json(d: dict[str, Any]) -> Thread:
+    # `{}` -- the column's default -- is an empty thread.
     return Thread(
-        position=d["position"],
-        handoff=d.get("handoff", ""),
+        summary=d.get("summary", ""),
         turns=[
             Turn(
                 role=t["role"],
+                kind=t.get("kind", ""),
                 say=t["say"],
+                about=_uuid(t.get("about")),
+                questions=tuple(
+                    Asked(
+                        ask=q["ask"],
+                        why=q["why"],
+                        options=tuple(q.get("options", ())),
+                        default=q.get("default"),
+                    )
+                    for q in t.get("questions", [])
+                ),
                 points=tuple(
                     Pointer(
+                        step=_uuid(p["step"]),
                         at=p["at"],
                         label=p["label"],
                         evidence=p["evidence"],
@@ -90,25 +125,28 @@ def _thread_from_json(d: dict[str, Any]) -> Thread:
                     )
                     for p in t.get("points", [])
                 ),
-                proposes=tuple(t.get("proposes", ())),
                 proposals=tuple(
                     Proposed(
                         id=uuid.UUID(p["id"]),
-                        does=p["does"],
-                        step=p.get("step"),
-                        tool_id=p.get("tool_id"),
-                        settings=p.get("settings", {}),
-                        why=p.get("why", ""),
-                        applied_at=(
-                            datetime.fromisoformat(p["applied_at"])
-                            if p.get("applied_at")
-                            else None
-                        ),
+                        action=p["action"],
+                        why=p["why"],
+                        applied_at=_when(p.get("applied_at")),
                     )
                     for p in t.get("proposals", [])
                 ),
                 unresolved=tuple(t.get("unresolved", ())),
+                actions=tuple(
+                    Acted(
+                        does=a["does"],
+                        step=_uuid(a["step"]),
+                        detail=a["detail"],
+                        quoting=a["quoting"],
+                    )
+                    for a in t.get("actions", [])
+                ),
+                looked=tuple(t.get("looked", ())),
                 dropped=t.get("dropped", 0),
+                silent=t.get("silent", False),
                 written_by=t.get("written_by"),
                 at=datetime.fromisoformat(t["at"]),
             )
@@ -119,6 +157,7 @@ def _thread_from_json(d: dict[str, Any]) -> Thread:
 
 def _step_to_json(s: Step) -> dict[str, Any]:
     return {
+        "id": str(s.id),
         "position": s.position,
         "tool_id": s.tool_id,
         "tool_version": s.tool_version,
@@ -130,6 +169,7 @@ def _step_to_json(s: Step) -> dict[str, Any]:
         "expanded_from": s.expanded_from,
         "status": s.status.value,
         "error": s.error,
+        "problem": s.problem,
         "started_at": _iso(s.started_at),
         "finished_at": _iso(s.finished_at),
     }
@@ -137,6 +177,7 @@ def _step_to_json(s: Step) -> dict[str, Any]:
 
 def _step_from_json(d: dict[str, Any]) -> Step:
     return Step(
+        id=uuid.UUID(d["id"]),
         position=d["position"],
         tool_id=d["tool_id"],
         tool_version=d["tool_version"],
@@ -148,6 +189,7 @@ def _step_from_json(d: dict[str, Any]) -> Step:
         expanded_from=d["expanded_from"],
         status=StepStatus(d["status"]),
         error=d["error"],
+        problem=d["problem"],
         started_at=_when(d["started_at"]),
         finished_at=_when(d["finished_at"]),
     )
@@ -160,8 +202,8 @@ def _value_to_json(v: SlotValue) -> dict[str, Any]:
         "kind": v.kind,
         "blob_key": v.blob_key,
         "summary": v.summary,
-        "produced_by": v.produced_by,
-        "asserted_by": str(v.asserted_by) if v.asserted_by else None,
+        "produced_by": _id(v.produced_by),
+        "asserted_by": _id(v.asserted_by),
         "created_at": v.created_at.isoformat(),
     }
 
@@ -173,8 +215,8 @@ def _value_from_json(d: dict[str, Any]) -> SlotValue:
         kind=d["kind"],
         blob_key=d["blob_key"],
         summary=d["summary"],
-        produced_by=d["produced_by"],
-        asserted_by=uuid.UUID(d["asserted_by"]) if d["asserted_by"] else None,
+        produced_by=_uuid(d["produced_by"]),
+        asserted_by=_uuid(d["asserted_by"]),
         created_at=datetime.fromisoformat(d["created_at"]),
     )
 
@@ -191,8 +233,10 @@ def _to_domain(model: StudyModel) -> Study:
         steps=[_step_from_json(s) for s in model.steps],
         values=[_value_from_json(v) for v in model.values],
         answers=[Answered(ask=a["ask"], answer=a["answer"]) for a in model.answers],
-        planning=model.planning,
-        conversations=[_thread_from_json(t) for t in model.conversations],
+        thread=_thread_from_json(model.thread),
+        started_at=model.started_at,
+        mode=model.mode,
+        amended_after_steps=model.amended_after_steps,
         created_at=model.created_at,
         updated_at=model.updated_at,
         version=model.version,
@@ -211,8 +255,10 @@ def _to_model(study: Study) -> StudyModel:
         steps=[_step_to_json(s) for s in study.steps],
         values=[_value_to_json(v) for v in study.values],
         answers=[{"ask": a.ask, "answer": a.answer} for a in study.answers],
-        planning=study.planning,
-        conversations=[_thread_to_json(t) for t in study.conversations],
+        thread=_thread_to_json(study.thread),
+        started_at=study.started_at,
+        mode=study.mode,
+        amended_after_steps=study.amended_after_steps,
         created_at=study.created_at,
         updated_at=study.updated_at,
         version=study.version,
@@ -242,7 +288,13 @@ class SqlAlchemyStudyRepository:
                 .values(
                     steps=model.steps,
                     values=model.values,
-                    conversations=model.conversations,
+                    thread=model.thread,
+                    restated_goal=model.restated_goal,
+                    checks=model.checks,
+                    stop_conditions=model.stop_conditions,
+                    answers=model.answers,
+                    started_at=model.started_at,
+                    amended_after_steps=model.amended_after_steps,
                     updated_at=model.updated_at,
                     version=expected + 1,
                 )

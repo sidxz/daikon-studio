@@ -437,7 +437,7 @@ async def test_021_study_answers_round_trips(_migrated_engine):
                 ),
                 {"id": study_id, "ws": uuid.uuid4(), "by": uuid.uuid4()},
             )
-        await asyncio.to_thread(command.upgrade, config, "head")
+        await asyncio.to_thread(command.upgrade, config, "021")
         assert await answers_column() == [("NO", "jsonb")]
         async with engine.connect() as connection:
             answers = (
@@ -538,7 +538,7 @@ async def test_023_study_planning_round_trips(_migrated_engine):
                 ),
                 {"id": study_id, "ws": uuid.uuid4(), "by": uuid.uuid4()},
             )
-        await asyncio.to_thread(command.upgrade, config, "head")
+        await asyncio.to_thread(command.upgrade, config, "023")
         assert await planning_column() == [("NO", "jsonb")]
         async with engine.connect() as connection:
             planning = (
@@ -552,6 +552,116 @@ async def test_023_study_planning_round_trips(_migrated_engine):
         assert await planning_column() == []
         await asyncio.to_thread(command.upgrade, config, "023")
         assert await planning_column() == [("NO", "jsonb")]
+    finally:
+        await engine.dispose()
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE IF EXISTS "{fresh}" WITH (FORCE)'))
+        await admin.dispose()
+
+
+_STUDY_SHAPE_COLUMNS = text("""
+    SELECT column_name, is_nullable, data_type FROM information_schema.columns
+    WHERE table_name = 'studies' AND column_name IN
+        ('started_at', 'mode', 'amended_after_steps', 'thread', 'planning', 'conversations')
+    ORDER BY column_name
+""")
+_OLD_SHAPE = [("conversations", "NO", "jsonb"), ("planning", "NO", "jsonb")]
+_NEW_SHAPE = [
+    ("amended_after_steps", "YES", "integer"),
+    ("mode", "NO", "text"),
+    ("started_at", "YES", "timestamp with time zone"),
+    ("thread", "NO", "jsonb"),
+]
+_INSERT_STUDY = text(
+    "INSERT INTO studies (id, workspace_id, version, created_by, goal, restated_goal,"
+    " checks, stop_conditions, steps, values) VALUES (:id, :ws, 1, :by, 'g', 'rg',"
+    " '[]', '[]', '[]', '[]')"
+)
+_INSERT_THREADED_STUDY = text(
+    "INSERT INTO studies (id, workspace_id, version, created_by, goal, restated_goal,"
+    " checks, stop_conditions, steps, values, thread) VALUES (:id, :ws, 1, :by, 'g', 'rg',"
+    " '[]', '[]', '[]', '[]', CAST(:thread AS jsonb))"
+)
+
+
+@pytest.mark.asyncio
+async def test_025_one_thread_round_trips(_migrated_engine):
+    """025 gives a study one thread, a start time and a mode in place of the plan it
+    was started from and its per-stage conversations. It empties the table first: the
+    table was never released, and a row in the old shape cannot be read by the new
+    repository. Both directions, on its own fresh database."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    fresh = f"migration_025_{uuid.uuid4().hex}"
+    admin = create_async_engine(
+        _migrated_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{fresh}"'))
+    url = _migrated_engine.url.set(database=fresh).render_as_string(hide_password=False)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    engine = create_async_engine(url, poolclass=NullPool)
+
+    async def shape() -> list[tuple[str, str, str]]:
+        async with engine.connect() as connection:
+            return [tuple(row) for row in (await connection.execute(_STUDY_SHAPE_COLUMNS)).all()]
+
+    async def study_count() -> int:
+        async with engine.connect() as connection:
+            return (await connection.execute(text("SELECT count(*) FROM studies"))).scalar_one()
+
+    async def insert(statement, **params) -> uuid.UUID:
+        study_id = uuid.uuid4()
+        async with engine.begin() as connection:
+            await connection.execute(
+                statement, {"id": study_id, "ws": uuid.uuid4(), "by": uuid.uuid4(), **params}
+            )
+        return study_id
+
+    try:
+        await asyncio.to_thread(command.upgrade, config, "024")
+        assert await shape() == _OLD_SHAPE
+        await insert(_INSERT_STUDY)
+
+        await asyncio.to_thread(command.upgrade, config, "025")
+        assert await study_count() == 0  # the old-shape row is gone
+        assert await shape() == _NEW_SHAPE  # and planning and conversations with it
+
+        # A row that names none of the new columns gets their defaults.
+        bare = await insert(_INSERT_STUDY)
+        async with engine.connect() as connection:
+            started_at, mode, amended, thread = (
+                await connection.execute(
+                    text(
+                        "SELECT started_at, mode, amended_after_steps, thread::text"
+                        " FROM studies WHERE id = :id"
+                    ),
+                    {"id": bare},
+                )
+            ).one()
+        assert (started_at, mode, amended, json.loads(thread)) == (None, "run", None, {})
+
+        # A row with a thread reads it back.
+        stored = {
+            "summary": "Wants the pocket docked.",
+            "turns": [{"role": "scientist", "say": "Dock it.", "at": "2026-01-01T00:00:00+00:00"}],
+        }
+        threaded = await insert(_INSERT_THREADED_STUDY, thread=json.dumps(stored))
+        async with engine.connect() as connection:
+            thread = (
+                await connection.execute(
+                    text("SELECT thread::text FROM studies WHERE id = :id"), {"id": threaded}
+                )
+            ).scalar_one()
+        assert json.loads(thread) == stored
+
+        await asyncio.to_thread(command.downgrade, config, "024")
+        assert await shape() == _OLD_SHAPE
+        assert await study_count() == 0  # a new-shape row cannot be read back either
+        await asyncio.to_thread(command.upgrade, config, "025")
+        assert await shape() == _NEW_SHAPE
     finally:
         await engine.dispose()
         async with admin.connect() as connection:
