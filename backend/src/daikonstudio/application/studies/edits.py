@@ -19,8 +19,9 @@ quotes anything), but it keeps the agent to what was said rather than to its own
 suggestion.
 
 Always-run steps are placed, never chosen: the model can neither insert one nor remove
-one. After every batch they are put back where the plan now needs them, and the plan is
-rechecked, so whatever an edit broke is pinned to the step it broke.
+one. After every batch they are matched to the plan again, put in where it now needs them
+and taken out where it no longer does, and the plan is rechecked, so whatever an edit
+broke is pinned to the step it broke.
 """
 
 from __future__ import annotations
@@ -39,6 +40,10 @@ from daikonstudio.application.tools.manifest import SlotKind, ToolManifest
 from daikonstudio.application.tools.registry import ToolRegistry, UnknownToolError
 from daikonstudio.domain.shared.errors import ConflictError
 from daikonstudio.domain.studies.study import Acted, Step, StepStatus, Study
+
+# The steps still open: no result to keep, so an edit may take one out, and a problem may sit
+# on one. Whatever the plan now says of a step that has run, or is running, it ran.
+_OPEN = (StepStatus.PENDING, StepStatus.SKIPPED, StepStatus.FAILED)
 
 
 def alternatives(manifest: ToolManifest, registry: ToolRegistry) -> list[ToolManifest]:
@@ -112,23 +117,38 @@ def _brought(study: Study) -> set[SlotKind]:
     return {kind for kind in SlotKind if kind.value in kinds}
 
 
-def replace_automatic(study: Study, registry: ToolRegistry) -> None:
-    """Add the always-run steps an edited plan has come to need.
+def _fed(manifest: ToolManifest, available: set[SlotKind]) -> bool:
+    """Whether everything the tool must have is in hand."""
+    return all(slot.kind in available for slot in manifest.inputs if not slot.optional)
 
-    `expand` places them in a fresh plan; an edit can create the need afterwards, such as
-    a step that fetches a structure, and the model never places them. Each goes in right
-    after the first step that makes what it needs, or at the front when the scientist
-    brought it, so it runs before anything else touches the thing it prepares.
+
+def replace_automatic(study: Study, registry: ToolRegistry) -> None:
+    """Match the always-run steps to what the plan now has to prepare.
+
+    `expand` places them in a fresh plan; an edit can change the need afterwards, and the
+    model neither places them nor removes them. One the plan has come to need goes in
+    right after the first step that makes what it needs, or at the front when the
+    scientist brought it, so it runs before anything else touches the thing it prepares.
+    One still waiting that has lost what it prepares, say because the step that fetched
+    the structure was removed, comes out: the model may not remove it, and it would only
+    sit there with a problem. The steps that still want the structure carry the problem
+    instead, and the preparation goes back in once one is brought, so whatever brings a
+    file has to call this again.
     """
-    steps = list(study.steps)  # the plan as it was; additions are made as it is walked
+    steps = list(study.steps)  # the plan as it was; changes are made as it is walked
     available = _brought(study)
     already = {step.tool_id for step in steps}
     for index in range(-1, len(steps)):  # -1 is before the first step
         if index >= 0:
+            step = steps[index]
             try:
-                manifest = registry.get(steps[index].tool_id)
+                manifest = registry.get(step.tool_id)
             except UnknownToolError:
                 continue  # `recheck` reports it; there is nothing of its to count
+            if step.always and step.status is StepStatus.PENDING and not _fed(manifest, available):
+                study.remove_step(step.id)
+                already.discard(step.tool_id)  # it may yet be placed where its input appears
+                continue  # and what it would have made is not in hand
             available.update(slot.kind for slot in manifest.outputs)
             if manifest.resolves_to is not None:
                 available.add(manifest.resolves_to)
@@ -166,9 +186,8 @@ def recheck(study: Study, registry: ToolRegistry) -> None:
     for problem in incoherences(view, registry, starting_with=_brought(study)):
         if problem.step is not None:
             found.setdefault(problem.step, []).append(problem.message)
-    open_states = (StepStatus.PENDING, StepStatus.SKIPPED, StepStatus.FAILED)
     for position, step in enumerate(study.steps, start=1):
-        messages = found.get(position) if step.status in open_states else None
+        messages = found.get(position) if step.status in _OPEN else None
         step.problem = " ".join(messages) if messages else None
 
 
@@ -207,9 +226,28 @@ type _Do = Callable[[], Acted | None]
 type _Edit = Callable[[Study, ToolRegistry, _Named], _Do | None]
 
 
+# The positions each kind of action reads. One it does not read is the model's slip, not a
+# reason to throw the action away.
+_READS: dict[str, frozenset[str]] = {
+    "insert": frozenset({"before"}),
+    "remove": frozenset({"step"}),
+    "swap": frozenset({"step"}),
+    "settings": frozenset({"step"}),
+    "gate": frozenset({"step"}),
+    "terms": frozenset(),
+    "approve": frozenset({"step"}),
+    "run": frozenset({"step", "until"}),
+}
+
+
 def _name(action: Action, shown: Mapping[int, Step]) -> _Named | None:
-    """Find the steps the action's positions name; None if one names a step there is not."""
-    positions = (action.step, action.before, action.until)
+    """Find the steps the positions this action reads name; None if one names no step."""
+    reads = _READS[action.does]
+    positions = (
+        action.step if "step" in reads else None,
+        action.before if "before" in reads else None,
+        action.until if "until" in reads else None,
+    )
     if any(p is not None and p - 1 not in shown for p in positions):
         return None
     step, before, until = (None if p is None else shown[p - 1] for p in positions)
@@ -284,8 +322,9 @@ def _insert(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
 
 def _remove(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
     step = named.step
-    # An always-run step is placed, not chosen: taking it out would only have it put back.
-    if step is None or step.always:
+    # An always-run step is placed, not chosen: `replace_automatic` puts it in and takes it
+    # out. One with a result is the record and stays, so it is not even offered as a button.
+    if step is None or step.always or step.status not in _OPEN:
         return None
 
     def do() -> Acted:
@@ -372,8 +411,9 @@ def _set_gate(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None
 
 def _terms(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
     action = named.action
-    checks = None if action.checks is None else tuple(action.checks)
-    stops = None if action.stop_conditions is None else tuple(action.stop_conditions)
+    # An empty list is not a replacement: a slip would wipe terms the scientist wrote.
+    checks = tuple(action.checks) if action.checks else None
+    stops = tuple(action.stop_conditions) if action.stop_conditions else None
     if checks is None and stops is None:
         return None
     changed = " and the ".join(
@@ -444,8 +484,8 @@ def apply_actions(
     dropped too.
 
     Approving and running are not done here, only checked and returned. Whatever the
-    edits change, always-run steps are then put back where the plan needs them and the
-    plan is rechecked.
+    edits change, the always-run steps are then matched to the plan again
+    (`replace_automatic`) and the plan is rechecked.
     """
     shown = {step.position: step for step in study.steps}
     acted: list[Acted] = []
@@ -493,16 +533,18 @@ def apply_actions(
             step is None or step.id in live for step in (named.step, named.before, named.until)
         )
 
-    # A step an edit in this turn removed cannot be proposed or run: its number is another's now.
+    # A step an edit in this turn removed cannot be proposed, approved or run.
     proposals = [named for named in held if stands(named)]
     dropped += len(held) - len(proposals)
+    approved = [(step_id, rank) for step_id, rank in approvals if step_id in live]
+    dropped += len(approvals) - len(approved)
     run = runs[0] if runs and stands(runs[0]) else None
     if runs and run is None:
         dropped += 1
     return Applied(
         acted=acted,
         downgraded=[_proposal(named) for named in proposals],
-        approvals=approvals,
+        approvals=approved,
         run=None
         if run is None
         else run.action.model_copy(update={"step": _now(run.step), "until": _now(run.until)}),

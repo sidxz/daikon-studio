@@ -179,7 +179,8 @@ def test_insert_places_the_step_and_an_automatic_one_after_it() -> None:
     assert [s.always for s in study.steps] == [True, False, False, True]
     fetch, prepare = study.steps[2], study.steps[3]
     assert fetch.purpose == "Get carbonic anhydrase II" and fetch.params == {"pdb_id": "1CA2"}
-    assert fetch.name == REGISTRY.get("fetch_pdb").name and fetch.tool_version == "1"
+    assert fetch.name == REGISTRY.get("fetch_pdb").name
+    assert fetch.tool_version == REGISTRY.get("fetch_pdb").version
     assert prepare.purpose == REGISTRY.get("prepare_structure").description
     assert prepare.gated is False and prepare.params == {}
     assert all(s.problem is None for s in study.steps)  # nothing wanted is missing
@@ -212,10 +213,10 @@ def test_remove_and_swap_renumber_and_recheck() -> None:
     assert _tools(study) == ["fetch_alphafold", "prepare_structure"]
     assert [s.position for s in study.steps] == [0, 1]
 
-    _apply(study, Action(does="remove", step=1))  # what makes the structure goes
-    assert _tools(study) == ["prepare_structure"] and study.steps[0].position == 0
-    problem = study.steps[0].problem
-    assert problem is not None and "structure" in problem  # and the next step says so
+    # What makes the structure goes, and preparation with it: left in, it would only sit there
+    # with a problem, and the model may not remove it.
+    _apply(study, Action(does="remove", step=1))
+    assert _tools(study) == []
 
 
 def test_an_action_naming_a_position_out_of_range_is_dropped_not_raised() -> None:
@@ -263,7 +264,7 @@ def test_a_quoted_settings_change_puts_the_step_back_to_pending() -> None:
     prepare = study.steps[1]
     prepare.params = {"ph": "6.5"}
     _finish(study, prepare)
-    assert prepare.status is StepStatus.DONE
+    assert study.done_count == 1  # it has run to a result
     applied = _apply(
         study,
         Action(
@@ -312,6 +313,19 @@ def test_terms_change_records_the_amendment_and_never_from_a_button() -> None:
     )
     assert unquoted.dropped == 1 and unquoted.downgraded == [] and unquoted.acted == []
     assert study.stop_conditions == ("a stop",)
+
+    # An empty list is not a replacement: a slip would wipe what the scientist wrote.
+    quote = "change the check to"
+    emptied = _apply(
+        study,
+        Action(does="terms", checks=[], stop_conditions=[], quoting=quote),
+        Action(does="terms", checks=[], stop_conditions=["A new stop"], quoting=quote),
+        message="Change the check to: the pocket must contain the annotated site",
+    )
+    assert emptied.dropped == 1  # the first has nothing to change
+    assert [a.detail for a in emptied.acted] == ["Changed the stop conditions."]
+    assert study.checks == ("The pocket contains the annotated site",)
+    assert study.stop_conditions == ("A new stop",)
     with pytest.raises(ValidationError):
         Proposal(does="terms", why="x")  # type: ignore[arg-type]
     assert not {"checks", "stop_conditions", "quoting"} & set(Proposal.model_fields)
@@ -357,4 +371,5 @@ def test_a_position_means_the_step_the_model_saw_however_the_plan_shifts() -> No
     assert (alerts.gated, admet.gated) == (True, False)  # the gate went where it was meant
     (proposal,) = applied.downgraded
     assert (proposal.does, proposal.step) == ("gate", 3)  # predict_admet, as numbered now
+    assert proposal.step is not None
     assert study.steps[proposal.step - 1] is admet

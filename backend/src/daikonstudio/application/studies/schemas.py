@@ -78,15 +78,15 @@ class Action(BaseModel):
     checks: list[str] | None = Field(
         default=None,
         description=(
-            "For terms: the whole list of checks, replacing the current one. Leave empty "
-            "to keep the current checks."
+            "For terms: the whole list of checks, replacing the current one. Leave null to "
+            "keep the current checks; an empty list does not clear them."
         ),
     )
     stop_conditions: list[str] | None = Field(
         default=None,
         description=(
-            "For terms: the whole list of stop conditions, replacing the current one. "
-            "Leave empty to keep the current stop conditions."
+            "For terms: the whole list of stop conditions, replacing the current one. Leave "
+            "null to keep the current stop conditions; an empty list does not clear them."
         ),
     )
     candidate: int | None = Field(default=None, description=_CANDIDATE)
