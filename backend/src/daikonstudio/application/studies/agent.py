@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import json
 import logging
 import uuid
 from collections.abc import Sequence
@@ -164,6 +165,23 @@ def _ran(run: Action, start: Step | None, until: Step | None) -> Acted:
         detail = f"Ran from {begin} to {end}."
     step = None if start is None else start.id
     return Acted(does="run", step=step, detail=detail, quoting=run.quoting)
+
+
+def _pressable(study: Study, proposals: Sequence[Proposed]) -> tuple[list[Proposed], int]:
+    """The proposals whose steps are all still in the plan, each once, and how many named a
+    step an edit in this turn took away. A button for a step that is gone could not be pressed."""
+    live = {str(step.id) for step in study.steps}
+    kept: list[Proposed] = []
+    seen: set[str] = set()
+    gone = 0
+    for proposal in proposals:
+        refs = (proposal.action[key] for key in ("step_id", "before_id", "until_id"))
+        if any(ref is not None and ref not in live for ref in refs):
+            gone += 1
+        elif (same := json.dumps(proposal.action, sort_keys=True)) not in seen:
+            seen.add(same)  # proposed and also acted on without a quote: one button
+            kept.append(proposal)
+    return kept, gone
 
 
 async def _read(store: BlobStore, value: SlotValue, *, limit: int | None) -> Any:
@@ -458,6 +476,9 @@ class StudyAgent:
         points, proposals, dropped = await _checked(
             answer, study, self._tools, self._store, decoded
         )
+        if in_flight(study.id):
+            # One began while the model was answering: change nothing, write nothing.
+            return Failure(ConflictError(_RUNNING))
 
         # The words each approval quoted, by the step as the model numbered it.
         numbered = {step.position + 1: step.id for step in study.steps}
@@ -469,8 +490,9 @@ class StudyAgent:
         # With no message there is nothing to quote, so nothing is done and all is proposed.
         applied = apply_actions(study, answer.actions, self._tools, message=command.message or "")
         held, unusable = vet(applied.downgraded, study, self._tools)
+        offered, gone = _pressable(study, [*proposals, *held])
         acted = list(applied.acted)
-        dropped += applied.dropped + unusable
+        dropped += applied.dropped + unusable + gone
         for step_id, candidate in applied.approvals:
             try:
                 value = await approve_candidate(
@@ -491,13 +513,15 @@ class StudyAgent:
             acted.append(Acted(does="approve", step=step_id, detail=chose, quoting=quoting))
         start: Step | None = None
         until: Step | None = None
-        if (run := applied.run) is not None:
+        run = applied.run
+        if run is not None and run.step is None and study.next_step is None:
+            run = None  # nothing is waiting to run
+            dropped += 1
+        if run is not None:
             start = None if run.step is None else study.step_at(run.step - 1)
             until = None if run.until is None else study.step_at(run.until - 1)
             acted.append(_ran(run, start, until))
 
-        if in_flight(study.id):
-            return Failure(ConflictError(_RUNNING))  # one began while the model was answering
         study.thread.summary = answer.summary.strip()
         study.say(
             Turn(
@@ -506,7 +530,7 @@ class StudyAgent:
                 say=answer.say.strip(),
                 about=command.about,
                 points=tuple(points),
-                proposals=(*proposals, *held),
+                proposals=tuple(offered),
                 unresolved=tuple(answer.unresolved),
                 actions=tuple(acted),
                 looked=looked,
@@ -524,6 +548,16 @@ class StudyAgent:
                 until=None if until is None else until.id,
             )
             if isinstance(started, Failure):
+                # The reply says it ran; the thread has to say it did not.
+                study.say(
+                    Turn(
+                        role="event",
+                        kind="run_refused",
+                        say=f"The run did not start: {started.failure()}",
+                        at=datetime.now(UTC),
+                    )
+                )
+                await self._studies.update(study)
                 return Failure(started.failure())
         return Success(study.thread)
 
@@ -600,8 +634,9 @@ class ObserveStep:
                 unresolved=tuple(answer.unresolved),
                 looked=looked,
                 dropped=dropped,
-                # A pause must say why, so a turn that pauses is never silent.
-                silent=not (say or answer.claims or answer.progress or answer.proposals),
+                silent=not (
+                    say or answer.claims or answer.progress or answer.proposals or answer.pause
+                ),
                 written_by=str(model.choice),
                 at=datetime.now(UTC),
             )

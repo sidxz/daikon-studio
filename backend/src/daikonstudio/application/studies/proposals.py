@@ -27,10 +27,11 @@ import uuid
 from collections.abc import Sequence
 from typing import Any
 
+from daikonstudio.application.studies.approve import reported_candidates
 from daikonstudio.application.studies.edits import _EDITS, _name, _Named, _tool
 from daikonstudio.application.studies.schemas import Action, Proposal
 from daikonstudio.application.tools.registry import ToolRegistry
-from daikonstudio.domain.studies.study import Proposed, Step, StepStatus, Study
+from daikonstudio.domain.studies.study import Proposed, Step, Study
 
 
 def _offerable(named: _Named, study: Study, registry: ToolRegistry) -> bool:
@@ -38,15 +39,13 @@ def _offerable(named: _Named, study: Study, registry: ToolRegistry) -> bool:
     if action.does == "run":
         return True  # its steps are in the plan; where it stops is the loop's to find
     if action.does == "approve":
-        # Only a judgment tool says what a chosen candidate becomes.
+        # Only a judgment tool's finished candidates, of a kind a choice can be written from.
         manifest = None if step is None else _tool(registry, step.tool_id)
         return (
             step is not None
             and manifest is not None
-            and manifest.resolves_to is not None
             and action.candidate is not None
-            and step.status is StepStatus.DONE
-            and bool(study.outputs_of(step.id))
+            and reported_candidates(study, step, manifest) is not None
         )
     if action.does == "insert":
         manifest = _tool(registry, action.tool_id)

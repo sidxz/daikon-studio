@@ -417,7 +417,11 @@ async def test_approval_writes_an_asserted_pocket_from_the_rank() -> None:
     study = _study(*PROTEIN)
     candidates = _done(study, store, 3, "pocket_candidates", POCKETS)
     approve = Action(does="approve", step=3, candidate=10, quoting="go with the zinc cone")
-    model = ScriptedLanguageModel(ReplyTurn(say="Done.", actions=[approve], summary="s"))
+    again = Action(does="approve", step=3, candidate=1, quoting="take the first one instead")
+    model = ScriptedLanguageModel(
+        ReplyTurn(say="Done.", actions=[approve], summary="s"),
+        ReplyTurn(say="Changed.", actions=[again], summary="s"),
+    )
     agent, studies, _ = _agent(study, store, model)
 
     await agent(_say(study, "Go with the zinc cone."), AUTH)
@@ -431,6 +435,15 @@ async def test_approval_writes_an_asserted_pocket_from_the_rank() -> None:
     assert json.loads(store.get_bytes(pocket.blob_key)) == {"meta": meta, **POCKETS["pockets"][1]}
     acted = stored.thread.turns[-1].actions
     assert [(a.does, a.quoting) for a in acted] == [("approve", "go with the zinc cone")]
+
+    # Choosing again reads the candidates the step reported, not the last choice, and wins.
+    await agent(_say(study, "Take the first one instead."), AUTH)
+
+    stored = studies.rows[study.id]
+    newer = stored.latest("pocket")
+    assert newer is not None
+    assert newer.summary == {"rank": 1, "from": str(candidates.id)}
+    assert stored.thread.turns[-1].dropped == 0
 
 
 async def test_a_message_while_a_run_is_in_flight_is_refused(
