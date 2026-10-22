@@ -218,6 +218,39 @@ def _handed_over(plan: DraftPlan, registry: ToolRegistry) -> set[SlotKind]:
     return consumed - produced
 
 
+def automatic_steps(
+    available: set[SlotKind], registry: ToolRegistry, already: set[str]
+) -> list[PlannedStep]:
+    """The always-run steps that have what they need and are not in the plan yet.
+
+    In catalogue order, and what a step makes counts as in hand for the ones after
+    it, so `available` is added to as they are placed: a caller keeping its own
+    running set sees the outputs without having to look them up. `already` is
+    the ids of the steps the plan has, so one is never placed twice.
+
+    The one place this is decided, for a plan being written (`expand`) and for one
+    that has been edited since (`replace_automatic`), so the two cannot disagree
+    about what an automatic step is or when it goes in.
+    """
+    placed: list[PlannedStep] = []
+    for manifest in registry.manifests():
+        if not manifest.automatic or manifest.id in already:
+            continue
+        if any(slot.kind not in available for slot in manifest.inputs if not slot.optional):
+            continue
+        placed.append(
+            PlannedStep(
+                tool_id=manifest.id,
+                name=manifest.name,
+                purpose=manifest.description,
+                gated=False,
+                always=True,
+            )
+        )
+        available.update(slot.kind for slot in manifest.outputs)
+    return placed
+
+
 def expand(
     plan: DraftPlan,
     registry: ToolRegistry,
@@ -255,27 +288,17 @@ def expand(
     available = set(starting_with) if starting_with is not None else {SlotKind.COMPOUND_TABLE}
     available |= _handed_over(plan, registry)
     chosen = {step.tool_id: step for step in plan.steps}
-    automatic = [m for m in registry.manifests() if m.automatic]
 
     def place_automatic() -> None:
-        placed = {s.tool_id for s in steps}
-        for manifest in automatic:
-            if manifest.id in placed:
-                continue
-            if any(slot.kind not in available for slot in manifest.inputs if not slot.optional):
-                continue
-            said = chosen.get(manifest.id)
+        for planned in automatic_steps(available, registry, {s.tool_id for s in steps}):
+            said = chosen.get(planned.tool_id)
             steps.append(
-                PlannedStep(
-                    tool_id=manifest.id,
-                    name=manifest.name,
-                    purpose=said.purpose if said else manifest.description,
-                    gated=said.gated if said else False,
-                    params=said.params if said else {},
-                    always=True,
+                planned.model_copy(
+                    update={"purpose": said.purpose, "gated": said.gated, "params": said.params}
                 )
+                if said
+                else planned
             )
-            available.update(slot.kind for slot in manifest.outputs)
 
     place_automatic()
     for step in plan.steps:

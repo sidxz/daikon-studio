@@ -1,0 +1,510 @@
+"""Changing a plan: the edits an agent, a proposal and a button all share.
+
+The model names steps by the number it was shown and tools by id, and none of it is
+believed until the study and the catalogue agree. What does not hold is dropped and
+counted, never raised, so a turn with six good edits and one bad one keeps the six.
+Nothing here calls a model or reads a blob; approving a candidate and running need the
+blob store and the run loop, so they are handed back for the caller.
+
+Three rules keep an edit from doing more than was asked.
+
+Positions mean the plan as the model was shown it. "Remove step 2 and gate step 3"
+means the step that was 3 when it wrote that, so every position is resolved to its
+step before the first edit is made. What is handed back is renumbered to where the
+steps stand afterwards, since that is the plan the caller will look them up in.
+
+An edit made on the scientist's word has to quote it. One that does not is handed back
+as a proposal, for the scientist to press instead. That is a floor, not a proof ("ok"
+quotes anything), but it keeps the agent to what was said rather than to its own last
+suggestion.
+
+Always-run steps are placed, never chosen: the model can neither insert one nor remove
+one. After every batch they are put back where the plan now needs them, and the plan is
+rechecked, so whatever an edit broke is pinned to the step it broke.
+"""
+
+from __future__ import annotations
+
+import uuid
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass
+from functools import partial
+from typing import Any
+
+from pydantic import ValidationError
+
+from daikonstudio.application.planner.plan import PlannedStep, automatic_steps, incoherences
+from daikonstudio.application.studies.schemas import Action, Proposal
+from daikonstudio.application.tools.manifest import SlotKind, ToolManifest
+from daikonstudio.application.tools.registry import ToolRegistry, UnknownToolError
+from daikonstudio.domain.shared.errors import ConflictError
+from daikonstudio.domain.studies.study import Acted, Step, StepStatus, Study
+
+
+def alternatives(manifest: ToolManifest, registry: ToolRegistry) -> list[ToolManifest]:
+    """The tools that could take this one's place in a plan.
+
+    Derived, never declared: the same required inputs and the same outputs, so whatever
+    follows the step is fed either way, and nothing here restates the catalogue. An
+    automatic tool is placed rather than chosen and a composite is a plan fragment
+    rather than a step, so neither is offered.
+    """
+
+    def signature(tool: ToolManifest) -> tuple[set[SlotKind], set[SlotKind]]:
+        return (
+            {slot.kind for slot in tool.inputs if not slot.optional},
+            {slot.kind for slot in tool.outputs},
+        )
+
+    wanted = signature(manifest)
+    return [
+        tool
+        for tool in registry.manifests()
+        if tool.id != manifest.id
+        and not tool.automatic
+        and not tool.expands_to
+        and signature(tool) == wanted
+    ]
+
+
+def quoted(quoting: str, message: str) -> bool:
+    """Whether `quoting` is words from `message`, ignoring case and spacing.
+
+    Nothing quotes nothing, so an empty quote is never found.
+    """
+    words = _plain(quoting)
+    return bool(words) and words in _plain(message)
+
+
+def _plain(text: str) -> str:
+    return " ".join(text.split()).casefold()
+
+
+def to_steps(planned: Sequence[PlannedStep], registry: ToolRegistry) -> list[Step]:
+    """Study steps for a plan that has passed `incoherences`.
+
+    Fresh ids, and the name and version the catalogue gives rather than the view's, so a
+    step records the tool it was made from. Every tool must be one the registry has.
+    """
+    steps: list[Step] = []
+    for position, item in enumerate(planned):
+        manifest = registry.get(item.tool_id)
+        steps.append(
+            Step(
+                id=uuid.uuid4(),
+                position=position,
+                tool_id=manifest.id,
+                tool_version=manifest.version,
+                name=manifest.name,
+                purpose=item.purpose,
+                params=dict(item.params),
+                gated=item.gated,
+                always=item.always,
+                expanded_from=item.expanded_from,
+            )
+        )
+    return steps
+
+
+def _brought(study: Study) -> set[SlotKind]:
+    """The kinds the scientist brought: what a plan can lean on before any step has run."""
+    kinds = {value.kind for value in study.values if value.produced_by is None}
+    return {kind for kind in SlotKind if kind.value in kinds}
+
+
+def replace_automatic(study: Study, registry: ToolRegistry) -> None:
+    """Add the always-run steps an edited plan has come to need.
+
+    `expand` places them in a fresh plan; an edit can create the need afterwards, such as
+    a step that fetches a structure, and the model never places them. Each goes in right
+    after the first step that makes what it needs, or at the front when the scientist
+    brought it, so it runs before anything else touches the thing it prepares.
+    """
+    steps = list(study.steps)  # the plan as it was; additions are made as it is walked
+    available = _brought(study)
+    already = {step.tool_id for step in steps}
+    for index in range(-1, len(steps)):  # -1 is before the first step
+        if index >= 0:
+            try:
+                manifest = registry.get(steps[index].tool_id)
+            except UnknownToolError:
+                continue  # `recheck` reports it; there is nothing of its to count
+            available.update(slot.kind for slot in manifest.outputs)
+            if manifest.resolves_to is not None:
+                available.add(manifest.resolves_to)
+        placed = automatic_steps(available, registry, already)
+        already.update(item.tool_id for item in placed)
+        # Whatever followed this step before anything was added still does: what has been
+        # added went in after earlier steps.
+        follower = steps[index + 1].id if index + 1 < len(steps) else None
+        for step in to_steps(placed, registry):
+            study.insert_step(step, before=follower)
+
+
+def recheck(study: Study, registry: ToolRegistry) -> None:
+    """Pin to each step the reason, if any, the plan cannot go ahead with it.
+
+    `incoherences` reads the steps in order against what the scientist brought and says
+    which wants something nothing before it makes, or has settings its tool refuses. Only
+    a step still waiting (pending, skipped or failed) carries one: whatever the plan now
+    says of a step that has run, or is running, it ran. Nor is anything pinned for the plan
+    as a whole; "the plan has no steps" is not a step's.
+    """
+    view = [
+        PlannedStep(
+            tool_id=step.tool_id,
+            name=step.name,
+            purpose=step.purpose,
+            gated=step.gated,
+            params=step.params,
+            expanded_from=step.expanded_from,
+            always=step.always,
+        )
+        for step in study.steps
+    ]
+    found: dict[int, list[str]] = {}
+    for problem in incoherences(view, registry, starting_with=_brought(study)):
+        if problem.step is not None:
+            found.setdefault(problem.step, []).append(problem.message)
+    open_states = (StepStatus.PENDING, StepStatus.SKIPPED, StepStatus.FAILED)
+    for position, step in enumerate(study.steps, start=1):
+        messages = found.get(position) if step.status in open_states else None
+        step.problem = " ".join(messages) if messages else None
+
+
+@dataclass(frozen=True)
+class Applied:
+    """What `apply_actions` did, and what it leaves for the caller.
+
+    `acted` is each change made, in order. `downgraded` is each valid change that did not
+    quote the message, as a proposal. `approvals` is the `(step id, candidate)` of each
+    approval to write, and `run` the one run to start; neither is done here. The steps in
+    `downgraded` and `run` are numbered as the plan stands after the edits. `dropped`
+    counts what could not be done at all.
+    """
+
+    acted: list[Acted]
+    downgraded: list[Proposal]
+    approvals: list[tuple[uuid.UUID, int]]
+    run: Action | None
+    dropped: int
+
+
+@dataclass(frozen=True)
+class _Named:
+    """An action, and the steps its positions named in the plan as the model was shown it."""
+
+    action: Action
+    step: Step | None
+    before: Step | None
+    until: Step | None
+
+
+# A change that has been checked and is ready to make; None as the result is one with
+# nothing to record here. Making it can still fail, if the step has run or an earlier
+# edit in the same turn took it away.
+type _Do = Callable[[], Acted | None]
+type _Edit = Callable[[Study, ToolRegistry, _Named], _Do | None]
+
+
+def _name(action: Action, shown: Mapping[int, Step]) -> _Named | None:
+    """Find the steps the action's positions name; None if one names a step there is not."""
+    positions = (action.step, action.before, action.until)
+    if any(p is not None and p - 1 not in shown for p in positions):
+        return None
+    step, before, until = (None if p is None else shown[p - 1] for p in positions)
+    return _Named(action, step, before, until)
+
+
+def _tool(registry: ToolRegistry, tool_id: str | None) -> ToolManifest | None:
+    try:
+        return registry.get(tool_id or "")
+    except UnknownToolError:
+        return None
+
+
+def _given(action: Action) -> dict[str, str]:
+    return {setting.name: setting.value for setting in action.settings}
+
+
+def _takes(manifest: ToolManifest, params: dict[str, Any], given: dict[str, str]) -> bool:
+    """Whether the tool takes the settings that were just given, as `params` would stand.
+
+    Names first: a model ignores what it does not declare, so validation alone would accept
+    an invented setting and the step would run without it. Then the values, judged only
+    where they were just given. A required setting still missing is the plan check's to
+    report on the step, so a swapped step can be mended one setting at a time.
+    """
+    if manifest.params is None:
+        return not given
+    if any(name not in manifest.params.model_fields for name in given):
+        return False
+    try:
+        manifest.params.model_validate(params)
+    except ValidationError as error:
+        return not any(e["loc"] and e["loc"][0] in given for e in error.errors())
+    return True
+
+
+def _label(step: Step) -> str:
+    return f"step {step.position + 1} ({step.name})"
+
+
+def _listed(given: Mapping[str, str]) -> str:
+    return ": " + ", ".join(f"{name}={value}" for name, value in given.items()) if given else ""
+
+
+def _insert(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
+    action = named.action
+    manifest = _tool(registry, action.tool_id)
+    given = _given(action)
+    # Always-run steps are placed, never chosen. A composite is a fragment of plan that the
+    # planner expands; left whole in a study it could never run.
+    if manifest is None or manifest.automatic or manifest.expands_to:
+        return None
+    if not _takes(manifest, given, given):
+        return None
+
+    def do() -> Acted:
+        planned = PlannedStep(
+            tool_id=manifest.id,
+            name=manifest.name,
+            purpose=action.purpose or manifest.description,
+            # A tool that returns candidates stops for a person to choose between them.
+            gated=manifest.judgment if action.gated is None else action.gated,
+            params=given,
+        )
+        before = None if named.before is None else named.before.id
+        step = study.insert_step(to_steps([planned], registry)[0], before=before)
+        detail = f"Added {_label(step)}{_listed(given)}."
+        return Acted(does="insert", step=step.id, detail=detail, quoting=action.quoting)
+
+    return do
+
+
+def _remove(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
+    step = named.step
+    # An always-run step is placed, not chosen: taking it out would only have it put back.
+    if step is None or step.always:
+        return None
+
+    def do() -> Acted:
+        label = _label(step)
+        study.remove_step(step.id)
+        return Acted(
+            does="remove", step=step.id, detail=f"Removed {label}.", quoting=named.action.quoting
+        )
+
+    return do
+
+
+def _swap(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
+    action, step = named.action, named.step
+    target = _tool(registry, action.tool_id)
+    current = None if step is None else _tool(registry, step.tool_id)
+    if step is None or target is None or current is None:
+        return None
+    if target.id not in {tool.id for tool in alternatives(current, registry)}:
+        return None
+    # Settings carry over by name; the rest belonged to the tool being left. Any the new
+    # tool needs and the old one lacked are for the card to show, or for `settings` to give.
+    takes = () if target.params is None else target.params.model_fields
+    given = _given(action)
+    params = {name: value for name, value in step.params.items() if name in takes} | given
+    if not _takes(target, params, given):
+        return None
+
+    def do() -> Acted:
+        was = f"step {step.position + 1} from {step.name}"
+        study.set_tool(
+            step.id,
+            tool_id=target.id,
+            tool_version=target.version,
+            name=target.name,
+            params=params,
+        )
+        return Acted(
+            does="swap",
+            step=step.id,
+            detail=f"Changed {was} to {target.name}.",
+            quoting=action.quoting,
+        )
+
+    return do
+
+
+def _set_settings(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
+    action, step = named.action, named.step
+    manifest = None if step is None else _tool(registry, step.tool_id)
+    given = _given(action)
+    # Nothing given is nothing to change; it would only put a finished step back to pending.
+    if step is None or manifest is None or not given:
+        return None
+    params = {**step.params, **given}
+    if not _takes(manifest, params, given):
+        return None
+
+    def do() -> Acted:
+        study.set_params(step.id, params)
+        detail = f"Changed the settings of {_label(step)}{_listed(given)}."
+        return Acted(does="settings", step=step.id, detail=detail, quoting=action.quoting)
+
+    return do
+
+
+def _set_gate(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
+    step, gated = named.step, named.action.gated
+    if step is None or gated is None:
+        return None
+
+    def do() -> Acted:
+        study.set_gate(step.id, gated)
+        stops = "stop for you to look at its result" if gated else "run on without stopping"
+        return Acted(
+            does="gate",
+            step=step.id,
+            detail=f"Set {_label(step)} to {stops}.",
+            quoting=named.action.quoting,
+        )
+
+    return do
+
+
+def _terms(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
+    action = named.action
+    checks = None if action.checks is None else tuple(action.checks)
+    stops = None if action.stop_conditions is None else tuple(action.stop_conditions)
+    if checks is None and stops is None:
+        return None
+    changed = " and the ".join(
+        label
+        for label, value in (("checks", checks), ("stop conditions", stops))
+        if value is not None
+    )
+
+    def do() -> Acted:
+        study.amend_terms(checks, stops)
+        return Acted(
+            does="terms", step=None, detail=f"Changed the {changed}.", quoting=action.quoting
+        )
+
+    return do
+
+
+_EDITS: dict[str, _Edit] = {
+    "insert": _insert,
+    "remove": _remove,
+    "swap": _swap,
+    "settings": _set_settings,
+    "gate": _set_gate,
+    "terms": _terms,
+}
+
+
+def _approval(registry: ToolRegistry, named: _Named) -> tuple[uuid.UUID, int] | None:
+    """The approval to write, if the step is one that offers a choice and a rank was named."""
+    step, candidate = named.step, named.action.candidate
+    manifest = None if step is None else _tool(registry, step.tool_id)
+    if step is None or candidate is None or manifest is None or manifest.resolves_to is None:
+        return None
+    return step.id, candidate
+
+
+def _now(step: Step | None) -> int | None:
+    """Where a step stands in the plan now, counted from 1 as the model counts."""
+    return None if step is None else step.position + 1
+
+
+def _proposal(named: _Named) -> Proposal:
+    """The action as a button: what it says without the quote, its steps numbered as they stand."""
+    fields = named.action.model_dump(include=set(Proposal.model_fields))
+    fields.update(
+        step=_now(named.step),
+        before=_now(named.before),
+        until=_now(named.until),
+        why="Proposed, not done: it did not quote your message.",
+    )
+    return Proposal.model_validate(fields)
+
+
+def apply_actions(
+    study: Study,
+    actions: Sequence[Action],
+    registry: ToolRegistry,
+    *,
+    message: str | None,
+) -> Applied:
+    """Carry out what the model asked, as far as it holds and the scientist said so.
+
+    `message` is the scientist's latest message. None means there is none to quote: the
+    plan is being written together, or a button was pressed, and pressing it is the word.
+    Otherwise an action must quote it. A valid one that does not is proposed instead; an
+    invalid one is dropped first, since a button that could not be carried out is not
+    offered. Changing the terms has no proposal to become, so without a quote it is
+    dropped too.
+
+    Approving and running are not done here, only checked and returned. Whatever the
+    edits change, always-run steps are then put back where the plan needs them and the
+    plan is rechecked.
+    """
+    shown = {step.position: step for step in study.steps}
+    acted: list[Acted] = []
+    held: list[_Named] = []  # valid, but not on the scientist's word
+    approvals: list[tuple[uuid.UUID, int]] = []
+    runs: list[_Named] = []
+    dropped = 0
+
+    def ready(named: _Named) -> _Do | None:
+        """The act that carries the action out, if it holds. Nothing is changed yet."""
+        action = named.action
+        if action.does == "approve":
+            chosen = _approval(registry, named)
+            return None if chosen is None else partial(approvals.append, chosen)
+        if action.does == "run":
+            return None if runs else partial(runs.append, named)  # one run in a turn
+        return _EDITS[action.does](study, registry, named)
+
+    for action in actions:
+        named = _name(action, shown)
+        do = None if named is None else ready(named)
+        if named is None or do is None:
+            dropped += 1
+        elif message is not None and not quoted(action.quoting, message):
+            if action.does == "terms":
+                dropped += 1
+            else:
+                held.append(named)
+        else:
+            try:
+                done = do()
+            except ConflictError:
+                dropped += 1  # the step has run, or an earlier edit in this turn took it away
+            else:
+                if done is not None:
+                    acted.append(done)
+
+    replace_automatic(study, registry)
+    recheck(study, registry)
+
+    live = {step.id for step in study.steps}
+
+    def stands(named: _Named) -> bool:
+        return all(
+            step is None or step.id in live for step in (named.step, named.before, named.until)
+        )
+
+    # A step an edit in this turn removed cannot be proposed or run: its number is another's now.
+    proposals = [named for named in held if stands(named)]
+    dropped += len(held) - len(proposals)
+    run = runs[0] if runs and stands(runs[0]) else None
+    if runs and run is None:
+        dropped += 1
+    return Applied(
+        acted=acted,
+        downgraded=[_proposal(named) for named in proposals],
+        approvals=approvals,
+        run=None
+        if run is None
+        else run.action.model_copy(update={"step": _now(run.step), "until": _now(run.until)}),
+        dropped=dropped,
+    )
