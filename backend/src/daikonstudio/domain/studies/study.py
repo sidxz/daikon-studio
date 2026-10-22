@@ -1,15 +1,21 @@
-"""The Study aggregate -- a saved analysis plan whose steps run one at a time.
+"""The Study aggregate -- a plan drafted in conversation, then run one step at a time.
 
-Status is derived from the steps, never stored, so it cannot disagree with them.
-A step that is `running` with nothing behind it was interrupted; `next_step`
-returns it so it is re-run rather than waited on.
+A study is a draft from the scientist's first message until `start()` stamps
+`started_at`: it holds a plan, files and the one conversation, and nothing runs.
+Status is derived from `started_at` and the steps, never stored, so it cannot
+disagree with them. A step that is `running` with nothing behind it was
+interrupted; `next_step` returns it so it is re-run rather than waited on.
+
+A step is named by its id. `position` is only its place in the order, renumbered
+after an insert or a removal, so a value, a turn or a pointer that names a step
+keeps meaning that step however the plan around it is edited.
 """
 
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from collections.abc import Sequence
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -27,6 +33,7 @@ class StepStatus(StrEnum):
 
 
 class StudyStatus(StrEnum):
+    DRAFT = "draft"
     OPEN = "open"
     DONE = "done"
     FAILED = "failed"
@@ -39,8 +46,8 @@ class SlotValue:
     kind: str
     blob_key: str
     summary: dict[str, Any]
-    produced_by: int | None  # step position; None when the scientist brought it
-    asserted_by: uuid.UUID | None = None
+    produced_by: uuid.UUID | None  # a step id; None when the scientist brought it
+    asserted_by: uuid.UUID | None = None  # the scientist who approved it, else None
     created_at: datetime
 
 
@@ -53,6 +60,19 @@ class Answered:
 
 
 @dataclass(frozen=True, kw_only=True)
+class Asked:
+    """One question the agent put to the scientist before it planned.
+
+    What the scientist said back is an `Answered`, kept on the study.
+    """
+
+    ask: str
+    why: str
+    options: tuple[str, ...] = ()
+    default: str | None = None
+
+
+@dataclass(frozen=True, kw_only=True)
 class Pointer:
     """One claim an agent makes about a result, as a reference into it.
 
@@ -61,9 +81,11 @@ class Pointer:
     names a candidate and what the agent believes it is, and `cites` carries the
     fields it read, copied from the result rather than restated. Anything here
     was checked against the step's own output before it was stored, so a reader
-    can follow every part of it back.
+    can follow every part of it back. `step` is the step whose result it is
+    about; a reader leaves it empty and the agent fills it in.
     """
 
+    step: uuid.UUID | None
     at: str
     label: str
     evidence: str
@@ -74,57 +96,82 @@ class Pointer:
 class Proposed:
     """Something an agent asked the study to do, waiting on the scientist.
 
-    It carries its own id because it is acted on later, from a button in a
+    `action` is the change as plain data, every step in it named by id, so a
+    button pressed after the plan was edited still means the same step. It
+    carries its own id because it is acted on later, from a button in the
     conversation, long after the turn that made it. `applied_at` is what stops
     the same proposal being applied twice by two presses.
     """
 
     id: uuid.UUID
-    does: str  # "rerun" or "add"
-    step: int | None
-    tool_id: str | None
-    settings: dict[str, Any]
+    action: dict[str, Any]
     why: str
     applied_at: datetime | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
+class Acted:
+    """Something the agent did on the scientist's word, and the words it relied on.
+
+    `quoting` is the part of the scientist's message the action carries out, so a
+    reader can see what the agent was told and that it did no more.
+    """
+
+    does: str
+    step: uuid.UUID | None
+    detail: str
+    quoting: str
+
+
+@dataclass(frozen=True, kw_only=True)
 class Turn:
-    """One exchange in a stage's conversation.
+    """One entry in a study's conversation.
+
+    `role` is "scientist", "agent" or "event" (something the study itself did,
+    written by the services and never by the aggregate). An agent turn's `kind`
+    is asking, planning, observe or reply; an event's is started, ran, swapped,
+    approved, applied, attached, paused, edited or observe_failed. `about` is the
+    step a scientist's message is about, if any.
 
     `dropped` is kept rather than hidden: it counts the claims the agent made
     that its own step's result did not support, and a turn that drops several is
-    worth less than one that drops none.
+    worth less than one that drops none. `silent` marks an observation with
+    nothing to say: kept as a tick on the step, left out of the rail.
     """
 
-    role: str  # "agent" or "scientist"
+    role: str
+    kind: str = ""
     say: str
+    about: uuid.UUID | None = None
+    questions: tuple[Asked, ...] = ()
     points: tuple[Pointer, ...] = ()
-    proposes: tuple[str, ...] = ()
-    unresolved: tuple[str, ...] = ()
     proposals: tuple[Proposed, ...] = ()
+    unresolved: tuple[str, ...] = ()
+    actions: tuple[Acted, ...] = ()
+    looked: tuple[str, ...] = ()
     dropped: int = 0
+    silent: bool = False
     written_by: str | None = None
     at: datetime
 
 
 @dataclass(kw_only=True)
 class Thread:
-    """A stage's conversation, and the one paragraph that leaves it.
+    """A study's one conversation, and the paragraph that stands in for its old turns.
 
-    `handoff` is what a study-wide agent reads instead of the whole exchange:
-    what this stage settled, on what evidence, and what it could not. Kept on the
-    thread so coordination never means replaying every turn of every stage.
+    `summary` is what someone opening the study cold needs to know, rewritten by
+    the agent every turn. Context is assembled from it in place of the turns that
+    have scrolled out of the window.
     """
 
-    position: int | None
-    turns: list[Turn]
-    handoff: str = ""
+    turns: list[Turn] = field(default_factory=list)
+    summary: str = ""
 
 
 @dataclass(kw_only=True)
 class Step:
-    position: int
+    id: uuid.UUID
+    position: int  # 0-based order in the plan, renumbered after an insert or a removal
     tool_id: str
     tool_version: str
     name: str
@@ -135,6 +182,7 @@ class Step:
     expanded_from: str | None
     status: StepStatus = StepStatus.PENDING
     error: str | None = None
+    problem: str | None = None  # why the plan cannot go ahead as it stands; blocks start()
     started_at: datetime | None = None
     finished_at: datetime | None = None
 
@@ -152,8 +200,10 @@ class Study(AggregateRoot):
         steps: list[Step],
         values: list[SlotValue] | None = None,
         answers: Sequence[Answered] = (),
-        planning: Mapping[str, Any] | None = None,
-        conversations: Sequence[Thread] = (),
+        thread: Thread | None = None,
+        started_at: datetime | None = None,
+        mode: str = "run",
+        amended_after_steps: int | None = None,
         id: uuid.UUID | None = None,
         created_at: datetime | None = None,
         updated_at: datetime | None = None,
@@ -169,75 +219,40 @@ class Study(AggregateRoot):
         self.steps = steps
         self.values: list[SlotValue] = values if values is not None else []
         self.answers = tuple(answers)
-        # The plan it was started from (questions, understanding, what was left
-        # out, who wrote it), kept as the planner returned it. Read-only after start.
-        self.planning: dict[str, Any] = dict(planning or {})
-        # One per stage, created when something is first said about that step.
-        self.conversations: list[Thread] = list(conversations)
-
-    def proposal(self, proposal_id: uuid.UUID) -> Proposed | None:
-        return next(
-            (
-                p
-                for thread in self.conversations
-                for turn in thread.turns
-                for p in turn.proposals
-                if p.id == proposal_id
-            ),
-            None,
-        )
-
-    def add_step(
-        self, *, tool_id: str, tool_version: str, name: str, purpose: str, params: dict[str, Any]
-    ) -> Step:
-        """Put a step at the end of the plan.
-
-        At the end, never in the middle: a step inserted among the others would
-        renumber them, and every conversation, value and record that already
-        names a position would quietly come to mean something else.
-        """
-        step = Step(
-            position=len(self.steps),
-            tool_id=tool_id,
-            tool_version=tool_version,
-            name=name,
-            purpose=purpose,
-            params=params,
-            gated=False,
-            always=False,
-            expanded_from=None,
-        )
-        self.steps.append(step)
-        self._touch()
-        return step
-
-    def thread(self, position: int | None) -> Thread | None:
-        """A stage's conversation, or the study's own when `position` is None."""
-        return next((t for t in self.conversations if t.position == position), None)
-
-    def say(self, position: int | None, turn: Turn) -> Thread:
-        """Add a turn to a conversation, starting it if nothing was said yet.
-
-        `position` None is the study's own thread, which is about the plan and
-        where the steps have got to rather than about any one result.
-        """
-        if position is not None and not any(s.position == position for s in self.steps):
-            raise ConflictError(f"This study has no step {position}.")
-        thread = self.thread(position)
-        if thread is None:
-            thread = Thread(position=position, turns=[])
-            self.conversations.append(thread)
-        thread.turns.append(turn)
-        self._touch()
-        return thread
+        self.thread = thread if thread is not None else Thread()
+        # None while a draft; Start sets it. What the steps may do hangs on this.
+        self.started_at = started_at
+        # "run" is the only mode: the run loop pauses at a gate or on the agent's word.
+        self.mode = mode
+        # How many steps had run when the checks or stop conditions were last
+        # changed after Start. None if they never were.
+        self.amended_after_steps = amended_after_steps
 
     @property
     def status(self) -> StudyStatus:
+        if self.started_at is None:
+            return StudyStatus.DRAFT
         if any(s.status is StepStatus.FAILED for s in self.steps):
             return StudyStatus.FAILED
         if all(s.status in (StepStatus.DONE, StepStatus.SKIPPED) for s in self.steps):
             return StudyStatus.DONE
         return StudyStatus.OPEN
+
+    @property
+    def phase(self) -> str:
+        """Which turn the agent owes next, and so which schema it answers in.
+
+        A draft is asking until the agent has said anything, then planning;
+        a started study is running.
+        """
+        if self.started_at is not None:
+            return "running"
+        return "planning" if any(t.role == "agent" for t in self.thread.turns) else "asking"
+
+    @property
+    def done_count(self) -> int:
+        """How many steps have run to a result. A skipped step never ran."""
+        return sum(s.status is StepStatus.DONE for s in self.steps)
 
     @property
     def next_step(self) -> Step | None:
@@ -253,31 +268,183 @@ class Study(AggregateRoot):
             None,
         )
 
-    def latest(self, kind: str, before: int | None = None) -> SlotValue | None:
-        """The newest value of a kind, optionally only from earlier in the study.
+    def step(self, step_id: uuid.UUID) -> Step:
+        return self.steps[self._index(step_id)]
+
+    def step_at(self, position: int) -> Step | None:
+        return next((s for s in self.steps if s.position == position), None)
+
+    def say(self, turn: Turn) -> Thread:
+        """Add a turn to the study's one conversation."""
+        self.thread.turns.append(turn)
+        self._touch()
+        return self.thread
+
+    def proposal(self, proposal_id: uuid.UUID) -> Proposed | None:
+        return next(
+            (p for turn in self.thread.turns for p in turn.proposals if p.id == proposal_id),
+            None,
+        )
+
+    def start(self) -> None:
+        """End the draft: from here the steps can run.
+
+        A plan that still has a problem is not started on the hope that it will
+        work out; the problem is named so it can be fixed first.
+        """
+        if self.started_at is not None:
+            raise ConflictError("This study has already started.")
+        if not self.steps:
+            raise ConflictError("This study has no steps to run.")
+        problem = next((s.problem for s in self.steps if s.problem), None)
+        if problem is not None:
+            raise ConflictError(f"The plan cannot start yet: {problem}")
+        self.started_at = datetime.now(UTC)
+        self._touch()
+
+    def replace_steps(self, steps: list[Step]) -> None:
+        """Put a whole different plan in a draft's place, as the planner writes one.
+
+        Once started the plan changes one step at a time, so what has run is
+        never swept away with it.
+        """
+        if self.started_at is not None:
+            raise ConflictError("A study that has started changes its plan one step at a time.")
+        self.steps = steps
+        self._renumber()
+        self._touch()
+
+    def insert_step(self, step: Step, before: uuid.UUID | None) -> Step:
+        """Put a step in the plan: before the step `before` names, or at the end."""
+        self.steps.insert(len(self.steps) if before is None else self._index(before), step)
+        self._renumber()
+        self._touch()
+        return step
+
+    def add_step(
+        self, *, tool_id: str, tool_version: str, name: str, purpose: str, params: dict[str, Any]
+    ) -> Step:
+        """Put a new step at the end of the plan: `insert_step` for a caller with no Step yet."""
+        return self.insert_step(
+            Step(
+                id=uuid.uuid4(),
+                position=len(self.steps),
+                tool_id=tool_id,
+                tool_version=tool_version,
+                name=name,
+                purpose=purpose,
+                params=params,
+                gated=False,
+                always=False,
+                expanded_from=None,
+            ),
+            before=None,
+        )
+
+    def remove_step(self, step_id: uuid.UUID) -> None:
+        """Take a step out of the plan, if it has not run.
+
+        A done step is the record of what was found and stays, and a running one
+        is in the middle of finding it.
+        """
+        index = self._index(step_id)
+        step = self.steps[index]
+        if step.status not in (StepStatus.PENDING, StepStatus.SKIPPED, StepStatus.FAILED):
+            raise ConflictError(
+                f"{self._label(step)} is {step.status.value} and cannot be removed."
+            )
+        del self.steps[index]
+        self._renumber()
+        self._touch()
+
+    def set_tool(
+        self,
+        step_id: uuid.UUID,
+        *,
+        tool_id: str,
+        tool_version: str,
+        name: str,
+        params: dict[str, Any],
+    ) -> Step:
+        """Point a step at another tool, and leave it waiting to run again.
+
+        Its old error and problem were the old tool's, so they go with it.
+        """
+        step = self.step(step_id)
+        step.tool_id = tool_id
+        step.tool_version = tool_version
+        step.name = name
+        step.params = params
+        step.status = StepStatus.PENDING
+        step.error = None
+        step.problem = None
+        self._touch()
+        return step
+
+    def set_params(self, step_id: uuid.UUID, params: dict[str, Any]) -> Step:
+        """Replace a step's settings. Back to pending, so it reads as waiting to run
+        rather than as done with a result that no longer matches the settings beside it."""
+        step = self.step(step_id)
+        step.params = params
+        step.status = StepStatus.PENDING
+        self._touch()
+        return step
+
+    def set_gate(self, step_id: uuid.UUID, gated: bool) -> Step:
+        step = self.step(step_id)
+        step.gated = gated
+        self._touch()
+        return step
+
+    def amend_terms(
+        self, checks: tuple[str, ...] | None, stop_conditions: tuple[str, ...] | None
+    ) -> None:
+        """Change the checks or the stop conditions, whichever is given.
+
+        Once started, the change is marked with how many steps had run, so the
+        terms never read as if they were written before the data.
+        """
+        if checks is not None:
+            self.checks = checks
+        if stop_conditions is not None:
+            self.stop_conditions = stop_conditions
+        if self.started_at is not None:
+            self.amended_after_steps = self.done_count
+        self._touch()
+
+    def latest(self, kind: str, before: uuid.UUID | None = None) -> SlotValue | None:
+        """The newest value of a kind, optionally only from earlier in the plan.
 
         A step whose output is the same kind as its input — preparing a
         structure into a structure — would otherwise be handed its own last
         output when it is run a second time, and re-prepare the prepared file
-        rather than the deposited one. Values the scientist brought have no
-        position and are always in scope.
+        rather than the deposited one. `before` is a step id, read through that
+        step's position because ids carry no order. With it, values the scientist
+        brought are always in scope and those of a step since removed from the
+        plan never are.
         """
+        bound = None if before is None else self.step(before).position
+        positions = {s.id: s.position for s in self.steps}
         of_kind = [
             v
             for v in self.values
             if v.kind == kind
-            and (before is None or v.produced_by is None or v.produced_by < before)
+            and (
+                bound is None
+                or v.produced_by is None
+                or (v.produced_by in positions and positions[v.produced_by] < bound)
+            )
         ]
         return max(of_kind, key=lambda v: v.created_at, default=None)
 
-    def outputs_of(self, position: int) -> list[SlotValue]:
-        return [v for v in self.values if v.produced_by == position]
+    def outputs_of(self, step_id: uuid.UUID) -> list[SlotValue]:
+        return [v for v in self.values if v.produced_by == step_id]
 
-    def current_outputs_of(self, position: int) -> list[SlotValue]:
+    def current_outputs_of(self, step_id: uuid.UUID) -> list[SlotValue]:
         """The newest value per output key, as a notebook cell shows only its
         latest output. Every earlier value stays in `values`; this is a view."""
         newest: dict[str, SlotValue] = {}
-        for value in sorted(self.outputs_of(position), key=lambda v: v.created_at):
+        for value in sorted(self.outputs_of(step_id), key=lambda v: v.created_at):
             newest[value.key] = value
         return list(newest.values())
 
@@ -287,14 +454,30 @@ class Study(AggregateRoot):
         self.values.append(value)
         self._touch()
 
-    def start_step(self, position: int) -> Step:
+    def approve(self, step_id: uuid.UUID, value: SlotValue) -> None:
+        """Record the scientist's choice of a candidate a step reported.
+
+        The one place a computed result becomes an asserted one, and the value
+        names who asserted it. Approving again adds a newer value and `latest`
+        picks it; steps that already ran against the earlier one are not
+        invalidated.
+        """
+        self.step(step_id)
+        if value.asserted_by is None or value.produced_by != step_id:
+            raise ConflictError(
+                "An approved value must name who chose it and the step it settles."
+            )
+        self.values.append(value)
+        self._touch()
+
+    def start_step(self, step_id: uuid.UUID) -> Step:
         """Any step can be (re)started: a scientist runs one step at a time, like a cell.
 
         ponytail: re-running a step does not invalidate later steps; forking is the
         feature that decides what happens to them. Its earlier values stay, and
         `latest` picks the newest.
         """
-        step = self._step(position)
+        step = self.step(step_id)
         step.status = StepStatus.RUNNING
         step.started_at = datetime.now(UTC)
         step.error = None
@@ -302,42 +485,53 @@ class Study(AggregateRoot):
         self._touch()
         return step
 
-    def finish_step(self, position: int, values: Sequence[SlotValue]) -> None:
-        step = self._step(position)
+    def finish_step(self, step_id: uuid.UUID, values: Sequence[SlotValue]) -> None:
+        step = self.step(step_id)
         self._require_running(step)
-        if any(v.produced_by != position for v in values):
-            raise ConflictError(f"Every value of step {position} must name step {position}.")
+        if any(v.produced_by != step_id for v in values):
+            raise ConflictError(f"Every value of {self._label(step)} must name that step.")
         self.values.extend(values)
         step.status = StepStatus.DONE
         step.finished_at = datetime.now(UTC)
         self._touch()
 
-    def fail_step(self, position: int, message: str) -> None:
-        step = self._step(position)
+    def fail_step(self, step_id: uuid.UUID, message: str) -> None:
+        step = self.step(step_id)
         self._require_running(step)
         step.status = StepStatus.FAILED
         step.error = message
         step.finished_at = datetime.now(UTC)
         self._touch()
 
-    def skip_step(self, position: int, why: str) -> None:
-        step = self._step(position)
+    def skip_step(self, step_id: uuid.UUID, why: str) -> None:
+        step = self.step(step_id)
         if step.status is not StepStatus.PENDING:
-            raise ConflictError(f"Step {position} is {step.status.value} and cannot be skipped.")
+            raise ConflictError(
+                f"{self._label(step)} is {step.status.value} and cannot be skipped."
+            )
         step.status = StepStatus.SKIPPED
         step.error = why
         self._touch()
 
-    def _step(self, position: int) -> Step:
-        for step in self.steps:
-            if step.position == position:
-                return step
-        raise ConflictError(f"This study has no step {position}.")
+    def _index(self, step_id: uuid.UUID) -> int:
+        for index, step in enumerate(self.steps):
+            if step.id == step_id:
+                return index
+        raise ConflictError("This study has no such step.")
+
+    def _renumber(self) -> None:
+        for i, s in enumerate(self.steps):
+            s.position = i
 
     @staticmethod
-    def _require_running(step: Step) -> None:
+    def _label(step: Step) -> str:
+        # Stored positions are 0-based; people read the plan from 1.
+        return f"Step {step.position + 1} ({step.name})"
+
+    @classmethod
+    def _require_running(cls, step: Step) -> None:
         if step.status is not StepStatus.RUNNING:
-            raise ConflictError(f"Step {step.position} is {step.status.value}, not running.")
+            raise ConflictError(f"{cls._label(step)} is {step.status.value}, not running.")
 
     def _touch(self) -> None:
         self.updated_at = datetime.now(UTC)
