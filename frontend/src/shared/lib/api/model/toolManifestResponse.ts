@@ -22,4 +22,5 @@ export interface ToolManifestResponse {
   surface: string;
   external: boolean;
   expands_to: string[];
+  lane: string;
 }

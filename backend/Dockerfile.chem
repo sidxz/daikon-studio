@@ -1,0 +1,51 @@
+# The chem-tools lane runner: OpenMM, PDBFixer, PROPKA and the fpocket binary. CPU only.
+# fpocket is not an apt package on Debian trixie, so it is built from source in a
+# throwaway stage (the CC flag: fpocket 4.2.3 predates GCC 14, which makes its pointer-type
+# mismatches hard errors) and only the binary is copied across.
+FROM python:3.13-slim AS fpocket
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch 4.2.3 https://github.com/Discngine/fpocket.git /src \
+ && make -C /src ARCH=LINUXAMD64 CC="gcc -Wno-error=incompatible-pointer-types" \
+ && install -m 0755 /src/bin/fpocket /usr/local/bin/fpocket
+
+FROM python:3.13-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+WORKDIR /app
+
+# libgomp1: same OpenMP runtime trap as Dockerfile.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && apt-get install -y --no-install-recommends libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=fpocket /usr/local/bin/fpocket /usr/local/bin/fpocket
+
+RUN python -m pip uninstall -y pip \
+ && rm -rf /usr/local/lib/python3.13/ensurepip /root/.cache/pip
+
+RUN useradd --create-home --uid 10001 studio \
+ && mkdir -p /data/blobs \
+ && chown studio /app \
+ && chown -R studio /data
+
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra s3 --extra chem-tools --no-install-project
+
+COPY src ./src
+COPY alembic.ini ./
+COPY alembic ./alembic
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra s3 --extra chem-tools
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV OMP_NUM_THREADS=1
+
+ARG APP_VERSION=0.0.0+dev
+ARG APP_GIT_SHA=unknown
+ARG APP_BUILD_DATE=unknown
+ENV APP_VERSION=$APP_VERSION APP_GIT_SHA=$APP_GIT_SHA APP_BUILD_DATE=$APP_BUILD_DATE
+
+USER studio
+
+CMD ["python", "-m", "daikonstudio.infrastructure.runner"]

@@ -35,6 +35,7 @@ from daikonstudio.interface.routes.protocols import router as protocols_router
 from daikonstudio.interface.routes.runner_api import router as runner_api_router
 from daikonstudio.interface.routes.runners import router as runners_router
 from daikonstudio.interface.routes.runs import router as runs_router
+from daikonstudio.interface.routes.studies import router as studies_router
 from daikonstudio.interface.routes.sweeps import router as sweeps_router
 from daikonstudio.interface.routes.tools import router as tools_router
 from daikonstudio.logging import configure_logging
@@ -205,6 +206,7 @@ def create_app() -> FastAPI:
     app.include_router(runner_api_router)
     app.include_router(runners_router)
     app.include_router(runs_router)
+    app.include_router(studies_router)
     app.include_router(sweeps_router)
     app.include_router(tools_router)
 

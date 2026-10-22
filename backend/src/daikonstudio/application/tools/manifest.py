@@ -9,10 +9,9 @@ unchanged and so a tool that later runs out of process needs no second shape.
 
 Two things are deliberately *not* here.
 
-No parameter spec. A tool's settings only mean something at the moment it runs,
-and nothing runs yet -- the catalogue exists so a planner can compose tools and a
-chemist can read what we offer. `engines/manifest.py::ConditionSpec` is the shape
-to reach for when that day comes, rather than a second one invented here.
+No runtime parameter spec. `params` below is only the schema a planner fills in
+and the coherence check validates; what a setting does at run time is not decided
+here.
 
 No "where the table came from". A tool consumes and produces slots (below) and
 says nothing about whether a compound table arrived as a Dataset, an upload, or
@@ -24,6 +23,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+
+from pydantic import BaseModel
 
 
 class SlotKind(StrEnum):
@@ -68,6 +69,29 @@ class SlotKind(StrEnum):
     GAPS = "gaps"
     # References with links that resolve. Citations, never claims.
     CITATIONS = "citations"
+    # One protein structure, repaired and protonated. Brought by the scientist as
+    # a file, or fetched by id from a public archive; either way, prepared before
+    # anything else touches it.
+    STRUCTURE = "structure"
+    # Curated residue-level facts about a protein -- binding, active and metal
+    # sites, known variants -- numbered on its canonical sequence. What lets a
+    # detected pocket be told apart from the site the literature already knows.
+    SITE_ANNOTATIONS = "site_annotations"
+    # Detected binding sites, ranked, for a person to choose between.
+    POCKET_CANDIDATES = "pocket_candidates"
+    # The site the work is aimed at. Approved, never computed -- the same seam as
+    # a core, for the same reason.
+    POCKET = "pocket"
+    # Predicted absorption, distribution, metabolism, excretion and toxicity
+    # values per compound.
+    ADMET_TABLE = "admet_table"
+
+
+# The lane a tool runs in when it asks for nothing special. A lane is a
+# requirement ("this needs the torch stack", "this needs native binaries"), never
+# a machine -- the same meaning `EngineManifest.lane` already carries, and served
+# by the same runner fleet.
+DEFAULT_LANE = "default"
 
 
 class ToolArea(StrEnum):
@@ -190,6 +214,16 @@ class ToolManifest:
     # Runs outside this process, so it can fail or change version independently and
     # a study has to pin what it was given.
     external: bool = False
+    # Which runner lane can serve this tool. The grouping axis is the dependency
+    # set, not the tool: everything that needs only RDKit shares the API's own
+    # environment, everything that needs the torch stack shares the lane that
+    # already has it, and native binaries share one image because that is where
+    # the licence and the apt packages live. Three environments, not nineteen.
+    lane: str = DEFAULT_LANE
+    # The settings a step of this tool takes, as a pydantic model. The planner
+    # fills them as data and `incoherences` validates them; the model lives in
+    # infrastructure and arrives here only as a type, so application stays clean.
+    params: type[BaseModel] | None = None
 
     def __post_init__(self) -> None:
         if self.judgment and self.surface is ToolSurface.NONE:

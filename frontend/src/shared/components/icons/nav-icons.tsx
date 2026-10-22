@@ -84,6 +84,14 @@ export const PlansIcon = (props: SVGProps<SVGSVGElement>) => (
     <Dot cx={18.9} cy={16.6} r={1.5} />
   </Glyph>
 );
+export const StudiesIcon = (props: SVGProps<SVGSVGElement>) => (
+  <Glyph {...props}>
+    <path d="M7 6.6v3.8M7 13.6v3.8M10.4 5h9.6M10.4 12h9.6M10.4 19h6" />
+    <Dot cx={7} cy={5} r={1.6} />
+    <Dot cx={7} cy={12} r={1.6} />
+    <circle cx="7" cy="19" r="1.6" />
+  </Glyph>
+);
 export const ToolsIcon = (props: SVGProps<SVGSVGElement>) => (
   <Glyph {...props}>
     <path d="M4.6 17.4 9.4 12l4.8 5.4M9.4 12l5.2-5.6" />

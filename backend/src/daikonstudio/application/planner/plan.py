@@ -11,7 +11,9 @@ gates exist because a person is supposed to look.
 
 from __future__ import annotations
 
-from pydantic import BaseModel, Field
+from typing import Any
+
+from pydantic import BaseModel, Field, ValidationError
 
 from daikonstudio.application.tools.manifest import SlotKind
 from daikonstudio.application.tools.registry import ToolRegistry, UnknownToolError
@@ -71,7 +73,10 @@ class Interrogation(BaseModel):
     """
 
     restated_goal: str = Field(
-        description="The goal as understood, so a mismatch is visible before anything else."
+        description=(
+            "The goal as understood: what is wanted, not how it will be done, so a "
+            "mismatch is visible before anything else."
+        )
     )
     questions: list[Question]
 
@@ -81,12 +86,44 @@ class Answer(BaseModel):
     answer: str = Field(description="What the scientist said, or chose.")
 
 
+class Setting(BaseModel):
+    """One of a step's settings, as a name/value pair.
+
+    A pair rather than a dict entry because the providers' structured output
+    closes every object: a `dict[str, Any]` field comes back empty however the
+    model was told to fill it (verified with a probe against the configured
+    model, 2026-10-21). A list of pairs is the shape every strict schema allows.
+    """
+
+    name: str = Field(description="The setting's name, exactly as the catalogue lists it.")
+    value: str = Field(description="Its value, as text.")
+
+
 class Step(BaseModel):
     tool_id: str = Field(description="The id of a tool from the catalogue. Never invent one.")
-    purpose: str = Field(description="Why this step is here, in the scientist's terms.")
+    purpose: str = Field(
+        description=(
+            "Why this step is here, in the scientist's terms, naming the specific "
+            "values it uses: the id to fetch, the column to read, the chain to keep. "
+            "Settings have their own field."
+        )
+    )
     gated: bool = Field(
         description="Whether to stop and show the result before going on to the next step."
     )
+    settings: list[Setting] = Field(
+        default_factory=list,
+        description=(
+            "The tool's settings, by the names the catalogue lists under 'settings'. "
+            "Every required one must be present. Values come from the goal and the "
+            "answers, never invented: an id the scientist named, a column the shape "
+            "shows. Empty for a tool that lists none."
+        ),
+    )
+
+    @property
+    def params(self) -> dict[str, Any]:
+        return {s.name: s.value for s in self.settings}
 
 
 class Skipped(BaseModel):
@@ -98,7 +135,10 @@ class DraftPlan(BaseModel):
     """The planner's answer. Named a draft because nothing has approved it."""
 
     restated_goal: str = Field(
-        description="The goal as understood, so a mismatch is visible before anything runs."
+        description=(
+            "The goal as understood: what is wanted, not how it will be done, so a "
+            "mismatch is visible before anything runs."
+        )
     )
     questions: list[Question] = Field(
         default_factory=list,
@@ -116,7 +156,11 @@ class DraftPlan(BaseModel):
         "be answered this way, rather than answering it weakly.",
     )
     skipped: list[Skipped] = Field(
-        default_factory=list, description="Tools considered and deliberately left out."
+        default_factory=list,
+        description=(
+            "Tools a reader would expect here and deliberately left out. Not the "
+            "ones that plainly do not apply."
+        ),
     )
 
 
@@ -132,6 +176,7 @@ class PlannedStep(BaseModel):
     name: str
     purpose: str
     gated: bool
+    params: dict[str, Any] = Field(default_factory=dict)
     expanded_from: str | None = None
     # Prepended because it always runs, not because the planner chose it.
     always: bool = False
@@ -144,12 +189,57 @@ class PlanProblem(BaseModel):
     message: str
 
 
-def expand(plan: DraftPlan, registry: ToolRegistry) -> list[PlannedStep]:
-    """The always-run steps, then the planner's, with composites replaced by
-    their parts.
+def _handed_over(plan: DraftPlan, registry: ToolRegistry) -> set[SlotKind]:
+    """What this plan expects someone to give it: consumed by a step, produced
+    by none of them.
 
-    Automatic steps are prepended rather than chosen. Standardizing structures
-    and merging duplicates do not depend on anything in the data or on what the
+    Needed because an upload is optional. Someone can describe a series and
+    attach the file afterwards, so "no file yet" does not mean "no compounds" --
+    it means nobody has shown us. Reading the plan settles it without guessing:
+    a plan that decomposes R-groups is a plan about compounds whether or not the
+    file has arrived, and a plan that only touches a protein is not, however
+    much chemistry the goal mentions.
+    """
+    consumed: set[SlotKind] = set()
+    produced: set[SlotKind] = set()
+    for step in plan.steps:
+        try:
+            manifest = registry.get(step.tool_id)
+        except UnknownToolError:
+            continue
+        takes = {slot.kind for slot in manifest.inputs}
+        consumed |= takes
+        # Minus what it took: a tool that gives back the kind it was given has
+        # cleaned something, not created it. Counting that as production makes a
+        # plan look self-sufficient in the one slot the scientist has to supply.
+        produced |= {slot.kind for slot in manifest.outputs} - takes
+        if manifest.resolves_to is not None and manifest.resolves_to not in takes:
+            produced.add(manifest.resolves_to)
+    return consumed - produced
+
+
+def expand(
+    plan: DraftPlan,
+    registry: ToolRegistry,
+    *,
+    starting_with: set[SlotKind] | None = None,
+) -> list[PlannedStep]:
+    """The planner's steps with composites replaced by their parts, and the
+    always-run steps placed the moment what they need exists.
+
+    `starting_with` is what the scientist brought. An automatic step is added
+    only when what it needs is in hand: preparing a structure always happens
+    before anything touches one, but a plan over a compound table alone has no
+    structure to prepare, and prepending the step anyway would put a tool in
+    the plan for a file that does not exist.
+
+    "In hand" is not only "at the start". A structure fetched by id in step two
+    needs preparing as much as one attached up front, so an automatic step goes
+    in right after the step that first produces its input -- which is the
+    prologue when the scientist brought it, and later when a step made it.
+
+    Automatic steps are placed rather than chosen. Standardizing structures and
+    merging duplicates do not depend on anything in the data or on what the
     scientist wants -- the same compound drawn two ways is two compounds in every
     table that ever arrives. A model asked to choose them can forget, and a plan
     missing one is silently wrong rather than visibly broken. If the model listed
@@ -162,25 +252,33 @@ def expand(plan: DraftPlan, registry: ToolRegistry) -> list[PlannedStep]:
     steps would mean a plan could quietly skip the pause on an approval.
     """
     steps: list[PlannedStep] = []
+    available = set(starting_with) if starting_with is not None else {SlotKind.COMPOUND_TABLE}
+    available |= _handed_over(plan, registry)
     chosen = {step.tool_id: step for step in plan.steps}
-    for manifest in registry.manifests():
-        if not manifest.automatic:
-            continue
-        said = chosen.get(manifest.id)
-        steps.append(
-            PlannedStep(
-                tool_id=manifest.id,
-                name=manifest.name,
-                purpose=said.purpose if said else manifest.description,
-                gated=said.gated if said else False,
-                always=True,
-            )
-        )
+    automatic = [m for m in registry.manifests() if m.automatic]
 
-    automatic = {m.id for m in registry.manifests() if m.automatic}
+    def place_automatic() -> None:
+        placed = {s.tool_id for s in steps}
+        for manifest in automatic:
+            if manifest.id in placed:
+                continue
+            if any(slot.kind not in available for slot in manifest.inputs if not slot.optional):
+                continue
+            said = chosen.get(manifest.id)
+            steps.append(
+                PlannedStep(
+                    tool_id=manifest.id,
+                    name=manifest.name,
+                    purpose=said.purpose if said else manifest.description,
+                    gated=said.gated if said else False,
+                    params=said.params if said else {},
+                    always=True,
+                )
+            )
+            available.update(slot.kind for slot in manifest.outputs)
+
+    place_automatic()
     for step in plan.steps:
-        if step.tool_id in automatic:
-            continue
         try:
             manifest = registry.get(step.tool_id)
         except UnknownToolError:
@@ -190,15 +288,8 @@ def expand(plan: DraftPlan, registry: ToolRegistry) -> list[PlannedStep]:
                 )
             )
             continue
-        if not manifest.expands_to:
-            steps.append(
-                PlannedStep(
-                    tool_id=manifest.id,
-                    name=manifest.name,
-                    purpose=step.purpose,
-                    gated=step.gated or manifest.judgment,
-                )
-            )
+        if manifest.automatic:
+            # Placed above, or when its input appears; never where the model put it.
             continue
         parts = registry.expand(manifest.id)
         for position, part_id in enumerate(parts):
@@ -210,9 +301,14 @@ def expand(plan: DraftPlan, registry: ToolRegistry) -> list[PlannedStep]:
                     name=part.name,
                     purpose=step.purpose,
                     gated=part.judgment or (last and step.gated),
-                    expanded_from=manifest.id,
+                    params=dict(step.params),
+                    expanded_from=manifest.id if manifest.expands_to else None,
                 )
             )
+            available.update(slot.kind for slot in part.outputs)
+            if part.resolves_to is not None:
+                available.add(part.resolves_to)
+        place_automatic()
     return steps
 
 
@@ -271,6 +367,20 @@ def incoherences(
                     ),
                 )
             )
+
+        if manifest.params is not None:
+            try:
+                manifest.params.model_validate(step.params)
+            except ValidationError as error:
+                detail = "; ".join(
+                    f"{'.'.join(map(str, e['loc']))}: {e['msg']}" for e in error.errors()
+                )
+                problems.append(
+                    PlanProblem(
+                        step=position,
+                        message=f"Step {position} ({manifest.name}) settings: {detail}",
+                    )
+                )
 
         available.update(slot.kind for slot in manifest.outputs)
         if manifest.resolves_to is not None:

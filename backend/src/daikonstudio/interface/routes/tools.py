@@ -69,6 +69,10 @@ class ToolManifestResponse(BaseModel):
     # standing for a sequence that is always performed together. Empty for
     # every ordinary tool.
     expands_to: list[str]
+    # Which runner lane can serve it. "default" needs nothing beyond what the
+    # API already has; anything else names a dependency set that lives in its
+    # own image.
+    lane: str
 
     @classmethod
     def from_manifest(cls, manifest: ToolManifest) -> ToolManifestResponse:
@@ -86,6 +90,7 @@ class ToolManifestResponse(BaseModel):
             surface=manifest.surface.value,
             external=manifest.external,
             expands_to=list(manifest.expands_to),
+            lane=manifest.lane,
         )
 
 

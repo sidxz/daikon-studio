@@ -16,7 +16,15 @@ from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated
 from daikonstudio.application.planner.ask_first import QUESTION_BUDGET
-from daikonstudio.application.planner.catalogue import always_runs, catalogue, profile_text
+from daikonstudio.application.planner.catalogue import (
+    CATALOGUE_HEADING,
+    READING_THE_DATA,
+    always_runs,
+    brought,
+    catalogue,
+    profile_text,
+    starting_note,
+)
 from daikonstudio.application.planner.plan import (
     Answer,
     DraftPlan,
@@ -35,19 +43,24 @@ from daikonstudio.domain.shared.errors import DomainError, ValidationError
 # than in a prompt file so that a change to them shows up in review beside the
 # code that depends on them.
 _SYSTEM_TEMPLATE = """\
-You plan analyses for medicinal chemists inside Daikon Studio. You turn a stated \
-goal into a plan a chemist will read and approve before anything runs.
+You plan analyses for scientists inside Daikon Studio. You turn a stated goal \
+into a plan the scientist will read and approve before anything runs.
 
 Rules, in order of importance.
 
 1. Use only tools from the catalogue below, by their exact id. If the goal needs \
-something the catalogue cannot do, say so in a question rather than inventing a \
-tool or pretending a different tool covers it.
+something the catalogue cannot do, return no steps and one question naming what \
+you would need, rather than inventing a tool, pretending a different tool covers \
+it, or padding the plan with steps that do not answer the goal.
 
-2. Order steps so that every step's inputs are produced by an earlier step. A \
-compound table is available from the start; everything else has to be made. A \
-tool marked as needing a chemist produces options, and what the chemist approves \
-becomes the value later steps use.
+2. Order steps so that every step's inputs are produced by an earlier step. What \
+you start with is stated below; everything else has to be made. A tool marked as \
+needing the scientist's decision produces options, and what they approve becomes \
+the value later steps use. Where the catalogue lists settings for a step, fill \
+`settings` with every required one by name, from the goal and the answers -- the id \
+to fetch, the column to read -- because a step missing a required setting cannot \
+run and the plan comes back with that problem. Anything else a step needs to know \
+goes in its purpose.
 
 2a. Some entries are one step that runs several tools in order. Prefer one of \
 those over listing its parts separately when you want the whole sequence, and \
@@ -56,22 +69,7 @@ reach for an individual part only when you genuinely want that part alone.
 3. Ask about what is underspecified, and derive the questions from what you \
 were actually given rather than from a checklist.
 
-When a file's shape is shown below, read it first. Do not ask what you can see: \
-the shape already lists, per column, how much of it is filled, what parses as \
-what, the range of any numbers, and the values that do not fit the rest. Ask \
-instead about what the shape cannot tell you -- what a column means, which of \
-two plausible readouts is the one that matters, whether two batches were \
-produced under the same conditions -- and quote the number that prompted the \
-question, so a decision is being asked for rather than homework. If the shape \
-shows something the scientist did not mention and would want to know about, \
-raise it unasked.
-
-Nothing in the shape is interpreted for you. A column of numbers is a column of \
-numbers; whether it is a potency, a yield or a plate index is your inference and \
-the scientist's to confirm.
-
-Without a file, say in your questions which of them reading the data would have \
-settled.
+%(reading)s
 
 3a. Where the scientist has already answered, use the answer and do not ask \
 again. Where they said they were not sure, or left a question unanswered, do not \
@@ -100,12 +98,14 @@ cannot be answered this way. A plan that can only succeed is not a plan.
 after a judgement, after something that can quietly fail, and before anything \
 expensive. Do not gate a step nobody would stop at.
 
-6. Say which tools you considered and left out, and why. A short plan with stated \
-omissions is worth more than a long one that uses everything.
+6. Say which tools a reader would expect to see here and did not, and why. Leave \
+out the ones that plainly do not apply: a short plan with stated omissions is worth \
+more than a long one that uses everything, and a list of everything is not a list \
+of omissions.
 
 7. %(always)s
 
-Write for a working chemist. Be specific and brief. Do not flatter the goal, and \
+Write for a working scientist. Be specific and brief. Do not flatter the goal, and \
 do not promise a conclusion the analysis cannot support.
 """
 
@@ -174,9 +174,11 @@ class WritePlan:
 
         model = self._models.get(command.provider)
         manifests = self._tools.manifests()
-        parts = [f"Catalogue:\n{catalogue(manifests)}"]
+        parts = [f"{CATALOGUE_HEADING}\n{catalogue(manifests)}"]
         if command.profile is not None:
             parts.append(profile_text(command.profile))
+        started_with = brought(command.profile)
+        parts.append(starting_note(started_with))
         parts.append(f"The scientist's goal, in their words:\n{goal}")
         if command.answers:
             parts.append(_answers(command.answers))
@@ -184,22 +186,46 @@ class WritePlan:
         remaining = max(QUESTION_BUDGET - len(command.answers), 0)
         system = _SYSTEM_TEMPLATE % {
             "always": always_runs(manifests),
+            "reading": READING_THE_DATA,
             # Derived rather than tracked: the client sends back one entry per
             # question it was given, answered or not, so the count of replies
             # is the count of questions already spent.
             "left": remaining,
         }
         plan = await model.parse(system=system, prompt=prompt, schema=DraftPlan)
+        steps = expand(plan, self._tools, starting_with=started_with)
+        # Checked without the automatic steps: the model was told never to list them,
+        # so a problem pinned on one is not its to fix. A structure nobody fetched then
+        # surfaces on the step that wanted it, which is the step the model wrote.
+        if problems := incoherences([s for s in steps if not s.always], self._tools):
+            # One more try, with the plan's own problems in front of it. A
+            # missing setting or an invented tool is a defect the check can
+            # name exactly, and the model fixes a named defect far more often
+            # than it avoids one unprompted. ponytail: one retry; the second
+            # answer stands whatever its problems, and the page shows them.
+            prompt += (
+                "\n\nYour previous plan could not run as written:\n"
+                + "\n".join(f"- {p.message}" for p in problems)
+                + "\nReturn the corrected plan."
+            )
+            plan = await model.parse(system=system, prompt=prompt, schema=DraftPlan)
+            steps = expand(plan, self._tools, starting_with=started_with)
         # Trimmed to the budget here, not trusted to the prompt. The model has
         # ranked them, so the ones that survive are the ones it cared about.
         plan.questions = plan.questions[:remaining]
-        steps = expand(plan, self._tools)
 
         return Success(
             PlanDraft(
                 goal=goal,
                 plan=plan,
                 steps=steps,
+                # Not narrowed to `started_with`. A missing upload is not a
+                # missing compound table -- the file is optional and may follow
+                # -- so checking against an empty set would report every
+                # compound step as unsatisfiable the moment someone described
+                # their series before attaching it. A structure is different:
+                # a plan needing one that neither fetches one nor was handed
+                # one is still flagged.
                 problems=incoherences(steps, self._tools),
                 written_by=model.choice,
                 questions_left=remaining,

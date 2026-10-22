@@ -8,7 +8,8 @@ which is the entire reason tools declare what they consume and produce.
 
 from __future__ import annotations
 
-from daikonstudio.application.planner.plan import DraftPlan, Step, expand, incoherences
+from daikonstudio.application.planner.catalogue import brought, starting_note
+from daikonstudio.application.planner.plan import DraftPlan, Setting, Step, expand, incoherences
 from daikonstudio.application.tools.manifest import SlotKind
 from daikonstudio.infrastructure.tools.catalog import default_registry
 
@@ -99,7 +100,18 @@ class TestComposites:
         for manifest in registry.manifests():
             if not manifest.expands_to:
                 continue
-            steps = expand(_plan(manifest.id), registry)
+            plan = DraftPlan(
+                restated_goal="g",
+                steps=[
+                    Step(
+                        tool_id=manifest.id,
+                        purpose="p",
+                        gated=False,
+                        settings=[Setting(name="activity_column", value="pIC50")],
+                    )
+                ],
+            )
+            steps = expand(plan, registry)
             problems = incoherences(
                 steps,
                 registry,
@@ -149,13 +161,50 @@ class TestWhatThePlannerIsTold:
         """A prompt naming a specific tool, column or assay convention is this
         one use case written into the plumbing: it reads fine today and misleads
         the moment the catalogue grows past chemistry."""
-        from daikonstudio.application.planner import ask_first, draft_plan
+        from daikonstudio.application.planner import ask_first, catalogue, draft_plan
 
-        prompts = (ask_first._SYSTEM_TEMPLATE, draft_plan._SYSTEM_TEMPLATE)
-        banned = ("IC50", ">50", "censored", "SMILES", "scaffold", "standardize")
+        prompts = (
+            ask_first._SYSTEM_TEMPLATE,
+            draft_plan._SYSTEM_TEMPLATE,
+            catalogue.READING_THE_DATA,
+        )
+        banned = ("IC50", ">50", "censored", "SMILES", "scaffold", "standardize", "chemist")
         for prompt in prompts:
             for word in banned:
                 assert word.lower() not in prompt.lower(), f"{word!r} is hardcoded in a prompt"
+
+    def test_both_halves_read_the_data_by_the_same_rules(self) -> None:
+        """The two prompts once carried their own copy of how to read a file's
+        shape, and the copies had drifted. One shared text, interpolated into
+        both, is the only arrangement that cannot."""
+        from daikonstudio.application.planner import ask_first, draft_plan
+
+        assert "%(reading)s" in ask_first._SYSTEM_TEMPLATE
+        assert "%(reading)s" in draft_plan._SYSTEM_TEMPLATE
+
+    def test_the_catalogue_says_what_the_planner_can_act_on(self) -> None:
+        """Added-for-you entries are marked so the model does not choose them,
+        but one that takes parameters must still be listable to set them, or an
+        answer about pH or which ligand to strip can never reach the tool;
+        external tools say so because the gating rule asks for a pause after
+        anything that can quietly fail; and the slot vocabulary is spelled one
+        way, because the note on what was brought already uses the spaced form."""
+        from daikonstudio.application.planner.catalogue import catalogue
+
+        registry = default_registry()
+        text = catalogue(registry.manifests())
+        for manifest in registry.manifests():
+            entry = next(b for b in ("\n" + text).split("\n- ") if b.startswith(f"{manifest.id}:"))
+            added = "added to every plan for you" in entry
+            assert added is manifest.automatic, manifest.id
+            if manifest.automatic:
+                expected = (
+                    "list it only to set its parameters" if manifest.params else "never list it"
+                )
+                assert expected in entry, manifest.id
+            assert ("runs outside Studio" in entry) is manifest.external, manifest.id
+        assert "compound_table" not in text
+        assert "lane" not in text
 
 
 class TestAskingSparingly:
@@ -195,3 +244,104 @@ class TestAskingSparingly:
         assert max(QUESTION_BUDGET - len(answers), 0) == 6
         spent = tuple(Answer(ask=f"q{i}", answer="") for i in range(QUESTION_BUDGET + 3))
         assert max(QUESTION_BUDGET - len(spent), 0) == 0
+
+
+class TestWhatTheScientistBrought:
+    """An automatic step applies only when what it needs is already in hand.
+
+    Preparing a structure always happens before anything touches one, but a plan
+    over a compound table alone has no structure to prepare. Prepending it
+    regardless would put a step in the plan for a file nobody supplied -- which
+    is how a second automatic tool turns the first one's convenience into a bug.
+    """
+
+    def test_structure_preparation_is_skipped_without_a_structure(self) -> None:
+        registry = default_registry()
+        steps = expand(_plan("find_cores"), registry)
+        assert [s.tool_id for s in steps] == ["standardize", "find_cores"]
+
+    def test_structure_preparation_is_added_when_one_was_supplied(self) -> None:
+        registry = default_registry()
+        steps = expand(
+            _plan("find_pockets"),
+            registry,
+            starting_with={SlotKind.COMPOUND_TABLE, SlotKind.STRUCTURE},
+        )
+        assert [s.tool_id for s in steps] == ["standardize", "prepare_structure", "find_pockets"]
+        assert [s.always for s in steps] == [True, True, False]
+
+    def test_the_planner_is_never_told_about_data_it_was_not_given(self) -> None:
+        """Claiming a slot nobody supplied is how the planner came to ask what
+        the compound table was and what should happen to it -- unanswerable,
+        because there was no file, and it reads as invention when in fact it
+        was told. Checked against every slot rather than that one, since the
+        next wrong claim will be about a different kind."""
+        note = starting_note(brought(None))
+        assert [k.value for k in SlotKind if k.value.replace("_", " ") in note] == []
+
+    def test_an_automatic_step_follows_the_plan_not_the_upload(self) -> None:
+        """An automatic tool prepares a slot, and belongs in a plan exactly when
+        some step expects to be handed that slot -- whether or not a file has
+        arrived, because the upload is optional and a chemist can describe a
+        series before attaching it.
+
+        The pairs come from the registry rather than being named here. Pinning
+        this to two tools would keep passing while the rule was wrong for a
+        third, which is the failure that put a compound-cleaning step into a
+        plan about a protein.
+        """
+        registry = default_registry()
+        optional = [m for m in registry.manifests() if not m.automatic]
+        automatic = [m for m in registry.manifests() if m.automatic]
+        assert automatic, "nothing runs automatically, so there is nothing to place"
+
+        for auto in automatic:
+            prepares = {slot.kind for slot in auto.inputs}
+            wants = [m for m in optional if prepares <= {s.kind for s in m.inputs}]
+            ignores = [m for m in optional if not prepares & {s.kind for s in m.inputs}]
+            assert wants and ignores, f"no pair in the catalogue can place {auto.id}"
+
+            for step in (wants[0], ignores[0]):
+                placed = expand(_plan(step.id), registry, starting_with=set())
+                expected = step in wants
+                assert (auto.id in [s.tool_id for s in placed]) is expected, (
+                    f"{auto.id} with a plan that runs {step.id}"
+                )
+
+    def test_a_structure_fetched_mid_plan_is_prepared_before_it_is_used(self) -> None:
+        """An automatic step goes in when its input exists, not only at the
+        start. A structure fetched by id in step one needs preparing as much as
+        one attached up front; prepending-or-nothing silently skipped it."""
+        registry = default_registry()
+        plan = _plan("fetch_pdb", "find_pockets")
+        plan.steps[0].settings = [Setting(name="pdb_id", value="4TRO")]
+        steps = expand(plan, registry, starting_with=set())
+        assert [s.tool_id for s in steps] == ["fetch_pdb", "prepare_structure", "find_pockets"]
+        assert [s.always for s in steps] == [False, True, False]
+        assert incoherences(steps, registry) == []
+
+    def test_a_goal_naming_an_id_can_be_planned_without_a_file(self) -> None:
+        """The note the planner reads must not deny what the catalogue can now
+        do: a step that takes nothing makes its output from the goal."""
+        note = starting_note(brought(None))
+        assert "takes nothing" in note
+        assert "nothing in the catalogue produces" not in note
+
+    def test_the_always_run_note_does_not_promise_a_prologue(self) -> None:
+        """An automatic step now goes in wherever its input first appears, so a
+        note saying it has "already happened before your first step" would be a
+        lie for a structure fetched in step one."""
+        from daikonstudio.application.planner.catalogue import always_runs
+
+        note = always_runs(default_registry().manifests())
+        assert "already happened before your first step" not in note
+        assert "first produces what it needs" in note
+
+    def test_a_pocket_is_approved_rather_than_computed(self) -> None:
+        """The same seam as a core, for the same reason: the top-ranked pocket
+        is often a crystallisation artefact, and which site is worth aiming at
+        is a question about the biology rather than the geometry."""
+        registry = default_registry()
+        assert not registry.producing(SlotKind.POCKET)
+        approvers = {m.id for m in registry.manifests() if m.resolves_to is SlotKind.POCKET}
+        assert approvers == {"find_pockets"}

@@ -10,4 +10,5 @@ export type RunKind = typeof RunKind[keyof typeof RunKind];
 export const RunKind = {
   training: 'training',
   prediction: 'prediction',
+  tool: 'tool',
 } as const;

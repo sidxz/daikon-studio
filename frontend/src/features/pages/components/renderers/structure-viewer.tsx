@@ -23,6 +23,7 @@ declare global {
         "pdbe-molstar": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
           "molecule-id"?: string;
           "hide-controls"?: string;
+          "hide-water"?: string;
           "bg-color-r"?: number;
           "bg-color-g"?: number;
           "bg-color-b"?: number;

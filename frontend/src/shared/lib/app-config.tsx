@@ -19,6 +19,7 @@ export interface AppConfig {
   environment: string;
   runnerImage: string;
   runnerGpuImage: string;
+  runnerChemImage: string;
 }
 
 const defaultConfig: AppConfig = {
@@ -34,6 +35,7 @@ const defaultConfig: AppConfig = {
   environment: "development",
   runnerImage: "ghcr.io/sidxz/daikon-studio/api",
   runnerGpuImage: "ghcr.io/sidxz/daikon-studio/runner-gpu",
+  runnerChemImage: "ghcr.io/sidxz/daikon-studio/runner-chem",
 };
 
 const AppConfigContext = createContext<AppConfig>(defaultConfig);

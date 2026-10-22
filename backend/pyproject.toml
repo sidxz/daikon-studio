@@ -57,6 +57,8 @@ azure = ["adlfs>=2024.7"]
 # The GPU lane. chemprop pulls torch, lightning and rdkit itself and owns their floors;
 # torch is listed bare, with no version, only so [tool.uv.sources] below can pick its
 # build (uv applies sources to direct dependencies only).
+# The chem-tools lane: structure prep and pockets. fpocket is a binary, not a wheel (make fpocket).
+chem-tools = ["openmm>=8.6", "pdbfixer>=1.12", "propka>=3.5"]
 gpu = ["chemprop>=2.2,<3", "transformers>=5.16", "peft>=0.21", "torch"]
 
 [dependency-groups]

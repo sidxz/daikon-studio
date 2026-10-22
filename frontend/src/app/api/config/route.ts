@@ -31,5 +31,6 @@ export function GET() {
     // value (an unset Compose variable) would print a command with no image.
     runnerImage: process.env.APP_RUNNER_IMAGE || "ghcr.io/sidxz/daikon-studio/api",
     runnerGpuImage: process.env.APP_RUNNER_GPU_IMAGE || "ghcr.io/sidxz/daikon-studio/runner-gpu",
+    runnerChemImage: process.env.APP_RUNNER_CHEM_IMAGE || "ghcr.io/sidxz/daikon-studio/runner-chem",
   });
 }

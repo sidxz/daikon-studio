@@ -127,3 +127,26 @@ def test_a_core_is_approved_rather_than_computed() -> None:
     assert not registry.producing(SlotKind.CORE)
     approvers = {m.id for m in registry.manifests() if m.resolves_to is SlotKind.CORE}
     assert approvers == {"find_cores", "score_core"}
+
+
+def test_a_structure_comes_from_a_file_or_an_archive() -> None:
+    """Two sources make a structure from an id in the goal; everything else that
+    emits one was given one and cleaned it. Curated sites from UniProt feed the
+    pocket finder, which is what makes that entry worth fetching."""
+    registry = default_registry()
+    sources = {
+        m.id
+        for m in registry.producing(SlotKind.STRUCTURE)
+        if SlotKind.STRUCTURE not in {s.kind for s in m.inputs}
+    }
+    assert sources
+    assert all(not registry.get(t).inputs and registry.get(t).external for t in sources)
+
+
+def test_settings_are_rendered_for_tools_and_composites() -> None:
+    from daikonstudio.application.planner.catalogue import catalogue
+
+    text = catalogue(default_registry().manifests())
+    assert "settings: pdb_id (required): Four-character PDB id" in text
+    assert "check_properties" in text
+    assert "activity_column (required)" in text

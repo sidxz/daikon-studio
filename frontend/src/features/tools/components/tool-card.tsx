@@ -4,7 +4,7 @@ import { Badge } from "@/shared/components/ui/badge";
 import { Card, CardContent, CardHeader } from "@/shared/components/ui/card";
 import { ArrowRight } from "lucide-react";
 import type { Tool } from "../types";
-import { SURFACE_COPY, slotLabel } from "../types";
+import { LANE_COPY, SURFACE_COPY, slotLabel } from "../types";
 
 /**
  * One tool. The slot row is the part that is not decoration: it says what the
@@ -82,6 +82,7 @@ export function ToolCard({ tool }: { tool: Tool }) {
           <span className="sr-only">Does the work: </span>
           <span aria-hidden="true">Uses </span>
           {tool.library}
+          {LANE_COPY[tool.lane] && <span className="block">{LANE_COPY[tool.lane]}</span>}
         </p>
       </CardContent>
     </Card>

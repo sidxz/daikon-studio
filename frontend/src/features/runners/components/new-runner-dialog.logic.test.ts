@@ -27,7 +27,11 @@ describe("apiOrigin", () => {
 });
 
 describe("runCommand", () => {
-  const images = { cpu: "ghcr.io/lab/daikon-studio/api", gpu: "registry.lab/daikon-runner:gpu" };
+  const images = {
+    cpu: "ghcr.io/lab/daikon-studio/api",
+    gpu: "registry.lab/daikon-runner:gpu",
+    chem: "ghcr.io/lab/daikon-studio/runner-chem",
+  };
 
   it("overrides CMD for the cpu image, whose default CMD serves the API", () => {
     setApiBaseUrl("http://localhost:8002");
@@ -42,6 +46,14 @@ describe("runCommand", () => {
     const command = runCommand({ ...runner, lanes: ["gpu"] }, images);
     expect(command).toContain("registry.lab/daikon-runner:gpu");
     expect(command).toContain("--gpus all");
+    expect(command).not.toContain("python -m daikonstudio.infrastructure.runner");
+  });
+
+  it("uses the chem image with no GPU flag and no CMD override", () => {
+    setApiBaseUrl("http://localhost:8002");
+    const command = runCommand({ ...runner, lanes: ["default", "chem-tools"] }, images);
+    expect(command).toContain("ghcr.io/lab/daikon-studio/runner-chem");
+    expect(command).not.toContain("--gpus all");
     expect(command).not.toContain("python -m daikonstudio.infrastructure.runner");
   });
 });

@@ -15,7 +15,7 @@ for the gates it declares, which does not exist yet.
 from __future__ import annotations
 
 import json
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from pydantic import BaseModel
@@ -104,6 +104,7 @@ class StepResponse(BaseModel):
     # Prepended because it always runs, not chosen by the planner. A client
     # can present these as preparation rather than as decisions.
     always: bool
+    params: dict[str, Any]
 
 
 class ProblemResponse(BaseModel):
@@ -148,6 +149,7 @@ class PlanResponse(BaseModel):
                     gated=s.gated,
                     expanded_from=s.expanded_from,
                     always=s.always,
+                    params=s.params,
                 )
                 for s in draft.steps
             ],

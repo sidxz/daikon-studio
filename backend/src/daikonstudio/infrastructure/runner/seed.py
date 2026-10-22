@@ -33,6 +33,7 @@ from daikonstudio.settings import Settings
 _DEV_RUNNERS: list[tuple[str, list[str], str]] = [
     ("dev-local-default", ["default"], "drt_dev_default"),
     ("dev-local-gpu", ["gpu"], "drt_dev_gpu"),
+    ("dev-local-chem", ["chem-tools"], "drt_dev_chem"),
 ]
 
 

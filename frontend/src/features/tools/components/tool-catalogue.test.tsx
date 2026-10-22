@@ -37,6 +37,7 @@ function tool(overrides: Partial<Tool>): Tool {
     surface: "none",
     external: false,
     expands_to: [],
+    lane: "default",
     ...overrides,
   };
 }
@@ -164,5 +165,43 @@ describe("the area tabs", () => {
       expect(screen.queryByRole("heading", { name: "Standardize structures" })).toBeNull();
     });
     expect(screen.getByRole("heading", { name: "Propose cores" })).toBeInTheDocument();
+  });
+});
+
+describe("tools that run elsewhere", () => {
+  beforeEach(() => {
+    vi.mocked(customInstance).mockReset();
+  });
+
+  it("says where a tool runs when it is not simply inside Studio", async () => {
+    vi.mocked(customInstance).mockResolvedValue([
+      tool({
+        id: "find_pockets",
+        name: "Find binding pockets",
+        area: "structure",
+        lane: "chem-tools",
+      }),
+      tool({ id: "predict_admet", name: "Predict ADMET", area: "data", lane: "gpu" }),
+      tool({ id: "standardize", name: "Standardize structures", area: "data", lane: "default" }),
+    ]);
+    render(<ToolCatalogue />, { wrapper: Wrapper });
+    await screen.findByRole("heading", { name: "Find binding pockets" });
+
+    expect(screen.getByText("Runs in the structure-tools image")).toBeInTheDocument();
+    expect(screen.getByText(/Runs on the GPU lane/)).toBeInTheDocument();
+    // The default lane is everything the API already has, so saying so would be
+    // noise on most of the catalogue.
+    expect(screen.queryByText(/Runs in the default/)).toBeNull();
+  });
+
+  it("gives protein structure its own tab now that it has tools", async () => {
+    vi.mocked(customInstance).mockResolvedValue([
+      tool({ id: "find_pockets", name: "Find binding pockets", area: "structure" }),
+      tool({ id: "standardize", name: "Standardize structures", area: "data" }),
+    ]);
+    render(<ToolCatalogue />, { wrapper: Wrapper });
+    await screen.findByRole("heading", { name: "Find binding pockets" });
+
+    expect(screen.getByRole("tab", { name: /Protein structure/ })).toBeInTheDocument();
   });
 });

@@ -276,3 +276,26 @@ async def test_a_plan_can_still_be_drafted_with_no_answers_at_all(
     """Answering nothing is allowed. The plan then has to say what it assumed."""
     response = await client.post("/api/v1/plans", data={"goal": "Find the SAR."})
     assert response.status_code == 200
+
+
+async def test_the_retry_names_only_the_steps_the_model_wrote(
+    client: httpx.AsyncClient, app: FastAPI
+) -> None:
+    """Preparing the structure is prepended, not chosen, so its missing input is
+    reported against the step that wanted a structure."""
+    model = ScriptedLanguageModel(
+        DraftPlan(
+            restated_goal="r",
+            steps=[Step(tool_id="find_pockets", purpose="Find the site.", gated=True)],
+        )
+    )
+    app.state.container.define(  # type: ignore[type-abstract]
+        LanguageModels, Singleton(lambda: ScriptedLanguageModels(model))
+    )
+
+    response = await client.post("/api/v1/plans", data={"goal": "Find the pocket."})
+    assert response.status_code == 200
+    _system, prompt = model.calls[1]
+    retry = prompt.split("Your previous plan could not run as written:")[1]
+    assert "Prepare the structure" not in retry
+    assert "Find binding pockets" in retry

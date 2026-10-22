@@ -3,6 +3,7 @@
  * daikon-studio
  */
 import type { StepResponseExpandedFrom } from './stepResponseExpandedFrom';
+import type { StepResponseParams } from './stepResponseParams';
 
 export interface StepResponse {
   tool_id: string;
@@ -11,4 +12,5 @@ export interface StepResponse {
   gated: boolean;
   expanded_from: StepResponseExpandedFrom;
   always: boolean;
+  params: StepResponseParams;
 }

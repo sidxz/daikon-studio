@@ -35,6 +35,7 @@ async def test_lists_tools_in_catalogue_order(client: httpx.AsyncClient) -> None
         "surface",
         "external",
         "expands_to",
+        "lane",
     }
 
 
@@ -83,4 +84,6 @@ async def test_a_composite_names_the_sequence_it_stands_for(client: httpx.AsyncC
 
 async def test_tools_are_grouped_by_area(client: httpx.AsyncClient) -> None:
     areas = {tool["area"] for tool in (await client.get("/api/v1/tools")).json()}
-    assert areas == {"data", "sar", "context"}
+    # Structure work joined the catalogue, so the area tab for it stops being
+    # empty. The point of areas is that this is the only change needed.
+    assert areas == {"data", "sar", "context", "structure"}

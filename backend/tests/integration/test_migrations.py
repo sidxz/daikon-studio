@@ -359,3 +359,201 @@ async def test_019_adds_the_runner_build_columns_and_takes_them_away_again(_migr
         async with admin.connect() as connection:
             await connection.execute(text(f'DROP DATABASE IF EXISTS "{fresh}" WITH (FORCE)'))
         await admin.dispose()
+
+
+_STUDY_TABLE = text("SELECT count(*) FROM information_schema.tables WHERE table_name = 'studies'")
+
+
+@pytest.mark.asyncio
+async def test_020_studies_round_trips(_migrated_engine):
+    """The studies table comes and goes with the migration, on its own fresh database."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    fresh = f"migration_020_{uuid.uuid4().hex}"
+    admin = create_async_engine(
+        _migrated_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{fresh}"'))
+    url = _migrated_engine.url.set(database=fresh).render_as_string(hide_password=False)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    engine = create_async_engine(url, poolclass=NullPool)
+
+    async def has_table() -> bool:
+        async with engine.connect() as connection:
+            return (await connection.execute(_STUDY_TABLE)).scalar_one() == 1
+
+    try:
+        await asyncio.to_thread(command.upgrade, config, "head")
+        assert await has_table()
+        await asyncio.to_thread(command.downgrade, config, "019")
+        assert not await has_table()
+        await asyncio.to_thread(command.upgrade, config, "020")
+        assert await has_table()
+    finally:
+        await engine.dispose()
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE IF EXISTS "{fresh}" WITH (FORCE)'))
+
+
+_ANSWERS_COLUMN = text("""
+    SELECT is_nullable, data_type FROM information_schema.columns
+    WHERE table_name = 'studies' AND column_name = 'answers'
+""")
+
+
+@pytest.mark.asyncio
+async def test_021_study_answers_round_trips(_migrated_engine):
+    """A study saved before 021 reads back with no answers; the column comes and goes."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    fresh = f"migration_021_{uuid.uuid4().hex}"
+    admin = create_async_engine(
+        _migrated_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{fresh}"'))
+    url = _migrated_engine.url.set(database=fresh).render_as_string(hide_password=False)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    engine = create_async_engine(url, poolclass=NullPool)
+
+    async def answers_column() -> list[tuple[str, str]]:
+        async with engine.connect() as connection:
+            return [tuple(row) for row in (await connection.execute(_ANSWERS_COLUMN)).all()]
+
+    try:
+        await asyncio.to_thread(command.upgrade, config, "020")
+        study_id = uuid.uuid4()
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO studies (id, workspace_id, version, created_by, goal,"
+                    " restated_goal, checks, stop_conditions, steps, values)"
+                    " VALUES (:id, :ws, 1, :by, 'g', 'rg', '[]', '[]', '[]', '[]')"
+                ),
+                {"id": study_id, "ws": uuid.uuid4(), "by": uuid.uuid4()},
+            )
+        await asyncio.to_thread(command.upgrade, config, "head")
+        assert await answers_column() == [("NO", "jsonb")]
+        async with engine.connect() as connection:
+            answers = (
+                await connection.execute(
+                    text("SELECT answers FROM studies WHERE id = :id"), {"id": study_id}
+                )
+            ).scalar_one()
+        assert answers == []
+
+        await asyncio.to_thread(command.downgrade, config, "020")
+        assert await answers_column() == []
+        await asyncio.to_thread(command.upgrade, config, "021")
+        assert await answers_column() == [("NO", "jsonb")]
+    finally:
+        await engine.dispose()
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE IF EXISTS "{fresh}" WITH (FORCE)'))
+        await admin.dispose()
+
+
+_RUNS_KIND_CHECK = text(
+    "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname = 'ck_runs_kind'"
+)
+
+
+@pytest.mark.asyncio
+async def test_022_tool_runs_round_trips(_migrated_engine):
+    """022 lets a run be a tool step; downgrading takes that back."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    fresh = f"migration_022_{uuid.uuid4().hex}"
+    admin = create_async_engine(
+        _migrated_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{fresh}"'))
+    url = _migrated_engine.url.set(database=fresh).render_as_string(hide_password=False)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    engine = create_async_engine(url, poolclass=NullPool)
+
+    async def kind_check() -> str:
+        async with engine.connect() as connection:
+            return (await connection.execute(_RUNS_KIND_CHECK)).scalar_one()
+
+    try:
+        await asyncio.to_thread(command.upgrade, config, "021")
+        assert "'tool'" not in await kind_check()
+        await asyncio.to_thread(command.upgrade, config, "head")
+        assert "'tool'" in await kind_check()
+        await asyncio.to_thread(command.downgrade, config, "021")
+        assert "'tool'" not in await kind_check()
+        assert "'prediction'" in await kind_check()
+    finally:
+        await engine.dispose()
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE IF EXISTS "{fresh}" WITH (FORCE)'))
+        await admin.dispose()
+
+
+_PLANNING_COLUMN = text("""
+    SELECT is_nullable, data_type FROM information_schema.columns
+    WHERE table_name = 'studies' AND column_name = 'planning'
+""")
+
+
+@pytest.mark.asyncio
+async def test_023_study_planning_round_trips(_migrated_engine):
+    """A study saved before 023 reads back with no planning; the column comes and goes."""
+    from sqlalchemy.ext.asyncio import create_async_engine
+    from sqlalchemy.pool import NullPool
+
+    fresh = f"migration_023_{uuid.uuid4().hex}"
+    admin = create_async_engine(
+        _migrated_engine.url, poolclass=NullPool, isolation_level="AUTOCOMMIT"
+    )
+    async with admin.connect() as connection:
+        await connection.execute(text(f'CREATE DATABASE "{fresh}"'))
+    url = _migrated_engine.url.set(database=fresh).render_as_string(hide_password=False)
+    config = Config("alembic.ini")
+    config.set_main_option("sqlalchemy.url", url)
+    engine = create_async_engine(url, poolclass=NullPool)
+
+    async def planning_column() -> list[tuple[str, str]]:
+        async with engine.connect() as connection:
+            return [tuple(row) for row in (await connection.execute(_PLANNING_COLUMN)).all()]
+
+    try:
+        await asyncio.to_thread(command.upgrade, config, "022")
+        study_id = uuid.uuid4()
+        async with engine.begin() as connection:
+            await connection.execute(
+                text(
+                    "INSERT INTO studies (id, workspace_id, version, created_by, goal,"
+                    " restated_goal, checks, stop_conditions, steps, values)"
+                    " VALUES (:id, :ws, 1, :by, 'g', 'rg', '[]', '[]', '[]', '[]')"
+                ),
+                {"id": study_id, "ws": uuid.uuid4(), "by": uuid.uuid4()},
+            )
+        await asyncio.to_thread(command.upgrade, config, "head")
+        assert await planning_column() == [("NO", "jsonb")]
+        async with engine.connect() as connection:
+            planning = (
+                await connection.execute(
+                    text("SELECT planning FROM studies WHERE id = :id"), {"id": study_id}
+                )
+            ).scalar_one()
+        assert planning == {}
+
+        await asyncio.to_thread(command.downgrade, config, "022")
+        assert await planning_column() == []
+        await asyncio.to_thread(command.upgrade, config, "023")
+        assert await planning_column() == [("NO", "jsonb")]
+    finally:
+        await engine.dispose()
+        async with admin.connect() as connection:
+            await connection.execute(text(f'DROP DATABASE IF EXISTS "{fresh}" WITH (FORCE)'))
+        await admin.dispose()

@@ -2,10 +2,10 @@ import {
   CollectionsIcon,
   DatasetsIcon,
   EnginesIcon,
-  PlansIcon,
   ProtocolsIcon,
   RunnersIcon,
   RunsIcon,
+  StudiesIcon,
   SweepsIcon,
   ToolsIcon,
 } from "@/shared/components/icons/nav-icons";
@@ -49,7 +49,12 @@ export const navigation: NavGroup[] = [
   {
     label: "Curate",
     items: [
-      { title: "Plan", href: "/plans", icon: PlansIcon, iconClassName: "text-icon-plans" },
+      {
+        title: "Studies",
+        href: "/studies",
+        icon: StudiesIcon,
+        iconClassName: "text-icon-studies",
+      },
       {
         title: "Datasets",
         href: "/datasets",

@@ -21,3 +21,6 @@ docs/
 .DS_Store
 .pnpm-store/
 internal-docs/
+
+# Locally built binaries (make fpocket)
+backend/.tools/

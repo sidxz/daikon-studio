@@ -62,11 +62,12 @@ WORKER     := env STUDIO_RUNNER_TOKEN=drt_dev_default $(RUNNER)
 # The run's phase names the device it resolved to, so a runner registered for the gpu
 # lane that is quietly on CPU says so rather than just being slow.
 WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
+WORKER_CHEM := env STUDIO_RUNNER_TOKEN=drt_dev_chem PATH=$(CURDIR)/backend/.tools/bin:$$PATH $(RUNNER)
 
 .DEFAULT_GOAL := help
-.PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu stop logs migrate \
+.PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu dev-worker-chem fpocket stop logs migrate \
         seed-runners backfill-maps register-protocols generate-api test test-api test-all test-fe lint lint-fe nuke \
-        image-runner-cpu image-runner-gpu image-smoke image-frontend security-scan publish-runner-gpu
+        image-runner-cpu image-runner-gpu image-runner-chem image-smoke image-frontend security-scan publish-runner-gpu
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -84,7 +85,7 @@ down: ## Stop containers (keep data)
 	$(COMPOSE) stop
 
 install: ## Install backend (uv) + frontend (pnpm) dependencies
-	$(BACKEND) && uv sync --extra gpu --extra s3
+	$(BACKEND) && uv sync --extra gpu --extra s3 --extra chem-tools
 	$(FRONTEND) && pnpm install
 
 migrate: ## Apply DB migrations (alembic)
@@ -113,12 +114,16 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in th
 	@echo "Starting runner agent (gpu lane)..."
 	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
+	@echo "Starting runner agent (chem-tools lane)..."
+	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_CHEM)' \
+		> $(LOGDIR)/worker-chem.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-chem.pid
 	@sleep 1
 	@echo ""
 	@echo "  Backend   http://localhost:8002/docs   (pid $$(cat $(LOGDIR)/backend.pid), log $(LOGDIR)/backend.log)"
 	@echo "  Frontend  http://localhost:3003        (pid $$(cat $(LOGDIR)/frontend.pid), log $(LOGDIR)/frontend.log)"
 	@echo "  Runner    default lane: ecfp4 engines                  (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
 	@echo "  Runner    gpu lane: chemprop (Mac GPU via MPS)         (pid $$(cat $(LOGDIR)/worker-gpu.pid), log $(LOGDIR)/worker-gpu.log)"
+	@echo "  Runner    chem-tools lane: OpenMM, fpocket             (pid $$(cat $(LOGDIR)/worker-chem.pid), log $(LOGDIR)/worker-chem.log)"
 	@echo "  make logs — tail all    ·    make stop — stop all"
 	@echo ""
 	@echo "  NOTE: both runner agents only matter when STUDIO_INLINE_JOBS=0 in backend/.env."
@@ -158,9 +163,25 @@ dev-worker: ## (Re)start the default-lane runner agent only, in the background
 dev-worker-gpu: ## (Re)start the gpu-lane runner agent only (chemprop; Mac GPU via MPS)
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker-gpu.pid ] && kill $$(cat $(LOGDIR)/worker-gpu.pid) 2>/dev/null || true
+	@[ -f $(LOGDIR)/worker-chem.pid ] && kill $$(cat $(LOGDIR)/worker-chem.pid) 2>/dev/null || true
 	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_GPU)' \
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@echo "GPU-lane runner agent (re)started (log $(LOGDIR)/worker-gpu.log)"
+
+dev-worker-chem: ## (Re)start the chem-tools-lane runner agent only (OpenMM, PDBFixer, PROPKA, fpocket)
+	@mkdir -p $(LOGDIR)
+	@[ -f $(LOGDIR)/worker-chem.pid ] && kill $$(cat $(LOGDIR)/worker-chem.pid) 2>/dev/null || true
+	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_CHEM)' \
+		> $(LOGDIR)/worker-chem.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-chem.pid
+	@echo "Chem-tools-lane runner agent (re)started (log $(LOGDIR)/worker-chem.log)"
+
+FPOCKET_TAG := 4.2.3
+fpocket: ## Build the fpocket binary into backend/.tools/bin (the chem-tools dev runner puts it on PATH)
+	@mkdir -p backend/.tools/src backend/.tools/bin
+	@[ -d backend/.tools/src/fpocket ] || git clone --depth 1 --branch $(FPOCKET_TAG) https://github.com/Discngine/fpocket.git backend/.tools/src/fpocket
+	@arch=LINUXAMD64; case "$$(uname -s)-$$(uname -m)" in Darwin-arm64) arch=MACOSXARM64 ;; Darwin-x86_64) arch=MACOSXX86_64 ;; esac; \
+		$(MAKE) -C backend/.tools/src/fpocket ARCH=$$arch
+	cp backend/.tools/src/fpocket/bin/fpocket backend/.tools/bin/fpocket
 
 stop: ## Stop the backend + frontend + runner-agent dev processes
 	@[ -f $(LOGDIR)/backend.pid ]  && kill $$(cat $(LOGDIR)/backend.pid)  2>/dev/null || true
@@ -170,13 +191,13 @@ stop: ## Stop the backend + frontend + runner-agent dev processes
 	@lsof -ti tcp:8002 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 	@lsof -ti tcp:3003 -sTCP:LISTEN | xargs kill 2>/dev/null || true
 	@pkill -f 'daikonstudio.infrastructure.runner' 2>/dev/null || true
-	@rm -f $(LOGDIR)/backend.pid $(LOGDIR)/frontend.pid $(LOGDIR)/worker.pid $(LOGDIR)/worker-gpu.pid
+	@rm -f $(LOGDIR)/backend.pid $(LOGDIR)/frontend.pid $(LOGDIR)/worker.pid $(LOGDIR)/worker-gpu.pid $(LOGDIR)/worker-chem.pid
 	@echo "Dev servers stopped."
 
 logs: ## Tail backend + frontend + both worker dev logs
 	@mkdir -p $(LOGDIR) && touch $(LOGDIR)/backend.log $(LOGDIR)/frontend.log \
-		$(LOGDIR)/worker.log $(LOGDIR)/worker-gpu.log
-	tail -f $(LOGDIR)/backend.log $(LOGDIR)/frontend.log $(LOGDIR)/worker.log $(LOGDIR)/worker-gpu.log
+		$(LOGDIR)/worker.log $(LOGDIR)/worker-gpu.log $(LOGDIR)/worker-chem.log
+	tail -f $(LOGDIR)/backend.log $(LOGDIR)/frontend.log $(LOGDIR)/worker.log $(LOGDIR)/worker-gpu.log $(LOGDIR)/worker-chem.log
 
 generate-api: ## Refresh the OpenAPI snapshot from the backend + regenerate the TS client
 	$(BACKEND) && $(BE_ENV) && uv run python -c \
@@ -205,6 +226,14 @@ lint-fe: ## Frontend lint (biome)
 image-runner-cpu: ## Build the API + default-lane runner image locally as daikon-runner:cpu (the Runners UI names APP_RUNNER_IMAGE, the published one, by default)
 	$(call BUILD_INFO,backend) && docker build -f backend/Dockerfile -t daikon-runner:cpu \
 		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE backend
+
+# amd64 on purpose: fpocket ships molfile plugin archives for LINUXAMD64 but none for Linux arm64,
+# and the hosts that run this lane are amd64 (emulated, so slower, on an Apple-silicon Mac).
+image-runner-chem: ## Build the chem-tools runner image locally as daikon-runner:chem and smoke-run its binaries
+	$(call BUILD_INFO,backend) && docker build --platform linux/amd64 -f backend/Dockerfile.chem -t daikon-runner:chem \
+		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE backend
+	docker run --rm --platform linux/amd64 --entrypoint fpocket daikon-runner:chem || true
+	docker run --rm --platform linux/amd64 --entrypoint python daikon-runner:chem -c "import pdbfixer, propka, openmm; print('chem-tools imports ok')"
 
 # The CUDA runner image is built, GPU-tested, scanned and pushed on atlantic: x86_64, an
 # NVIDIA GPU, a lasting layer cache, and room for a ~22 GB image a GitHub-hosted runner

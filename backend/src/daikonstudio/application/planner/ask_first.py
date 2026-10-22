@@ -16,7 +16,15 @@ from dataclasses import dataclass
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated
-from daikonstudio.application.planner.catalogue import always_runs, catalogue, profile_text
+from daikonstudio.application.planner.catalogue import (
+    CATALOGUE_HEADING,
+    READING_THE_DATA,
+    always_runs,
+    brought,
+    catalogue,
+    profile_text,
+    starting_note,
+)
 from daikonstudio.application.planner.plan import Interrogation
 from daikonstudio.application.ports.llm import LanguageModels, ModelChoice
 from daikonstudio.application.ports.table_profiler import TableProfile
@@ -36,33 +44,24 @@ _MAX_QUESTIONS = 6
 QUESTION_BUDGET = 10
 
 _SYSTEM_TEMPLATE = """\
-You are about to plan an analysis for a medicinal chemist in Daikon Studio. \
-Before you do, work out what you need to know. You are not planning yet, and you \
-must not propose steps.
+You are about to plan an analysis for a scientist in Daikon Studio. Before you do, \
+work out what you need to know. You are not planning yet, and you must not propose \
+steps.
 
 Rules, in order of importance.
 
-1. If a file's shape is shown below, read it first and do not ask what you can \
-see. The shape already lists, for each column, how much of it is filled, what \
-parses as what, the range of any numbers in it, and the values that do not fit \
-the rest -- so asking whether any of that is present is asking a question the \
-page in front of you has answered. Ask instead about what the shape cannot tell \
-you: what a column means, which of several plausible readouts is the one that is \
-trusted, whether two batches were produced under the same conditions. Quote the \
-number that prompted the question, so you are asking for a decision rather than \
-setting homework.
+1. Ask only what you cannot answer yourself. Before asking anything, decide what \
+you would do if nobody replied. If you can defend that choice, put it in `default`: \
+the question then reaches the scientist as an assumption they can override, the \
+plan is written on it unless they do, and it costs them nothing. Leave `default` \
+null only where the plan genuinely cannot be written either way -- which column \
+holds the result that matters, what an ambiguous code means -- because those are \
+the questions this round exists for. At most %(limit)d, and fewer is better. The \
+whole analysis may ask %(budget)d, counting every round, so each one spent here \
+is one the plan cannot raise later. Asking none is a fine outcome and means you \
+could read the data well enough to proceed.
 
-2. Ask only what you cannot answer yourself. Before asking anything, try to \
-write down what you would do if nobody replied. If you can defend that choice, \
-it is not a question: it is an assumption, and this round is not for assumptions. \
-Ask only where the plan genuinely cannot be written either way -- which column \
-holds the result that matters, what an ambiguous code means. At most %(limit)d, \
-and fewer is better. Asking none is a fine outcome and means you could read the \
-data well enough to proceed.
-
-2a. Set `default` to null on every question here, because that is what makes it \
-one. Anything you could have defaulted belongs in the plan as a stated \
-assumption, not on this page.
+2. %(reading)s
 
 3. Offer concrete options whenever the plausible answers enumerate: which of \
 three columns, whether a value is a bound or was never tested, whether repeated \
@@ -70,15 +69,12 @@ rows are re-tests or duplicate registrations. Leave options empty when the answe
 is genuinely open, such as the name of a target. Never offer "not sure" yourself; \
 the scientist is given that on every question anyway.
 
-4. Say in one line what changes depending on the answer. That line is how a \
-chemist decides which questions are worth their time.
+4. Say in one line what changes depending on the answer. That line is how the \
+scientist decides which questions are worth their time.
 
 5. %(always)s
 
-6. If the shape shows something the scientist did not mention and would want to \
-know about, raise it even though they did not ask.
-
-Write for a working chemist. Be specific and brief.
+Write for a working scientist. Be specific and brief.
 """
 
 
@@ -112,14 +108,17 @@ class AskFirst:
             return Failure(ValidationError("Say what you want to find out."))
 
         model = self._models.get(command.provider)
-        parts = [f"Catalogue of what this server can do:\n{catalogue(self._tools.manifests())}"]
+        parts = [f"{CATALOGUE_HEADING}\n{catalogue(self._tools.manifests())}"]
         if command.profile is not None:
             parts.append(profile_text(command.profile))
+        parts.append(starting_note(brought(command.profile)))
         parts.append(f"The scientist's goal, in their words:\n{goal}")
 
         manifests = self._tools.manifests()
         system = _SYSTEM_TEMPLATE % {
             "limit": _MAX_QUESTIONS,
+            "budget": QUESTION_BUDGET,
+            "reading": READING_THE_DATA,
             "always": always_runs(manifests),
         }
         asked = await model.parse(system=system, prompt="\n\n".join(parts), schema=Interrogation)

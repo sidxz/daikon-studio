@@ -37,10 +37,15 @@ export function apiOrigin(): string {
   }
 }
 
-/** `images` comes from runtime config (`APP_RUNNER_IMAGE`, `APP_RUNNER_GPU_IMAGE`). */
-export function runCommand(created: CreatedRunner, images: { cpu: string; gpu: string }): string {
+/** `images` comes from runtime config (`APP_RUNNER_IMAGE`, `APP_RUNNER_GPU_IMAGE`, `APP_RUNNER_CHEM_IMAGE`). */
+export function runCommand(
+  created: CreatedRunner,
+  images: { cpu: string; gpu: string; chem: string },
+): string {
   const gpu = created.lanes.includes("gpu");
-  const image = gpu ? images.gpu : images.cpu;
+  // A runner on both lanes gets the GPU image; the chem image cannot serve a GPU.
+  const chem = !gpu && created.lanes.includes("chem-tools");
+  const image = gpu ? images.gpu : chem ? images.chem : images.cpu;
   return [
     "docker run -d --restart unless-stopped \\",
     ...(gpu ? ["  --gpus all \\"] : []),
@@ -49,7 +54,9 @@ export function runCommand(created: CreatedRunner, images: { cpu: string; gpu: s
     // The cpu image's default CMD serves the API, not the runner agent (only
     // Dockerfile.gpu's CMD is the agent already) -- override it explicitly so the
     // command this dialog hands out actually starts a runner (Critical 2, final review).
-    ...(gpu ? [`  ${image}`] : [`  ${image} \\`, "  python -m daikonstudio.infrastructure.runner"]),
+    ...(gpu || chem
+      ? [`  ${image}`]
+      : [`  ${image} \\`, "  python -m daikonstudio.infrastructure.runner"]),
   ].join("\n");
 }
 
@@ -62,8 +69,8 @@ export function NewRunnerDialog() {
   const [created, setCreated] = useState<CreatedRunner | null>(null);
   const [copied, setCopied] = useState(false);
   const createRunner = useCreateRunner();
-  const { runnerImage, runnerGpuImage } = useAppConfig();
-  const images = { cpu: runnerImage, gpu: runnerGpuImage };
+  const { runnerImage, runnerGpuImage, runnerChemImage } = useAppConfig();
+  const images = { cpu: runnerImage, gpu: runnerGpuImage, chem: runnerChemImage };
 
   const revealing = created !== null;
 

@@ -15,6 +15,11 @@ export type Slot = SlotResponse;
  */
 export const SLOT_LABELS: Record<string, string> = {
   compound_table: "Compounds",
+  structure: "Structure",
+  site_annotations: "Annotated sites",
+  pocket_candidates: "Candidate pockets",
+  pocket: "Pocket",
+  admet_table: "Predicted ADMET",
   series: "Series",
   core_candidates: "Candidate cores",
   core: "Core",
@@ -58,6 +63,16 @@ export const AREAS = [
   { value: "structure", label: "Protein structure" },
   { value: "context", label: "What's known already" },
 ] as const;
+
+/**
+ * What a lane means to a reader. A lane is a dependency set rather than a
+ * machine: "default" is everything the API already has, and anything else names
+ * an environment that lives in its own image and can therefore be unavailable.
+ */
+export const LANE_COPY: Record<string, string> = {
+  "chem-tools": "Runs in the structure-tools image",
+  gpu: "Runs on the GPU lane, beside the training engines",
+};
 
 export function slotLabel(slot: Slot): string {
   return SLOT_LABELS[slot.kind] ?? slot.kind.replace(/_/g, " ");

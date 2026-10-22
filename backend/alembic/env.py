@@ -25,6 +25,10 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.runners import (
     models as runners_models,  # noqa: F401
 )
 
+from daikonstudio.infrastructure.persistence.sqlalchemy.studies import (
+    models as studies_models,  # noqa: F401
+)
+
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config

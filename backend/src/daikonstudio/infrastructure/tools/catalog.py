@@ -25,6 +25,14 @@ from daikonstudio.application.tools.manifest import (
     ToolSurface,
 )
 from daikonstudio.application.tools.registry import ToolRegistry
+from daikonstudio.infrastructure.tools.params import (
+    ActivityParams,
+    ConfoundParams,
+    FetchAlphafoldParams,
+    FetchPdbParams,
+    FetchUniprotParams,
+    PrepareParams,
+)
 
 
 def _in(key: str, kind: SlotKind, label: str, *, optional: bool = False) -> Slot:
@@ -45,13 +53,14 @@ _TOOLS: tuple[ToolManifest, ...] = (
         name="Standardize structures",
         description=(
             "Strips salts and solvents, normalizes charges and tautomers, and reports "
-            "every structure it changed and every one that would not parse. Run first: "
+            "every structure it changed and every one that would not parse. Runs before "
+            "anything else touches a table: "
             "the same compound drawn two ways reads as two compounds, which quietly "
             "inflates a series and breaks the pairing every later step depends on."
         ),
         inputs=(_COMPOUNDS,),
         outputs=(_in("compounds", SlotKind.COMPOUND_TABLE, "Standardized compounds"),),
-        library="chembl_structure_pipeline",
+        library="rdkit.Chem.MolStandardize",
         automatic=True,
         surface=ToolSurface.NONE,
     ),
@@ -221,6 +230,7 @@ _TOOLS: tuple[ToolManifest, ...] = (
         outputs=(_in("properties", SlotKind.PROPERTY_TABLE, "Properties"),),
         library="rdkit.Chem.Descriptors",
         surface=ToolSurface.NONE,
+        params=ActivityParams,
     ),
     ToolManifest(
         id="property_confound",
@@ -240,6 +250,7 @@ _TOOLS: tuple[ToolManifest, ...] = (
         outputs=(_in("correlation", SlotKind.CORRELATION, "Correlation"),),
         library="numpy",
         surface=ToolSurface.VIEW,
+        params=ConfoundParams,
     ),
     ToolManifest(
         id="structural_alerts",
@@ -319,6 +330,157 @@ _TOOLS: tuple[ToolManifest, ...] = (
         library="PubMed E-utilities",
         surface=ToolSurface.VIEW,
         external=True,
+    ),
+    ToolManifest(
+        id="fetch_uniprot",
+        version="1",
+        area=ToolArea.CONTEXT,
+        name="Protein entry from UniProt",
+        description=(
+            "Looks a protein up by accession, gene or name and returns the curated "
+            "entry: canonical sequence, organism, function, the residues annotated "
+            "as binding, active or metal sites, known variants, and the deposited "
+            "structures and AlphaFold model that cover it. The annotations are "
+            "numbered on the canonical sequence, which the author numbering in a "
+            "structure file rarely matches, so a step that compares the two has to "
+            "map them first. Curated knowledge, not a result: it says what has been "
+            "reported for the protein, which is how a detected pocket is told apart "
+            "from the site the literature already knows."
+        ),
+        inputs=(_in("structure", SlotKind.STRUCTURE, "Structure", optional=True),),
+        outputs=(_in("annotations", SlotKind.SITE_ANNOTATIONS, "Annotated sites"),),
+        library="UniProt REST API",
+        surface=ToolSurface.VIEW,
+        external=True,
+        params=FetchUniprotParams,
+    ),
+    # -- Structure ---------------------------------------------------------------
+    # A protein structure arrives one of two ways: the scientist attaches a file,
+    # or a step fetches one by id. These are the first tools that need more than
+    # RDKit, so they are also where the lanes start to matter.
+    ToolManifest(
+        id="fetch_pdb",
+        version="1",
+        name="Fetch a deposited structure",
+        area=ToolArea.STRUCTURE,
+        description=(
+            "Downloads an entry from the Protein Data Bank by its four-character id, "
+            "as deposited: every chain, ligand, cofactor and water, with the "
+            "resolution and the method. Records which residues sit within 4 Å of "
+            "each ligand before anything strips them, so the site a bound ligand "
+            "marks can still be found once the pocket search runs on the emptied "
+            "protein. An id names one entry, not the protein: the same enzyme has "
+            "dozens, differing in ligand, mutation and resolution, and which one to "
+            "use is a choice worth stating."
+        ),
+        inputs=(),
+        outputs=(_in("structure", SlotKind.STRUCTURE, "Deposited structure"),),
+        library="RCSB PDB (files.rcsb.org, data.rcsb.org)",
+        surface=ToolSurface.VIEW,
+        external=True,
+        params=FetchPdbParams,
+    ),
+    ToolManifest(
+        id="fetch_alphafold",
+        version="1",
+        name="Fetch a predicted structure",
+        area=ToolArea.STRUCTURE,
+        description=(
+            "Downloads the AlphaFold model for a protein by its UniProt accession, "
+            "for a protein with no deposited structure or a region no crystal "
+            "covers. A prediction, not an observation: it has no ligands, cofactors "
+            "or waters, so every site reads as empty, and its per-residue "
+            "confidence is written where a crystal's B-factors would be. A cavity "
+            "lined by low-confidence residues is disorder drawn as a surface rather "
+            "than a pocket, so the confidence has to be read beside anything found "
+            "on the model."
+        ),
+        inputs=(),
+        outputs=(_in("structure", SlotKind.STRUCTURE, "Predicted structure"),),
+        library="AlphaFold Protein Structure Database (EMBL-EBI)",
+        surface=ToolSurface.VIEW,
+        external=True,
+        params=FetchAlphafoldParams,
+    ),
+    ToolManifest(
+        id="prepare_structure",
+        version="1",
+        name="Prepare the structure",
+        area=ToolArea.STRUCTURE,
+        description=(
+            "Repairs missing residues and side chains, adds hydrogens at the chosen "
+            "pH and estimates each titratable residue's pKa. Removes waters and "
+            "crystallisation additives. By default every other heterogen stays "
+            "in place as deposited, so a cavity a cofactor fills is not reported "
+            "as somewhere to aim a new molecule — set keep_ligands to choose, and "
+            "to an empty list to strip them all, which is what you want when the "
+            "bound ligand is an inhibitor and its site is the question. Runs "
+            "before anything else touches a "
+            "structure: a pocket found on an unrepaired model can be an artefact of "
+            "the gap rather than a feature of the protein, and a charge assigned "
+            "wrongly changes which residues line the site."
+        ),
+        inputs=(_in("structure", SlotKind.STRUCTURE, "Structure"),),
+        outputs=(_in("structure", SlotKind.STRUCTURE, "Prepared structure"),),
+        params=PrepareParams,
+        library="PDBFixer and PROPKA",
+        automatic=True,
+        lane="chem-tools",
+        surface=ToolSurface.NONE,
+        external=True,
+    ),
+    ToolManifest(
+        id="find_pockets",
+        version="1",
+        name="Find binding pockets",
+        area=ToolArea.STRUCTURE,
+        description=(
+            "Detects cavities on the protein surface with fpocket and ranks them, "
+            "with the volume, "
+            "the residues that line each one, and a druggability score. Returns "
+            "candidates: the top-ranked pocket is frequently a crystallisation "
+            "artefact or a surface groove, and whether a site is the one worth "
+            "aiming at is a question about the biology rather than the geometry. "
+            "Cofactors kept by preparation are part of the receptor here, so the "
+            "candidates are the cavities beside them rather than the cavity one "
+            "fills. Names any ligand of the fetched entry whose contact residues "
+            "line a candidate, marking the ones that came from the crystallisation "
+            "drop. Given the protein's curated site annotations and sequence, "
+            "checks the file's residue numbering against that sequence and labels "
+            "each candidate with the annotated sites it contains; where the "
+            "numbering disagrees it reports the offset and labels nothing. Volumes "
+            "are Monte Carlo estimates and move a few percent between runs."
+        ),
+        inputs=(
+            _in("structure", SlotKind.STRUCTURE, "Structure"),
+            _in("annotations", SlotKind.SITE_ANNOTATIONS, "Annotated sites", optional=True),
+        ),
+        outputs=(_in("pockets", SlotKind.POCKET_CANDIDATES, "Candidate pockets"),),
+        library="fpocket",
+        judgment=True,
+        resolves_to=SlotKind.POCKET,
+        lane="chem-tools",
+        surface=ToolSurface.EDITOR,
+        external=True,
+    ),
+    # -- Predicted properties ------------------------------------------------------
+    ToolManifest(
+        id="predict_admet",
+        version="1",
+        name="Predict ADMET",
+        area=ToolArea.DATA,
+        description=(
+            "Predicts absorption, distribution, metabolism, excretion and toxicity "
+            "endpoints per compound from structure alone, with the training "
+            "distribution each one came from. Predictions, not measurements: they "
+            "are useful for ranking what to make and for flagging a liability worth "
+            "measuring, and they do not substitute for an assay."
+        ),
+        inputs=(_COMPOUNDS,),
+        outputs=(_in("admet", SlotKind.ADMET_TABLE, "Predicted ADMET"),),
+        library="admet-ai (Chemprop models trained on the Therapeutics Data Commons)",
+        lane="gpu",
+        surface=ToolSurface.VIEW,
     ),
     # -- Composites ------------------------------------------------------------
     # Sequences everyone runs together, offered as one choice so the planner has
