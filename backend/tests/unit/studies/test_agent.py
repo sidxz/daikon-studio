@@ -35,6 +35,7 @@ from daikonstudio.application.studies.schemas import (
     Proposal,
     ReplyTurn,
 )
+from daikonstudio.application.studies.standing import standing
 from daikonstudio.application.tools import codecs
 from daikonstudio.domain.shared.errors import (
     ConflictError,
@@ -471,8 +472,10 @@ async def test_approval_writes_an_asserted_pocket_from_the_rank() -> None:
 
     # The step runs again: its ranks now order a different list, so neither the choice made on
     # the old one nor the button offered on it stands for anything.
-    _done(stored, store, 3, "pocket_candidates", POCKETS)
+    rerun = _done(stored, store, 3, "pocket_candidates", POCKETS)
     assert stored.latest("pocket") is None and stored.superseded(newer)
+    told = standing(stored, REGISTRY, data={rerun.id: POCKETS})
+    assert "Chosen on an earlier result of this step, so it no longer stands" in told
     press = ApplyProposal(studies, REGISTRY, store, advance)
     refused = (await press(ApplyCommand(study.id, offered.id), AUTH)).failure()
     assert isinstance(refused, ValidationError)

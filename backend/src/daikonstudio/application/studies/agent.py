@@ -79,6 +79,7 @@ from daikonstudio.application.studies.standing import (
     trigger_for_observe,
     trigger_for_reply,
 )
+from daikonstudio.application.tools import codecs
 from daikonstudio.application.tools.manifest import SlotKind
 from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.domain.shared.errors import ConflictError, DomainError, ValidationError
@@ -192,6 +193,23 @@ async def _whole(store: BlobStore, value: SlotValue, decoded: dict[uuid.UUID, An
     if value.id not in decoded:
         decoded[value.id] = await _read(store, value, limit=None)
     return decoded[value.id]
+
+
+async def _held(
+    study: Study, store: BlobStore, decoded: dict[uuid.UUID, Any]
+) -> dict[uuid.UUID, Any]:
+    """What every step's current results hold, for the standing to describe them by. A table is
+    described from its stored summary, so its rows are not read.
+
+    ponytail: a structure is read whole for a description that needs only its meta; pass it
+    over as a table is if structures grow large enough for that to show.
+    """
+    return {
+        value.id: await _whole(store, value, decoded)
+        for step in study.steps
+        for value in study.current_outputs_of(step.id)
+        if value.kind not in codecs.TABLE_KINDS
+    }
 
 
 async def _look(look: Look, study: Study, store: BlobStore) -> tuple[str, str | None]:
@@ -484,7 +502,7 @@ class StudyAgent:
         """The answer to a message on a started study: what it says, checked, and what it
         does on the scientist's words."""
         decoded: dict[uuid.UUID, Any] = {}
-        prompt = standing(study, self._tools)
+        prompt = standing(study, self._tools, data=await _held(study, self._store, decoded))
         if about := next((s for s in study.steps if s.id == command.about), None):
             outputs = study.current_outputs_of(about.id)
             data = await _whole(self._store, outputs[0], decoded) if outputs else None
@@ -637,7 +655,9 @@ class ObserveStep:
         decoded: dict[uuid.UUID, Any] = {}
         outputs = [] if step.status is StepStatus.FAILED else study.current_outputs_of(step.id)
         data = {value.id: await _whole(self._store, value, decoded) for value in outputs}
-        prompt = f"{standing(study, self._tools)}\n\n{trigger_for_observe(study, step, data)}"
+        held = await _held(study, self._store, decoded)
+        prompt = f"{standing(study, self._tools, data=held)}\n\n"
+        prompt += trigger_for_observe(study, step, data)
         if driving:
             prompt += _DRIVING
         answer, looked, shown = await _answer(

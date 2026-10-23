@@ -69,16 +69,31 @@ def _finish(study: Study, step: Step, *values: SlotValue) -> None:
 
 
 def test_steps_are_numbered_from_one_and_name_their_outputs_by_kind() -> None:
-    study = _study("chembl_actives", ("fetch_pdb", {"pdb_id": "1CA2"}), "find_pockets")
-    actives, fetch, pockets = study.steps
+    study = _study(
+        "chembl_actives", ("fetch_pdb", {"pdb_id": "1CA2"}), "find_pockets", "property_confound"
+    )
+    actives, fetch, pockets, confound = study.steps
     _finish(
         study, actives, _value("compound_table", actives.id, rows=120, columns=list("abcdefgh"))
     )
     _finish(study, fetch, _value("structure", fetch.id, id="1CA2"))
     pockets.gated = True
     pockets.problem = "no structure has been prepared"
+    # A result is described as its reader describes it, so a question typed with no step in hand
+    # still sees every coefficient; a long description is cut, and the trigger has it whole.
+    properties = [{"property": "logp", "r": 0.1237, "ci_low": -0.2131, "ci_high": 0.41, "n": 26}]
+    properties += [
+        {"property": f"descriptor_{i}", "r": 0.0, "ci_low": -0.1, "ci_high": 0.1, "n": 26}
+        for i in range(60)
+    ]
+    correlation = _value("correlation", confound.id, activity_column="pIC50", excluded=0)
+    _finish(study, confound, correlation)
 
-    text = standing(study, REGISTRY)
+    text = standing(study, REGISTRY, data={correlation.id: {"properties": properties}})
+
+    assert "- logp: r 0.124 (-0.213 to 0.41), n 26" in text
+    assert "descriptor_59" not in text and "(…)" in text
+    assert "     id: 1CA2" in text  # under the step that made it
 
     assert (
         f"1. {actives.name} [chembl_actives] — done; "

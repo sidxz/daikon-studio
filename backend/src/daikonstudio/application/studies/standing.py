@@ -4,17 +4,20 @@ The model reads a study only through this text, so what is left out cannot be cl
 and what is wrong is believed. One function writes the standing for every phase, because a
 phase decides what the agent is asked to fill, not what it knows. Steps are numbered from 1,
 the way the model's own numbers are resolved, so what it says maps back onto the plan it was
-shown; a result is a short line here and never its rows, and the full description of one goes
-only into the trigger of the turn it prompted.
+shown. Every current result is described here as its reader describes it, cut short, so a
+question typed with no step in hand can still be answered from any of them; never its rows,
+and the whole description of one goes into the trigger of the turn it prompted.
 
-Nothing here reads a blob or calls a model. A step, a turn or a pointer can name a step that
-has since been removed from the plan, so a reference is looked up and never assumed.
+Nothing here reads a blob or calls a model: the caller hands over what the readers need. A
+step, a turn or a pointer can name a step that has since been removed from the plan, so a
+reference is looked up and never assumed.
 """
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from textwrap import indent
 from typing import Any
 
 from daikonstudio.application.planner.catalogue import (
@@ -32,6 +35,9 @@ from daikonstudio.domain.studies.study import Pointer, SlotValue, Step, StepStat
 # How much of the conversation is written out: enough for the agent not to repeat itself.
 # What scrolled out of the window is carried by `thread.summary`.
 CONTEXT_TURNS = 20
+
+# How much of one result's description the standing carries; the trigger carries it whole.
+RESULT_MAX = 2000
 
 
 def _kind(kind: str) -> str:
@@ -112,7 +118,16 @@ def _brought(study: Study) -> str:
     return "\n".join(lines)
 
 
-def _plan(study: Study) -> str:
+def _described(study: Study, value: SlotValue, data: Mapping[uuid.UUID, Any]) -> str:
+    """A result as its reader describes it, cut at `RESULT_MAX`, and indented under its step."""
+    told = reader(value.kind).summarize(data.get(value.id), value.summary)
+    if study.superseded(value):
+        told = f"Chosen on an earlier result of this step, so it no longer stands: {told}"
+    cut = told if len(told) <= RESULT_MAX else f"{told[:RESULT_MAX]}(…)"
+    return indent(cut, "     ")
+
+
+def _plan(study: Study, data: Mapping[uuid.UUID, Any]) -> str:
     if not study.steps:
         return "The plan has no steps yet."
     lines = ["The steps, numbered as you refer to them (the first is 1):"]
@@ -126,9 +141,11 @@ def _plan(study: Study) -> str:
             facts.append(f"problem: {step.problem}")
         if step.error:
             facts.append(f"error: {step.error}")
-        if made := study.current_outputs_of(step.id):
+        made = study.current_outputs_of(step.id)
+        if made:
             facts.append("produced: " + ", ".join(one_line(v.kind, v.summary) for v in made))
         lines.append(f"  {step.position + 1}. {step.name} [{step.tool_id}] — {'; '.join(facts)}")
+        lines += [_described(study, value, data) for value in made]
     return "\n".join(lines)
 
 
@@ -171,15 +188,18 @@ def standing(
     study: Study,
     registry: ToolRegistry,
     *,
+    data: Mapping[uuid.UUID, Any] = {},
     memory: Sequence[str] = (),
     tool_notes: Mapping[str, str] = {},
 ) -> str:
     """The study as the agent reads it, whichever turn it is about to take.
 
     The catalogue comes first because the prompts point at it ("the catalogue below") and it
-    is the part that does not change between turns. `memory` and `tool_notes` are the places
-    for what the study recalls from earlier work and what a tool's manual says; nothing fills
-    them yet, so nothing is written for them.
+    is the part that does not change between turns. `data` is what each current result holds,
+    by value id, for the readers that describe one from more than its stored summary; a table
+    is described from its summary alone and needs none. `memory` and `tool_notes` are the
+    places for what the study recalls from earlier work and what a tool's manual says; nothing
+    fills them yet, so nothing is written for them.
     """
     sections = [
         f"{CATALOGUE_HEADING}\n{catalogue(registry.manifests())}",
@@ -188,7 +208,7 @@ def standing(
         _questions(study),
         _terms(study),
         _brought(study),
-        _plan(study),
+        _plan(study, data),
         f"On this server, claims can be checked on: {', '.join(_kind(k) for k in checkable())}.",
         f"Where the study stands, as you last wrote it:\n{study.thread.summary}"
         if study.thread.summary
