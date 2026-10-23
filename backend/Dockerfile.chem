@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # The chem-tools lane runner: OpenMM, PDBFixer, PROPKA, the fpocket binary and p2rank. CPU only.
 # fpocket is not an apt package on Debian trixie, so it is built from source in a
 # throwaway stage (the CC flag: fpocket 4.2.3 predates GCC 14, which makes its pointer-type
@@ -9,6 +10,14 @@ RUN git clone --depth 1 --branch 4.2.3 https://github.com/Discngine/fpocket.git 
  && make -C /src ARCH=LINUXAMD64 CC="gcc -Wno-error=incompatible-pointer-types" \
  && install -m 0755 /src/bin/fpocket /usr/local/bin/fpocket
 
+# p2rank 2.5.1, MIT (Radoslav Krivák et al.), the second pocket finder. BuildKit fetches
+# the tarball and checks it against the pin; it is unpacked here so the 275 MB archive
+# stays out of the runtime image's layers.
+FROM python:3.13-slim AS p2rank
+ADD --checksum=sha256:d243f2d9036ac053fefb9407b5fe1c85f4fe077c519fd975ac585e995feab274 \
+    https://github.com/rdk/p2rank/releases/download/2.5.1/p2rank_2.5.1.tar.gz /opt/p2rank.tar.gz
+RUN mkdir -p /opt/p2rank && tar -xzf /opt/p2rank.tar.gz -C /opt/p2rank
+
 FROM python:3.13-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -18,20 +27,15 @@ WORKDIR /app
 # libgomp1: same OpenMP runtime trap as Dockerfile. The JRE runs p2rank.
 RUN apt-get update \
  && apt-get upgrade -y --no-install-recommends \
- && apt-get install -y --no-install-recommends libgomp1 openjdk-21-jre-headless ca-certificates curl \
+ && apt-get install -y --no-install-recommends libgomp1 openjdk-21-jre-headless ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=fpocket /usr/local/bin/fpocket /usr/local/bin/fpocket
 
-# p2rank 2.5.1, MIT (Radoslav Krivák et al.), the second pocket finder. It is a Java
-# program; the same JRE is what OPSIN would need if substituent naming ever wants the
-# name check. A wrapper, not a symlink: the launcher finds its jars beside itself, and
-# through a symlink it looks in /usr/local/bin.
-RUN curl -fL -o /opt/p2rank.tar.gz https://github.com/rdk/p2rank/releases/download/2.5.1/p2rank_2.5.1.tar.gz \
- && echo "d243f2d9036ac053fefb9407b5fe1c85f4fe077c519fd975ac585e995feab274  /opt/p2rank.tar.gz" | sha256sum -c \
- && mkdir -p /opt/p2rank \
- && tar -xzf /opt/p2rank.tar.gz -C /opt/p2rank \
- && rm /opt/p2rank.tar.gz \
- && printf '#!/bin/sh\nexec /opt/p2rank/p2rank_2.5.1/prank "$@"\n' > /usr/local/bin/prank \
+# p2rank is a Java program; the same JRE is what OPSIN would need if substituent naming
+# ever wants the name check. A wrapper, not a symlink: the launcher finds its jars beside
+# itself, and through a symlink it looks in /usr/local/bin.
+COPY --from=p2rank /opt/p2rank /opt/p2rank
+RUN printf '#!/bin/sh\nexec /opt/p2rank/p2rank_2.5.1/prank "$@"\n' > /usr/local/bin/prank \
  && chmod +x /usr/local/bin/prank
 
 RUN python -m pip uninstall -y pip \
