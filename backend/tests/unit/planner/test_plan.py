@@ -319,4 +319,4 @@ class TestWhatTheScientistBrought:
         registry = default_registry()
         assert not registry.producing(SlotKind.POCKET)
         approvers = {m.id for m in registry.manifests() if m.resolves_to is SlotKind.POCKET}
-        assert approvers == {"find_pockets"}
+        assert approvers == {"find_pockets", "predict_pockets"}
