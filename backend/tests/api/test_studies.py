@@ -288,6 +288,25 @@ async def test_a_viewer_can_read_the_study_and_the_thread_but_not_say_or_run(
     assert len(await _thread(client, study["id"])) == len(thread.json()["turns"])
 
 
+async def test_another_workspace_gets_404_on_every_route(
+    client: httpx.AsyncClient, other_workspace_client: httpx.AsyncClient, app: FastAPI
+) -> None:
+    _script(app, COMPOUNDS)
+    study = await _started(client, COMPOUNDS_FILE)
+    path = f"/api/v1/studies/{study['id']}"
+    step = study["steps"][0]["id"]
+
+    answered = [
+        await other_workspace_client.get(path),
+        await other_workspace_client.get(f"{path}/chat"),
+        await other_workspace_client.post(f"{path}/run", json={}),
+        await other_workspace_client.post(f"{path}/steps/{step}/tool", json={"tool_id": "x"}),
+    ]
+
+    assert [r.status_code for r in answered] == [404, 404, 404, 404]
+    assert not advance_study._running
+
+
 async def test_swap_tool_records_the_event_and_the_problem(
     client: httpx.AsyncClient, app: FastAPI
 ) -> None:

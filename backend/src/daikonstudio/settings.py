@@ -105,8 +105,9 @@ class Settings(BaseSettings):
     runner_online_threshold_seconds: int = 15
 
     # The planner's language models (application/planner, infrastructure/llm).
-    # Both keys empty is a deployment with no planner: /api/v1/plans answers 503
-    # naming the variable to set, and every other part of Studio is unaffected.
+    # Both keys empty is a deployment with no planner: opening a study at /api/v1/studies,
+    # and every turn of its agent, answers 503 naming the variable to set, and every other
+    # part of Studio is unaffected.
     # Never validated at boot -- a missing model key must not stop training.
     anthropic_api_key: str = ""
     openai_api_key: str = ""

@@ -16,7 +16,7 @@ from daikonstudio.application.studies import advance_study
 from daikonstudio.application.studies.advance_study import AdvanceStudy
 from daikonstudio.application.studies.agent import ObserveStep
 from daikonstudio.application.studies.schemas import ObserveTurn
-from daikonstudio.domain.shared.errors import ConflictError, ValidationError
+from daikonstudio.domain.shared.errors import ConflictError, NotFoundError
 from daikonstudio.domain.studies.study import Step, StepStatus, Study, StudyStatus
 from daikonstudio.infrastructure.tools.catalog import default_registry
 from tests.fakes.auth import FakeAuth
@@ -439,8 +439,8 @@ async def test_running_a_step_that_does_not_exist_is_refused() -> None:
     )
     for run in ({"start": uuid.uuid4()}, {"until": uuid.uuid4()}):
         result = await advance(sid, auth=auth, **run)
-        assert isinstance(result.failure(), ValidationError)
-        assert str(result.failure()) == "No such step in this study."
+        assert isinstance(result.failure(), NotFoundError)
+        assert str(result.failure()) == "Step not found."
     assert executor.calls == []
 
 

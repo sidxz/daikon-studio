@@ -156,6 +156,9 @@ class ApplyProposal:
         )
         study.say(event)
         proposal.applied_at = now
+        if in_flight(study.id):
+            # One began while a choice was being written: the run has the row now.
+            return Failure(ConflictError(RUNNING_MESSAGE))
         await self._studies.update(study)
         if run is not None:
             # After the save: the loop reads the study from storage. The event above is the

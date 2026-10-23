@@ -14,7 +14,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from daikonstudio.application.ports.llm import LanguageModels
 from daikonstudio.application.studies.advance_study import AdvanceStudy, in_flight
@@ -38,6 +38,12 @@ router = APIRouter(prefix="/api/v1/studies", tags=["studies"])
 
 # Each file is read no further than this, so one past it is refused without being held whole.
 _MAX_UPLOAD_BYTES = 32 * 1024 * 1024
+# One file per kind is all a study takes: a compound table and a structure.
+_MAX_FILES = 2
+# A message, a question or an answer: room for a paragraph, not for a pasted file.
+_MAX_TEXT = 4000
+# Far more answers than the agent may ask questions in a whole study.
+_MAX_ANSWERS = 20
 
 OpenStudyDep = Annotated[OpenStudy, Depends(use_case(OpenStudy))]
 AttachFilesDep = Annotated[AttachFiles, Depends(use_case(AttachFiles))]
@@ -315,15 +321,15 @@ class ValueResponse(BaseModel):
 
 
 class AnswerRequest(BaseModel):
-    ask: str
-    answer: str
+    ask: str = Field(max_length=_MAX_TEXT)
+    answer: str = Field(max_length=_MAX_TEXT)
 
 
 class SayRequest(BaseModel):
     # Neither a message nor answers asks the agent for the turn it owes.
-    message: str | None = None
+    message: str | None = Field(default=None, max_length=_MAX_TEXT)
     # The answers to the agent's questions, as the cards send them, never read out of prose.
-    answers: list[AnswerRequest] = []
+    answers: list[AnswerRequest] = Field(default_factory=list, max_length=_MAX_ANSWERS)
     # The id of the step the message is about, when it was sent from that step's card.
     about: uuid.UUID | None = None
     provider: str | None = None
@@ -346,6 +352,10 @@ class ApproveRequest(BaseModel):
 
 
 async def _uploads(files: list[UploadFile]) -> tuple[Upload, ...]:
+    if len(files) > _MAX_FILES:  # refused before any of them is read
+        raise ValidationError(
+            "A study takes two files at most: one compound table and one structure."
+        )
     uploads: list[Upload] = []
     for file in files:
         content = await file.read(_MAX_UPLOAD_BYTES + 1)
@@ -374,7 +384,7 @@ async def open_study(
     auth: AuthDep,
     service: OpenStudyDep,
     tools: ToolRegistryDep,
-    message: Annotated[str, Form(max_length=4000)],
+    message: Annotated[str, Form(max_length=_MAX_TEXT)],
     provider: Annotated[str | None, Form(max_length=64)] = None,
     files: Annotated[list[UploadFile], File()] = [],  # noqa: B006 -- FastAPI copies a default
 ) -> StudyResponse:

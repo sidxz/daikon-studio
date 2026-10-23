@@ -23,7 +23,12 @@ from daikonstudio.application.studies.edits import _label, apply_actions
 from daikonstudio.application.studies.get_study import GetStudy
 from daikonstudio.application.studies.schemas import Action
 from daikonstudio.application.tools.registry import ToolRegistry
-from daikonstudio.domain.shared.errors import ConflictError, DomainError, ValidationError
+from daikonstudio.domain.shared.errors import (
+    ConflictError,
+    DomainError,
+    NotFoundError,
+    ValidationError,
+)
 from daikonstudio.domain.studies.study import Step, Study, Turn
 
 
@@ -41,7 +46,7 @@ async def _editable(
         return Failure(ConflictError(RUNNING_MESSAGE))
     step = next((s for s in study.steps if s.id == step_id), None)
     if step is None:
-        return Failure(ValidationError("No such step in this study."))
+        return Failure(NotFoundError("Step", str(step_id)))
     return Success((study, step))
 
 
@@ -119,5 +124,8 @@ class ApproveCandidate:
         study.say(
             Turn(role="event", kind="approved", say=chose, about=step_id, at=datetime.now(UTC))
         )
+        if in_flight(study.id):
+            # One began while the choice was being written: the run has the row now.
+            return Failure(ConflictError(RUNNING_MESSAGE))
         await self._studies.update(study)
         return Success(study)

@@ -36,7 +36,6 @@ from daikonstudio.domain.shared.errors import (
     ConflictError,
     DomainError,
     NotFoundError,
-    ValidationError,
 )
 from daikonstudio.domain.studies.study import SlotValue, Step, StepStatus, Study, Turn
 
@@ -143,8 +142,9 @@ class AdvanceStudy:
         if study is None or study.created_by != auth.user_id:
             return Failure(NotFoundError("Study", str(study_id)))
         known = {s.id for s in study.steps}
-        if any(step_id is not None and step_id not in known for step_id in (start, until)):
-            return Failure(ValidationError("No such step in this study."))
+        unknown = next((s for s in (start, until) if s is not None and s not in known), None)
+        if unknown is not None:
+            return Failure(NotFoundError("Step", str(unknown)))
         if study.started_at is None:
             return Failure(ConflictError("This study has not started."))
         if in_flight(study_id) or (start is None and study.next_step is None):
