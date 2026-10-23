@@ -145,7 +145,7 @@ def _asked(questions: Sequence[Question]) -> tuple[Asked, ...]:
     for question in questions:
         first.setdefault(question.ask, question)
     return tuple(
-        Asked(ask=q.ask, why=q.why, options=tuple(q.options), default=q.default)
+        Asked(ask=q.ask, why=q.why, options=tuple(q.options), default=q.default or None)
         for q in first.values()
     )
 
@@ -407,7 +407,8 @@ class StudyAgent:
         instructions = system("planning", self._tools, left=left)
         prompt = standing(study, self._tools)
         answer = await model.parse(system=instructions, prompt=prompt, schema=PlanningTurn)
-        if answer.plan is not None and (problems := self._problems(answer.plan, study)):
+        # A plan with no steps is the schema's "no plan": the turn edits the one there is.
+        if answer.plan.steps and (problems := self._problems(answer.plan, study)):
             # One more try with the plan's own problems in front of it: a missing setting or
             # an invented tool is a defect the check names exactly, and the model fixes a named
             # defect far more often than it avoids one unprompted. ponytail: one retry; the
@@ -416,7 +417,7 @@ class StudyAgent:
             prompt += "\nReturn the corrected plan."
             answer = await model.parse(system=instructions, prompt=prompt, schema=PlanningTurn)
         acted: list[Acted] = []
-        if answer.plan is not None:
+        if answer.plan.steps:
             # A whole plan replaces the steps any action beside it was numbered against.
             dropped = self._replace(study, answer.plan) + len(answer.actions)
         else:
@@ -424,7 +425,7 @@ class StudyAgent:
             acted = applied.acted
             # A draft has run nothing: no candidate to choose yet, and nothing it may run.
             dropped = applied.dropped + len(applied.approvals) + int(applied.run is not None)
-        offered = [*answer.questions, *(answer.plan.questions if answer.plan else [])]
+        offered = [*answer.questions, *answer.plan.questions]
         study.say(
             Turn(
                 role="agent",
@@ -516,12 +517,12 @@ class StudyAgent:
         start: Step | None = None
         until: Step | None = None
         run = applied.run
-        if run is not None and run.step is None and study.next_step is None:
+        if run is not None and not run.step and study.next_step is None:
             run = None  # nothing is waiting to run
             dropped += 1
         if run is not None:
-            start = None if run.step is None else study.step_at(run.step - 1)
-            until = None if run.until is None else study.step_at(run.until - 1)
+            start = study.step_at(run.step - 1) if run.step else None
+            until = study.step_at(run.until - 1) if run.until else None
             acted.append(_ran(run, start, until))
 
         study.thread.summary = answer.summary.strip()

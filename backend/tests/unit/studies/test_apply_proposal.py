@@ -150,6 +150,8 @@ async def test_a_pressed_run_starts_the_loop_at_the_steps_it_names_once_saved() 
     study = _study(*PROTEIN)
     pockets = study.steps[2]
     offered = _offer(study, Proposal(does="run", step=3, until=3, why="Look again."))
+    # As a proposal stored before an action's "none" was 0 or "" kept it: it still presses.
+    offered.action.update(tool_id=None, purpose=None, gated=None, candidate=None)
     service, studies, advance = _service(study)
 
     result = await service(ApplyCommand(study.id, offered.id), AUTH)

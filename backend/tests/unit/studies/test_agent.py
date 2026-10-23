@@ -405,12 +405,12 @@ async def test_a_quoted_run_starts_the_loop_and_an_unquoted_one_is_proposed() ->
         {
             "does": "run",
             "step_id": str(pockets.id),
-            "tool_id": None,
+            "tool_id": "",
             "before_id": None,
-            "purpose": None,
+            "purpose": "",
             "settings": {},
-            "gated": None,
-            "candidate": None,
+            "gated": False,
+            "candidate": 0,
             "until_id": str(pockets.id),
         }
     ]

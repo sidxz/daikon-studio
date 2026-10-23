@@ -253,22 +253,25 @@ _READS: dict[str, frozenset[str]] = {
 
 
 def _name(action: Action, shown: Mapping[int, Step]) -> _Named | None:
-    """Find the steps the positions this action reads name; None if one names no step."""
+    """Find the steps the positions this action reads name; None if one names no step.
+
+    0 names none, as the model is told; any other number has to be a step it was shown.
+    """
     reads = _READS[action.does]
     positions = (
-        action.step if "step" in reads else None,
-        action.before if "before" in reads else None,
-        action.until if "until" in reads else None,
+        action.step if "step" in reads else 0,
+        action.before if "before" in reads else 0,
+        action.until if "until" in reads else 0,
     )
-    if any(p is not None and p - 1 not in shown for p in positions):
+    if any(p and p - 1 not in shown for p in positions):
         return None
-    step, before, until = (None if p is None else shown[p - 1] for p in positions)
+    step, before, until = (shown[p - 1] if p else None for p in positions)
     return _Named(action, step, before, until)
 
 
-def _tool(registry: ToolRegistry, tool_id: str | None) -> ToolManifest | None:
+def _tool(registry: ToolRegistry, tool_id: str) -> ToolManifest | None:
     try:
-        return registry.get(tool_id or "")
+        return registry.get(tool_id)
     except UnknownToolError:
         return None
 
@@ -321,7 +324,7 @@ def _insert(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
             name=manifest.name,
             purpose=action.purpose or manifest.description,
             # A tool that returns candidates stops for a person to choose between them.
-            gated=manifest.judgment if action.gated is None else action.gated,
+            gated=manifest.judgment or action.gated,
             params=given,
         )
         before = None if named.before is None else named.before.id
@@ -405,7 +408,7 @@ def _set_settings(study: Study, registry: ToolRegistry, named: _Named) -> _Do | 
 
 def _set_gate(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
     step, gated = named.step, named.action.gated
-    if step is None or gated is None:
+    if step is None:
         return None
 
     def do() -> Acted:
@@ -457,14 +460,14 @@ def _approval(registry: ToolRegistry, named: _Named) -> tuple[uuid.UUID, int] | 
     """The approval to write, if the step is one that offers a choice and a rank was named."""
     step, candidate = named.step, named.action.candidate
     manifest = None if step is None else _tool(registry, step.tool_id)
-    if step is None or candidate is None or manifest is None or manifest.resolves_to is None:
+    if step is None or not candidate or manifest is None or manifest.resolves_to is None:
         return None
     return step.id, candidate
 
 
-def _now(step: Step | None) -> int | None:
-    """Where a step stands in the plan now, counted from 1 as the model counts."""
-    return None if step is None else step.position + 1
+def _now(step: Step | None) -> int:
+    """Where a step stands in the plan now, counted from 1 as the model counts; 0 for none."""
+    return 0 if step is None else step.position + 1
 
 
 def _proposal(named: _Named) -> Proposal:

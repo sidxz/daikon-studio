@@ -40,12 +40,13 @@ class Question(BaseModel):
             "option; one is offered on every question regardless."
         ),
     )
-    default: str | None = Field(
-        default=None,
+    # Empty for none, not None: a union is a branch in the grammar the provider compiles.
+    default: str = Field(
+        default="",
         description=(
             "What you will do if nobody answers. Set it whenever you can defend "
             "a choice: that turns the question into an assumption the scientist "
-            "can override, and the plan is complete without them. Leave it null "
+            "can override, and the plan is complete without them. Leave it empty "
             "only when the plan genuinely cannot be written either way -- which "
             "column is the readout, what an ambiguous code means. A question you "
             "could have defaulted is not a question, it is a decision you "
@@ -61,7 +62,7 @@ class Question(BaseModel):
         question is asked before planning; everything else rides alongside a
         finished plan as a refinement nobody has to touch.
         """
-        return self.default is None
+        return not self.default
 
 
 class Interrogation(BaseModel):

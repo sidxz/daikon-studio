@@ -51,10 +51,13 @@ class OpenAILanguageModel:
                 text_format=schema,
             )
         except openai.APIStatusError as exc:
-            _logger.warning("openai refused the request", status=exc.status_code)
+            # The SDK hands over the body's `error` object, which carries the provider's words.
+            said = exc.body.get("message") if isinstance(exc.body, dict) else None
+            said = said or exc.message
+            _logger.warning("openai refused the request", status=exc.status_code, said=said)
             raise ServiceUnavailableError(
                 "The OpenAI model could not be reached.",
-                detail=f"The provider answered {exc.status_code}.",
+                detail=f"The provider answered {exc.status_code}: {said}",
             ) from exc
         except openai.OpenAIError as exc:
             _logger.warning("openai call failed", error=str(exc)[:200])

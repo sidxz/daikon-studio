@@ -50,28 +50,31 @@ class ApplyCommand:
 
 def _rebuild(plain: dict[str, Any], study: Study) -> Action | None:
     """The proposal as the action it stands for, each step id back at its place in the plan as
-    it is now, counted from 1; None when a step it names has left the plan."""
+    it is now, counted from 1; None when a step it names has left the plan.
+
+    A proposal stored before an action's "none" was 0 or "" kept None, so None reads as none.
+    """
     places = {str(step.id): step.position + 1 for step in study.steps}
     refs = [plain["step_id"], plain["before_id"], plain["until_id"]]
     if any(ref is not None and ref not in places for ref in refs):
         return None
-    step, before, until = (None if ref is None else places[ref] for ref in refs)
+    step, before, until = (0 if ref is None else places[ref] for ref in refs)
     return Action(
         does=plain["does"],
         step=step,
-        tool_id=plain["tool_id"],
+        tool_id=plain["tool_id"] or "",
         before=before,
-        purpose=plain["purpose"],
+        purpose=plain["purpose"] or "",
         settings=[Setting(name=name, value=value) for name, value in plain["settings"].items()],
-        gated=plain["gated"],
-        candidate=plain["candidate"],
+        gated=bool(plain["gated"]),
+        candidate=plain["candidate"] or 0,
         until=until,
     )
 
 
-def _step_id(study: Study, place: int | None) -> uuid.UUID | None:
-    """The step at a place in the plan, counted from 1; None where no place is named."""
-    step = None if place is None else study.step_at(place - 1)
+def _step_id(study: Study, place: int) -> uuid.UUID | None:
+    """The step at a place in the plan, counted from 1; None where no place is named (0)."""
+    step = study.step_at(place - 1) if place else None
     return None if step is None else step.id
 
 
@@ -143,7 +146,7 @@ class ApplyProposal:
         start: uuid.UUID | None = None
         until: uuid.UUID | None = None
         if run is not None:
-            if run.step is None and study.next_step is None:
+            if not run.step and study.next_step is None:
                 return Failure(ValidationError("There is nothing left to run."))
             start, until = _step_id(study, run.step), _step_id(study, run.until)
             detail = _ran(study, start, until)

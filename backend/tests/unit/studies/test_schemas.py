@@ -7,7 +7,7 @@ field for a step. A model cannot be talked into a field that is not there.
 
 from __future__ import annotations
 
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 import pytest
@@ -53,6 +53,34 @@ def test_no_agent_schema_has_a_float_field() -> None:
     at a step, a rank or a row count are references and stay."""
     for model in (ObserveTurn, ReplyTurn, PlanningTurn, Action, Proposal, Claim, Look):
         assert "number" not in list(_types(model.model_json_schema())), model.__name__
+
+
+def _limits(node: Mapping[str, Any], defs: Mapping[str, Any]) -> tuple[int, int]:
+    """The properties a model may leave out, and the unions, with every reference counted
+    where it is used: the most a provider could count against its limits."""
+    if "$ref" in node:
+        return _limits(defs[node["$ref"].rsplit("/", 1)[-1]], defs)
+    properties = node.get("properties", {})
+    optional = len(properties.keys() - set(node.get("required", ())))
+    unions = int("anyOf" in node or "oneOf" in node or isinstance(node.get("type"), list))
+    nested = [*properties.values(), *node.get("anyOf", ()), *node.get("oneOf", ())]
+    nested += [*node.get("allOf", ()), *([node["items"]] if "items" in node else [])]
+    for child in nested:
+        more, other = _limits(child, defs)
+        optional, unions = optional + more, unions + other
+    return optional, unions
+
+
+def test_every_turn_schema_fits_the_providers_structured_output_limits() -> None:
+    """Anthropic allows 24 optional properties and 16 unions in a whole schema, and refuses
+    one it cannot compile ("The compiled grammar is too large"). A reply carrying actions and
+    proposals had 28 and 16, and every message on a started study was refused. "None" is a
+    value now, never a union, so the count has to stay where it cannot creep back over."""
+    for model in (PlanningTurn, ObserveTurn, ReplyTurn):
+        schema = model.model_json_schema()
+        optional, unions = _limits(schema, schema.get("$defs", {}))
+        assert unions == 0, model.__name__
+        assert optional <= 24, (model.__name__, optional)
 
 
 def test_a_proposal_cannot_change_the_terms() -> None:

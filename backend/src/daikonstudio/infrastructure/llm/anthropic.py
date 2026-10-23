@@ -79,10 +79,14 @@ class AnthropicLanguageModel:
             # a 401 means our key is wrong, a 429 that we are over our own limit.
             # Mapping any of them to AuthorizationError would tell a scientist
             # they lack permission for something they are perfectly entitled to.
-            _logger.warning("anthropic refused the request", status=exc.status_code)
+            # The provider's own words go with it: a status alone names no remedy.
+            error = exc.body.get("error") if isinstance(exc.body, dict) else None
+            said = error.get("message") if isinstance(error, dict) else None
+            said = said or exc.message
+            _logger.warning("anthropic refused the request", status=exc.status_code, said=said)
             raise ServiceUnavailableError(
                 "The Anthropic model could not be reached.",
-                detail=f"The provider answered {exc.status_code}.",
+                detail=f"The provider answered {exc.status_code}: {said}",
             ) from exc
         except anthropic.APIError as exc:
             _logger.warning("anthropic call failed", error=str(exc)[:200])

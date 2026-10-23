@@ -230,7 +230,7 @@ def test_an_action_naming_a_position_out_of_range_is_dropped_not_raised() -> Non
     applied = _apply(
         study,
         Action(does="remove", step=9),
-        Action(does="gate", step=0, gated=True),  # the model counts from 1
+        Action(does="gate", step=0, gated=True),  # 0 names no step, and a gate needs one
         Action(does="insert", tool_id="fetch_pdb", before=9),
         Action(does="run", until=9),
     )
@@ -376,5 +376,4 @@ def test_a_position_means_the_step_the_model_saw_however_the_plan_shifts() -> No
     assert (alerts.gated, admet.gated) == (True, False)  # the gate went where it was meant
     (proposal,) = applied.downgraded
     assert (proposal.does, proposal.step) == ("gate", 3)  # predict_admet, as numbered now
-    assert proposal.step is not None
     assert study.steps[proposal.step - 1] is admet

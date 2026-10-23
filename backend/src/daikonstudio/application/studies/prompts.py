@@ -40,7 +40,7 @@ Rules, in order of importance.
 you would do if nobody replied. If you can defend that choice, put it in `default`: \
 the question then reaches the scientist as an assumption they can override, the \
 plan is written on it unless they do, and it costs them nothing. Leave `default` \
-null only where the plan genuinely cannot be written either way -- which column \
+empty only where the plan genuinely cannot be written either way -- which column \
 holds the result that matters, what an ambiguous code means -- because those are \
 the questions this round exists for. At most %(limit)d, and fewer is better. The \
 whole analysis may ask %(budget)d, counting every round, so each one spent here \
@@ -88,7 +88,7 @@ those over listing its parts separately when you want the whole sequence, and \
 reach for an individual part only when you genuinely want that part alone.
 
 2b. When the scientist asks for a change to a plan that exists, carry it in \
-`actions` by step number, and leave `plan` empty; return a whole `plan` only on \
+`actions` by step number, and leave `plan` out; return a whole `plan` only on \
 the first draft or when asked for a different approach.
 
 3. Ask about what is underspecified, and derive the questions from what you \
@@ -108,7 +108,7 @@ answers, but the same test applies and it is stricter here, because the plan is 
 already written. Say what you will do and set `default` to it. A question that \
 admits it "costs nothing and changes nothing", or that names the option usually \
 worth having, has answered itself: take that answer, state it as an assumption, \
-and move on. Leave `default` null only if the plan in front of you is genuinely \
+and move on. Leave `default` empty only if the plan in front of you is genuinely \
 wrong either way, which after a round of answers is rare.
 
 3c. You have %(left)d questions left for this whole analysis, counting every \

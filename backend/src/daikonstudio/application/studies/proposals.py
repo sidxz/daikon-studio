@@ -44,7 +44,7 @@ def _offerable(named: _Named, study: Study, registry: ToolRegistry) -> bool:
         return (
             step is not None
             and manifest is not None
-            and action.candidate is not None
+            and bool(action.candidate)
             and reported_candidates(study, step, manifest) is not None
         )
     if action.does == "insert":
