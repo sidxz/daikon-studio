@@ -21,7 +21,7 @@ import logging
 import uuid
 import weakref
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from returns.result import Failure, Result, Success
 
@@ -29,6 +29,7 @@ from daikonstudio.application.auth import AuthContext, require_authenticated, re
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.study_repository import StudyRepository
 from daikonstudio.application.ports.tool_executor import ToolExecutor, ToolInput, ToolRunContext
+from daikonstudio.application.studies.edits import _label
 from daikonstudio.application.tools.manifest import DEFAULT_LANE
 from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.domain.shared.errors import (
@@ -44,6 +45,9 @@ if TYPE_CHECKING:
     from daikonstudio.application.studies.agent import ObserveStep
 
 logger = logging.getLogger(__name__)
+
+# Who asked for a run. Only the scientist's is written into the thread as a run.
+StartedBy = Literal["scientist", "agent"]
 
 # asyncio holds only weak references to tasks: without these, a run could be
 # garbage-collected mid-step.
@@ -84,9 +88,12 @@ def _event(kind: str, say: str, about: uuid.UUID | None) -> Turn:
     return Turn(role="event", kind=kind, say=say, about=about, at=datetime.now(UTC))
 
 
-def _label(step: Step) -> str:
-    # Stored positions are 0-based; people read the plan from 1.
-    return f"step {step.position + 1} ({step.name})"
+def _reach(study: Study, until: uuid.UUID | None) -> int:
+    """The last position a run may take: `until`'s, none at all (-1) if it has left the plan,
+    or, with no `until`, any."""
+    if until is None:
+        return len(study.steps)
+    return next((s.position for s in study.steps if s.id == until), -1)
 
 
 def _ran(study: Study, start: uuid.UUID | None, until: uuid.UUID | None) -> str:
@@ -120,13 +127,14 @@ class AdvanceStudy:
         *,
         start: uuid.UUID | None = None,
         until: uuid.UUID | None = None,
-        started_by: str = "scientist",
+        started_by: StartedBy = "scientist",
     ) -> Result[Study, DomainError]:
         """Run the steps from `start`, whatever its status, or else from the next one waiting,
         to `until`, the next gate, a failure, a pause the agent asks for, or the end.
 
-        Only a scientist's run is written into the thread as such; the agent's own turn
-        already says what it ran.
+        `until` is a place in the plan: nothing beyond it runs, whether or not it has to run
+        itself. Only a scientist's run is written into the thread as such; the agent's own
+        turn already says what it ran.
         """
         require_authenticated(auth)
         require_editor(auth)
@@ -174,17 +182,20 @@ class AdvanceStudy:
             study = await self._studies.get(workspace_id, study_id)
             if study is None:
                 return
+            last = _reach(study, until)
             step = (
                 study.next_step
                 if step_id is None
                 else next((s for s in study.steps if s.id == step_id), None)
             )
-            if step is None:
+            if step is None or step.position > last:
                 return
             step_id = None
             ended = await self._guarded(workspace_id, study, step)
-            # `study` is as the step left it, so it says whether another is waiting.
-            go_on = step.id != until and study.next_step is not None
+            # `study` is as the step left it, so it says what is waiting. The run goes on to
+            # that only while `until` is still ahead of this step and not behind that one.
+            waiting = study.next_step
+            go_on = waiting is not None and step.position < last and waiting.position <= last
             if ended is not StepStatus.SKIPPED:  # a skipped step made nothing to look at
                 go_on = go_on and ended is StepStatus.DONE and not step.gated
                 paused = await self._observe(workspace_id, study_id, step.id, driving=go_on)
@@ -196,11 +207,18 @@ class AdvanceStudy:
                 return
 
     async def _say(self, workspace_id: uuid.UUID, study_id: uuid.UUID, turn: Turn) -> None:
-        """Add an event to the study as it stands now, after whatever the agent wrote."""
-        study = await self._studies.get(workspace_id, study_id)
-        if study is not None:
-            study.say(turn)
-            await self._studies.update(study)
+        """Add an event to the study as it stands now, after whatever the agent wrote.
+
+        The event only records the run, so one that cannot be written is logged and the run
+        goes on, as an observation that cannot be taken is.
+        """
+        try:
+            study = await self._studies.get(workspace_id, study_id)
+            if study is not None:
+                study.say(turn)
+                await self._studies.update(study)
+        except Exception:
+            logger.exception("Study %s could not record a %s event", study_id, turn.kind)
 
     async def _guarded(self, workspace_id: uuid.UUID, study: Study, step: Step) -> StepStatus:
         """`_step`, with whatever it raises recorded on the step; how the step ended."""

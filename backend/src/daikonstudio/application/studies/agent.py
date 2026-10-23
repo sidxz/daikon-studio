@@ -46,7 +46,7 @@ from daikonstudio.application.planner.plan import (
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.llm import LanguageModel, LanguageModels
 from daikonstudio.application.ports.study_repository import StudyRepository
-from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE, in_flight
+from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE, StartedBy, in_flight
 from daikonstudio.application.studies.approve import approve_candidate
 from daikonstudio.application.studies.edits import (
     _brought,
@@ -130,7 +130,7 @@ class Advance(Protocol):
         *,
         start: uuid.UUID | None = None,
         until: uuid.UUID | None = None,
-        started_by: str = "scientist",
+        started_by: StartedBy = "scientist",
     ) -> Result[Study, DomainError]: ...
 
 

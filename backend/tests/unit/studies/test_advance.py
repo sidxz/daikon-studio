@@ -299,7 +299,7 @@ async def test_a_pause_without_a_reason_is_ignored() -> None:
 
 async def test_the_loop_stops_at_until_and_at_a_gate() -> None:
     model = ScriptedLanguageModel(QUIET)
-    auth, studies, _, advance, sid = _setup(
+    auth, studies, executor, advance, sid = _setup(
         {
             "fetch_pdb": lambda _p, _i: {"structure": STRUCTURE},
             "fetch_uniprot": lambda _p, _i: {"annotations": {}},
@@ -342,6 +342,26 @@ async def test_the_loop_stops_at_until_and_at_a_gate() -> None:
     turns = len(studies.rows[sid].thread.turns)
     await _advance(advance, sid, auth)  # nothing is left to run
     assert len(studies.rows[sid].thread.turns) == turns
+
+    # `until` bounds the run by its place in the plan, so a step already done bounds it too:
+    # the pending step before it runs, and the pending step beyond it does not.
+    for waiting in (ids[0], ids[2]):
+        studies.rows[sid].set_params(waiting, {"pdb_id": "1abc"})
+    assert statuses() == ["pending", "done", "pending", "done", "done"]
+    await _advance(advance, sid, auth, until=ids[1])
+    assert statuses() == ["done", "done", "pending", "done", "done"]
+    assert len(executor.calls) == 6
+    assert "driving this run" not in model.calls[-1][1]  # it was told nothing more would run
+
+    # With the next step waiting already beyond `until`, there is nothing to run.
+    await _advance(advance, sid, auth, until=ids[1])
+    assert statuses() == ["done", "done", "pending", "done", "done"]
+    assert len(executor.calls) == 6
+
+    # Playing one step stops after it, though an earlier step is still waiting.
+    await _advance(advance, sid, auth, start=ids[3], until=ids[3])
+    assert statuses() == ["done", "done", "pending", "done", "done"]
+    assert len(executor.calls) == 7
 
 
 async def test_a_run_the_agent_starts_writes_no_ran_event() -> None:
