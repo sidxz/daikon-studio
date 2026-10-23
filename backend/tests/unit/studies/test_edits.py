@@ -221,6 +221,36 @@ def test_insert_places_the_step_and_an_automatic_one_after_it() -> None:
         )
     ]
 
+    # "Merge 2 and 3" comes as their removal and an insert before the first of them: it goes
+    # where they were, before the next step still there, rather than being dropped.
+    study = _study(
+        "standardize",
+        "property_profile",
+        "property_confound",
+        "structural_alerts",
+        brought=COMPOUNDS,
+    )
+    alerts = study.steps[3]
+    applied = _apply(
+        study,
+        Action(does="remove", step=2),
+        Action(does="remove", step=3),
+        Action(
+            does="insert",
+            tool_id="check_properties",
+            before=2,
+            settings=[_setting("activity_column", "pIC50")],
+        ),
+    )
+    assert applied.dropped == 0 and len(applied.acted) == 3
+    assert _tools(study) == [
+        "standardize",
+        "property_profile",
+        "property_confound",
+        "structural_alerts",
+    ]
+    assert study.steps[1].expanded_from == "check_properties" and study.steps[3] is alerts
+
 
 def test_remove_and_swap_renumber_and_recheck() -> None:
     study = _study(*PROTEIN)

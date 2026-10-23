@@ -223,12 +223,17 @@ class Applied:
 
 @dataclass(frozen=True)
 class _Named:
-    """An action, and the steps its positions named in the plan as the model was shown it."""
+    """An action, and the steps its positions named in the plan as the model was shown it.
+
+    `later` is the steps shown from `before` on, in order, for an insert whose step to go
+    before an earlier edit in the same turn took out.
+    """
 
     action: Action
     step: Step | None
     before: Step | None
     until: Step | None
+    later: tuple[Step, ...] = ()
 
 
 # A change that has been checked and is ready to make; None as the result is one with
@@ -266,7 +271,9 @@ def _name(action: Action, shown: Mapping[int, Step]) -> _Named | None:
     if any(p and p - 1 not in shown for p in positions):
         return None
     step, before, until = (shown[p - 1] if p else None for p in positions)
-    return _Named(action, step, before, until)
+    # By the shown position, not the step's own: an earlier edit may have renumbered it.
+    later = tuple(shown[i] for i in sorted(shown) if before and i >= positions[1] - 1)
+    return _Named(action, step, before, until, later)
 
 
 def _tool(registry: ToolRegistry, tool_id: str) -> ToolManifest | None:
@@ -343,7 +350,10 @@ def _insert(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
             )
             for index, (part, share) in enumerate(zip(parts, shares, strict=True))
         ]
-        before = None if named.before is None else named.before.id
+        # "Merge 4 and 5" comes as their removal and an insert before the first of them: it
+        # goes where they were, before the next step shown that is still there, else at the end.
+        live = {step.id for step in study.steps}
+        before = next((step.id for step in named.later if step.id in live), None)
         steps = [study.insert_step(step, before=before) for step in to_steps(planned, registry)]
         added = ", ".join(_label(step) for step in steps)
         if manifest.expands_to:
