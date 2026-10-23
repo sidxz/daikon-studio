@@ -350,8 +350,9 @@ CORES = {
             "variable": {"X1": "O/S"},
             "n_rgroups": 3,
             "unmatched": [],
+            "matched": ["CPD-001", "CPD-002"],
             "misses": [],
-            "description": ["#1 ring-aromatic"],
+            "description": ["#1 ring-aromatic", "[#6]1:[#6]:[#6]:[#6]:[#6]:[#6]:1"],
             "preset_label": "ring aromatic",
             "derived": None,
             "timed_out": False,
@@ -368,8 +369,9 @@ CORES = {
             "variable": {},
             "n_rgroups": 3,
             "unmatched": ["CPD-004", "CPD-011"],
+            "matched": ["CPD-001", "CPD-002"],
             "misses": [],
-            "description": ["#2 strict"],
+            "description": ["#2 strict", "[#6]"],
             "preset_label": "strict",
             "derived": None,
             "timed_out": False,
@@ -409,7 +411,24 @@ def test_a_core_claim_cites_what_the_candidate_missed_or_let_vary() -> None:
 def test_a_core_summary_names_every_candidate_and_never_its_smarts() -> None:
     told = reader("core_candidates").summarize(CORES, CORES["meta"])
     assert "rank 1" in told and "rank 2" in told and "X1" in told and "CPD-004" in told
-    assert "[#6]" not in told and "<svg" not in told
+    assert "[#" not in told and "<svg" not in told
+
+
+def test_a_full_coverage_core_is_claimed_through_the_compounds_it_covers() -> None:
+    exact = {"candidates": [{"rank": 1, "coverage": 1.0, "matched": ["CPD-001", "CPD-002"]}]}
+    kept, dropped = check_cores(
+        [_core_claim(candidates=[1], evidence="coverage", cites=["CPD-001"])], exact
+    )
+    assert dropped == 0 and len(kept) == 1
+    _, dropped = check_cores(
+        [_core_claim(candidates=[1], evidence="coverage", cites=["CPD-009"])], exact
+    )
+    assert dropped == 1
+
+
+def test_a_claim_joining_cores_needs_each_core_to_support_every_cite() -> None:
+    _, dropped = check_cores([_core_claim(candidates=[1, 2], cites=["CPD-004"])], CORES)
+    assert dropped == 1
 
 
 FIT = {
@@ -441,3 +460,38 @@ def test_a_fit_claim_cites_terms_groups_or_compounds_the_fit_has() -> None:
     told = reader("model_fit").summarize(FIT, FIT["meta"])
     assert "q2" in told.lower() or "q²" in told
     assert "R1 b" in told and "c" in told
+
+
+def _fit_claim(evidence: str, *cites: str, label: str = "") -> Claim:
+    return Claim(step=1, label=label, evidence=evidence, cites=list(cites))
+
+
+def test_a_refused_fit_supports_no_claim() -> None:
+    refused = {
+        "meta": {"ok": False, "reason": "saturated", "reference": {"R1": "a"}},
+        "terms": [],
+        "fitted": [],
+        "unmade": [],
+    }
+    kept, dropped = check_fit([_fit_claim("term", "R1", "a")], refused)
+    assert kept == [] and dropped == 1
+
+
+def test_a_term_claim_needs_its_position_and_group_in_one_term() -> None:
+    two = {**FIT, "terms": [*FIT["terms"], {"position": "R2", "group": "Cl", "n": 2, "coef": 0.5}]}
+    kept, dropped = check_fit([_fit_claim("term", "R1", "Cl")], two)
+    assert kept == [] and dropped == 1
+
+
+def test_an_unmade_claim_cites_groups_not_compounds() -> None:
+    kept, dropped = check_fit([_fit_claim("unmade", "CPD-001")], FIT)
+    assert kept == [] and dropped == 1
+
+
+def test_a_fit_claim_cites_positions_and_not_fitted_compounds() -> None:
+    kept, dropped = check_fit([_fit_claim("fit", "ax")], FIT)
+    assert kept == [] and dropped == 1
+
+
+def test_the_fit_notes_forbid_a_number_in_a_label() -> None:
+    assert "no number in a claim's label" in reader("model_fit").notes

@@ -158,6 +158,19 @@ def _variable_cites(candidate: Mapping[str, Any]) -> set[str]:
     return {*variable, *(e for v in variable.values() for e in str(v).split("/"))}
 
 
+def _core_cites(candidate: Mapping[str, Any], evidence: str) -> set[str]:
+    """What one candidate lets a claim of this evidence cite.
+
+    Coverage points at the compounds covered, so a core with nothing missed and nothing
+    varying (an exact core) can still be claimed about.
+    """
+    if evidence == "coverage":
+        return set(candidate.get("matched") or [])
+    if evidence == "unmatched":
+        return set(candidate.get("unmatched") or [])
+    return _variable_cites(candidate)
+
+
 def check_cores(claims: Sequence[Claim], data: Mapping[str, Any]) -> tuple[list[Pointer], int]:
     """Keep only the claims about a core this result has, citing what it missed or let vary."""
     by_rank = {int(c["rank"]): c for c in data.get("candidates") or [] if "rank" in c}
@@ -168,12 +181,15 @@ def check_cores(claims: Sequence[Claim], data: Mapping[str, Any]) -> tuple[list[
         if not named or len(named) != len(set(claim.candidates)):
             dropped += 1
             continue
-        known = {u for c in named for u in (*(c.get("unmatched") or []), *_variable_cites(c))}
-        # A core claimed about with nothing behind it is an opinion, not a reading.
+        # Unlike _check_pockets, which unions its candidates' residues, each cite must be
+        # supported by every candidate named: a claim joining ranks 1 and 2 may not lean on
+        # a compound only rank 2 missed.
         if (
             claim.evidence not in {"coverage", "unmatched", "variable"}
             or not claim.cites
-            or any(c not in known for c in claim.cites)
+            or any(
+                c not in _core_cites(cand, claim.evidence) for cand in named for c in claim.cites
+            )
         ):
             dropped += 1
             continue
@@ -203,10 +219,12 @@ def summarize_cores(data: Mapping[str, Any], summary: Mapping[str, Any]) -> str:
         missed = c.get("unmatched") or []
         told = f"misses {len(missed)}: {', '.join(missed)}" if missed else "misses none"
         timed_out = " Search timed out." if c.get("timed_out") else ""
+        # The tool strips the SMARTS, and so does this: the agent is never shown one.
+        described = " ".join(d for d in c.get("description") or [] if "[#" not in d)
         lines.append(
             f"rank {c.get('rank')}{series}: coverage {c.get('coverage', 0):.0%}, "
             f"{c.get('n_atoms')} atoms, variable {variable or 'none'}, {told}."
-            f"{timed_out} {' '.join(c.get('description') or [])}".rstrip()
+            f"{timed_out} {described}".rstrip()
         )
     return "\n".join(lines)
 
@@ -220,23 +238,39 @@ _CORE_NOTES = (
 
 
 def check_fit(claims: Sequence[Claim], data: Mapping[str, Any]) -> tuple[list[Pointer], int]:
-    """Keep only the claims whose citations are positions, groups or compounds this fit has."""
+    """Keep only the claims whose citations are in this fit, each in the pool its evidence names.
+
+    A refused fit has no model, so it supports nothing. A fitted compound is not citable: the
+    summary never lists one, and a claim may not rest on what the agent was not shown.
+    """
     meta = data.get("meta") or {}
-    reference = meta.get("reference") or {}
-    known = {*reference, *map(str, reference.values())}
-    for t in data.get("terms") or []:
-        known |= {str(t.get("position")), str(t.get("group"))}
-    known |= {str(f.get("id")) for f in data.get("fitted") or []}
-    for u in data.get("unmade") or []:
-        known |= {*(u.get("groups") or {}), *map(str, (u.get("groups") or {}).values())}
+    if not meta.get("ok"):
+        return [], len(claims)
+    terms = data.get("terms") or []
+    # A term is a (position, group) pair, and its cites must be one pair. The reference
+    # group at each position is listed in the summary, so it is a pair too.
+    term_pairs = [
+        *({str(t.get("position")), str(t.get("group"))} for t in terms),
+        *({str(p), str(g)} for p, g in (meta.get("reference") or {}).items()),
+    ]
+    positions = {str(t.get("position")) for t in terms}
+    unmade = [
+        ({*map(str, groups)}, {*map(str, groups.values())})
+        for groups in (u.get("groups") or {} for u in data.get("unmade") or [])
+    ]
     kept: list[Pointer] = []
     dropped = 0
     for claim in claims:
-        if (
-            claim.evidence not in {"term", "fit", "unmade"}
-            or not claim.cites
-            or any(c not in known for c in claim.cites)
-        ):
+        cites = set(claim.cites)
+        if claim.evidence == "term":
+            ok = len(cites) == 2 and any(cites <= pair for pair in term_pairs)
+        elif claim.evidence == "fit":
+            ok = cites <= positions
+        elif claim.evidence == "unmade":
+            ok = any(cites <= (pos | groups) and cites & groups for pos, groups in unmade)
+        else:
+            ok = False
+        if not cites or not ok:
             dropped += 1
             continue
         kept.append(
@@ -282,7 +316,9 @@ _FIT_NOTES = (
     "A term is the change in activity from the reference group, assuming each position acts "
     "alone. Quote q2, not r2, for how far the model can be trusted: r2 only says it fits what "
     "it was shown. A prediction for a combination not made is the sum of its terms and "
-    "nothing more."
+    "nothing more.\n"
+    "Put no number in a claim's label. A label is not checked against the result, so a figure "
+    "in it can be wrong and still be kept; the numbers belong to the step's own card."
 )
 
 
