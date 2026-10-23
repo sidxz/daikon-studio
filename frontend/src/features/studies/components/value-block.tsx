@@ -332,7 +332,15 @@ function Approved({ data }: { data: Row }) {
   );
 }
 
-function Pockets({ data, onApprove }: { data: Row; onApprove?: (rank: number) => void }) {
+function Pockets({
+  data,
+  onApprove,
+  approveBlocked = null,
+}: {
+  data: Row;
+  onApprove?: (rank: number) => void;
+  approveBlocked?: string | null;
+}) {
   const meta = asRecord(data.meta);
   const pockets = isRows(data.pockets) ? data.pockets : [];
   const ranks = Array.isArray(meta.ligand_site_ranks) ? (meta.ligand_site_ranks as number[]) : [];
@@ -422,9 +430,19 @@ function Pockets({ data, onApprove }: { data: Row; onApprove?: (rank: number) =>
         <div className="flex flex-wrap items-start gap-3">
           <PocketDetail pocket={active} />
           {onApprove && (
-            <Button size="sm" variant="outline" onClick={() => onApprove(Number(active.rank))}>
-              Use this one
-            </Button>
+            <div className="space-y-1">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={Boolean(approveBlocked)}
+                onClick={() => onApprove(Number(active.rank))}
+              >
+                Use this one
+              </Button>
+              {approveBlocked && (
+                <p className="max-w-48 text-xs text-muted-foreground">{approveBlocked}</p>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -509,16 +527,19 @@ function Pockets({ data, onApprove }: { data: Row; onApprove?: (rank: number) =>
 
 /**
  * One value a step produced or the scientist brought, read only when shown. `onApprove` offers
- * the choice of a reported candidate, which only a finished judgment step can take.
+ * the choice of a reported candidate, which only a finished judgment step can take, and
+ * `approveBlocked` says why it cannot be taken right now.
  */
 export function ValueBlock({
   studyId,
   value,
   onApprove,
+  approveBlocked = null,
 }: {
   studyId: string;
   value: ValueSummary;
   onApprove?: (rank: number) => void;
+  approveBlocked?: string | null;
 }) {
   const query = useStudyValue(studyId, value.id);
   const read = query.data;
@@ -537,7 +558,9 @@ export function ValueBlock({
   } else if (read.kind === "site_annotations") {
     body = <SiteAnnotations summary={read.summary} data={asRecord(read.data)} />;
   } else if (read.kind === "pocket_candidates") {
-    body = <Pockets data={asRecord(read.data)} onApprove={onApprove} />;
+    body = (
+      <Pockets data={asRecord(read.data)} onApprove={onApprove} approveBlocked={approveBlocked} />
+    );
   } else if (read.kind === "pocket") {
     body = <Approved data={asRecord(read.data)} />;
   } else if (isRows(read.data) && read.data.length > 0) {

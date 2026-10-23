@@ -1,7 +1,24 @@
 "use client";
 
 import { useApprove, useRunStep, useStudy, useSwapTool, useThread } from "../hooks/use-studies";
+import { RUN_UNDER_WAY, type StudyStep, type Turn } from "../types";
 import { StepCard } from "./step-card";
+
+/**
+ * Whether the agent's newest look at a step's current result found nothing to add. Only an
+ * observation made after the step last started is about that result, and a failure to observe
+ * after it means nobody looked.
+ */
+function quiet(step: StudyStep, turns: Turn[]): boolean {
+  if ((step.status !== "done" && step.status !== "failed") || !step.started_at) return false;
+  const since = Date.parse(step.started_at);
+  const last = turns.findLast(
+    (t) =>
+      t.about === step.id &&
+      (t.kind === "observe_failed" || (t.kind === "observe" && Date.parse(t.at) > since)),
+  );
+  return last?.kind === "observe" && last.silent;
+}
 
 /**
  * The plan, one card per step, the same list in a draft and once started. Each step has its
@@ -34,10 +51,12 @@ export function StudySteps({
 
   const started = study.status !== "draft";
   const busy = study.running || run.isPending || swap.isPending;
-  // The newest observation of each step; one with nothing to say is a tick on its card.
-  const observed = new Map(
-    (thread?.turns ?? []).filter((t) => t.kind === "observe").map((t) => [t.about, t.silent]),
-  );
+  const turns = thread?.turns ?? [];
+  const choosing = study.running
+    ? RUN_UNDER_WAY
+    : approve.isPending
+      ? "Recording your choice."
+      : null;
 
   return (
     <ol className="space-y-2">
@@ -48,9 +67,7 @@ export function StudySteps({
           step={step}
           started={started}
           disabled={busy}
-          looked={
-            (step.status === "done" || step.status === "failed") && observed.get(step.id) === true
-          }
+          looked={quiet(step, turns)}
           onRun={() => run.mutate(step.id)}
           onSwap={(toolId) => swap.mutate({ stepId: step.id, toolId })}
           onApprove={
@@ -58,6 +75,7 @@ export function StudySteps({
               ? (candidate) => approve.mutate({ stepId: step.id, candidate })
               : undefined
           }
+          approveBlocked={choosing}
           onTalk={() => onTalk(step.id)}
         />
       ))}

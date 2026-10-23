@@ -7,11 +7,11 @@ import { Label } from "@/shared/components/ui/label";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Textarea } from "@/shared/components/ui/textarea";
 import { useBreadcrumbOverride } from "@/shared/lib/stores/breadcrumb-store";
-import { useQueryClient } from "@tanstack/react-query";
+import { cn } from "@/shared/lib/utils";
 import { FastForward, Paperclip, X } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
-import { threadKey } from "../hooks/query-keys";
+import { type ReactNode, useState } from "react";
 import {
+  useAttachFiles,
   useOpenStudy,
   useProviders,
   useRunTo,
@@ -19,7 +19,7 @@ import {
   useStudy,
 } from "../hooks/use-studies";
 import type { Provider, Study } from "../types";
-import { PROVIDER_LABELS } from "../types";
+import { PROVIDER_LABELS, RUN_UNDER_WAY } from "../types";
 import { PlanTerms } from "./plan-terms";
 import { MESSAGE_ID, StudyChat } from "./study-chat";
 import { StudySteps } from "./study-steps";
@@ -32,6 +32,47 @@ const CRUMB_CHARS = 60;
 /** A goal is a sentence and the breadcrumb bar is one line; a long label widens the page. */
 function crumbLabel(goal: string): string {
   return goal.length > CRUMB_CHARS ? `${goal.slice(0, CRUMB_CHARS - 1).trimEnd()}…` : goal;
+}
+
+/**
+ * A file picker drawn as a button. The input stays inside the label, so a keyboard reaches it
+ * and the ring shows where focus is. Its value is cleared after every pick, so choosing the
+ * same file again, after removing it or after a refusal, still counts as a choice.
+ */
+function FileButton({
+  label,
+  multiple = false,
+  disabled = false,
+  onFiles,
+}: {
+  label: string;
+  multiple?: boolean;
+  disabled?: boolean;
+  onFiles: (files: File[]) => void;
+}) {
+  return (
+    <label
+      className={cn(
+        "inline-flex cursor-pointer items-center gap-1.5 rounded-sm border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50",
+        disabled && "pointer-events-none opacity-50",
+      )}
+    >
+      <Paperclip className="size-3.5" aria-hidden="true" />
+      {label}
+      <input
+        type="file"
+        multiple={multiple}
+        accept=".csv,.tsv,.tab,.pdb"
+        className="sr-only"
+        disabled={disabled}
+        onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
+          event.target.value = "";
+          if (files.length > 0) onFiles(files);
+        }}
+      />
+    </label>
+  );
 }
 
 /** Which model answers; offered only when the server can reach more than one. */
@@ -119,18 +160,14 @@ function OpenForm({
         />
 
         <div className="flex flex-wrap items-center gap-2">
-          <label className="inline-flex cursor-pointer items-center gap-1.5 rounded-sm border px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50">
-            <Paperclip className="size-3.5" aria-hidden="true" />
-            {files.length > 0 ? files.map((file) => file.name).join(", ") : "Add data (optional)"}
-            <input
-              type="file"
-              multiple
-              accept=".csv,.tsv,.tab,.pdb"
-              className="sr-only"
-              disabled={open.isPending}
-              onChange={(event) => setFiles(Array.from(event.target.files ?? []))}
-            />
-          </label>
+          <FileButton
+            label={
+              files.length > 0 ? files.map((file) => file.name).join(", ") : "Add data (optional)"
+            }
+            multiple
+            disabled={open.isPending}
+            onFiles={setFiles}
+          />
           {files.length > 0 && (
             <Button
               variant="ghost"
@@ -190,21 +227,9 @@ function StudyView({
   const { data: study, isLoadingError, refetch, isRefetching } = useStudy(studyId);
   const start = useStartStudy(studyId);
   const runTo = useRunTo(studyId);
-  const client = useQueryClient();
+  const attach = useAttachFiles(studyId);
   const [about, setAbout] = useState<string | null>(null);
   useBreadcrumbOverride(studyId, study ? crumbLabel(study.goal) : undefined);
-
-  // A run writes its turns while no request of ours is open, and the study's updated_at moves
-  // with each: read the thread again when it does. Not on the first sight of the study, which
-  // the thread's own first read covers.
-  const updated = study?.updated_at;
-  const seen = useRef(updated);
-  useEffect(() => {
-    if (updated && seen.current && updated !== seen.current) {
-      void client.invalidateQueries({ queryKey: threadKey(studyId), exact: true });
-    }
-    seen.current = updated;
-  }, [client, studyId, updated]);
 
   if (isLoadingError) {
     return <QueryError title="Could not load this study" retry={refetch} retrying={isRefetching} />;
@@ -228,7 +253,7 @@ function StudyView({
         ? `Step ${problem.position + 1} has a problem, shown on its card. Settle it before starting: a study runs the plan as written.`
         : null
     : study.running
-      ? "A run is under way."
+      ? RUN_UNDER_WAY
       : study.status === "done"
         ? "Every step has run."
         : null;
@@ -253,14 +278,29 @@ function StudyView({
           </p>
         </section>
 
-        {study.brought.length > 0 && (
-          <section className="space-y-3">
+        <section className="space-y-3">
+          <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-sm font-medium">What you brought</h2>
-            {study.brought.map((value) => (
+            <span className="ml-auto">
+              <FileButton
+                label={attach.isPending ? "Adding…" : "Add a file"}
+                disabled={study.running || attach.isPending}
+                onFiles={(files) => attach.mutate(files)}
+              />
+            </span>
+          </div>
+          {study.running && <p className="text-xs text-muted-foreground">{RUN_UNDER_WAY}</p>}
+          {study.brought.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              Nothing yet. A study takes one compound table (.csv, .tsv or .tab) and one structure
+              (.pdb).
+            </p>
+          ) : (
+            study.brought.map((value) => (
               <ValueBlock key={value.id} studyId={study.id} value={value} />
-            ))}
-          </section>
-        )}
+            ))
+          )}
+        </section>
 
         <section className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">

@@ -45,8 +45,8 @@ export function PlanTerms({
       {amendedAfterSteps !== null && (
         <p className="text-xs text-muted-foreground">
           {amendedAfterSteps === 0
-            ? "Amended after the study started, before any step ran."
-            : `Amended after step ${amendedAfterSteps} ran.`}
+            ? "Amended before any step ran."
+            : `Amended after ${amendedAfterSteps} ${amendedAfterSteps === 1 ? "step" : "steps"} had run.`}
         </p>
       )}
     </>

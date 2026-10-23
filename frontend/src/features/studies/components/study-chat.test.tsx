@@ -111,12 +111,16 @@ describe("the study's thread", () => {
       }),
       "POST /studies/s1/proposals/p1/apply": () => {
         applied = "2026-10-22T00:02:00Z";
-        return planned;
+        // Applying writes an event, so the study moves and the thread is read again.
+        return { ...planned, updated_at: applied };
       },
+      "GET /tools": [],
     });
     render(chat(), { wrapper: Wrapper });
 
-    expect(await screen.findByText("Change step 2: keep_ligands=false")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Change the settings of step 2: keep_ligands false"),
+    ).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Do it" }));
 
     expect(
@@ -153,7 +157,7 @@ describe("the study's thread", () => {
       about: "st2",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Clear the step" }));
+    fireEvent.click(screen.getByRole("button", { name: "Stop sending this with the step" }));
     expect(screen.queryByText("About step 2 (Prepare structure)")).toBeNull();
   });
 });

@@ -38,6 +38,12 @@ export const STEP_TONE: Record<string, StatusTone> = {
   skipped: "muted",
 };
 
+/**
+ * Why a control that writes to the study is blocked while a run is in flight. The server
+ * refuses every such write until the run stops, so the page says so beside the control.
+ */
+export const RUN_UNDER_WAY = "A run is under way. Wait for it to stop.";
+
 export const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",

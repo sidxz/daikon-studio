@@ -1,9 +1,11 @@
 "use client";
 
+import { useTools } from "@/features/tools";
 import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useApplyProposal, useStudy } from "../hooks/use-studies";
-import type { StudyProposal, StudyStep, Turn } from "../types";
+import type { Study, StudyProposal, StudyStep, Turn } from "../types";
+import { RUN_UNDER_WAY } from "../types";
 
 /**
  * A step as the thread names it, numbered from 1 as the agent counts. A turn keeps the ids of
@@ -23,12 +25,16 @@ export function aboutStep(steps: StudyStep[], id: string): string {
 }
 
 /** What a proposal would do, in words, from the change its button keeps. */
-function proposed(action: Record<string, unknown>, steps: StudyStep[]): string {
+function proposed(
+  action: Record<string, unknown>,
+  steps: StudyStep[],
+  toolName: (id: string) => string,
+): string {
   const step = numbered(steps, action.step_id) ?? "a step";
-  const tool = typeof action.tool_id === "string" ? action.tool_id.replace(/_/g, " ") : "a tool";
+  const tool = typeof action.tool_id === "string" ? toolName(action.tool_id) : "a tool";
   const given =
     typeof action.settings === "object" && action.settings !== null ? action.settings : {};
-  const settings = Object.entries(given).map(([name, value]) => `${name}=${String(value)}`);
+  const settings = Object.entries(given).map(([name, value]) => `${name} ${String(value)}`);
   const listed = settings.length > 0 ? `: ${settings.join(", ")}` : "";
   switch (action.does) {
     case "insert": {
@@ -40,7 +46,7 @@ function proposed(action: Record<string, unknown>, steps: StudyStep[]): string {
     case "swap":
       return `Use ${tool} for ${step}${listed}`;
     case "settings":
-      return `Change ${step}${listed}`;
+      return `Change the settings of ${step}${listed}`;
     case "gate":
       return action.gated ? `Stop after ${step} for you to look` : `Let ${step} run on`;
     case "approve":
@@ -63,13 +69,17 @@ function proposed(action: Record<string, unknown>, steps: StudyStep[]): string {
 function Proposals({
   studyId,
   proposals,
-  steps,
+  study,
 }: {
   studyId: string;
   proposals: StudyProposal[];
-  steps: StudyStep[];
+  study: Study | undefined;
 }) {
   const apply = useApplyProposal(studyId);
+  const tools = useTools();
+  const toolName = (id: string) =>
+    tools.data?.find((tool) => tool.id === id)?.name ?? id.replace(/_/g, " ");
+  const running = study?.running ?? false;
   return (
     <ul className="space-y-2">
       {proposals.map((proposal) => (
@@ -77,7 +87,7 @@ function Proposals({
           key={proposal.id}
           className="space-y-1 rounded-sm border border-dashed bg-background p-2"
         >
-          <p className="font-medium">{proposed(proposal.action, steps)}</p>
+          <p className="font-medium">{proposed(proposal.action, study?.steps ?? [], toolName)}</p>
           {proposal.why && <p className="text-muted-foreground">{proposal.why}</p>}
           {proposal.applied_at ? (
             <p className="text-xs text-muted-foreground">
@@ -86,14 +96,17 @@ function Proposals({
                 : "Done."}
             </p>
           ) : (
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={apply.isPending}
-              onClick={() => apply.mutate(proposal.id)}
-            >
-              Do it
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={apply.isPending || running}
+                onClick={() => apply.mutate(proposal.id)}
+              >
+                Do it
+              </Button>
+              {running && <p className="text-xs text-muted-foreground">{RUN_UNDER_WAY}</p>}
+            </div>
           )}
         </li>
       ))}
@@ -117,13 +130,28 @@ function did({ detail, quoting }: { detail: string; quoting: string }): string {
  * with everything that survived the check against the result; an event in one grey line. A
  * silent observation is a tick on its step's card, not a line here.
  */
-export function TurnView({ studyId, turn }: { studyId: string; turn: Turn }) {
+export function TurnView({
+  studyId,
+  turn,
+  answering = false,
+}: {
+  studyId: string;
+  turn: Turn;
+  /** The turn's questions are still open and answered below it on cards, not listed here. */
+  answering?: boolean;
+}) {
   const { data: study } = useStudy(studyId);
+  const steps = study?.steps ?? [];
   if (turn.silent) return null;
   if (turn.role === "event") {
-    return <p className="px-1 text-xs text-muted-foreground">{turn.say}</p>;
+    const failed = turn.kind === "observe_failed";
+    const where = turn.about ? aboutStep(steps, turn.about) : "a step";
+    return (
+      <p className="px-1 text-xs text-muted-foreground">
+        {failed ? `Could not look at ${where}: ${turn.say}` : turn.say}
+      </p>
+    );
   }
-  const steps = study?.steps ?? [];
   const agent = turn.role === "agent";
   const dropped =
     turn.dropped > 0 &&
@@ -139,6 +167,24 @@ export function TurnView({ studyId, turn }: { studyId: string; turn: Turn }) {
         <p className="text-xs text-muted-foreground">About {aboutStep(steps, turn.about)}</p>
       )}
       {turn.say && <p className="whitespace-pre-wrap">{turn.say}</p>}
+      {/* The thread does not say whether a planning turn carried a plan or edits, so any
+          planning turn on a study that has steps says the plan moved. */}
+      {agent && turn.kind === "planning" && steps.length > 0 && (
+        <p className="text-xs text-muted-foreground">Plan updated.</p>
+      )}
+      {!answering && turn.questions.length > 0 && (
+        <ul className="space-y-1">
+          {turn.questions.map((question) => {
+            const given = study?.answers.findLast((a) => a.ask === question.ask)?.answer;
+            return (
+              <li key={question.ask}>
+                <p>{question.ask}</p>
+                {given && <p className="text-muted-foreground">You answered: {given}</p>}
+              </li>
+            );
+          })}
+        </ul>
+      )}
       {turn.points.length > 0 && (
         <ul className="space-y-1">
           {turn.points.map((point) => (
@@ -157,7 +203,7 @@ export function TurnView({ studyId, turn }: { studyId: string; turn: Turn }) {
         </ul>
       )}
       {turn.proposals.length > 0 && (
-        <Proposals studyId={studyId} proposals={turn.proposals} steps={steps} />
+        <Proposals studyId={studyId} proposals={turn.proposals} study={study} />
       )}
       {turn.actions.length > 0 && (
         <ul className="space-y-0.5">

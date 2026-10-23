@@ -22,6 +22,7 @@ export function StepCard({
   onRun,
   onSwap,
   onApprove,
+  approveBlocked = null,
   onTalk,
 }: {
   studyId: string;
@@ -36,6 +37,8 @@ export function StepCard({
   onSwap: (toolId: string) => void;
   /** Choose one of the step's candidates; given for a finished judgment step only. */
   onApprove?: (rank: number) => void;
+  /** Why a choice cannot be made right now, said beside the control; null when it can. */
+  approveBlocked?: string | null;
   /** Put this step on the composer, so the next message is about its result. */
   onTalk: () => void;
 }) {
@@ -136,7 +139,13 @@ export function StepCard({
       )}
 
       {step.outputs.map((value) => (
-        <ValueBlock key={value.id} studyId={studyId} value={value} onApprove={onApprove} />
+        <ValueBlock
+          key={value.id}
+          studyId={studyId}
+          value={value}
+          onApprove={onApprove}
+          approveBlocked={approveBlocked}
+        />
       ))}
 
       {looked && (

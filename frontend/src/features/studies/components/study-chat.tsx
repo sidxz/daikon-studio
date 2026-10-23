@@ -10,6 +10,7 @@ import { Loader2, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { threadKey } from "../hooks/query-keys";
 import { useSay, useStudy, useThread } from "../hooks/use-studies";
+import { RUN_UNDER_WAY } from "../types";
 import { QuestionCard } from "./question-card";
 import { TurnView, aboutStep } from "./turn-view";
 
@@ -44,11 +45,28 @@ export function StudyChat({
   const list = useRef<HTMLDivElement>(null);
 
   const turns = thread.data?.turns ?? [];
-  // The questions still open: the newest agent turn that asked any, with nothing said since.
+  // The questions still open: the newest agent turn that asked any, with nothing said since,
+  // while the plan is still a draft. Starting it settles whatever was left unanswered.
   const asked = turns.findLastIndex((t) => t.role === "agent" && t.questions.length > 0);
   const open =
-    asked > turns.findLastIndex((t) => t.role === "scientist") ? turns[asked].questions : [];
+    study?.status === "draft" && asked > turns.findLastIndex((t) => t.role === "scientist")
+      ? turns[asked].questions
+      : [];
+  const replies = open.map((q) => ({ ask: q.ask, answer: answers[q.ask] ?? q.default ?? "" }));
   const typed = message.trim();
+  const running = study?.running ?? false;
+
+  // A run writes its turns while no request of ours is open, and every write moves the study's
+  // `updated_at`: read the thread again when it moves. Not on the first sight of the study,
+  // which the thread's own first read covers.
+  const updated = study?.updated_at;
+  const seen = useRef(updated);
+  useEffect(() => {
+    if (updated && seen.current && updated !== seen.current) {
+      void client.invalidateQueries({ queryKey: threadKey(studyId), exact: true });
+    }
+    seen.current = updated;
+  }, [client, studyId, updated]);
 
   const count = turns.length;
   useEffect(() => {
@@ -56,21 +74,29 @@ export function StudyChat({
     if (count > 0 && list.current) list.current.scrollTop = list.current.scrollHeight;
   }, [count]);
 
-  function send(body: SayRequest) {
-    say.mutate(
-      { ...body, about: about ?? undefined, provider: provider || undefined },
-      {
-        onSuccess: () => {
-          setMessage("");
-          setAnswers({});
-        },
-        onError: () => {
-          // The scientist's words are kept before the agent is asked, so a turn the agent
-          // failed may still have left them in the thread. The box keeps them too.
-          void client.invalidateQueries({ queryKey: threadKey(studyId), exact: true });
-        },
+  /**
+   * The one way a turn is sent. The open questions' answers go with every message, so a choice
+   * made on a card is never lost to pressing Send rather than Send answers.
+   */
+  function send(text: string | undefined) {
+    const answering = replies.length > 0;
+    const body: SayRequest = {
+      message: text,
+      answers: answering ? replies : undefined,
+      about: about ?? undefined,
+      provider: provider || undefined,
+    };
+    say.mutate(body, {
+      onSuccess: () => {
+        setMessage("");
+        if (answering) setAnswers({});
       },
-    );
+      onError: () => {
+        // The scientist's words are kept before the agent is asked, so a turn the agent
+        // failed may still have left them in the thread. The box keeps them too.
+        void client.invalidateQueries({ queryKey: threadKey(studyId), exact: true });
+      },
+    });
   }
 
   return (
@@ -99,7 +125,11 @@ export function StudyChat({
         ) : (
           turns.map((turn, index) => (
             <Fragment key={`${turn.at}-${index}`}>
-              <TurnView studyId={studyId} turn={turn} />
+              <TurnView
+                studyId={studyId}
+                turn={turn}
+                answering={index === asked && open.length > 0}
+              />
               {index === asked && open.length > 0 && (
                 <div className="space-y-2">
                   <ul className="space-y-2">
@@ -115,18 +145,12 @@ export function StudyChat({
                       />
                     ))}
                   </ul>
+                  {/* Never shown during a run: a run needs a started study, and starting it
+                      closes the questions. */}
                   <Button
                     size="sm"
                     disabled={say.isPending}
-                    onClick={() =>
-                      send({
-                        answers: open.map((q) => ({
-                          ask: q.ask,
-                          answer: answers[q.ask] ?? q.default ?? "",
-                        })),
-                        message: typed || undefined,
-                      })
-                    }
+                    onClick={() => send(typed || undefined)}
                   >
                     Send answers
                   </Button>
@@ -152,7 +176,7 @@ export function StudyChat({
             <Button
               variant="ghost"
               size="icon-xs"
-              aria-label="Clear the step"
+              aria-label="Stop sending this with the step"
               onClick={onClearAbout}
             >
               <X aria-hidden="true" />
@@ -177,11 +201,12 @@ export function StudyChat({
             {say.error.message}
           </p>
         )}
-        <div className="flex justify-end">
+        <div className="flex flex-wrap items-center justify-end gap-2">
+          {running && <p className="text-xs text-muted-foreground">{RUN_UNDER_WAY}</p>}
           <Button
             size="sm"
-            disabled={say.isPending || !typed}
-            onClick={() => send({ message: typed })}
+            disabled={say.isPending || !typed || running}
+            onClick={() => send(typed)}
           >
             Send
           </Button>

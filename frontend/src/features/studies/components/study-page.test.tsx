@@ -68,12 +68,18 @@ describe("the study page", () => {
     expect(form.get("provider")).toBe("openai");
 
     fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
-    fireEvent.click(screen.getByRole("button", { name: "Send answers" }));
+    expect(screen.getByRole("button", { name: "Send answers" })).toBeEnabled();
+    // A note sent from the composer instead still carries the choice made on the card.
+    fireEvent.change(screen.getByLabelText("Message to Daikon Studio"), {
+      target: { value: "It is catalytic." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
 
     await waitFor(() => expect(requests("POST", "/studies/s1/chat")).toHaveLength(1));
     // The answers travel as a field beside the message, never in its prose, and the model
     // chosen on the form answers this turn too.
     expect(requests("POST", "/studies/s1/chat")[0].data).toEqual({
+      message: "It is catalytic.",
       answers: [{ ask: "Should the zinc stay in the structure?", answer: "Keep it" }],
       provider: "openai",
     });
@@ -112,11 +118,21 @@ describe("the study page", () => {
     });
     const pockets = step({ id: "st2", position: 1, tool_id: "find_pockets", name: "Find pockets" });
     const planned = draft({ steps: [fetch, pockets] });
+    const started = study({ steps: [fetch, pockets] });
+    let current = planned;
     route({
       "GET /studies/providers": one,
-      "GET /studies/s1": planned,
+      "GET /studies/s1": () => current,
       "GET /studies/s1/chat": { summary: "", turns: [] },
-      "POST /studies/s1/steps/st1/tool": planned,
+      "POST /studies/s1/steps/st1/tool": () => current,
+      "POST /studies/s1/start": () => {
+        current = started;
+        return current;
+      },
+      "POST /studies/s1/run": () => {
+        current = { ...started, running: true };
+        return current;
+      },
     });
     render(<StudyPage studyId="s1" />, { wrapper: Wrapper });
 
@@ -133,6 +149,14 @@ describe("the study page", () => {
     expect(requests("POST", "/studies/s1/steps/st1/tool")[0].data).toEqual({
       tool_id: "fetch_alphafold",
     });
+
+    // Started, the steps can run, one at a time or on to the next stop.
+    fireEvent.click(screen.getByRole("button", { name: "Start this study" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Run to the next stop" }));
+    await waitFor(() => expect(requests("POST", "/studies/s1/run")).toHaveLength(1));
+    expect(requests("POST", "/studies/s1/start")).toHaveLength(1);
+    expect(requests("POST", "/studies/s1/run")[0].data).toEqual({});
+    expect(screen.getByRole("button", { name: "Run step 2" })).toBeInTheDocument();
   });
 
   it("reads the thread again when the study moves", async () => {

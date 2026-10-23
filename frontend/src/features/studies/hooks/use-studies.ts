@@ -40,9 +40,10 @@ export function useStudy(id: string | undefined) {
 
 /**
  * The one conversation of a study, from the agent's first questions on. A study
- * has a thread from its first message, so this is never null. Every write below
- * leaves it current; the page reads it again whenever the study's `updated_at`
- * moves, because a run writes turns while no request is open.
+ * has a thread from its first message, so this is never null. `useSay` sets it
+ * from its answer; otherwise the page reads it again whenever the study's
+ * `updated_at` moves, which every write below does, and so does a run while no
+ * request is open.
  */
 export function useThread(studyId: string) {
   return useQuery({
@@ -54,15 +55,14 @@ export function useThread(studyId: string) {
 
 /**
  * What every write that answers with a study leaves behind. The answer is the
- * study as it now stands, so it goes straight into the cache. The thread may have
- * gained a turn the server wrote (an event, a reply) and the list shows when each
- * study last moved, neither of which the answer carries, so both are read again.
+ * study as it now stands, so it goes straight into the cache. The list shows when
+ * each study last moved, which the answer does not carry, so it is read again.
+ * The thread is left to the page, which reads it again when `updated_at` moves.
  */
 function useAfterWrite() {
   const client = useQueryClient();
   return (study: Study) => {
     client.setQueryData([...STUDIES_KEY, study.id], study);
-    void client.invalidateQueries({ queryKey: threadKey(study.id), exact: true });
     void client.invalidateQueries({ queryKey: STUDIES_KEY, exact: true });
   };
 }
@@ -243,8 +243,9 @@ export function useSay(studyId: string) {
  * Make a change an agent proposed.
  *
  * Answers with the whole study because a proposal can add a step or start a run,
- * and the step list is what the scientist is about to look at. The thread is read
- * again too, so the proposal comes back marked as made.
+ * and the step list is what the scientist is about to look at. Applying it writes
+ * an event, so `updated_at` moves and the page reads the thread again, with the
+ * proposal marked as made.
  */
 export function useApplyProposal(studyId: string) {
   const written = useAfterWrite();
