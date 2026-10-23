@@ -44,7 +44,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <AppSidebar />
       <SidebarInset>
         <Header />
-        <main className="min-w-0 flex-1 overflow-auto px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
+        {/* Clip, not auto: the window does the scrolling, and a scroll box here that never
+            scrolls is the one `sticky` sticks to, so nothing below it could stay in view. */}
+        <main className="min-w-0 flex-1 overflow-x-clip px-3 py-4 sm:px-6 sm:py-5 lg:px-8">
           {children}
         </main>
       </SidebarInset>
