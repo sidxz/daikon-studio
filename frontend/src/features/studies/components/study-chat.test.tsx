@@ -36,7 +36,7 @@ describe("the study's thread", () => {
     route({
       "GET /studies/s1": planned,
       "GET /studies/s1/chat": {
-        summary: "",
+        summary: "Step 2 waits to run again without the zinc.",
         turns: [
           turn({ role: "scientist", say: "Rerun without the zinc, please." }),
           turn({
@@ -76,6 +76,10 @@ describe("the study's thread", () => {
     expect(
       screen.getByText(/a removed step · rank 2 · zinc site · ligand overlap/),
     ).toBeInTheDocument();
+    // The summary is folded above the composer, so it never crowds out the thread.
+    const folded = screen.getByText("Where this stands").closest("details");
+    expect(folded).not.toHaveAttribute("open");
+    expect(folded).toHaveTextContent("Step 2 waits to run again without the zinc.");
   });
 
   it("a proposal's button posts apply and then reads as done", async () => {

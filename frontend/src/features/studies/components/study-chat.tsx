@@ -102,12 +102,6 @@ export function StudyChat({
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-3">
       <h2 className="text-sm font-medium">Conversation</h2>
-      {thread.data?.summary && (
-        <div className="space-y-1 rounded-sm border border-dashed p-3">
-          <h3 className="text-xs font-medium">Where this stands</h3>
-          <p className="text-sm text-muted-foreground">{thread.data.summary}</p>
-        </div>
-      )}
 
       <div ref={list} className="min-h-0 flex-1 space-y-2 overflow-y-auto">
         {thread.isLoadingError ? (
@@ -166,6 +160,14 @@ export function StudyChat({
           </p>
         )}
       </div>
+
+      {/* Folded: it can run to a page, and open it would leave the thread no room. */}
+      {thread.data?.summary && (
+        <details className="rounded-sm border border-dashed px-3 py-2 text-sm">
+          <summary className="cursor-pointer text-xs font-medium">Where this stands</summary>
+          <p className="mt-1 text-muted-foreground">{thread.data.summary}</p>
+        </details>
+      )}
 
       <div className="space-y-2 border-t pt-3">
         {about && (
