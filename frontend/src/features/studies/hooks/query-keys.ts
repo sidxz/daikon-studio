@@ -1,3 +1,3 @@
-/** Root query keys for studies and plans, declared once so reads and invalidations cannot drift. */
+/** Root query keys for studies and providers, declared once so reads and invalidations cannot drift. */
 export const STUDIES_KEY = ["studies"];
-export const PROVIDERS_KEY = ["plans", "providers"];
+export const PROVIDERS_KEY = ["studies", "providers"];

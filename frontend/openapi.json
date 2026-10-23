@@ -2017,116 +2017,6 @@
         }
       }
     },
-    "/api/v1/plans/providers": {
-      "get": {
-        "tags": [
-          "plans"
-        ],
-        "summary": "List Providers",
-        "description": "The model providers this deployment can actually reach.\n\nA provider with no key is left out rather than listed and broken, so a client\ncan offer the choice honestly. An empty list means no planner is configured.",
-        "operationId": "list_providers_api_v1_plans_providers_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/ProviderResponse"
-                  },
-                  "type": "array",
-                  "title": "Response List Providers Api V1 Plans Providers Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/plans/questions": {
-      "post": {
-        "tags": [
-          "plans"
-        ],
-        "summary": "Ask First",
-        "description": "What the planner needs to know, before it has planned anything.\n\nThe first half of drafting. Asked to do both at once a model asks whether\nIC50 is the readout and, in the same answer, writes a plan that uses IC50\nthroughout -- so the guess is load-bearing before anyone has read the\nquestion. One extra call makes the plan an answer to something.",
-        "operationId": "ask_first_api_v1_plans_questions_post",
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_ask_first_api_v1_plans_questions_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/QuestionsResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/plans": {
-      "post": {
-        "tags": [
-          "plans"
-        ],
-        "summary": "Draft Plan",
-        "description": "Draft a plan, given the goal, the shape of the data and whatever the\nscientist said to the questions.\n\n`answers` is a JSON array of `{ask, answer}` sent as a form field, because\nthe rest of the request is multipart and carrying the file alongside it is\nwhat lets the plan be written against both. Answering nothing is allowed; the\nplan then has to say which assumptions it made.\n\nWrites nothing and runs nothing. A plan is a proposal.",
-        "operationId": "draft_plan_api_v1_plans_post",
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_draft_plan_api_v1_plans_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/PlanResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/api/v1/protocols": {
       "post": {
         "tags": [
@@ -4173,13 +4063,39 @@
         }
       }
     },
+    "/api/v1/studies/providers": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "List Providers",
+        "description": "The model providers this deployment can actually reach.\n\nA provider with no key is left out rather than listed and broken, so a client can offer\nthe choice honestly. An empty list means no agent is configured. Declared before\n`/{study_id}`, which would otherwise take \"providers\" for an id.",
+        "operationId": "list_providers_api_v1_studies_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Providers Api V1 Studies Providers Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/studies": {
       "get": {
         "tags": [
           "studies"
         ],
         "summary": "List Studies",
-        "description": "Your studies in this workspace, newest first.",
+        "description": "Your studies in this workspace, drafts included, newest first.",
         "operationId": "list_studies_api_v1_studies_get",
         "responses": {
           "200": {
@@ -4202,14 +4118,14 @@
         "tags": [
           "studies"
         ],
-        "summary": "Start Study",
-        "description": "Save an approved plan as a study, with the compounds file if there is one.\n\n`plan` is a JSON `StartStudyRequest` sent as a form field, because the file\ntravels in the same multipart request.",
-        "operationId": "start_study_api_v1_studies_post",
+        "summary": "Open Study",
+        "description": "Open a study on the scientist's first message, with whatever files came with it.\n\nThe agent's first turn is taken before this answers, so the thread already holds the goal\nas understood and what it needs to ask. Multipart, because the files travel with the\nmessage.",
+        "operationId": "open_study_api_v1_studies_post",
         "requestBody": {
           "content": {
             "multipart/form-data": {
               "schema": {
-                "$ref": "#/components/schemas/Body_start_study_api_v1_studies_post"
+                "$ref": "#/components/schemas/Body_open_study_api_v1_studies_post"
               }
             }
           },
@@ -4282,14 +4198,14 @@
         }
       }
     },
-    "/api/v1/studies/{study_id}/advance": {
-      "post": {
+    "/api/v1/studies/{study_id}/chat": {
+      "get": {
         "tags": [
           "studies"
         ],
-        "summary": "Advance Study",
-        "description": "Run the study's next steps in the background, up to a gate, a failure or the end.\n\nRe-runs a failed step. Does nothing while the study is already running.",
-        "operationId": "advance_study_api_v1_studies__study_id__advance_post",
+        "summary": "Read Thread",
+        "description": "The study's one conversation, from the agent's first turn on.",
+        "operationId": "read_thread_api_v1_studies__study_id__chat_get",
         "parameters": [
           {
             "name": "study_id",
@@ -4299,6 +4215,210 @@
               "type": "string",
               "format": "uuid",
               "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Say",
+        "description": "Say something to the study's agent, or send the answers to its questions.\n\nIt answers in the turn the study's phase calls for: before Start it writes and edits the\nplan; after, it replies, and does what the message asks only on the message's own words.\nA POST because it costs a model call, and because what was said is kept with the study.",
+        "operationId": "say_api_v1_studies__study_id__chat_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SayRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/files": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Attach Files",
+        "description": "Bring more files to a study, a draft or started, one of each kind.",
+        "operationId": "attach_files_api_v1_studies__study_id__files_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_attach_files_api_v1_studies__study_id__files_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/start": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Start Study",
+        "description": "End the draft, if its plan can go ahead as it stands. Runs nothing.",
+        "operationId": "start_study_api_v1_studies__study_id__start_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/steps/{step_id}/run": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Run Step",
+        "description": "Run one step alone in the background, whatever its gate says, and stop.\n\nRe-running a finished step adds newer values, which later steps then read; it does not\nreset those later steps. Does nothing while the study is already running.",
+        "operationId": "run_step_api_v1_studies__study_id__steps__step_id__run_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "step_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Step Id"
             }
           }
         ],
@@ -4326,14 +4446,68 @@
         }
       }
     },
-    "/api/v1/studies/{study_id}/steps/{position}/run": {
+    "/api/v1/studies/{study_id}/run": {
       "post": {
         "tags": [
           "studies"
         ],
-        "summary": "Run Step",
-        "description": "Run one step alone in the background, whatever its gate says, and stop.\n\nRe-running a finished step adds newer values, which later steps then read; it does\nnot reset those later steps. Does nothing while the study is already running.",
-        "operationId": "run_step_api_v1_studies__study_id__steps__position__run_post",
+        "summary": "Run Study",
+        "description": "Run the steps in the background from `start` to `until`, a gate, a failure, a pause\nthe agent asks for, or the end.\n\nRe-runs a failed step. Does nothing while the study is already running.",
+        "operationId": "run_study_api_v1_studies__study_id__run_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/steps/{step_id}/tool": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Swap Tool",
+        "description": "Point a step at one of its alternatives; the thread records the change.",
+        "operationId": "swap_tool_api_v1_studies__study_id__steps__step_id__tool_post",
         "parameters": [
           {
             "name": "study_id",
@@ -4346,17 +4520,92 @@
             }
           },
           {
-            "name": "position",
+            "name": "step_id",
             "in": "path",
             "required": true,
             "schema": {
-              "type": "integer",
-              "title": "Position"
+              "type": "string",
+              "format": "uuid",
+              "title": "Step Id"
             }
           }
         ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapRequest"
+              }
+            }
+          }
+        },
         "responses": {
-          "202": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/steps/{step_id}/approve": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Approve Candidate",
+        "description": "Choose one of the candidates a finished step reported, as the scientist's own value.\n\nThe thread records the choice, and the value names who made it.",
+        "operationId": "approve_candidate_api_v1_studies__study_id__steps__step_id__approve_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "step_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Step Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
@@ -4385,7 +4634,7 @@
           "studies"
         ],
         "summary": "Apply Proposal",
-        "description": "Make a change an agent proposed, now that the scientist has confirmed it.\n\nChanges the plan and stops there. The step is left for the play control the\nscientist already knows, so confirming a change never starts a long job they\ndid not ask to start.",
+        "description": "Make a change an agent proposed, now that the scientist has pressed its button.\n\nAn edit changes the plan and leaves the step for its play control. A proposal to run\nstarts the run its button names, in the background, and the study comes back as it was\nsaved before the run began.",
         "operationId": "apply_proposal_api_v1_studies__study_id__proposals__proposal_id__apply_post",
         "parameters": [
           {
@@ -4416,232 +4665,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/StudyResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/studies/{study_id}/chat": {
-      "get": {
-        "tags": [
-          "studies"
-        ],
-        "summary": "Read Study Thread",
-        "description": "What has been said about the study as a whole. Null until anything has been.",
-        "operationId": "read_study_thread_api_v1_studies__study_id__chat_get",
-        "parameters": [
-          {
-            "name": "study_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Study Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/ThreadResponse"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "title": "Response Read Study Thread Api V1 Studies  Study Id  Chat Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "studies"
-        ],
-        "summary": "Ask Study",
-        "description": "Say something to the agent that holds the whole study, or let it open.\n\nIt reads each stage's summary rather than each stage's exchange, so what it\nknows about a result is what that stage's agent concluded about it.",
-        "operationId": "ask_study_api_v1_studies__study_id__chat_post",
-        "parameters": [
-          {
-            "name": "study_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Study Id"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SayRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ThreadResponse"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/api/v1/studies/{study_id}/steps/{position}/chat": {
-      "get": {
-        "tags": [
-          "studies"
-        ],
-        "summary": "Read Thread",
-        "description": "What has been said at one stage. Null until anything has been.",
-        "operationId": "read_thread_api_v1_studies__study_id__steps__position__chat_get",
-        "parameters": [
-          {
-            "name": "study_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Study Id"
-            }
-          },
-          {
-            "name": "position",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Position"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "anyOf": [
-                    {
-                      "$ref": "#/components/schemas/ThreadResponse"
-                    },
-                    {
-                      "type": "null"
-                    }
-                  ],
-                  "title": "Response Read Thread Api V1 Studies  Study Id  Steps  Position  Chat Get"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            }
-          }
-        }
-      },
-      "post": {
-        "tags": [
-          "studies"
-        ],
-        "summary": "Say",
-        "description": "Say something to the agent at one stage, or with no message, let it open.\n\nA POST because it costs a model call, and because the exchange is kept with\nthe study: what the scientist was told before they decided is part of the\nrecord, the same reason a plan records what wrote it.",
-        "operationId": "say_api_v1_studies__study_id__steps__position__chat_post",
-        "parameters": [
-          {
-            "name": "study_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Study Id"
-            }
-          },
-          {
-            "name": "position",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "integer",
-              "title": "Position"
-            }
-          }
-        ],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/SayRequest"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ThreadResponse"
                 }
               }
             }
@@ -4946,6 +4969,41 @@
   },
   "components": {
     "schemas": {
+      "ActedResponse": {
+        "properties": {
+          "does": {
+            "type": "string",
+            "title": "Does"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "quoting": {
+            "type": "string",
+            "title": "Quoting"
+          }
+        },
+        "type": "object",
+        "required": [
+          "does",
+          "step",
+          "detail",
+          "quoting"
+        ],
+        "title": "ActedResponse"
+      },
       "ActivityCliffResponse": {
         "properties": {
           "left_structure": {
@@ -4984,14 +5042,34 @@
         ],
         "title": "ActivityCliffResponse"
       },
+      "AlternativeResponse": {
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "title": "Tool Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tool_id",
+          "name"
+        ],
+        "title": "AlternativeResponse"
+      },
       "AnswerRequest": {
         "properties": {
           "ask": {
             "type": "string",
+            "maxLength": 4000,
             "title": "Ask"
           },
           "answer": {
             "type": "string",
+            "maxLength": 4000,
             "title": "Answer"
           }
         },
@@ -5019,6 +5097,19 @@
           "answer"
         ],
         "title": "AnswerResponse"
+      },
+      "ApproveRequest": {
+        "properties": {
+          "candidate": {
+            "type": "integer",
+            "title": "Candidate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "candidate"
+        ],
+        "title": "ApproveRequest"
       },
       "ArchivePageBody": {
         "properties": {
@@ -5075,121 +5166,57 @@
         ],
         "title": "BlobPutResponse"
       },
-      "Body_ask_first_api_v1_plans_questions_post": {
+      "Body_attach_files_api_v1_studies__study_id__files_post": {
         "properties": {
-          "goal": {
-            "type": "string",
-            "maxLength": 4000,
-            "title": "Goal"
-          },
-          "provider": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 64
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Provider"
-          },
-          "file": {
-            "anyOf": [
-              {
-                "type": "string",
-                "contentMediaType": "application/octet-stream"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "File"
-          }
-        },
-        "type": "object",
-        "required": [
-          "goal"
-        ],
-        "title": "Body_ask_first_api_v1_plans_questions_post"
-      },
-      "Body_draft_plan_api_v1_plans_post": {
-        "properties": {
-          "goal": {
-            "type": "string",
-            "maxLength": 4000,
-            "title": "Goal"
-          },
-          "provider": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 64
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Provider"
-          },
-          "file": {
-            "anyOf": [
-              {
-                "type": "string",
-                "contentMediaType": "application/octet-stream"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "File"
-          },
-          "answers": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Answers"
-          }
-        },
-        "type": "object",
-        "required": [
-          "goal"
-        ],
-        "title": "Body_draft_plan_api_v1_plans_post"
-      },
-      "Body_start_study_api_v1_studies_post": {
-        "properties": {
-          "plan": {
-            "type": "string",
-            "contentMediaType": "application/json",
-            "contentSchema": {
-              "$ref": "#/components/schemas/StartStudyRequest"
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
             },
-            "title": "Plan"
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_attach_files_api_v1_studies__study_id__files_post"
+      },
+      "Body_open_study_api_v1_studies_post": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Message"
           },
-          "file": {
+          "provider": {
             "anyOf": [
               {
                 "type": "string",
-                "contentMediaType": "application/octet-stream"
+                "maxLength": 64
               },
               {
                 "type": "null"
               }
             ],
-            "title": "File"
+            "title": "Provider"
+          },
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files",
+            "default": []
           }
         },
         "type": "object",
         "required": [
-          "plan"
+          "message"
         ],
-        "title": "Body_start_study_api_v1_studies_post"
+        "title": "Body_open_study_api_v1_studies_post"
       },
       "Body_upload_dataset_file_api_v1_datasets_uploads_post": {
         "properties": {
@@ -7856,84 +7883,19 @@
         ],
         "title": "ParityPointResponse"
       },
-      "PlanResponse": {
-        "properties": {
-          "goal": {
-            "type": "string",
-            "title": "Goal"
-          },
-          "restated_goal": {
-            "type": "string",
-            "title": "Restated Goal"
-          },
-          "questions": {
-            "items": {
-              "$ref": "#/components/schemas/QuestionResponse"
-            },
-            "type": "array",
-            "title": "Questions"
-          },
-          "steps": {
-            "items": {
-              "$ref": "#/components/schemas/StepResponse"
-            },
-            "type": "array",
-            "title": "Steps"
-          },
-          "checks": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Checks"
-          },
-          "stop_conditions": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Stop Conditions"
-          },
-          "skipped": {
-            "items": {
-              "$ref": "#/components/schemas/ProblemResponse"
-            },
-            "type": "array",
-            "title": "Skipped"
-          },
-          "problems": {
-            "items": {
-              "$ref": "#/components/schemas/ProblemResponse"
-            },
-            "type": "array",
-            "title": "Problems"
-          },
-          "written_by": {
-            "type": "string",
-            "title": "Written By"
-          },
-          "questions_left": {
-            "type": "integer",
-            "title": "Questions Left"
-          }
-        },
-        "type": "object",
-        "required": [
-          "goal",
-          "restated_goal",
-          "questions",
-          "steps",
-          "checks",
-          "stop_conditions",
-          "skipped",
-          "problems",
-          "written_by",
-          "questions_left"
-        ],
-        "title": "PlanResponse"
-      },
       "PointerResponse": {
         "properties": {
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
           "at": {
             "type": "string",
             "title": "At"
@@ -7956,6 +7918,7 @@
         },
         "type": "object",
         "required": [
+          "step",
           "at",
           "label",
           "evidence",
@@ -8152,31 +8115,6 @@
         "title": "PredictionResponse",
         "description": "One scored compound. `readouts` holds one entry per Readout the\nProtocol declares (a numeric value for regression; probability and class\nfor classification), each carrying its own unit and direction so a\nprediction can be lined up against a measurement without a second call --\nsee `PredictionRow`'s own docstring for why `uncertainty` and\n`applicability` are shaped the way they are. `uncertainty` has one entry per\ntarget, keyed by its column."
       },
-      "ProblemResponse": {
-        "properties": {
-          "step": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Step"
-          },
-          "message": {
-            "type": "string",
-            "title": "Message"
-          }
-        },
-        "type": "object",
-        "required": [
-          "step",
-          "message"
-        ],
-        "title": "ProblemResponse"
-      },
       "ProfileComputingResponse": {
         "properties": {
           "status": {
@@ -8209,36 +8147,10 @@
             "type": "string",
             "title": "Id"
           },
-          "does": {
-            "type": "string",
-            "title": "Does"
-          },
-          "step": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Step"
-          },
-          "tool_id": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Tool Id"
-          },
-          "settings": {
+          "action": {
             "additionalProperties": true,
             "type": "object",
-            "title": "Settings"
+            "title": "Action"
           },
           "why": {
             "type": "string",
@@ -8260,10 +8172,7 @@
         "type": "object",
         "required": [
           "id",
-          "does",
-          "step",
-          "tool_id",
-          "settings",
+          "action",
           "why",
           "applied_at"
         ],
@@ -8629,8 +8538,7 @@
               "type": "string"
             },
             "type": "array",
-            "title": "Options",
-            "default": []
+            "title": "Options"
           },
           "default": {
             "anyOf": [
@@ -8647,46 +8555,11 @@
         "type": "object",
         "required": [
           "ask",
-          "why"
+          "why",
+          "options",
+          "default"
         ],
         "title": "QuestionResponse"
-      },
-      "QuestionsResponse": {
-        "properties": {
-          "goal": {
-            "type": "string",
-            "title": "Goal"
-          },
-          "restated_goal": {
-            "type": "string",
-            "title": "Restated Goal"
-          },
-          "questions": {
-            "items": {
-              "$ref": "#/components/schemas/QuestionResponse"
-            },
-            "type": "array",
-            "title": "Questions"
-          },
-          "written_by": {
-            "type": "string",
-            "title": "Written By"
-          },
-          "questions_left": {
-            "type": "integer",
-            "title": "Questions Left"
-          }
-        },
-        "type": "object",
-        "required": [
-          "goal",
-          "restated_goal",
-          "questions",
-          "written_by",
-          "questions_left"
-        ],
-        "title": "QuestionsResponse",
-        "description": "What the planner needs to know, before it has planned anything."
       },
       "RankedPredictionResponse": {
         "properties": {
@@ -9409,6 +9282,36 @@
         "title": "RunMetricsWire",
         "description": "Mirrors exactly what `Run.record_metrics` writes (`domain/execution/run.py`):\none headline per target -- the only shape a runner-reported training `metrics`\npayload may take.\n\nA free `dict[str, Any]` here would let a self-hosted runner store\narbitrary JSON verbatim in the `runs.metrics` column, inside the same\nsecurity boundary the module docstring calls out. Pinning the shape\nmeans a malformed payload is a 422 at the edge, not a write."
       },
+      "RunRequest": {
+        "properties": {
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "type": "object",
+        "title": "RunRequest"
+      },
       "RunResponse": {
         "properties": {
           "id": {
@@ -9821,13 +9724,34 @@
           "message": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 4000
               },
               {
                 "type": "null"
               }
             ],
             "title": "Message"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerRequest"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Answers"
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "About"
           },
           "provider": {
             "anyOf": [
@@ -10737,160 +10661,12 @@
         ],
         "title": "SplitStrategy"
       },
-      "StartStepRequest": {
-        "properties": {
-          "tool_id": {
-            "type": "string",
-            "title": "Tool Id"
-          },
-          "purpose": {
-            "type": "string",
-            "title": "Purpose"
-          },
-          "params": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Params",
-            "default": {}
-          },
-          "gated": {
-            "type": "boolean",
-            "title": "Gated"
-          },
-          "always": {
-            "type": "boolean",
-            "title": "Always",
-            "default": false
-          },
-          "expanded_from": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expanded From"
-          }
-        },
-        "type": "object",
-        "required": [
-          "tool_id",
-          "purpose",
-          "gated"
-        ],
-        "title": "StartStepRequest"
-      },
-      "StartStudyRequest": {
-        "properties": {
-          "goal": {
-            "type": "string",
-            "title": "Goal"
-          },
-          "restated_goal": {
-            "type": "string",
-            "title": "Restated Goal"
-          },
-          "checks": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Checks",
-            "default": []
-          },
-          "stop_conditions": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Stop Conditions",
-            "default": []
-          },
-          "steps": {
-            "items": {
-              "$ref": "#/components/schemas/StartStepRequest"
-            },
-            "type": "array",
-            "title": "Steps"
-          },
-          "answers": {
-            "items": {
-              "$ref": "#/components/schemas/AnswerRequest"
-            },
-            "type": "array",
-            "title": "Answers",
-            "default": []
-          },
-          "planning": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Planning",
-            "default": {}
-          }
-        },
-        "type": "object",
-        "required": [
-          "goal",
-          "restated_goal",
-          "steps"
-        ],
-        "title": "StartStudyRequest"
-      },
-      "StepResponse": {
-        "properties": {
-          "tool_id": {
-            "type": "string",
-            "title": "Tool Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "purpose": {
-            "type": "string",
-            "title": "Purpose"
-          },
-          "gated": {
-            "type": "boolean",
-            "title": "Gated"
-          },
-          "expanded_from": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expanded From"
-          },
-          "always": {
-            "type": "boolean",
-            "title": "Always"
-          },
-          "params": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Params"
-          }
-        },
-        "type": "object",
-        "required": [
-          "tool_id",
-          "name",
-          "purpose",
-          "gated",
-          "expanded_from",
-          "always",
-          "params"
-        ],
-        "title": "StepResponse"
-      },
       "StepStateResponse": {
         "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
           "position": {
             "type": "integer",
             "title": "Position"
@@ -10946,6 +10722,17 @@
             ],
             "title": "Error"
           },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
           "started_at": {
             "anyOf": [
               {
@@ -10977,13 +10764,21 @@
             "type": "array",
             "title": "Outputs"
           },
-          "discussable": {
+          "judgment": {
             "type": "boolean",
-            "title": "Discussable"
+            "title": "Judgment"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/AlternativeResponse"
+            },
+            "type": "array",
+            "title": "Alternatives"
           }
         },
         "type": "object",
         "required": [
+          "id",
           "position",
           "tool_id",
           "name",
@@ -10994,10 +10789,12 @@
           "expanded_from",
           "status",
           "error",
+          "problem",
           "started_at",
           "finished_at",
           "outputs",
-          "discussable"
+          "judgment",
+          "alternatives"
         ],
         "title": "StepStateResponse"
       },
@@ -11037,6 +10834,43 @@
             "type": "boolean",
             "title": "Running"
           },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "amended_after_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amended After Steps"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
           "steps": {
             "items": {
               "$ref": "#/components/schemas/StepStateResponse"
@@ -11057,16 +10891,6 @@
             },
             "type": "array",
             "title": "Answers"
-          },
-          "planning": {
-            "additionalProperties": true,
-            "type": "object",
-            "title": "Planning"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
           }
         },
         "type": "object",
@@ -11078,11 +10902,14 @@
           "stop_conditions",
           "status",
           "running",
+          "started_at",
+          "mode",
+          "amended_after_steps",
+          "updated_at",
+          "created_at",
           "steps",
           "brought",
-          "answers",
-          "planning",
-          "created_at"
+          "answers"
         ],
         "title": "StudyResponse"
       },
@@ -11170,6 +10997,19 @@
           "split"
         ],
         "title": "SubstitutionResponse"
+      },
+      "SwapRequest": {
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "title": "Tool Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tool_id"
+        ],
+        "title": "SwapRequest"
       },
       "SweepConfigBody": {
         "properties": {
@@ -11608,20 +11448,9 @@
       },
       "ThreadResponse": {
         "properties": {
-          "position": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Position"
-          },
-          "handoff": {
+          "summary": {
             "type": "string",
-            "title": "Handoff"
+            "title": "Summary"
           },
           "turns": {
             "items": {
@@ -11633,8 +11462,7 @@
         },
         "type": "object",
         "required": [
-          "position",
-          "handoff",
+          "summary",
           "turns"
         ],
         "title": "ThreadResponse"
@@ -11849,9 +11677,31 @@
             "type": "string",
             "title": "Role"
           },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
           "say": {
             "type": "string",
             "title": "Say"
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "About"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionResponse"
+            },
+            "type": "array",
+            "title": "Questions"
           },
           "points": {
             "items": {
@@ -11859,13 +11709,6 @@
             },
             "type": "array",
             "title": "Points"
-          },
-          "proposes": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Proposes"
           },
           "proposals": {
             "items": {
@@ -11881,9 +11724,27 @@
             "type": "array",
             "title": "Unresolved"
           },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ActedResponse"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "looked": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Looked"
+          },
           "dropped": {
             "type": "integer",
             "title": "Dropped"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
           },
           "written_by": {
             "anyOf": [
@@ -11905,12 +11766,17 @@
         "type": "object",
         "required": [
           "role",
+          "kind",
           "say",
+          "about",
+          "questions",
           "points",
-          "proposes",
           "proposals",
           "unresolved",
+          "actions",
+          "looked",
           "dropped",
+          "silent",
           "written_by",
           "at"
         ],
@@ -12155,7 +12021,7 @@
           "produced_by": {
             "anyOf": [
               {
-                "type": "integer"
+                "type": "string"
               },
               {
                 "type": "null"

@@ -22,12 +22,15 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
-  BodyStartStudyApiV1StudiesPost,
+  ApproveRequest,
+  BodyAttachFilesApiV1StudiesStudyIdFilesPost,
+  BodyOpenStudyApiV1StudiesPost,
   HTTPValidationError,
-  ReadStudyThreadApiV1StudiesStudyIdChatGet200,
-  ReadThreadApiV1StudiesStudyIdStepsPositionChatGet200,
+  ProviderResponse,
+  RunRequest,
   SayRequest,
   StudyResponse,
+  SwapRequest,
   ThreadResponse,
   ValueResponse
 } from '.././model';
@@ -38,7 +41,104 @@ import { customInstance } from '.././custom-instance';
 
 
 /**
- * Your studies in this workspace, newest first.
+ * The model providers this deployment can actually reach.
+
+A provider with no key is left out rather than listed and broken, so a client can offer
+the choice honestly. An empty list means no agent is configured. Declared before
+`/{study_id}`, which would otherwise take "providers" for an id.
+ * @summary List Providers
+ */
+export const listProvidersApiV1StudiesProvidersGet = (
+    
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<ProviderResponse[]>(
+      {url: `/api/v1/studies/providers`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getListProvidersApiV1StudiesProvidersGetQueryKey = () => {
+    return [
+    `/api/v1/studies/providers`
+    ] as const;
+    }
+
+    
+export const getListProvidersApiV1StudiesProvidersGetQueryOptions = <TData = Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError = unknown>( options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProvidersApiV1StudiesProvidersGetQueryKey();
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>> = ({ signal }) => listProvidersApiV1StudiesProvidersGet(signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ListProvidersApiV1StudiesProvidersGetQueryResult = NonNullable<Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>>
+export type ListProvidersApiV1StudiesProvidersGetQueryError = unknown
+
+
+export function useListProvidersApiV1StudiesProvidersGet<TData = Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError = unknown>(
+  options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>,
+          TError,
+          Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListProvidersApiV1StudiesProvidersGet<TData = Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>,
+          TError,
+          Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useListProvidersApiV1StudiesProvidersGet<TData = Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary List Providers
+ */
+
+export function useListProvidersApiV1StudiesProvidersGet<TData = Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError = unknown>(
+  options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof listProvidersApiV1StudiesProvidersGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getListProvidersApiV1StudiesProvidersGetQueryOptions(options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
+ * Your studies in this workspace, drafts included, newest first.
  * @summary List Studies
  */
 export const listStudiesApiV1StudiesGet = (
@@ -131,21 +231,25 @@ export function useListStudiesApiV1StudiesGet<TData = Awaited<ReturnType<typeof 
 
 
 /**
- * Save an approved plan as a study, with the compounds file if there is one.
+ * Open a study on the scientist's first message, with whatever files came with it.
 
-`plan` is a JSON `StartStudyRequest` sent as a form field, because the file
-travels in the same multipart request.
- * @summary Start Study
+The agent's first turn is taken before this answers, so the thread already holds the goal
+as understood and what it needs to ask. Multipart, because the files travel with the
+message.
+ * @summary Open Study
  */
-export const startStudyApiV1StudiesPost = (
-    bodyStartStudyApiV1StudiesPost: BodyStartStudyApiV1StudiesPost,
+export const openStudyApiV1StudiesPost = (
+    bodyOpenStudyApiV1StudiesPost: BodyOpenStudyApiV1StudiesPost,
  signal?: AbortSignal
 ) => {
       
       const formData = new FormData();
-formData.append(`plan`, bodyStartStudyApiV1StudiesPost.plan)
-if(bodyStartStudyApiV1StudiesPost.file !== undefined && bodyStartStudyApiV1StudiesPost.file !== null) {
- formData.append(`file`, bodyStartStudyApiV1StudiesPost.file)
+formData.append(`message`, bodyOpenStudyApiV1StudiesPost.message)
+if(bodyOpenStudyApiV1StudiesPost.provider !== undefined && bodyOpenStudyApiV1StudiesPost.provider !== null) {
+ formData.append(`provider`, bodyOpenStudyApiV1StudiesPost.provider)
+ }
+if(bodyOpenStudyApiV1StudiesPost.files !== undefined) {
+ bodyOpenStudyApiV1StudiesPost.files.forEach(value => formData.append(`files`, value));
  }
 
       return customInstance<StudyResponse>(
@@ -158,11 +262,11 @@ if(bodyStartStudyApiV1StudiesPost.file !== undefined && bodyStartStudyApiV1Studi
   
 
 
-export const getStartStudyApiV1StudiesPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startStudyApiV1StudiesPost>>, TError,{data: BodyStartStudyApiV1StudiesPost}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof startStudyApiV1StudiesPost>>, TError,{data: BodyStartStudyApiV1StudiesPost}, TContext> => {
+export const getOpenStudyApiV1StudiesPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openStudyApiV1StudiesPost>>, TError,{data: BodyOpenStudyApiV1StudiesPost}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof openStudyApiV1StudiesPost>>, TError,{data: BodyOpenStudyApiV1StudiesPost}, TContext> => {
 
-const mutationKey = ['startStudyApiV1StudiesPost'];
+const mutationKey = ['openStudyApiV1StudiesPost'];
 const {mutation: mutationOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -172,10 +276,10 @@ const {mutation: mutationOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startStudyApiV1StudiesPost>>, {data: BodyStartStudyApiV1StudiesPost}> = (props) => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof openStudyApiV1StudiesPost>>, {data: BodyOpenStudyApiV1StudiesPost}> = (props) => {
           const {data} = props ?? {};
 
-          return  startStudyApiV1StudiesPost(data,)
+          return  openStudyApiV1StudiesPost(data,)
         }
 
         
@@ -183,23 +287,23 @@ const {mutation: mutationOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type StartStudyApiV1StudiesPostMutationResult = NonNullable<Awaited<ReturnType<typeof startStudyApiV1StudiesPost>>>
-    export type StartStudyApiV1StudiesPostMutationBody = BodyStartStudyApiV1StudiesPost
-    export type StartStudyApiV1StudiesPostMutationError = HTTPValidationError
+    export type OpenStudyApiV1StudiesPostMutationResult = NonNullable<Awaited<ReturnType<typeof openStudyApiV1StudiesPost>>>
+    export type OpenStudyApiV1StudiesPostMutationBody = BodyOpenStudyApiV1StudiesPost
+    export type OpenStudyApiV1StudiesPostMutationError = HTTPValidationError
 
     /**
- * @summary Start Study
+ * @summary Open Study
  */
-export const useStartStudyApiV1StudiesPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startStudyApiV1StudiesPost>>, TError,{data: BodyStartStudyApiV1StudiesPost}, TContext>, }
+export const useOpenStudyApiV1StudiesPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof openStudyApiV1StudiesPost>>, TError,{data: BodyOpenStudyApiV1StudiesPost}, TContext>, }
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof startStudyApiV1StudiesPost>>,
+        Awaited<ReturnType<typeof openStudyApiV1StudiesPost>>,
         TError,
-        {data: BodyStartStudyApiV1StudiesPost},
+        {data: BodyOpenStudyApiV1StudiesPost},
         TContext
       > => {
 
-      const mutationOptions = getStartStudyApiV1StudiesPostMutationOptions(options);
+      const mutationOptions = getOpenStudyApiV1StudiesPostMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }
@@ -296,30 +400,128 @@ export function useGetStudyApiV1StudiesStudyIdGet<TData = Awaited<ReturnType<typ
 
 
 /**
- * Run the study's next steps in the background, up to a gate, a failure or the end.
-
-Re-runs a failed step. Does nothing while the study is already running.
- * @summary Advance Study
+ * The study's one conversation, from the agent's first turn on.
+ * @summary Read Thread
  */
-export const advanceStudyApiV1StudiesStudyIdAdvancePost = (
+export const readThreadApiV1StudiesStudyIdChatGet = (
     studyId: string,
  signal?: AbortSignal
 ) => {
       
       
-      return customInstance<StudyResponse>(
-      {url: `/api/v1/studies/${studyId}/advance`, method: 'POST', signal
+      return customInstance<ThreadResponse>(
+      {url: `/api/v1/studies/${studyId}/chat`, method: 'GET', signal
     },
       );
     }
   
 
 
-export const getAdvanceStudyApiV1StudiesStudyIdAdvancePostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof advanceStudyApiV1StudiesStudyIdAdvancePost>>, TError,{studyId: string}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof advanceStudyApiV1StudiesStudyIdAdvancePost>>, TError,{studyId: string}, TContext> => {
 
-const mutationKey = ['advanceStudyApiV1StudiesStudyIdAdvancePost'];
+export const getReadThreadApiV1StudiesStudyIdChatGetQueryKey = (studyId?: string,) => {
+    return [
+    `/api/v1/studies/${studyId}/chat`
+    ] as const;
+    }
+
+    
+export const getReadThreadApiV1StudiesStudyIdChatGetQueryOptions = <TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(studyId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getReadThreadApiV1StudiesStudyIdChatGetQueryKey(studyId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>> = ({ signal }) => readThreadApiV1StudiesStudyIdChatGet(studyId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(studyId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ReadThreadApiV1StudiesStudyIdChatGetQueryResult = NonNullable<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>>
+export type ReadThreadApiV1StudiesStudyIdChatGetQueryError = HTTPValidationError
+
+
+export function useReadThreadApiV1StudiesStudyIdChatGet<TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(
+ studyId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>,
+          TError,
+          Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useReadThreadApiV1StudiesStudyIdChatGet<TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(
+ studyId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>,
+          TError,
+          Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useReadThreadApiV1StudiesStudyIdChatGet<TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(
+ studyId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Read Thread
+ */
+
+export function useReadThreadApiV1StudiesStudyIdChatGet<TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(
+ studyId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdChatGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getReadThreadApiV1StudiesStudyIdChatGetQueryOptions(studyId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
+/**
+ * Say something to the study's agent, or send the answers to its questions.
+
+It answers in the turn the study's phase calls for: before Start it writes and edits the
+plan; after, it replies, and does what the message asks only on the message's own words.
+A POST because it costs a model call, and because what was said is kept with the study.
+ * @summary Say
+ */
+export const sayApiV1StudiesStudyIdChatPost = (
+    studyId: string,
+    sayRequest: SayRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<ThreadResponse>(
+      {url: `/api/v1/studies/${studyId}/chat`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: sayRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getSayApiV1StudiesStudyIdChatPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdChatPost>>, TError,{studyId: string;data: SayRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdChatPost>>, TError,{studyId: string;data: SayRequest}, TContext> => {
+
+const mutationKey = ['sayApiV1StudiesStudyIdChatPost'];
 const {mutation: mutationOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -329,10 +531,10 @@ const {mutation: mutationOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof advanceStudyApiV1StudiesStudyIdAdvancePost>>, {studyId: string}> = (props) => {
-          const {studyId} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdChatPost>>, {studyId: string;data: SayRequest}> = (props) => {
+          const {studyId,data} = props ?? {};
 
-          return  advanceStudyApiV1StudiesStudyIdAdvancePost(studyId,)
+          return  sayApiV1StudiesStudyIdChatPost(studyId,data,)
         }
 
         
@@ -340,53 +542,184 @@ const {mutation: mutationOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type AdvanceStudyApiV1StudiesStudyIdAdvancePostMutationResult = NonNullable<Awaited<ReturnType<typeof advanceStudyApiV1StudiesStudyIdAdvancePost>>>
-    
-    export type AdvanceStudyApiV1StudiesStudyIdAdvancePostMutationError = HTTPValidationError
+    export type SayApiV1StudiesStudyIdChatPostMutationResult = NonNullable<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdChatPost>>>
+    export type SayApiV1StudiesStudyIdChatPostMutationBody = SayRequest
+    export type SayApiV1StudiesStudyIdChatPostMutationError = HTTPValidationError
 
     /**
- * @summary Advance Study
+ * @summary Say
  */
-export const useAdvanceStudyApiV1StudiesStudyIdAdvancePost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof advanceStudyApiV1StudiesStudyIdAdvancePost>>, TError,{studyId: string}, TContext>, }
+export const useSayApiV1StudiesStudyIdChatPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdChatPost>>, TError,{studyId: string;data: SayRequest}, TContext>, }
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof advanceStudyApiV1StudiesStudyIdAdvancePost>>,
+        Awaited<ReturnType<typeof sayApiV1StudiesStudyIdChatPost>>,
+        TError,
+        {studyId: string;data: SayRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getSayApiV1StudiesStudyIdChatPostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * Bring more files to a study, a draft or started, one of each kind.
+ * @summary Attach Files
+ */
+export const attachFilesApiV1StudiesStudyIdFilesPost = (
+    studyId: string,
+    bodyAttachFilesApiV1StudiesStudyIdFilesPost: BodyAttachFilesApiV1StudiesStudyIdFilesPost,
+ signal?: AbortSignal
+) => {
+      
+      const formData = new FormData();
+bodyAttachFilesApiV1StudiesStudyIdFilesPost.files.forEach(value => formData.append(`files`, value));
+
+      return customInstance<StudyResponse>(
+      {url: `/api/v1/studies/${studyId}/files`, method: 'POST',
+      headers: {'Content-Type': 'multipart/form-data', },
+       data: formData, signal
+    },
+      );
+    }
+  
+
+
+export const getAttachFilesApiV1StudiesStudyIdFilesPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof attachFilesApiV1StudiesStudyIdFilesPost>>, TError,{studyId: string;data: BodyAttachFilesApiV1StudiesStudyIdFilesPost}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof attachFilesApiV1StudiesStudyIdFilesPost>>, TError,{studyId: string;data: BodyAttachFilesApiV1StudiesStudyIdFilesPost}, TContext> => {
+
+const mutationKey = ['attachFilesApiV1StudiesStudyIdFilesPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof attachFilesApiV1StudiesStudyIdFilesPost>>, {studyId: string;data: BodyAttachFilesApiV1StudiesStudyIdFilesPost}> = (props) => {
+          const {studyId,data} = props ?? {};
+
+          return  attachFilesApiV1StudiesStudyIdFilesPost(studyId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AttachFilesApiV1StudiesStudyIdFilesPostMutationResult = NonNullable<Awaited<ReturnType<typeof attachFilesApiV1StudiesStudyIdFilesPost>>>
+    export type AttachFilesApiV1StudiesStudyIdFilesPostMutationBody = BodyAttachFilesApiV1StudiesStudyIdFilesPost
+    export type AttachFilesApiV1StudiesStudyIdFilesPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Attach Files
+ */
+export const useAttachFilesApiV1StudiesStudyIdFilesPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof attachFilesApiV1StudiesStudyIdFilesPost>>, TError,{studyId: string;data: BodyAttachFilesApiV1StudiesStudyIdFilesPost}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof attachFilesApiV1StudiesStudyIdFilesPost>>,
+        TError,
+        {studyId: string;data: BodyAttachFilesApiV1StudiesStudyIdFilesPost},
+        TContext
+      > => {
+
+      const mutationOptions = getAttachFilesApiV1StudiesStudyIdFilesPostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * End the draft, if its plan can go ahead as it stands. Runs nothing.
+ * @summary Start Study
+ */
+export const startStudyApiV1StudiesStudyIdStartPost = (
+    studyId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<StudyResponse>(
+      {url: `/api/v1/studies/${studyId}/start`, method: 'POST', signal
+    },
+      );
+    }
+  
+
+
+export const getStartStudyApiV1StudiesStudyIdStartPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startStudyApiV1StudiesStudyIdStartPost>>, TError,{studyId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof startStudyApiV1StudiesStudyIdStartPost>>, TError,{studyId: string}, TContext> => {
+
+const mutationKey = ['startStudyApiV1StudiesStudyIdStartPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof startStudyApiV1StudiesStudyIdStartPost>>, {studyId: string}> = (props) => {
+          const {studyId} = props ?? {};
+
+          return  startStudyApiV1StudiesStudyIdStartPost(studyId,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type StartStudyApiV1StudiesStudyIdStartPostMutationResult = NonNullable<Awaited<ReturnType<typeof startStudyApiV1StudiesStudyIdStartPost>>>
+    
+    export type StartStudyApiV1StudiesStudyIdStartPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Start Study
+ */
+export const useStartStudyApiV1StudiesStudyIdStartPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof startStudyApiV1StudiesStudyIdStartPost>>, TError,{studyId: string}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof startStudyApiV1StudiesStudyIdStartPost>>,
         TError,
         {studyId: string},
         TContext
       > => {
 
-      const mutationOptions = getAdvanceStudyApiV1StudiesStudyIdAdvancePostMutationOptions(options);
+      const mutationOptions = getStartStudyApiV1StudiesStudyIdStartPostMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }
     /**
  * Run one step alone in the background, whatever its gate says, and stop.
 
-Re-running a finished step adds newer values, which later steps then read; it does
-not reset those later steps. Does nothing while the study is already running.
+Re-running a finished step adds newer values, which later steps then read; it does not
+reset those later steps. Does nothing while the study is already running.
  * @summary Run Step
  */
-export const runStepApiV1StudiesStudyIdStepsPositionRunPost = (
+export const runStepApiV1StudiesStudyIdStepsStepIdRunPost = (
     studyId: string,
-    position: number,
+    stepId: string,
  signal?: AbortSignal
 ) => {
       
       
       return customInstance<StudyResponse>(
-      {url: `/api/v1/studies/${studyId}/steps/${position}/run`, method: 'POST', signal
+      {url: `/api/v1/studies/${studyId}/steps/${stepId}/run`, method: 'POST', signal
     },
       );
     }
   
 
 
-export const getRunStepApiV1StudiesStudyIdStepsPositionRunPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsPositionRunPost>>, TError,{studyId: string;position: number}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsPositionRunPost>>, TError,{studyId: string;position: number}, TContext> => {
+export const getRunStepApiV1StudiesStudyIdStepsStepIdRunPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsStepIdRunPost>>, TError,{studyId: string;stepId: string}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsStepIdRunPost>>, TError,{studyId: string;stepId: string}, TContext> => {
 
-const mutationKey = ['runStepApiV1StudiesStudyIdStepsPositionRunPost'];
+const mutationKey = ['runStepApiV1StudiesStudyIdStepsStepIdRunPost'];
 const {mutation: mutationOptions} = options ?
       options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
       options
@@ -396,10 +729,10 @@ const {mutation: mutationOptions} = options ?
       
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsPositionRunPost>>, {studyId: string;position: number}> = (props) => {
-          const {studyId,position} = props ?? {};
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsStepIdRunPost>>, {studyId: string;stepId: string}> = (props) => {
+          const {studyId,stepId} = props ?? {};
 
-          return  runStepApiV1StudiesStudyIdStepsPositionRunPost(studyId,position,)
+          return  runStepApiV1StudiesStudyIdStepsStepIdRunPost(studyId,stepId,)
         }
 
         
@@ -407,32 +740,237 @@ const {mutation: mutationOptions} = options ?
 
   return  { mutationFn, ...mutationOptions }}
 
-    export type RunStepApiV1StudiesStudyIdStepsPositionRunPostMutationResult = NonNullable<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsPositionRunPost>>>
+    export type RunStepApiV1StudiesStudyIdStepsStepIdRunPostMutationResult = NonNullable<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsStepIdRunPost>>>
     
-    export type RunStepApiV1StudiesStudyIdStepsPositionRunPostMutationError = HTTPValidationError
+    export type RunStepApiV1StudiesStudyIdStepsStepIdRunPostMutationError = HTTPValidationError
 
     /**
  * @summary Run Step
  */
-export const useRunStepApiV1StudiesStudyIdStepsPositionRunPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsPositionRunPost>>, TError,{studyId: string;position: number}, TContext>, }
+export const useRunStepApiV1StudiesStudyIdStepsStepIdRunPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsStepIdRunPost>>, TError,{studyId: string;stepId: string}, TContext>, }
  , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsPositionRunPost>>,
+        Awaited<ReturnType<typeof runStepApiV1StudiesStudyIdStepsStepIdRunPost>>,
         TError,
-        {studyId: string;position: number},
+        {studyId: string;stepId: string},
         TContext
       > => {
 
-      const mutationOptions = getRunStepApiV1StudiesStudyIdStepsPositionRunPostMutationOptions(options);
+      const mutationOptions = getRunStepApiV1StudiesStudyIdStepsStepIdRunPostMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }
     /**
- * Make a change an agent proposed, now that the scientist has confirmed it.
+ * Run the steps in the background from `start` to `until`, a gate, a failure, a pause
+the agent asks for, or the end.
 
-Changes the plan and stops there. The step is left for the play control the
-scientist already knows, so confirming a change never starts a long job they
-did not ask to start.
+Re-runs a failed step. Does nothing while the study is already running.
+ * @summary Run Study
+ */
+export const runStudyApiV1StudiesStudyIdRunPost = (
+    studyId: string,
+    runRequest: RunRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<StudyResponse>(
+      {url: `/api/v1/studies/${studyId}/run`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: runRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getRunStudyApiV1StudiesStudyIdRunPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runStudyApiV1StudiesStudyIdRunPost>>, TError,{studyId: string;data: RunRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof runStudyApiV1StudiesStudyIdRunPost>>, TError,{studyId: string;data: RunRequest}, TContext> => {
+
+const mutationKey = ['runStudyApiV1StudiesStudyIdRunPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof runStudyApiV1StudiesStudyIdRunPost>>, {studyId: string;data: RunRequest}> = (props) => {
+          const {studyId,data} = props ?? {};
+
+          return  runStudyApiV1StudiesStudyIdRunPost(studyId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RunStudyApiV1StudiesStudyIdRunPostMutationResult = NonNullable<Awaited<ReturnType<typeof runStudyApiV1StudiesStudyIdRunPost>>>
+    export type RunStudyApiV1StudiesStudyIdRunPostMutationBody = RunRequest
+    export type RunStudyApiV1StudiesStudyIdRunPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Run Study
+ */
+export const useRunStudyApiV1StudiesStudyIdRunPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof runStudyApiV1StudiesStudyIdRunPost>>, TError,{studyId: string;data: RunRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof runStudyApiV1StudiesStudyIdRunPost>>,
+        TError,
+        {studyId: string;data: RunRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getRunStudyApiV1StudiesStudyIdRunPostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * Point a step at one of its alternatives; the thread records the change.
+ * @summary Swap Tool
+ */
+export const swapToolApiV1StudiesStudyIdStepsStepIdToolPost = (
+    studyId: string,
+    stepId: string,
+    swapRequest: SwapRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<StudyResponse>(
+      {url: `/api/v1/studies/${studyId}/steps/${stepId}/tool`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: swapRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getSwapToolApiV1StudiesStudyIdStepsStepIdToolPostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof swapToolApiV1StudiesStudyIdStepsStepIdToolPost>>, TError,{studyId: string;stepId: string;data: SwapRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof swapToolApiV1StudiesStudyIdStepsStepIdToolPost>>, TError,{studyId: string;stepId: string;data: SwapRequest}, TContext> => {
+
+const mutationKey = ['swapToolApiV1StudiesStudyIdStepsStepIdToolPost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof swapToolApiV1StudiesStudyIdStepsStepIdToolPost>>, {studyId: string;stepId: string;data: SwapRequest}> = (props) => {
+          const {studyId,stepId,data} = props ?? {};
+
+          return  swapToolApiV1StudiesStudyIdStepsStepIdToolPost(studyId,stepId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SwapToolApiV1StudiesStudyIdStepsStepIdToolPostMutationResult = NonNullable<Awaited<ReturnType<typeof swapToolApiV1StudiesStudyIdStepsStepIdToolPost>>>
+    export type SwapToolApiV1StudiesStudyIdStepsStepIdToolPostMutationBody = SwapRequest
+    export type SwapToolApiV1StudiesStudyIdStepsStepIdToolPostMutationError = HTTPValidationError
+
+    /**
+ * @summary Swap Tool
+ */
+export const useSwapToolApiV1StudiesStudyIdStepsStepIdToolPost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof swapToolApiV1StudiesStudyIdStepsStepIdToolPost>>, TError,{studyId: string;stepId: string;data: SwapRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof swapToolApiV1StudiesStudyIdStepsStepIdToolPost>>,
+        TError,
+        {studyId: string;stepId: string;data: SwapRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getSwapToolApiV1StudiesStudyIdStepsStepIdToolPostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * Choose one of the candidates a finished step reported, as the scientist's own value.
+
+The thread records the choice, and the value names who made it.
+ * @summary Approve Candidate
+ */
+export const approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost = (
+    studyId: string,
+    stepId: string,
+    approveRequest: ApproveRequest,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<StudyResponse>(
+      {url: `/api/v1/studies/${studyId}/steps/${stepId}/approve`, method: 'POST',
+      headers: {'Content-Type': 'application/json', },
+      data: approveRequest, signal
+    },
+      );
+    }
+  
+
+
+export const getApproveCandidateApiV1StudiesStudyIdStepsStepIdApprovePostMutationOptions = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost>>, TError,{studyId: string;stepId: string;data: ApproveRequest}, TContext>, }
+): UseMutationOptions<Awaited<ReturnType<typeof approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost>>, TError,{studyId: string;stepId: string;data: ApproveRequest}, TContext> => {
+
+const mutationKey = ['approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost'];
+const {mutation: mutationOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }};
+
+      
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost>>, {studyId: string;stepId: string;data: ApproveRequest}> = (props) => {
+          const {studyId,stepId,data} = props ?? {};
+
+          return  approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost(studyId,stepId,data,)
+        }
+
+        
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ApproveCandidateApiV1StudiesStudyIdStepsStepIdApprovePostMutationResult = NonNullable<Awaited<ReturnType<typeof approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost>>>
+    export type ApproveCandidateApiV1StudiesStudyIdStepsStepIdApprovePostMutationBody = ApproveRequest
+    export type ApproveCandidateApiV1StudiesStudyIdStepsStepIdApprovePostMutationError = HTTPValidationError
+
+    /**
+ * @summary Approve Candidate
+ */
+export const useApproveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost = <TError = HTTPValidationError,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost>>, TError,{studyId: string;stepId: string;data: ApproveRequest}, TContext>, }
+ , queryClient?: QueryClient): UseMutationResult<
+        Awaited<ReturnType<typeof approveCandidateApiV1StudiesStudyIdStepsStepIdApprovePost>>,
+        TError,
+        {studyId: string;stepId: string;data: ApproveRequest},
+        TContext
+      > => {
+
+      const mutationOptions = getApproveCandidateApiV1StudiesStudyIdStepsStepIdApprovePostMutationOptions(options);
+
+      return useMutation(mutationOptions, queryClient);
+    }
+    /**
+ * Make a change an agent proposed, now that the scientist has pressed its button.
+
+An edit changes the plan and leaves the step for its play control. A proposal to run
+starts the run its button names, in the background, and the study comes back as it was
+saved before the run began.
  * @summary Apply Proposal
  */
 export const applyProposalApiV1StudiesStudyIdProposalsProposalIdApplyPost = (
@@ -492,339 +1030,6 @@ export const useApplyProposalApiV1StudiesStudyIdProposalsProposalIdApplyPost = <
       > => {
 
       const mutationOptions = getApplyProposalApiV1StudiesStudyIdProposalsProposalIdApplyPostMutationOptions(options);
-
-      return useMutation(mutationOptions, queryClient);
-    }
-    /**
- * What has been said about the study as a whole. Null until anything has been.
- * @summary Read Study Thread
- */
-export const readStudyThreadApiV1StudiesStudyIdChatGet = (
-    studyId: string,
- signal?: AbortSignal
-) => {
-      
-      
-      return customInstance<ReadStudyThreadApiV1StudiesStudyIdChatGet200>(
-      {url: `/api/v1/studies/${studyId}/chat`, method: 'GET', signal
-    },
-      );
-    }
-  
-
-
-
-export const getReadStudyThreadApiV1StudiesStudyIdChatGetQueryKey = (studyId?: string,) => {
-    return [
-    `/api/v1/studies/${studyId}/chat`
-    ] as const;
-    }
-
-    
-export const getReadStudyThreadApiV1StudiesStudyIdChatGetQueryOptions = <TData = Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(studyId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError, TData>>, }
-) => {
-
-const {query: queryOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getReadStudyThreadApiV1StudiesStudyIdChatGetQueryKey(studyId);
-
-  
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>> = ({ signal }) => readStudyThreadApiV1StudiesStudyIdChatGet(studyId, signal);
-
-      
-
-      
-
-   return  { queryKey, queryFn, enabled: !!(studyId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ReadStudyThreadApiV1StudiesStudyIdChatGetQueryResult = NonNullable<Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>>
-export type ReadStudyThreadApiV1StudiesStudyIdChatGetQueryError = HTTPValidationError
-
-
-export function useReadStudyThreadApiV1StudiesStudyIdChatGet<TData = Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(
- studyId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>,
-          TError,
-          Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>
-        > , 'initialData'
-      >, }
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useReadStudyThreadApiV1StudiesStudyIdChatGet<TData = Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(
- studyId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>,
-          TError,
-          Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>
-        > , 'initialData'
-      >, }
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useReadStudyThreadApiV1StudiesStudyIdChatGet<TData = Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(
- studyId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError, TData>>, }
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Read Study Thread
- */
-
-export function useReadStudyThreadApiV1StudiesStudyIdChatGet<TData = Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError = HTTPValidationError>(
- studyId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readStudyThreadApiV1StudiesStudyIdChatGet>>, TError, TData>>, }
- , queryClient?: QueryClient 
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getReadStudyThreadApiV1StudiesStudyIdChatGetQueryOptions(studyId,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey ;
-
-  return query;
-}
-
-
-
-
-/**
- * Say something to the agent that holds the whole study, or let it open.
-
-It reads each stage's summary rather than each stage's exchange, so what it
-knows about a result is what that stage's agent concluded about it.
- * @summary Ask Study
- */
-export const askStudyApiV1StudiesStudyIdChatPost = (
-    studyId: string,
-    sayRequest: SayRequest,
- signal?: AbortSignal
-) => {
-      
-      
-      return customInstance<ThreadResponse>(
-      {url: `/api/v1/studies/${studyId}/chat`, method: 'POST',
-      headers: {'Content-Type': 'application/json', },
-      data: sayRequest, signal
-    },
-      );
-    }
-  
-
-
-export const getAskStudyApiV1StudiesStudyIdChatPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askStudyApiV1StudiesStudyIdChatPost>>, TError,{studyId: string;data: SayRequest}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof askStudyApiV1StudiesStudyIdChatPost>>, TError,{studyId: string;data: SayRequest}, TContext> => {
-
-const mutationKey = ['askStudyApiV1StudiesStudyIdChatPost'];
-const {mutation: mutationOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof askStudyApiV1StudiesStudyIdChatPost>>, {studyId: string;data: SayRequest}> = (props) => {
-          const {studyId,data} = props ?? {};
-
-          return  askStudyApiV1StudiesStudyIdChatPost(studyId,data,)
-        }
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type AskStudyApiV1StudiesStudyIdChatPostMutationResult = NonNullable<Awaited<ReturnType<typeof askStudyApiV1StudiesStudyIdChatPost>>>
-    export type AskStudyApiV1StudiesStudyIdChatPostMutationBody = SayRequest
-    export type AskStudyApiV1StudiesStudyIdChatPostMutationError = HTTPValidationError
-
-    /**
- * @summary Ask Study
- */
-export const useAskStudyApiV1StudiesStudyIdChatPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof askStudyApiV1StudiesStudyIdChatPost>>, TError,{studyId: string;data: SayRequest}, TContext>, }
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof askStudyApiV1StudiesStudyIdChatPost>>,
-        TError,
-        {studyId: string;data: SayRequest},
-        TContext
-      > => {
-
-      const mutationOptions = getAskStudyApiV1StudiesStudyIdChatPostMutationOptions(options);
-
-      return useMutation(mutationOptions, queryClient);
-    }
-    /**
- * What has been said at one stage. Null until anything has been.
- * @summary Read Thread
- */
-export const readThreadApiV1StudiesStudyIdStepsPositionChatGet = (
-    studyId: string,
-    position: number,
- signal?: AbortSignal
-) => {
-      
-      
-      return customInstance<ReadThreadApiV1StudiesStudyIdStepsPositionChatGet200>(
-      {url: `/api/v1/studies/${studyId}/steps/${position}/chat`, method: 'GET', signal
-    },
-      );
-    }
-  
-
-
-
-export const getReadThreadApiV1StudiesStudyIdStepsPositionChatGetQueryKey = (studyId?: string,
-    position?: number,) => {
-    return [
-    `/api/v1/studies/${studyId}/steps/${position}/chat`
-    ] as const;
-    }
-
-    
-export const getReadThreadApiV1StudiesStudyIdStepsPositionChatGetQueryOptions = <TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError = HTTPValidationError>(studyId: string,
-    position: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError, TData>>, }
-) => {
-
-const {query: queryOptions} = options ?? {};
-
-  const queryKey =  queryOptions?.queryKey ?? getReadThreadApiV1StudiesStudyIdStepsPositionChatGetQueryKey(studyId,position);
-
-  
-
-    const queryFn: QueryFunction<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>> = ({ signal }) => readThreadApiV1StudiesStudyIdStepsPositionChatGet(studyId,position, signal);
-
-      
-
-      
-
-   return  { queryKey, queryFn, enabled: !!(studyId && position), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
-}
-
-export type ReadThreadApiV1StudiesStudyIdStepsPositionChatGetQueryResult = NonNullable<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>>
-export type ReadThreadApiV1StudiesStudyIdStepsPositionChatGetQueryError = HTTPValidationError
-
-
-export function useReadThreadApiV1StudiesStudyIdStepsPositionChatGet<TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError = HTTPValidationError>(
- studyId: string,
-    position: number, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError, TData>> & Pick<
-        DefinedInitialDataOptions<
-          Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>,
-          TError,
-          Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>
-        > , 'initialData'
-      >, }
- , queryClient?: QueryClient
-  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useReadThreadApiV1StudiesStudyIdStepsPositionChatGet<TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError = HTTPValidationError>(
- studyId: string,
-    position: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError, TData>> & Pick<
-        UndefinedInitialDataOptions<
-          Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>,
-          TError,
-          Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>
-        > , 'initialData'
-      >, }
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-export function useReadThreadApiV1StudiesStudyIdStepsPositionChatGet<TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError = HTTPValidationError>(
- studyId: string,
-    position: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError, TData>>, }
- , queryClient?: QueryClient
-  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
-/**
- * @summary Read Thread
- */
-
-export function useReadThreadApiV1StudiesStudyIdStepsPositionChatGet<TData = Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError = HTTPValidationError>(
- studyId: string,
-    position: number, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readThreadApiV1StudiesStudyIdStepsPositionChatGet>>, TError, TData>>, }
- , queryClient?: QueryClient 
- ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
-
-  const queryOptions = getReadThreadApiV1StudiesStudyIdStepsPositionChatGetQueryOptions(studyId,position,options)
-
-  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
-
-  query.queryKey = queryOptions.queryKey ;
-
-  return query;
-}
-
-
-
-
-/**
- * Say something to the agent at one stage, or with no message, let it open.
-
-A POST because it costs a model call, and because the exchange is kept with
-the study: what the scientist was told before they decided is part of the
-record, the same reason a plan records what wrote it.
- * @summary Say
- */
-export const sayApiV1StudiesStudyIdStepsPositionChatPost = (
-    studyId: string,
-    position: number,
-    sayRequest: SayRequest,
- signal?: AbortSignal
-) => {
-      
-      
-      return customInstance<ThreadResponse>(
-      {url: `/api/v1/studies/${studyId}/steps/${position}/chat`, method: 'POST',
-      headers: {'Content-Type': 'application/json', },
-      data: sayRequest, signal
-    },
-      );
-    }
-  
-
-
-export const getSayApiV1StudiesStudyIdStepsPositionChatPostMutationOptions = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdStepsPositionChatPost>>, TError,{studyId: string;position: number;data: SayRequest}, TContext>, }
-): UseMutationOptions<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdStepsPositionChatPost>>, TError,{studyId: string;position: number;data: SayRequest}, TContext> => {
-
-const mutationKey = ['sayApiV1StudiesStudyIdStepsPositionChatPost'];
-const {mutation: mutationOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }};
-
-      
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdStepsPositionChatPost>>, {studyId: string;position: number;data: SayRequest}> = (props) => {
-          const {studyId,position,data} = props ?? {};
-
-          return  sayApiV1StudiesStudyIdStepsPositionChatPost(studyId,position,data,)
-        }
-
-        
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type SayApiV1StudiesStudyIdStepsPositionChatPostMutationResult = NonNullable<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdStepsPositionChatPost>>>
-    export type SayApiV1StudiesStudyIdStepsPositionChatPostMutationBody = SayRequest
-    export type SayApiV1StudiesStudyIdStepsPositionChatPostMutationError = HTTPValidationError
-
-    /**
- * @summary Say
- */
-export const useSayApiV1StudiesStudyIdStepsPositionChatPost = <TError = HTTPValidationError,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof sayApiV1StudiesStudyIdStepsPositionChatPost>>, TError,{studyId: string;position: number;data: SayRequest}, TContext>, }
- , queryClient?: QueryClient): UseMutationResult<
-        Awaited<ReturnType<typeof sayApiV1StudiesStudyIdStepsPositionChatPost>>,
-        TError,
-        {studyId: string;position: number;data: SayRequest},
-        TContext
-      > => {
-
-      const mutationOptions = getSayApiV1StudiesStudyIdStepsPositionChatPostMutationOptions(options);
 
       return useMutation(mutationOptions, queryClient);
     }

@@ -3,4 +3,4 @@
  * daikon-studio
  */
 
-export type ValueSummaryResponseProducedBy = number | null;
+export type ValueSummaryResponseProducedBy = string | null;

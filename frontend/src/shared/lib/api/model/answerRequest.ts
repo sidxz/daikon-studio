@@ -4,6 +4,8 @@
  */
 
 export interface AnswerRequest {
+  /** @maxLength 4000 */
   ask: string;
+  /** @maxLength 4000 */
   answer: string;
 }

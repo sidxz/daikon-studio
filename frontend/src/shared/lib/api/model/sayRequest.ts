@@ -3,9 +3,14 @@
  * daikon-studio
  */
 import type { SayRequestMessage } from './sayRequestMessage';
+import type { AnswerRequest } from './answerRequest';
+import type { SayRequestAbout } from './sayRequestAbout';
 import type { SayRequestProvider } from './sayRequestProvider';
 
 export interface SayRequest {
   message?: SayRequestMessage;
+  /** @maxItems 20 */
+  answers?: AnswerRequest[];
+  about?: SayRequestAbout;
   provider?: SayRequestProvider;
 }

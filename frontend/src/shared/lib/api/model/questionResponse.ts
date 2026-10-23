@@ -7,6 +7,6 @@ import type { QuestionResponseDefault } from './questionResponseDefault';
 export interface QuestionResponse {
   ask: string;
   why: string;
-  options?: string[];
-  default?: QuestionResponseDefault;
+  options: string[];
+  default: QuestionResponseDefault;
 }

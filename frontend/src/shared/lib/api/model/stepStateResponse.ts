@@ -5,11 +5,14 @@
 import type { StepStateResponseParams } from './stepStateResponseParams';
 import type { StepStateResponseExpandedFrom } from './stepStateResponseExpandedFrom';
 import type { StepStateResponseError } from './stepStateResponseError';
+import type { StepStateResponseProblem } from './stepStateResponseProblem';
 import type { StepStateResponseStartedAt } from './stepStateResponseStartedAt';
 import type { StepStateResponseFinishedAt } from './stepStateResponseFinishedAt';
 import type { ValueSummaryResponse } from './valueSummaryResponse';
+import type { AlternativeResponse } from './alternativeResponse';
 
 export interface StepStateResponse {
+  id: string;
   position: number;
   tool_id: string;
   name: string;
@@ -20,8 +23,10 @@ export interface StepStateResponse {
   expanded_from: StepStateResponseExpandedFrom;
   status: string;
   error: StepStateResponseError;
+  problem: StepStateResponseProblem;
   started_at: StepStateResponseStartedAt;
   finished_at: StepStateResponseFinishedAt;
   outputs: ValueSummaryResponse[];
-  discussable: boolean;
+  judgment: boolean;
+  alternatives: AlternativeResponse[];
 }

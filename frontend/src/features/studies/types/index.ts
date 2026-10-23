@@ -1,11 +1,8 @@
 import type { StatusTone } from "@/shared/components/status-dot";
 import type {
-  PlanResponse,
   ProposalResponse,
   ProviderResponse,
   QuestionResponse,
-  QuestionsResponse,
-  StepResponse,
   StepStateResponse,
   StudyResponse,
   ThreadResponse,
@@ -19,14 +16,11 @@ export type Study = StudyResponse;
 export type StudyStep = StepStateResponse;
 export type ValueSummary = ValueSummaryResponse;
 export type StudyValue = ValueResponse;
-export type Plan = PlanResponse;
-export type PlanStep = StepResponse;
-export type Provider = ProviderResponse;
-export type Question = QuestionResponse;
-export type Questions = QuestionsResponse;
 export type Thread = ThreadResponse;
-export type StageTurn = TurnResponse;
+export type Turn = TurnResponse;
 export type StudyProposal = ProposalResponse;
+export type Question = QuestionResponse;
+export type Provider = ProviderResponse;
 
 export const STEP_STATUS_COPY: Record<string, string> = {
   pending: "Not run yet",
@@ -50,13 +44,6 @@ export const PROVIDER_LABELS: Record<string, string> = {
 };
 
 /**
- * Steps grouped by the composite they came from, preserving order.
- *
- * The planner chose "build the SAR table"; the plan records the two steps that
- * will actually run. Showing the group is how the page reads the way the
- * planner thought, without hiding what gets recorded.
- */
-/**
  * Offered on every question, whatever the model proposed, and never produced by
  * it. A chemist often genuinely does not know whether the assay changed between
  * two runs, and that is a different answer from either yes or no: the plan has
@@ -67,16 +54,14 @@ export const PROVIDER_LABELS: Record<string, string> = {
 export const NOT_SURE = "Not sure";
 
 /**
- * Questions the plan already handles, each with what it will do if ignored.
- * Separate from the blocking ones because the plan on screen is complete: these
- * change a detail, and answering none of them is a valid outcome.
+ * Steps grouped by the composite they came from, preserving order.
+ *
+ * The planner chose "build the SAR table"; the plan records the two steps that
+ * will actually run. Showing the group is how the page reads the way the
+ * planner thought, without hiding what gets recorded.
  */
-export function refinements(questions: Question[]): Question[] {
-  return questions.filter((question) => question.default != null);
-}
-
-export function groupSteps(steps: PlanStep[]): { from: string | null; steps: PlanStep[] }[] {
-  const groups: { from: string | null; steps: PlanStep[] }[] = [];
+export function groupSteps(steps: StudyStep[]): { from: string | null; steps: StudyStep[] }[] {
+  const groups: { from: string | null; steps: StudyStep[] }[] = [];
   for (const step of steps) {
     const last = groups.at(-1);
     if (last && last.from !== null && last.from === step.expanded_from) {
