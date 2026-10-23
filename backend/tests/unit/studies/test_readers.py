@@ -271,7 +271,27 @@ def test_a_kind_without_a_reader_summarizes_its_meta_and_cannot_be_checked() -> 
     told = reader("structure").summarize(None, structure)
     assert "4TRO" in told
     assert "ZN A101" in told
-    for kind in ("model_fit", "structure"):
+    # A correlation is read whole: every coefficient the card shows, so none is "not reported".
+    meta = {
+        "activity_column": "pIC50",
+        "n": 26,
+        "excluded": 2,
+        "strongest": {"property": "heavy_atoms", "r": 0.4531},
+    }
+    properties = [
+        {"property": "logp", "r": 0.1237, "ci_low": -0.2131, "ci_high": 0.41, "n": 26},
+        {"property": "heavy_atoms", "r": 0.4531, "ci_low": 0.1, "ci_high": 0.7, "n": 26},
+        {"property": "hbd", "r": None, "ci_low": None, "ci_high": None, "n": 1},
+    ]
+    assert reader("correlation").summarize({"meta": meta, "properties": properties}, meta) == (
+        "Activity: pIC50. Readings left out because they are not numbers: 2.\n"
+        "Strongest: heavy_atoms, r 0.453.\n"
+        "Each property, as r (95% interval) and n:\n"
+        "- logp: r 0.124 (-0.213 to 0.41), n 26\n"
+        "- heavy_atoms: r 0.453 (0.1 to 0.7), n 26\n"
+        "- hbd: r none (no interval), n 1"
+    )
+    for kind in ("model_fit", "structure", "correlation"):
         assert reader(kind).look is None
         assert reader(kind).check is None
 

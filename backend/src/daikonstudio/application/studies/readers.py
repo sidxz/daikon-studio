@@ -270,6 +270,30 @@ def summarize_structure(data: Any, summary: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _r(value: Any) -> str:
+    """A coefficient as the card shows it, to three places."""
+    return "none" if value is None else str(round(value, 3))
+
+
+def summarize_correlation(data: Any, summary: Mapping[str, Any]) -> str:
+    """Every property against the activity, with its r, its interval and its n, and what was
+    left out: the card shows all of it, so the agent reads all of it."""
+    strongest = summary.get("strongest")
+    lines = [
+        f"Activity: {summary.get('activity_column')}. Readings left out because they are "
+        f"not numbers: {summary.get('excluded', 0)}.",
+        f"Strongest: {strongest['property']}, r {_r(strongest['r'])}."
+        if strongest
+        else "Strongest: none, no property could be correlated.",
+        "Each property, as r (95% interval) and n:",
+    ]
+    for p in (data or {}).get("properties") or []:
+        low, high = p.get("ci_low"), p.get("ci_high")
+        interval = "no interval" if low is None or high is None else f"{_r(low)} to {_r(high)}"
+        lines.append(f"- {p.get('property')}: r {_r(p.get('r'))} ({interval}), n {p.get('n')}")
+    return "\n".join(lines)
+
+
 _TABLE = KindReader(summarize=summarize_table, look=look_table, check=check_table)
 
 READERS: dict[str, KindReader] = {
@@ -281,6 +305,7 @@ READERS: dict[str, KindReader] = {
     ),
     **dict.fromkeys(sorted(codecs.TABLE_KINDS), _TABLE),
     "structure": KindReader(summarize=summarize_structure, look=None, check=None),
+    "correlation": KindReader(summarize=summarize_correlation, look=None, check=None),
 }
 
 # A kind nobody wrote a reader for is summarized by its meta, and cannot be claimed about.
