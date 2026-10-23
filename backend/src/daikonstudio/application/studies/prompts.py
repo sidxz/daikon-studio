@@ -181,6 +181,11 @@ and to no other.
 
 8. %(reading)s
 
+9. Write plain text. The page shows your words exactly as you write them, so \
+markdown shows as its markers: no asterisks or underscores for emphasis, no pound \
+signs for headings, no backticks. Do not use dashes as punctuation; use a comma, a \
+colon or a new sentence instead.
+
 Write for a working scientist. Be specific and brief.
 """
 
