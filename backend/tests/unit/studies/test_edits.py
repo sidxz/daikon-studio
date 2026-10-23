@@ -188,6 +188,39 @@ def test_insert_places_the_step_and_an_automatic_one_after_it() -> None:
     assert (acted.does, acted.step, acted.quoting) == ("insert", fetch.id, "add the structure")
     assert acted.detail == "Added step 3 (Fetch a deposited structure): pdb_id=1CA2."
 
+    # A composite goes in as its parts, in order, each naming it and carrying its purpose; the
+    # gate asked for stops after the last, and each part takes the settings it declares. An
+    # always-run tool is still never inserted.
+    study = _study("standardize", brought=COMPOUNDS)
+    applied = _apply(
+        study,
+        Action(
+            does="insert",
+            tool_id="check_properties",
+            purpose="Whether potency tracks lipophilicity",
+            settings=[_setting("activity_column", "pIC50")],
+            gated=True,
+        ),
+        Action(does="insert", tool_id="standardize"),
+    )
+    assert applied.dropped == 1
+    assert _tools(study) == ["standardize", "property_profile", "property_confound"]
+    added = study.steps[1:]
+    assert [(s.expanded_from, s.gated) for s in added] == [
+        ("check_properties", False),
+        ("check_properties", True),
+    ]
+    assert {s.purpose for s in added} == {"Whether potency tracks lipophilicity"}
+    assert [s.params for s in added] == [{"activity_column": "pIC50"}] * 2
+    assert all(s.problem is None for s in study.steps)
+    assert [(a.step, a.detail) for a in applied.acted] == [
+        (
+            added[0].id,
+            "Added Check the properties as step 2 (Physicochemical properties), "
+            "step 3 (Property confound check): activity_column=pIC50.",
+        )
+    ]
+
 
 def test_remove_and_swap_renumber_and_recheck() -> None:
     study = _study(*PROTEIN)

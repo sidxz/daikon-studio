@@ -310,27 +310,46 @@ def _listed(given: Mapping[str, str]) -> str:
 def _insert(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
     action = named.action
     manifest = _tool(registry, action.tool_id)
-    given = _given(action)
-    # Always-run steps are placed, never chosen. A composite is a fragment of plan that the
-    # planner expands; left whole in a study it could never run.
-    if manifest is None or manifest.automatic or manifest.expands_to:
+    # Always-run steps are placed, never chosen.
+    if manifest is None or manifest.automatic:
         return None
-    if not _takes(manifest, given, given):
+    # A composite goes in as its parts, in order, as `expand` writes one into a plan: left
+    # whole it could never run. Each part takes the settings it declares; one no part
+    # declares is invented.
+    parts = [registry.get(part_id) for part_id in registry.expand(manifest.id)]
+    given = _given(action)
+
+    def taken_by(part: ToolManifest) -> dict[str, str]:
+        takes = () if part.params is None else part.params.model_fields
+        return {name: value for name, value in given.items() if name in takes}
+
+    shares = [taken_by(part) for part in parts]
+    if set(given) - {name for taken in shares for name in taken}:
+        return None
+    if not all(_takes(part, share, share) for part, share in zip(parts, shares, strict=True)):
         return None
 
     def do() -> Acted:
-        planned = PlannedStep(
-            tool_id=manifest.id,
-            name=manifest.name,
-            purpose=action.purpose or manifest.description,
-            # A tool that returns candidates stops for a person to choose between them.
-            gated=manifest.judgment or action.gated,
-            params=given,
-        )
+        planned = [
+            PlannedStep(
+                tool_id=part.id,
+                name=part.name,
+                purpose=action.purpose or manifest.description,
+                # A tool that returns candidates stops for a person to choose between them; the
+                # gate asked for is a stop after the last part.
+                gated=part.judgment or (index == len(parts) - 1 and action.gated),
+                params=share,
+                expanded_from=manifest.id if manifest.expands_to else None,
+            )
+            for index, (part, share) in enumerate(zip(parts, shares, strict=True))
+        ]
         before = None if named.before is None else named.before.id
-        step = study.insert_step(to_steps([planned], registry)[0], before=before)
-        detail = f"Added {_label(step)}{_listed(given)}."
-        return Acted(does="insert", step=step.id, detail=detail, quoting=action.quoting)
+        steps = [study.insert_step(step, before=before) for step in to_steps(planned, registry)]
+        added = ", ".join(_label(step) for step in steps)
+        if manifest.expands_to:
+            added = f"{manifest.name} as {added}"
+        detail = f"Added {added}{_listed(given)}."
+        return Acted(does="insert", step=steps[0].id, detail=detail, quoting=action.quoting)
 
     return do
 
