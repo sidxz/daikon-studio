@@ -60,6 +60,7 @@ _EFFECT_SCHEMA: dict[str, Any] = {
     "ci_low": pl.Float64,
     "ci_high": pl.Float64,
     "n_bounded": pl.Int64,
+    "n_unordered": pl.Int64,
 }
 
 # A chemist reads the first handful; the product of every level at every position
@@ -227,7 +228,7 @@ def effect_sizes(params: BaseModel | None, inputs: Mapping[str, object]) -> dict
     (alphabetically), negating the difference on the ones that were the other way
     round, so Me->Cl and Cl->Me are not reported as two unrelated findings.
     """
-    pairs = _frame(inputs, "pairs").drop_nulls("delta")
+    pairs = _frame(inputs, "pairs")
     flip = pl.col("from") > pl.col("to")
     oriented = pairs.select(
         "position",
@@ -238,10 +239,16 @@ def effect_sizes(params: BaseModel | None, inputs: Mapping[str, object]) -> dict
     )
     rng = np.random.default_rng(0)
     out: list[dict[str, Any]] = []
+    # An unordered pair has no delta — it guarantees nothing about the direction —
+    # but it is still a pair of this change, and hiding it made `n_pairs` disagree
+    # with the pairs table the chemist is reading beside it. The three counts
+    # (exact, bounded, unordered) add up to `n_pairs`.
+    is_exact = ~pl.col("bounded") & pl.col("delta").is_not_null()
     grouped = oriented.group_by("position", "from", "to").agg(
-        pl.col("delta"),
-        pl.col("delta").filter(~pl.col("bounded")).alias("exact"),
-        pl.col("bounded").sum().alias("n_bounded"),
+        pl.len().alias("n_pairs"),
+        pl.col("delta").filter(is_exact).alias("exact"),
+        (pl.col("bounded") & pl.col("delta").is_not_null()).sum().alias("n_bounded"),
+        pl.col("delta").is_null().sum().alias("n_unordered"),
     )
     for group in grouped.sort("position", "from", "to").iter_rows(named=True):
         # A bounded pair's delta is a *lower* bound on the improvement, and the
@@ -257,11 +264,12 @@ def effect_sizes(params: BaseModel | None, inputs: Mapping[str, object]) -> dict
                 "from": group["from"],
                 "to": group["to"],
                 "direction": _direction(mean_delta),
-                "n_pairs": len(group["delta"]),
+                "n_pairs": int(group["n_pairs"]),
                 "mean_delta": mean_delta,
                 "ci_low": low,
                 "ci_high": high,
                 "n_bounded": int(group["n_bounded"]),
+                "n_unordered": int(group["n_unordered"]),
             }
         )
     # The changes the data can carry first, and among those the ones that matter most.

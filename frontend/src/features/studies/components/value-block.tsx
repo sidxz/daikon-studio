@@ -570,6 +570,9 @@ function ModelFit({ data }: { data: Row }) {
         facts={[
           ["Compounds", meta.n_compounds],
           ["Left out as censored", meta.n_excluded_censored],
+          // Zero of these is the usual case, and a 0 beside the censored count
+          // reads as a second kind of exclusion the chemist has to think about.
+          ["Left out for a missing group", meta.n_excluded_incomplete || null],
           ["r²", meta.r2 != null ? cell(meta.r2) : null],
           ["q²", meta.q2 != null ? cell(meta.q2) : null],
           ["Reference", reference || null],

@@ -438,6 +438,7 @@ FIT = {
         "activity_column": "pIC50",
         "n_compounds": 8,
         "n_excluded_censored": 1,
+        "n_excluded_incomplete": 2,
         "n_terms": 4,
         "r2": 1.0,
         "q2": 1.0,
@@ -460,6 +461,10 @@ def test_a_fit_claim_cites_terms_groups_or_compounds_the_fit_has() -> None:
     told = reader("model_fit").summarize(FIT, FIT["meta"])
     assert "q2" in told.lower() or "q²" in told
     assert "R1 b" in told and "c" in told
+    # Both reasons a compound is not in n, named; the incomplete one went missing once.
+    assert "1 left out as censored" in told and "2 left out for a missing group" in told
+    whole = {**FIT, "meta": {**FIT["meta"], "n_excluded_incomplete": 0}}
+    assert "missing group" not in reader("model_fit").summarize(whole, whole["meta"])
 
 
 def _fit_claim(evidence: str, *cites: str, label: str = "") -> Claim:

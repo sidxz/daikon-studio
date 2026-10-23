@@ -169,6 +169,43 @@ def test_an_uploaded_rgroup_column_does_not_shadow_the_decomposition() -> None:
     assert all("[" in str(v) for v in table["R1"].to_list())  # the fragment SMILES
 
 
+def test_a_structure_that_did_not_parse_is_not_counted_as_covered() -> None:
+    frame = pl.DataFrame(
+        {
+            "ID": ["a", "b", "c", "bad"],
+            "SMILES": [
+                "O=C(Nc1ccc(OC)cc1)c1ccc(C)cc1",
+                "O=C(Nc1ccc(Cl)cc1)c1ccc(C)cc1",
+                "O=C(Nc1ccc(F)cc1)c1ccc(C)cc1",
+                "not-a-smiles((",
+            ],
+        }
+    )
+    out = find_cores(None, {"compounds": frame})["candidates"]
+    assert out["meta"]["n_unparsed"] == 1 and out["candidates"]
+    for cand in out["candidates"]:
+        assert "bad" not in cand["matched"]
+        assert len(cand["matched"]) + len(cand["unmatched"]) <= 3
+
+
+def test_a_column_set_aside_twice_still_does_not_shadow_the_decomposition() -> None:
+    frame = pl.DataFrame(
+        {
+            "Name": ["first", "second"],
+            "SMILES": ["Cc1ccccc1", "CCc1ccccc1"],
+            "R1": ["whatever the chemist typed", "and here too"],
+            "R1_input": ["set aside once already", "likewise"],
+            "id": ["x", "y"],
+            "id_input": ["set aside once already", "likewise"],
+        }
+    )
+    table = decompose_rgroups(None, {"compounds": frame, "core": TOLUENE})["table"]
+    assert "R1_right" not in table.columns
+    assert all("[" in str(v) for v in table["R1"].to_list())  # the fragment SMILES
+    kept = {v for c in table.columns for v in table[c].to_list()}
+    assert set(frame["R1"].to_list()) <= kept and set(frame["R1_input"].to_list()) <= kept
+
+
 def test_a_table_that_already_has_an_id_column_still_decomposes() -> None:
     frame = pl.DataFrame(
         {

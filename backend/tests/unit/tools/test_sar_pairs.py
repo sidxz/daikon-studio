@@ -221,6 +221,23 @@ def test_a_bounded_pair_is_counted_but_does_not_move_the_mean() -> None:
     assert bounded_only["direction"] is None
 
 
+def test_a_pair_that_guarantees_nothing_is_counted_but_does_not_move_the_mean() -> None:
+    pairs = pl.DataFrame(
+        {
+            "position": ["R1", "R1"],
+            "from": ["Cl", "Cl"],
+            "to": ["Me", "Me"],
+            "delta": [1.0, None],
+            "bounded": [False, True],
+        }
+    )
+    row = effect_sizes(None, {"pairs": pairs})["effects"].row(0, named=True)
+    # The three counts add up to n_pairs, so the reader can see the unordered pair
+    # the pairs table shows beside this one.
+    assert (row["n_pairs"], row["n_bounded"], row["n_unordered"]) == (2, 0, 1)
+    assert row["mean_delta"] == pytest.approx(1.0)
+
+
 def test_a_compound_with_a_null_position_is_left_out_rather_than_grouped_as_none() -> None:
     table = _grid_table().with_columns(
         pl.when(pl.col("id") == "ax")

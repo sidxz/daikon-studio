@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from functools import cache
+from itertools import count
 from typing import Any, cast
 
 import polars as pl
@@ -91,9 +92,15 @@ def _with_id(frame: pl.DataFrame, ids: Sequence[str]) -> pl.DataFrame:
     # `Name,SMILES,ID,pIC50` picks `Name`, and renaming it onto the existing
     # `id` is a polars DuplicateError that tells a scientist nothing.
     if column != "id" and "id" in frame.columns:
-        frame = frame.rename({"id": "id_input"})
+        frame = frame.rename({"id": _free_input(frame.columns, "id")})
     rest = [c for c in frame.columns if c != column]
     return frame.rename({column: "id"}).select(["id", *rest])
+
+
+def _free_input(columns: Collection[str], name: str) -> str:
+    """`<name>_input`, then `_input2`, `_input3`, ... — the first one free."""
+    taken = (f"{name}_input{'' if n == 1 else n}" for n in count(1))
+    return next(c for c in taken if c not in columns)
 
 
 def _set_aside(frame: pl.DataFrame, written: re.Pattern[str]) -> pl.DataFrame:
@@ -103,14 +110,13 @@ def _set_aside(frame: pl.DataFrame, written: re.Pattern[str]) -> pl.DataFrame:
     silently, so an upload with its own `series` or `R1` came back holding the
     tool's answer, with the scientist's own values gone and every later tool
     computing on whichever of the two survived.
+
+    Numbering keeps going when `<name>_input` is itself taken, because the
+    alternative is worse than an overwrite: a surviving `R1` makes polars
+    suffix the real decomposition to `R1_right`, which `_positions` misses, and
+    every later tool computes on the chemist's text instead.
     """
-    # ponytail: a frame already carrying both `series` and `series_input` keeps
-    # the latter and loses the former; suffix-until-free if that ever turns up.
-    moved = {
-        c: f"{c}_input"
-        for c in frame.columns
-        if written.fullmatch(c) and f"{c}_input" not in frame.columns
-    }
+    moved = {c: _free_input(frame.columns, c) for c in frame.columns if written.fullmatch(c)}
     return frame.rename(moved)
 
 
@@ -355,17 +361,21 @@ def find_cores(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[s
         )
         prefix = "" if group is None else f"series {group}: "
         notes.extend(f"{prefix}{note}" for note in found["notes"])
-        found_in.extend((c, group, group_ids) for c in found["candidates"])
+        # The search drops a structure that did not parse before the analysis, so
+        # such a compound is in neither `matched` nor `unmatched`: it was never
+        # tested against the core and may not be reported as covered by it.
+        parsed_ids = [ids[n] for n in rows if mols[n] is not None]
+        found_in.extend((c, group, parsed_ids) for c in found["candidates"])
         if group is not None:
             searched.append(group)
     # The ranks a candidate carries are within its own search; the list the
     # chemist reads is one list, so they are reassigned across the whole of it
     # — before the description is built, which is headed with the rank.
-    for rank, (cand, group, group_ids) in enumerate(found_in, start=1):
+    for rank, (cand, group, tested_ids) in enumerate(found_in, start=1):
         cand["rank"] = rank
         missed = set(cand["analysis"]["unmatched"])
         candidates.append(
-            _candidate(cand, group, [i for i in group_ids if i not in missed]),
+            _candidate(cand, group, [i for i in tested_ids if i not in missed]),
         )
     return {
         "candidates": {

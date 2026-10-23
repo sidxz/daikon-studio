@@ -229,6 +229,7 @@ const FIT = {
     activity_column: "pIC50",
     n_compounds: 12,
     n_excluded_censored: 1,
+    n_excluded_incomplete: 2,
     n_terms: 2,
     r2: 0.81,
     q2: 0.55,
@@ -327,12 +328,13 @@ describe("the model fit block", () => {
     });
     expect(await screen.findByText(/q²/)).toBeInTheDocument();
     expect(screen.getByText("R1 a, R2 x")).toBeInTheDocument();
+    expect(screen.getByText("Left out for a missing group")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "b" })).toBeInTheDocument();
     expect(screen.getByText(/c.*z/)).toBeInTheDocument();
   });
 
-  it("leaves out the reference when the map is empty", async () => {
-    const bare = { ...FIT, meta: { ...FIT.meta, reference: {} } };
+  it("leaves out an empty reference and a zero count of incomplete compounds", async () => {
+    const bare = { ...FIT, meta: { ...FIT.meta, reference: {}, n_excluded_incomplete: 0 } };
     vi.mocked(customInstance).mockResolvedValue({
       id: "v5",
       key: "model_fit",
@@ -345,6 +347,7 @@ describe("the model fit block", () => {
     });
     expect(await screen.findByText(/q²/)).toBeInTheDocument();
     expect(screen.queryByText("Reference")).not.toBeInTheDocument();
+    expect(screen.queryByText("Left out for a missing group")).not.toBeInTheDocument();
   });
 
   it("gives only the reason when the fit was refused", async () => {

@@ -291,10 +291,14 @@ def summarize_fit(data: Mapping[str, Any], summary: Mapping[str, Any]) -> str:
     if not meta.get("ok"):
         return f"The model was not fitted: {meta.get('reason')}"
     reference = ", ".join(f"{p} {g}" for p, g in (meta.get("reference") or {}).items())
+    # A compound dropped for a null at a position is as much a reason n is what it
+    # is as a censored one, so it is named too — and left out when there are none.
+    incomplete = meta.get("n_excluded_incomplete") or 0
+    missing = f", {incomplete} left out for a missing group" if incomplete else ""
     lines = [
         f"Activity: {meta.get('activity_column')}. {meta.get('n_compounds')} compounds fitted, "
-        f"{meta.get('n_excluded_censored')} left out as censored. r2 {_r(meta.get('r2'))}, "
-        f"q2 {_r(meta.get('q2'))} (leave-one-out).",
+        f"{meta.get('n_excluded_censored')} left out as censored{missing}. "
+        f"r2 {_r(meta.get('r2'))}, q2 {_r(meta.get('q2'))} (leave-one-out).",
         f"Reference group at each position: {reference or 'none'}.",
         "Each term, as the change in activity from the reference, and the compounds behind it:",
     ]
