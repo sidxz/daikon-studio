@@ -46,10 +46,10 @@ def test_two_bounds_guarantee_nothing_and_a_bound_against_a_value_guarantees_a_f
     pairs = matched_pairs(MIC, {"table": t})["pairs"]
     assert pairs.columns[0] == "id"
     ab = pairs.filter(pl.col("id").str.contains("a") & pl.col("id").str.contains("b"))
-    assert ab.height == 1 and ab["delta"][0] is None
+    assert ab.height == 1 and ab["delta"][0] is None and ab["ordered"][0] is False
     ac = pairs.filter(pl.col("id_better") == "c").filter(pl.col("id_worse") == "a")
     assert ac.height == 1 and ac["delta"][0] >= 1.5 and ac["bounded"][0] is True
-    assert ac["id"][0] == "a>c"
+    assert ac["id"][0] == "a>c" and ac["ordered"][0] is True
 
 
 def test_direction_decides_which_compound_is_better() -> None:
@@ -88,6 +88,7 @@ def test_effects_orient_a_change_one_way() -> None:
             "delta": [1.0, 0.5],
             "fold": ["", ""],
             "bounded": [False, True],
+            "ordered": [True, True],
             "activity_better": ["", ""],
             "activity_worse": ["", ""],
             "measurements_better": [None, None],
@@ -104,7 +105,10 @@ def test_effects_orient_a_change_one_way() -> None:
         2,
         1,
     )
-    assert row["mean_delta"] == pytest.approx(-0.25)  # Me->Cl +1.0 and Cl->Me +0.5
+    # Me->Cl +1.0, oriented the other way; the Cl->Me +0.5 pair is bounded, so it
+    # is counted but does not move the mean.
+    assert row["mean_delta"] == pytest.approx(-1.0)
+    assert row["direction"] == "from is better"
     assert row["ci_low"] is None  # fewer than three pairs
 
 
@@ -176,3 +180,57 @@ def test_nothing_decomposed_or_no_usable_activity_is_empty_not_an_error() -> Non
     assert matched_pairs(PIC50, {"table": text})["pairs"].height == 0
     fit = free_wilson(PIC50, {"table": text})["fit"]
     assert fit["meta"]["ok"] is False and "pIC50" in fit["meta"]["reason"]
+
+
+def test_an_activity_column_that_is_not_there_fails_the_step() -> None:
+    t = _table(["a", "b"], ["C[*:1]", "Cl[*:1]"], ["C[*:2]"] * 2, ["8", "2"])
+    wrong = MIC.model_copy(update={"activity_column": "mic"})
+    with pytest.raises(ValueError, match="'mic'"):
+        matched_pairs(wrong, {"table": t})
+    with pytest.raises(ValueError, match="'mic'"):
+        free_wilson(wrong, {"table": t})
+
+
+def test_a_pair_that_guarantees_nothing_asserts_no_direction() -> None:
+    t = _table(["a", "b"], ["C[*:1]", "Cl[*:1]"], ["C[*:2]"] * 2, ["2", "<64"])
+    row = matched_pairs(MIC, {"table": t})["pairs"].row(0, named=True)
+    assert row["delta"] is None and row["fold"] is None and row["ordered"] is False
+    assert row["id"] == "a|b" and ">" not in row["id"]
+    assert {row["id_better"], row["id_worse"]} == {"a", "b"}
+
+
+def test_a_bounded_pair_is_counted_but_does_not_move_the_mean() -> None:
+    pairs = pl.DataFrame(
+        {
+            "position": ["R1", "R1", "R2"],
+            "from": ["Cl", "Cl", "Cl"],
+            "to": ["Me", "Me", "Me"],
+            "delta": [1.0, 2.0, 2.0],
+            "bounded": [False, True, True],
+        }
+    )
+    effects = effect_sizes(None, {"pairs": pairs})["effects"]
+    rows = {row["position"]: row for row in effects.iter_rows(named=True)}
+    supported = rows["R1"]
+    assert (supported["n_pairs"], supported["n_bounded"]) == (2, 1)
+    assert supported["mean_delta"] == pytest.approx(1.0)
+    assert supported["direction"] == "to is better"
+    bounded_only = rows["R2"]
+    assert bounded_only["n_pairs"] == 1 and bounded_only["n_bounded"] == 1
+    assert bounded_only["mean_delta"] is None and bounded_only["ci_low"] is None
+    assert bounded_only["direction"] is None
+
+
+def test_a_compound_with_a_null_position_is_left_out_rather_than_grouped_as_none() -> None:
+    table = _grid_table().with_columns(
+        pl.when(pl.col("id") == "ax")
+        .then(pl.lit(None, dtype=pl.Utf8))
+        .otherwise(pl.col("R2"))
+        .alias("R2")
+    )
+    gaps = coverage_gaps(None, {"table": table})["gaps"]
+    assert gaps.height
+    assert not any("None" in str(value) for row in gaps.iter_rows() for value in row)
+    fit = free_wilson(PIC50, {"table": table})["fit"]
+    assert fit["meta"]["ok"] and fit["meta"]["n_excluded_incomplete"] == 1
+    assert "ax" not in {fitted["id"] for fitted in fit["fitted"]}

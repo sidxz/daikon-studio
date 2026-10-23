@@ -42,6 +42,7 @@ _PAIR_SCHEMA: dict[str, Any] = {
     "delta": pl.Float64,
     "fold": pl.Utf8,
     "bounded": pl.Boolean,
+    "ordered": pl.Boolean,
     "activity_better": pl.Utf8,
     "activity_worse": pl.Utf8,
     "measurements_better": pl.Int64,
@@ -53,6 +54,7 @@ _EFFECT_SCHEMA: dict[str, Any] = {
     "position": pl.Utf8,
     "from": pl.Utf8,
     "to": pl.Utf8,
+    "direction": pl.Utf8,
     "n_pairs": pl.Int64,
     "mean_delta": pl.Float64,
     "ci_low": pl.Float64,
@@ -83,6 +85,20 @@ def _semantics(params: AssayParams) -> dict[str, Any]:
         "higher_is_better": params.higher_is_better,
         "unit": params.unit or "",
     }
+
+
+def _require_activity(table: pl.DataFrame, params: AssayParams) -> None:
+    """Fail the step when the activity column is not there.
+
+    Read off a column that does not exist, every row is `None`, every compound is
+    skipped and the table comes back empty — with the cause stated nowhere, since
+    `pairs` carries no meta to put a note in.
+    """
+    if params.activity_column not in table.columns:
+        raise ValueError(
+            f"No column {params.activity_column!r} in the table. It has: "
+            f"{', '.join(table.columns)}"
+        )
 
 
 def _positions(table: pl.DataFrame) -> list[str]:
@@ -123,6 +139,7 @@ def _rows(table: pl.DataFrame, params: AssayParams) -> list[dict[str, Any]]:
 
 def matched_pairs(params: AssayParams, inputs: Mapping[str, object]) -> dict[str, Any]:
     table = _frame(inputs, "table")
+    _require_activity(table, params)
     semantics = _semantics(params)
     rows = _rows(table, params)
     measurements = {
@@ -153,20 +170,30 @@ def _pair(
     # The gap, recomputed rather than read off the finding: `find_cliffs` rounds it
     # to three places for display, and a stated fourfold gate has to hold exactly.
     delta = None if (censored and gap <= _TOLERANCE) else gap
+    # A pair that guarantees nothing is unordered, and nothing in its row may say
+    # otherwise: the two compounds go in by id ascending rather than by activity,
+    # the id joins them with "|", and the vendored `fold` goes — ">=1.0x" reads as
+    # an improvement when the open bound could run either way.
+    ordered = delta is not None
+    low, high = "worse", "better"  # the from-side and the to-side
+    if not ordered and pair["id_worse"] > pair["id_better"]:
+        low, high = "better", "worse"
+    id_low, id_high = pair[f"id_{low}"], pair[f"id_{high}"]
     return {
-        "id": f"{pair['id_worse']}>{pair['id_better']}",
+        "id": f"{id_low}>{id_high}" if ordered else f"{id_low}|{id_high}",
         "position": pair["position"],
-        "id_better": pair["id_better"],
-        "id_worse": pair["id_worse"],
-        "from": pair["label_worse"],
-        "to": pair["label_better"],
+        "id_better": id_high,
+        "id_worse": id_low,
+        "from": pair[f"label_{low}"],
+        "to": pair[f"label_{high}"],
         "delta": delta,
-        "fold": pair["fold"],
+        "fold": pair["fold"] if ordered else None,
         "bounded": bool(pair["bounded"]),
-        "activity_better": _text(pair["activity_better"]),
-        "activity_worse": _text(pair["activity_worse"]),
-        "measurements_better": measurements.get(pair["id_better"]),
-        "measurements_worse": measurements.get(pair["id_worse"]),
+        "ordered": ordered,
+        "activity_better": _text(pair[f"activity_{high}"]),
+        "activity_worse": _text(pair[f"activity_{low}"]),
+        "measurements_better": measurements.get(id_high),
+        "measurements_worse": measurements.get(id_low),
     }
 
 
@@ -212,19 +239,26 @@ def effect_sizes(params: BaseModel | None, inputs: Mapping[str, object]) -> dict
     rng = np.random.default_rng(0)
     out: list[dict[str, Any]] = []
     grouped = oriented.group_by("position", "from", "to").agg(
-        pl.col("delta"), pl.col("bounded").sum().alias("n_bounded")
+        pl.col("delta"),
+        pl.col("delta").filter(~pl.col("bounded")).alias("exact"),
+        pl.col("bounded").sum().alias("n_bounded"),
     )
     for group in grouped.sort("position", "from", "to").iter_rows(named=True):
-        deltas = np.array(group["delta"], dtype=float)
-        low, high = _interval(deltas, rng)
+        # A bounded pair's delta is a *lower* bound on the improvement, and the
+        # alphabetical orientation negates half of them into upper bounds, so the
+        # mean rests on the exact pairs alone. The counts say what it rests on.
+        exact = np.array(group["exact"], dtype=float)
+        mean_delta = float(exact.mean()) if len(exact) else None
+        low, high = _interval(exact, rng)
         out.append(
             {
                 "id": f"{group['position']} {group['from']}>{group['to']}",
                 "position": group["position"],
                 "from": group["from"],
                 "to": group["to"],
-                "n_pairs": len(deltas),
-                "mean_delta": float(deltas.mean()),
+                "direction": _direction(mean_delta),
+                "n_pairs": len(group["delta"]),
+                "mean_delta": mean_delta,
                 "ci_low": low,
                 "ci_high": high,
                 "n_bounded": int(group["n_bounded"]),
@@ -232,9 +266,19 @@ def effect_sizes(params: BaseModel | None, inputs: Mapping[str, object]) -> dict
         )
     # The changes the data can carry first, and among those the ones that matter most.
     effects = pl.DataFrame(out, schema=_EFFECT_SCHEMA).sort(
-        ["n_pairs", pl.col("mean_delta").abs()], descending=True, maintain_order=True
+        ["n_pairs", pl.col("mean_delta").abs()],
+        descending=True,
+        nulls_last=True,
+        maintain_order=True,
     )
     return {"effects": effects}
+
+
+def _direction(mean_delta: float | None) -> str | None:
+    """The finding in words — on a table oriented alphabetically, a sign is not one."""
+    if not mean_delta:  # no exact pair behind it, or a measured zero
+        return None
+    return "to is better" if mean_delta > 0 else "from is better"
 
 
 def _interval(deltas: np.ndarray, rng: np.random.Generator) -> tuple[float | None, float | None]:
@@ -249,16 +293,19 @@ def _interval(deltas: np.ndarray, rng: np.random.Generator) -> tuple[float | Non
 
 def _records(
     table: pl.DataFrame, params: AssayParams
-) -> tuple[list[tuple[str, tuple[str, ...], float]], int]:
-    """The compounds the fit can use, and how many were dropped as censored.
+) -> tuple[list[tuple[str, tuple[str, ...], float]], int, int]:
+    """The compounds the fit can use, and how many were dropped, and why.
 
     A bound is not a measurement: a least-squares fit cannot carry ">64" without
     turning it into 64, so those rows are left out and counted rather than invented.
+    A null at a position is not a substituent either: `str(None)` fits a term for a
+    group called "None", so the compound is left out and counted the same way.
     """
     semantics = _semantics(params)
     positions = _positions(table)
     records: list[tuple[str, tuple[str, ...], float]] = []
     censored = 0
+    incomplete = 0
     for row in _rows(table, params):
         interval = sar.sar_cliffs.to_interval(row.get(params.activity_column), semantics)
         if interval is None:
@@ -266,9 +313,13 @@ def _records(
         if sar.sar_cliffs.is_bounded(interval):
             censored += 1
             continue
-        vector = tuple(str(row[column]) for column in positions)
+        cells = [row[column] for column in positions]
+        if any(cell is None for cell in cells):
+            incomplete += 1
+            continue
+        vector = tuple(str(cell) for cell in cells)
         records.append((row["id"], vector, float(sar.sar_cliffs.point_of(interval))))
-    return records, censored
+    return records, censored, incomplete
 
 
 def free_wilson(params: AssayParams, inputs: Mapping[str, object]) -> dict[str, Any]:
@@ -279,14 +330,16 @@ def free_wilson(params: AssayParams, inputs: Mapping[str, object]) -> dict[str, 
     separately, where it fails they interact.
     """
     table = _frame(inputs, "table")
+    _require_activity(table, params)
     columns = _positions(table)
-    records, censored = _records(table, params)
+    records, censored, incomplete = _records(table, params)
     meta: dict[str, Any] = {
         "ok": False,
         "reason": "",
         "activity_column": params.activity_column,
         "n_compounds": len(records),
         "n_excluded_censored": censored,
+        "n_excluded_incomplete": incomplete,
         "n_terms": 0,
         "r2": None,
         "q2": None,
@@ -391,7 +444,11 @@ def coverage_gaps(params: BaseModel | None, inputs: Mapping[str, object]) -> dic
     table = _frame(inputs, "table")
     rows = _decomposed(table)
     columns = _positions(table)
-    groups = {col: Counter(str(v) for v in rows[col].to_list()) for col in columns}
+    # A null is not a substituent: grouped by `str`, an unassigned position becomes
+    # the level "None" and gets offered as a compound to make.
+    groups = {
+        col: Counter(str(v) for v in rows[col].to_list() if v is not None) for col in columns
+    }
     varying = [col for col in columns if len(groups[col]) > 1]
     schema: dict[str, Any] = {
         "id": pl.Utf8,
@@ -404,6 +461,8 @@ def coverage_gaps(params: BaseModel | None, inputs: Mapping[str, object]) -> dic
 
     made: dict[tuple[str, ...], str] = {}
     for row in rows.select(table.columns[0], *varying).iter_rows():
+        if any(v is None for v in row[1:]):
+            continue  # no level of its own, so it is neither a gap filled nor a neighbour
         made.setdefault(tuple(str(v) for v in row[1:]), str(row[0]))
     # Only groups the series made twice: a one-off substituent says nothing about
     # what combining it would do, and squaring the levels on it buries the real gaps.
