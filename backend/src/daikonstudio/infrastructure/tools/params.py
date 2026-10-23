@@ -7,6 +7,8 @@ value comes from.
 
 from __future__ import annotations
 
+from typing import Literal
+
 from pydantic import BaseModel, Field, field_validator
 
 
@@ -83,5 +85,64 @@ class PrepareParams(BaseModel):
             "stays, which is right for a cofactor the protein works with and wrong "
             "for a bound inhibitor: keeping that fills the site you are looking "
             "for. Pass an empty list to strip them all."
+        ),
+    )
+
+
+class AssayParams(BaseModel):
+    """How the activity column is measured. The scientist's assay, never inferred."""
+
+    activity_column: str = Field(
+        description="Column holding the activity, as the scientist named it for this assay"
+    )
+    kind: Literal["log", "concentration", "linear"] = Field(
+        description=(
+            "What the column's numbers are, from the assay description or its header. "
+            "log: already a log potency (pIC50, pEC50, pKi), so a bigger number is a "
+            "stronger compound. concentration: a dose that does the job (IC50, EC50, "
+            "MIC, Ki in nM or uM), so a smaller number is stronger and differences are "
+            "taken on the log scale. linear: any other quantity (percent inhibition, "
+            "a rate), compared as it stands"
+        )
+    )
+    higher_is_better: bool = Field(
+        description=(
+            "Whether a larger value of the activity (after the kind's own conversion) "
+            "is the better result, from what the assay measures. Getting this wrong "
+            "reverses every conclusion the study draws, so it is asked, not guessed"
+        )
+    )
+    unit: str | None = Field(
+        default=None,
+        description="Unit of the column (nM, uM, %), if the scientist gave one; shown, not used",
+    )
+
+    @field_validator("higher_is_better", mode="before")
+    @classmethod
+    def _text_bool(cls, value: object) -> object:
+        """Settings arrive as text (see `PrepareParams._split`), so accept yes/no."""
+        if isinstance(value, str):
+            text = value.strip().lower()
+            if text in ("true", "yes"):
+                return True
+            if text in ("false", "no"):
+                return False
+        return value
+
+
+class CoreParams(BaseModel):
+    core: str = Field(
+        min_length=1, description="The core as the scientist typed it, SMILES or SMARTS"
+    )
+
+
+class CliffParams(BaseModel):
+    min_delta: float = Field(
+        gt=0,
+        description=(
+            "Smallest difference in activity, in comparable units, that makes a pair a "
+            "cliff. 1.0 is tenfold for a potency or concentration; 0.6 is two doubling "
+            "dilutions, the usual MIC floor; for a linear quantity it is the column's "
+            "own units. Required because the floor belongs to the assay, not to the tool"
         ),
     )

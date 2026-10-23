@@ -15,6 +15,7 @@ from rdkit.Chem import Descriptors
 from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
+from daikonstudio.application.studies.readers import _IDENTIFIER
 from daikonstudio.infrastructure.tools.params import ActivityParams, ConfoundParams
 
 ToolImpl = Callable[[BaseModel | None, Mapping[str, object]], Mapping[str, object]]
@@ -66,6 +67,14 @@ def structure_column(frame: pl.DataFrame) -> str:
         if values and sum(Chem.MolFromSmiles(v) is not None for v in values) >= len(values) / 2:
             return name
     raise ValueError(f"No column parses as SMILES; tried: {', '.join(tried)}")
+
+
+def id_column(frame: pl.DataFrame) -> str:
+    """The first column named like an identifier; callers wanting a fallback add a row number."""
+    for name in frame.columns:
+        if _IDENTIFIER.match(name):
+            return name
+    raise ValueError(f"No column is named like an identifier; tried: {', '.join(frame.columns)}")
 
 
 def standardize(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[str, Any]:

@@ -13,6 +13,14 @@ from daikonstudio.application.planner.plan import DraftPlan, Setting, Step, expa
 from daikonstudio.application.tools.manifest import SlotKind
 from daikonstudio.infrastructure.tools.catalog import default_registry
 
+# What the SAR tools now require of the planner: the assay, and the cliff floor.
+_SAR_SETTINGS = [
+    Setting(name="activity_column", value="pIC50"),
+    Setting(name="kind", value="log"),
+    Setting(name="higher_is_better", value="true"),
+    Setting(name="min_delta", value="1.0"),
+]
+
 
 def _plan(*tool_ids: str, gated: bool = False) -> DraftPlan:
     return DraftPlan(
@@ -30,6 +38,8 @@ def _chosen(steps: list[object]) -> list[str]:
 def test_a_coherent_sar_plan_has_no_problems() -> None:
     registry = default_registry()
     plan = _plan("standardize", "find_cores", "build_sar_table", "analyse_pairs")
+    for step in plan.steps:
+        step.settings = _SAR_SETTINGS
     assert incoherences(expand(plan, registry), registry) == []
 
 
@@ -107,7 +117,7 @@ class TestComposites:
                         tool_id=manifest.id,
                         purpose="p",
                         gated=False,
-                        settings=[Setting(name="activity_column", value="pIC50")],
+                        settings=_SAR_SETTINGS,
                     )
                 ],
             )

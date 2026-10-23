@@ -3,6 +3,7 @@ import pytest
 
 from daikonstudio.infrastructure.tools.impl.chem import (
     PROPERTY_COLUMNS,
+    id_column,
     property_confound,
     property_profile,
     standardize,
@@ -24,6 +25,12 @@ def test_structure_column() -> None:
     assert structure_column(FRAME) == "SMILES"
     with pytest.raises(ValueError, match="ID"):
         structure_column(pl.DataFrame({"ID": ["a", "b"]}))
+
+
+def test_id_column() -> None:
+    assert id_column(FRAME) == "ID"
+    with pytest.raises(ValueError, match="SMILES"):
+        id_column(FRAME.drop("ID"))
 
 
 def test_structure_column_prefers_the_standardized_form() -> None:

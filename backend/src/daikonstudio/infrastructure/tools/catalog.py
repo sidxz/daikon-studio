@@ -27,7 +27,10 @@ from daikonstudio.application.tools.manifest import (
 from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.infrastructure.tools.params import (
     ActivityParams,
+    AssayParams,
+    CliffParams,
     ConfoundParams,
+    CoreParams,
     FetchAlphafoldParams,
     FetchPdbParams,
     FetchUniprotParams,
@@ -82,7 +85,6 @@ _TOOLS: tuple[ToolManifest, ...] = (
         outputs=(_in("series", SlotKind.SERIES, "Series"),),
         library="rdkit (Butina over Morgan fingerprints of Murcko scaffolds)",
         judgment=True,
-        resolves_to=SlotKind.COMPOUND_TABLE,
         surface=ToolSurface.EDITOR,
     ),
     ToolManifest(
@@ -114,19 +116,21 @@ _TOOLS: tuple[ToolManifest, ...] = (
         area=ToolArea.SAR,
         name="Score a core",
         description=(
-            "Takes a core a chemist drew or typed and reports what it covers, plus a "
-            "sentence for each compound it misses saying why it missed. The route by "
-            "which a scientist overrules the search: nothing is built from a hand-drawn "
-            "core until it has been scored. Emits the same shape as a proposed "
-            "candidate, so a drawn core flows into the rest of a study untouched."
+            "Takes a core a chemist drew or typed, given as a setting, and reports "
+            "what it covers, plus a sentence for each compound it misses saying why it "
+            "missed. The route by which a scientist overrules the search: nothing is "
+            "built from a hand-drawn core until it has been scored. Emits the same "
+            "shape as a proposed candidate, so a drawn core flows into the rest of a "
+            "study untouched."
         ),
-        inputs=(_COMPOUNDS, _CORE),
+        inputs=(_COMPOUNDS,),
         outputs=(_in("candidates", SlotKind.CORE_CANDIDATES, "Scored core"),),
         library="sar-workbench (RDKit substructure matching)",
         judgment=True,
         resolves_to=SlotKind.CORE,
         surface=ToolSurface.EDITOR,
         external=True,
+        params=CoreParams,
     ),
     ToolManifest(
         id="decompose_rgroups",
@@ -159,7 +163,7 @@ _TOOLS: tuple[ToolManifest, ...] = (
         ),
         inputs=(_TABLE,),
         outputs=(_in("table", SlotKind.RGROUP_TABLE, "Named SAR table"),),
-        library="rdkit.Chem.rdAbbreviations and a curated substituent table",
+        library="rdkit.Chem.rdAbbreviations (built-in abbreviations only)",
         surface=ToolSurface.NONE,
     ),
     ToolManifest(
@@ -178,6 +182,7 @@ _TOOLS: tuple[ToolManifest, ...] = (
         outputs=(_in("pairs", SlotKind.PAIRS, "Matched pairs"),),
         library="daikonstudio (over the R-group table)",
         surface=ToolSurface.VIEW,
+        params=AssayParams,
     ),
     ToolManifest(
         id="effect_sizes",
@@ -202,9 +207,11 @@ _TOOLS: tuple[ToolManifest, ...] = (
         name="Activity cliffs",
         description=(
             "Picks out pairs whose activity differs far more than a one-position change "
-            "should explain. Each is either the most informative compound in the set or "
-            "an assay error, and how many times each compound was measured usually says "
-            "which, so the result is labelled rather than celebrated. Gated on an "
+            "should explain. Returns every pair with the cliffs flagged and ranked, so "
+            "a step reading the pairs afterwards still sees all of them. Each is either "
+            "the most informative compound in the set or an assay error, and how many "
+            "times each compound was measured usually says which, so the result is "
+            "labelled rather than celebrated. Gated on an "
             "absolute difference, not a z-score: a bimodal series inflates the pooled "
             "spread past the largest real jump, and a single pair has no spread at all."
         ),
@@ -212,8 +219,8 @@ _TOOLS: tuple[ToolManifest, ...] = (
         outputs=(_in("cliffs", SlotKind.PAIRS, "Cliffs, adjudicated"),),
         library="daikonstudio (over the matched pairs)",
         judgment=True,
-        resolves_to=SlotKind.PAIRS,
         surface=ToolSurface.EDITOR,
+        params=CliffParams,
     ),
     ToolManifest(
         id="property_profile",
@@ -284,6 +291,7 @@ _TOOLS: tuple[ToolManifest, ...] = (
         outputs=(_in("fit", SlotKind.MODEL_FIT, "Model fit"),),
         library="numpy",
         surface=ToolSurface.VIEW,
+        params=AssayParams,
     ),
     ToolManifest(
         id="coverage_gaps",
@@ -552,7 +560,6 @@ _TOOLS: tuple[ToolManifest, ...] = (
         ),
         library="rdkit, numpy",
         judgment=True,
-        resolves_to=SlotKind.PAIRS,
         expands_to=("matched_pairs", "effect_sizes", "activity_cliffs"),
         surface=ToolSurface.EDITOR,
     ),

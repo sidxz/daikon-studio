@@ -20,7 +20,7 @@ from daikonstudio.application.ports.tool_executor import ToolInput, ToolOutput, 
 from daikonstudio.application.tools.codecs import decode, encode, extension
 from daikonstudio.application.tools.tool_run import RawOutput
 from daikonstudio.infrastructure.tools.catalog import default_registry
-from daikonstudio.infrastructure.tools.impl import chem, fetch, structure
+from daikonstudio.infrastructure.tools.impl import chem, cores, fetch, pairs, structure
 
 ToolImpl = Callable[[BaseModel | None, Mapping[str, object]], Mapping[str, object]]
 
@@ -28,6 +28,8 @@ IMPLEMENTATIONS: dict[str, ToolImpl] = {
     **chem.IMPLEMENTATIONS,
     **fetch.IMPLEMENTATIONS,
     **structure.IMPLEMENTATIONS,
+    **cores.IMPLEMENTATIONS,
+    **pairs.IMPLEMENTATIONS,
 }
 
 

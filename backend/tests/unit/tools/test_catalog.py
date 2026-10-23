@@ -150,3 +150,17 @@ def test_settings_are_rendered_for_tools_and_composites() -> None:
     assert "settings: pdb_id (required): Four-character PDB id" in text
     assert "check_properties" in text
     assert "activity_column (required)" in text
+
+
+def test_sar_settings_reach_the_planner_through_the_composites() -> None:
+    from daikonstudio.application.planner.catalogue import catalogue
+
+    text = catalogue(default_registry().manifests())
+    assert "higher_is_better (required)" in text
+    assert "min_delta (required)" in text
+    assert "core (required): The core as the scientist typed it" in text
+
+
+def test_only_cores_and_pockets_resolve() -> None:
+    kinds = {m.resolves_to for m in default_registry().manifests() if m.resolves_to}
+    assert kinds == {SlotKind.CORE, SlotKind.POCKET}
