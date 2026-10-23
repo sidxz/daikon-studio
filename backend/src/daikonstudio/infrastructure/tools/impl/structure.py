@@ -210,6 +210,15 @@ def tool_binary(env: str, name: str) -> str:
     return found
 
 
+def _run(name: str, command: list[str], cwd: str) -> None:
+    """Run a finder; a failure says which tool failed and why, not the command line."""
+    try:
+        subprocess.run(command, cwd=cwd, check=True, capture_output=True, timeout=600)
+    except subprocess.CalledProcessError as error:
+        output = (error.stderr or error.stdout or b"").decode(errors="replace").strip()
+        raise RuntimeError(f"{name} failed: {output[-300:]}") from error
+
+
 def fpocket_bin() -> str:
     return tool_binary("STUDIO_FPOCKET_BIN", "fpocket")
 
@@ -373,9 +382,7 @@ def find_pockets(params: BaseModel | None, inputs: Mapping[str, object]) -> Mapp
 
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "in.pdb").write_text("\n".join(receptor) + "\n")
-        subprocess.run(
-            [fpocket_bin(), "-f", "in.pdb"], cwd=tmp, check=True, capture_output=True, timeout=600
-        )
+        _run("fpocket", [fpocket_bin(), "-f", "in.pdb"], cwd=tmp)
         out = Path(tmp) / "in_out"
         pockets = _info((out / "in_info.txt").read_text())
         for pocket in pockets:
@@ -441,13 +448,7 @@ def predict_pockets(
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "in.pdb").write_text(text)
         command = [prank_bin(), "predict", "-f", "in.pdb", "-o", "out"]
-        subprocess.run(
-            [*command, "-threads", "1", "-visualizations", "0"],
-            cwd=tmp,
-            check=True,
-            capture_output=True,
-            timeout=600,
-        )
+        _run("p2rank", [*command, "-threads", "1", "-visualizations", "0"], cwd=tmp)
         out = Path(tmp) / "out"
         pockets = _predictions(
             (out / "in.pdb_predictions.csv").read_text(), (out / "in.pdb_residues.csv").read_text()
