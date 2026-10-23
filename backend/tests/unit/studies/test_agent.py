@@ -355,13 +355,12 @@ async def test_a_look_costs_one_more_call_and_the_rows_reach_the_second() -> Non
     study = _study("standardize", "property_profile")
     table = pl.DataFrame({"id": ["a", "b"], "clogp": [1.5, 2.5]})
     _done(study, store, 2, "property_table", table)
+    greasiest = Claim(step=2, label="the most lipophilic", evidence="rows", cites=["a"])
+    column = Claim(step=2, label="lipophilicity", evidence="column", cites=["clogp"])
     model = ScriptedLanguageModel(
         ReplyTurn(say="", look=[Look(step=2, rows=5)], summary="s"),
-        ReplyTurn(
-            say="One compound stands out.",
-            claims=[Claim(step=2, label="the most lipophilic", evidence="rows", cites=["a"])],
-            summary="s",
-        ),
+        ReplyTurn(say="One compound stands out.", claims=[greasiest], summary="s"),
+        ReplyTurn(say="Still that one.", claims=[greasiest, column], summary="s"),
     )
     agent, studies, _ = _agent(study, store, model)
 
@@ -374,6 +373,14 @@ async def test_a_look_costs_one_more_call_and_the_rows_reach_the_second() -> Non
     assert turn.looked == ("step 2: 5 rows",)
     assert [(p.step, p.cites) for p in turn.points] == [(study.steps[1].id, ("a",))]
     assert turn.dropped == 0
+
+    # Without a look in this turn, the same row is a remembered or guessed identifier and is
+    # dropped, though it exists; a column is in the summary and needs no look.
+    await agent(_say(study, "And now?"), AUTH)
+
+    turn = studies.rows[study.id].thread.turns[-1]
+    assert [(p.evidence, p.cites) for p in turn.points] == [("column", ("clogp",))]
+    assert turn.dropped == 1
 
 
 async def test_a_turn_never_makes_a_third_call() -> None:

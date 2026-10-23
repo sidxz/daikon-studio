@@ -217,8 +217,9 @@ async def _answer[T: (ObserveTurn, ReplyTurn)](
     study: Study,
     registry: ToolRegistry,
     store: BlobStore,
-) -> tuple[T, tuple[str, ...]]:
-    """The model's turn on a started study, and what it looked at on the way.
+) -> tuple[T, tuple[str, ...], frozenset[int]]:
+    """The model's turn on a started study, what it looked at on the way, and the steps whose
+    rows it was shown, by number as it counts them.
 
     A look is answered once: the rows asked for are put in front of the model and it is asked
     again, and that answer stands with whatever it asks to see ignored.
@@ -226,11 +227,14 @@ async def _answer[T: (ObserveTurn, ReplyTurn)](
     instructions = system("running", registry, left=_left(study))
     answer = await model.parse(system=instructions, prompt=prompt, schema=schema)
     if not answer.look:
-        return answer, ()
+        return answer, (), frozenset()
     looks = [await _look(look, study, store) for look in answer.look]
+    shown = frozenset(
+        look.step for look, (_, line) in zip(answer.look, looks, strict=True) if line is not None
+    )
     prompt += _LOOKED + "\n\n".join(text for text, _ in looks)
     answer = await model.parse(system=instructions, prompt=prompt, schema=schema)
-    return answer, tuple(line for _, line in looks if line is not None)
+    return answer, tuple(line for _, line in looks if line is not None), shown
 
 
 async def _check(
@@ -294,14 +298,27 @@ async def _checked(
     registry: ToolRegistry,
     store: BlobStore,
     decoded: dict[uuid.UUID, Any],
+    shown: frozenset[int],
 ) -> tuple[list[Pointer], list[Proposed], int]:
-    """What survives of a turn's claims and proposals, and how many did not."""
+    """What survives of a turn's claims and proposals, and how many did not.
+
+    `shown` is the steps whose rows a look in this turn showed. A row is cited by its
+    identifier, which only a look shows, so a claim citing rows of a step not looked at in
+    this turn was guessed or remembered, and goes, however plausible the identifier: one that
+    happens to exist would otherwise pass as a reading. A column is in the summary and needs
+    no look.
+    """
     by_step: dict[int, list[Claim]] = {}
     for claim in answer.claims:
         by_step.setdefault(claim.step, []).append(claim)
     points: list[Pointer] = []
     dropped = 0
     for number, claims in by_step.items():
+        if number not in shown:
+            dropped += sum(claim.evidence == "rows" for claim in claims)
+            claims = [claim for claim in claims if claim.evidence != "rows"]
+        if not claims:
+            continue
         kept, lost = await _check(claims, study.step_at(number - 1), study, store, decoded)
         points += kept
         dropped += lost
@@ -472,9 +489,11 @@ class StudyAgent:
             outputs = study.current_outputs_of(about.id)
             data = await _whole(self._store, outputs[0], decoded) if outputs else None
             prompt += "\n\n" + trigger_for_reply(study, about, data)
-        answer, looked = await _answer(model, prompt, ReplyTurn, study, self._tools, self._store)
+        answer, looked, shown = await _answer(
+            model, prompt, ReplyTurn, study, self._tools, self._store
+        )
         points, proposals, dropped = await _checked(
-            answer, study, self._tools, self._store, decoded
+            answer, study, self._tools, self._store, decoded, shown
         )
         if in_flight(study.id):
             # One began while the model was answering: change nothing, write nothing.
@@ -621,9 +640,11 @@ class ObserveStep:
         prompt = f"{standing(study, self._tools)}\n\n{trigger_for_observe(study, step, data)}"
         if driving:
             prompt += _DRIVING
-        answer, looked = await _answer(model, prompt, ObserveTurn, study, self._tools, self._store)
+        answer, looked, shown = await _answer(
+            model, prompt, ObserveTurn, study, self._tools, self._store
+        )
         points, proposals, dropped = await _checked(
-            answer, study, self._tools, self._store, decoded
+            answer, study, self._tools, self._store, decoded, shown
         )
         say = answer.say.strip()
         study.thread.summary = answer.summary.strip()

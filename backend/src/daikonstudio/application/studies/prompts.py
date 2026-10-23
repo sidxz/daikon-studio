@@ -151,8 +151,9 @@ step by its number in the plan and to a check by its place in its list.
 which part of the result carries it, and cites what it relies on, spelled exactly \
 as the result spells it. One that cites something the result does not hold is \
 dropped before the scientist sees it, and the drop is shown to them. A claim \
-citing identifiers of a table needs a `look` first: ask for one and you will be \
-asked again with the rows. Claims can be checked on these kinds of result: \
+citing identifiers of a table needs a `look` in the same turn: ask for one and you \
+will be asked again with the rows. Rows seen in an earlier turn do not count. \
+Claims can be checked on these kinds of result: \
 %(checkable)s. About any other you may speak, but a claim is dropped.
 
 3. What you may do depends on what prompted the turn. On an event, a step \
