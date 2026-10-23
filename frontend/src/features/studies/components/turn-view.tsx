@@ -153,9 +153,13 @@ export function TurnView({
     );
   }
   const agent = turn.role === "agent";
+  // Said by what the turn could drop: an observation only claims, while a reply or a planning
+  // turn also edits and proposes, and a refused instruction must not read as a weak claim.
   const dropped =
     turn.dropped > 0 &&
-    `${turn.dropped} ${turn.dropped === 1 ? "claim" : "claims"} dropped, unsupported by this result`;
+    (turn.kind === "observe"
+      ? `${turn.dropped} ${turn.dropped === 1 ? "claim" : "claims"} dropped, unsupported by this result`
+      : `${turn.dropped} of what it tried was refused: claims the result does not support, or edits and proposals the plan cannot carry`);
   return (
     <div
       className={cn(

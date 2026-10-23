@@ -62,6 +62,7 @@ describe("the study's thread", () => {
             dropped: 2,
             written_by: "anthropic/claude-opus-5-5",
           }),
+          turn({ kind: "observe", about: "st2", say: "Step 2 ran.", dropped: 1 }),
         ],
       },
     });
@@ -72,7 +73,13 @@ describe("the study's thread", () => {
         "Did: Changed step 2 (Prepare structure): keep_ligands=false, on your words: 'Rerun without the zinc'",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText(/2 claims dropped, unsupported by this result/)).toBeInTheDocument();
+    // A reply's count covers refused edits and proposals too; an observation's, only claims.
+    expect(
+      screen.getByText(
+        /2 of what it tried was refused: claims the result does not support, or edits and proposals the plan cannot carry/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("1 claim dropped, unsupported by this result")).toBeInTheDocument();
     expect(
       screen.getByText(/a removed step · rank 2 · zinc site · ligand overlap/),
     ).toBeInTheDocument();
