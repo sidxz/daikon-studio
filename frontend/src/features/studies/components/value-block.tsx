@@ -329,17 +329,228 @@ function neighboursOf(pockets: Row[], active: Row | undefined): Row[] {
  * chosen on a result the step has since replaced stands for nothing now, since the same rank
  * may be another candidate, and is labelled as such rather than as the current choice.
  */
-function Approved({ data, earlier }: { data: Row; earlier: boolean }) {
+function Approved({
+  data,
+  earlier,
+  children,
+}: {
+  data: Row;
+  earlier: boolean;
+  children?: ReactNode;
+}) {
   const rank = cell(asRecord(data.meta).rank);
   return (
     <div className="space-y-1 text-sm">
       <p className={earlier ? "text-muted-foreground" : "font-medium"}>
         {earlier ? `Approved on an earlier result: rank ${rank}` : `Approved: rank ${rank}`}
       </p>
-      <p className="text-muted-foreground">
-        <span className="text-foreground">Lining </span>
-        {lining(data)}
+      {children ?? (
+        <p className="text-muted-foreground">
+          <span className="text-foreground">Lining </span>
+          {lining(data)}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/** RDKit's own drawing, made on the server from a SMARTS we built: not user input. */
+function Drawing({ svg, className }: { svg: unknown; className?: string }) {
+  if (typeof svg !== "string") return null;
+  return (
+    <div
+      role="img"
+      aria-label="Core drawing"
+      className={cn("[&>svg]:h-auto [&>svg]:w-full", className)}
+      // biome-ignore lint/security/noDangerouslySetInnerHtml: our own RDKit output
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
+function variableText(core: Row): string {
+  return Object.entries(asRecord(core.variable))
+    .map(([position, groups]) => `${position}: ${String(groups)}`)
+    .join("; ");
+}
+
+function ApprovedCore({ data, earlier }: { data: Row; earlier: boolean }) {
+  const description = Array.isArray(data.description) ? (data.description as string[]) : [];
+  return (
+    <Approved data={data} earlier={earlier}>
+      <div className="space-y-1">
+        <Drawing svg={data.svg} className="w-56" />
+        {description.map((line) => (
+          <p key={line} className="text-muted-foreground">
+            {line}
+          </p>
+        ))}
+      </div>
+    </Approved>
+  );
+}
+
+function Cores({
+  data,
+  onApprove,
+  approveBlocked = null,
+}: {
+  data: Row;
+  onApprove?: (rank: number) => void;
+  approveBlocked?: string | null;
+}) {
+  const cores = isRows(data.candidates) ? data.candidates : [];
+  const [selected, setSelected] = useState<number | null>(null);
+  const active = cores.find((c) => c.rank === selected) ?? cores[0];
+  const hasSeries = cores.some((c) => c.series != null);
+  const description =
+    active && Array.isArray(active.description) ? (active.description as string[]) : [];
+  const misses = active && isRows(active.misses) ? active.misses : [];
+  return (
+    <div className="space-y-2">
+      <p className="text-sm">
+        {cores.length} candidate {cores.length === 1 ? "core" : "cores"}.
       </p>
+      {active && (
+        <div className="flex flex-wrap items-start gap-3">
+          <Drawing svg={active.svg} className="w-56" />
+          <div className="min-w-0 flex-1 space-y-1 text-sm">
+            <p className="font-medium">Rank {cell(active.rank)}</p>
+            {typeof active.preset_label === "string" && (
+              <p className="text-muted-foreground">{active.preset_label}</p>
+            )}
+            {description.map((line) => (
+              <p key={line} className="text-muted-foreground">
+                {line}
+              </p>
+            ))}
+            {active.timed_out === true && (
+              <p className="text-muted-foreground">
+                The search for this core ran out of time, so a larger one may exist.
+              </p>
+            )}
+            {misses.length > 0 && (
+              <div>
+                <p className="text-foreground">Compounds it does not match</p>
+                <ul className="text-muted-foreground">
+                  {misses.map((m) => (
+                    <li key={String(m.id)}>
+                      {String(m.id)}: {String(m.reason)}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+          {onApprove && (
+            <div className="space-y-1">
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={Boolean(approveBlocked)}
+                aria-describedby={approveBlocked === RUN_UNDER_WAY ? STEPS_REASON_ID : undefined}
+                onClick={() => onApprove(Number(active.rank))}
+              >
+                Approve this core
+              </Button>
+              {approveBlocked && approveBlocked !== RUN_UNDER_WAY && (
+                <p className="max-w-48 text-xs text-muted-foreground">{approveBlocked}</p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      <div className="max-h-[26rem] overflow-auto rounded-sm border">
+        <Table>
+          <TableHeader className="sticky top-0 z-10 bg-background">
+            <TableRow>
+              <TableHead>Rank</TableHead>
+              <TableHead>Core</TableHead>
+              {hasSeries && <TableHead>Series</TableHead>}
+              <TableHead className="text-right">Coverage</TableHead>
+              <TableHead className="text-right">Atoms</TableHead>
+              <TableHead>Variable</TableHead>
+              <TableHead className="text-right">Unmatched</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {cores.map((c) => {
+              const isActive = active?.rank === c.rank;
+              const unmatched = Array.isArray(c.unmatched) ? (c.unmatched as unknown[]) : [];
+              return (
+                <TableRow
+                  key={String(c.rank)}
+                  onClick={() => setSelected(Number(c.rank))}
+                  className={cn("cursor-pointer", isActive && "bg-muted")}
+                >
+                  <TableCell>
+                    <button
+                      type="button"
+                      aria-pressed={isActive}
+                      aria-label={`Show core rank ${cell(c.rank)}`}
+                      className="underline-offset-4 hover:underline focus-visible:underline"
+                      onClick={() => setSelected(Number(c.rank))}
+                    >
+                      {cell(c.rank)}
+                    </button>
+                  </TableCell>
+                  <TableCell>
+                    <Drawing svg={c.svg} className="w-24" />
+                  </TableCell>
+                  {hasSeries && <TableCell>{cell(c.series)}</TableCell>}
+                  <TableCell className="text-right">
+                    {typeof c.coverage === "number" ? `${Math.round(c.coverage * 100)}%` : "—"}
+                  </TableCell>
+                  <TableCell className="text-right">{cell(c.n_atoms)}</TableCell>
+                  <TableCell>{variableText(c) || "—"}</TableCell>
+                  <TableCell className="text-right" title={unmatched.map(String).join(", ")}>
+                    {unmatched.length}
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
+    </div>
+  );
+}
+
+function ModelFit({ data }: { data: Row }) {
+  const meta = asRecord(data.meta);
+  if (meta.ok === false) {
+    return <p className="text-sm">{String(meta.reason ?? "The model could not be fitted.")}</p>;
+  }
+  const terms = isRows(data.terms) ? data.terms : [];
+  const unmade = isRows(data.unmade) ? data.unmade : [];
+  return (
+    <div className="space-y-3">
+      <Facts
+        facts={[
+          ["Compounds", meta.n_compounds],
+          ["Left out as censored", meta.n_excluded_censored],
+          ["r²", meta.r2 != null ? cell(meta.r2) : null],
+          ["q²", meta.q2 != null ? cell(meta.q2) : null],
+          ["Reference", meta.reference],
+        ]}
+      />
+      <RowsTable columns={["position", "group", "n", "coef"]} rows={terms} />
+      {unmade.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-sm text-muted-foreground">Combinations not yet made, predicted</p>
+          <RowsTable
+            columns={["combination", "predicted"]}
+            rows={unmade.map((u) => ({
+              combination: Array.isArray(u.groups)
+                ? u.groups.join(", ")
+                : Object.entries(asRecord(u.groups))
+                    .map(([position, group]) => `${position} ${String(group)}`)
+                    .join(", "),
+              predicted: u.prediction,
+            }))}
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -597,6 +808,14 @@ export function ValueBlock({
     );
   } else if (read.kind === "pocket") {
     body = <Approved data={asRecord(read.data)} earlier={earlier} />;
+  } else if (read.kind === "core_candidates") {
+    body = (
+      <Cores data={asRecord(read.data)} onApprove={onApprove} approveBlocked={approveBlocked} />
+    );
+  } else if (read.kind === "core") {
+    body = <ApprovedCore data={asRecord(read.data)} earlier={earlier} />;
+  } else if (read.kind === "model_fit") {
+    body = <ModelFit data={asRecord(read.data)} />;
   } else if (isRows(read.data) && read.data.length > 0) {
     const columns = Array.isArray(read.summary.columns)
       ? (read.summary.columns as string[])

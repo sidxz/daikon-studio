@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ValueBlock } from "./value-block";
@@ -195,5 +195,123 @@ describe("the pockets block", () => {
 
     expect(await screen.findByText(/0 pockets\./)).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/fpocket|cofactor|Monte Carlo/);
+  });
+});
+
+const SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>';
+const core = (rank: number, coverage: number, variable: Record<string, string>) => ({
+  rank,
+  smarts: "c1ccccc1",
+  svg: SVG,
+  coverage,
+  n_atoms: 6,
+  n_ring_atoms: 6,
+  n_variable: 1,
+  variable,
+  n_rgroups: 1,
+  unmatched: rank === 2 ? ["m9"] : [],
+  misses: rank === 2 ? [{ id: "m9", reason: "no ring" }] : [],
+  description: [`Core ${rank}`],
+  preset_label: "default",
+  derived: false,
+  timed_out: false,
+  series: null,
+});
+const CORES = {
+  meta: { count: 2 },
+  candidates: [core(1, 0.92, { X1: "O/S" }), core(2, 0.5, { X1: "N" })],
+};
+const FIT = {
+  meta: {
+    ok: true,
+    reason: null,
+    activity_column: "pIC50",
+    n_compounds: 12,
+    n_excluded_censored: 1,
+    n_terms: 2,
+    r2: 0.81,
+    q2: 0.55,
+    reference: "X1=a",
+    varying_positions: ["X1", "X2"],
+  },
+  terms: [{ position: "X1", group: "b", n: 4, coef: 0.4, reference: false }],
+  fitted: [{ id: "m1", fitted: 6.1 }],
+  unmade: [{ groups: { X1: "c", X2: "z" }, prediction: 6.5 }],
+};
+
+describe("the cores block", () => {
+  it("lists every candidate, draws it, and approves the selected rank", async () => {
+    const onApprove = vi.fn();
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v1",
+      key: "core_candidates",
+      kind: "core_candidates",
+      summary: CORES.meta,
+      data: CORES,
+    });
+    render(
+      <ValueBlock
+        studyId="s1"
+        value={{ id: "v1", key: "core_candidates" } as never}
+        onApprove={onApprove}
+      />,
+      { wrapper: Wrapper },
+    );
+    expect(await screen.findByText(/2 candidate cores/)).toBeInTheDocument();
+    expect(screen.getByText(/92%/)).toBeInTheDocument();
+    expect(screen.getByText(/X1: O\/S/)).toBeInTheDocument();
+    expect(document.querySelectorAll("svg").length).toBeGreaterThanOrEqual(2);
+    fireEvent.click(screen.getByRole("button", { name: /rank 2/i }));
+    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    expect(onApprove).toHaveBeenCalledWith(2);
+  });
+
+  it("shows an approved core and says when it came from an earlier result", async () => {
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v2",
+      key: "core",
+      kind: "core",
+      summary: { rank: 2, from: "old" },
+      data: { meta: { rank: 2, from: "old" }, ...CORES.candidates[1] },
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v2", key: "core" } as never} earlier />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByText(/Approved on an earlier result: rank 2/)).toBeInTheDocument();
+  });
+});
+
+describe("the model fit block", () => {
+  it("shows the fit, its terms and its unmade combinations", async () => {
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v3",
+      key: "model_fit",
+      kind: "model_fit",
+      summary: FIT.meta,
+      data: FIT,
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v3", key: "model_fit" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByText(/q²/)).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "b" })).toBeInTheDocument();
+    expect(screen.getByText(/c.*z/)).toBeInTheDocument();
+  });
+
+  it("gives only the reason when the fit was refused", async () => {
+    const refused = { meta: { ok: false, reason: "Too few compounds to fit." }, terms: [] };
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v4",
+      key: "model_fit",
+      kind: "model_fit",
+      summary: refused.meta,
+      data: refused,
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v4", key: "model_fit" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByText("Too few compounds to fit.")).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 });
