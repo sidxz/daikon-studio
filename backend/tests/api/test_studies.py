@@ -198,7 +198,7 @@ async def test_answers_become_a_plan_with_steps_that_carry_ids_and_alternatives(
     assert [[a["tool_id"] for a in s["alternatives"]] for s in steps] == [
         ["fetch_alphafold"],
         [],
-        [],
+        ["predict_pockets"],  # the pocket step is the second real swap the catalogue offers
     ]
     assert [s["judgment"] for s in steps] == [False, False, True]
     assert [s["problem"] for s in steps] == [None, None, None]
