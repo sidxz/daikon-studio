@@ -202,11 +202,15 @@ def prepare_structure(
     return {"structure": {"format": "pdb", "text": prepared, "meta": meta}}
 
 
-def fpocket_bin() -> str:
-    found = os.environ.get("STUDIO_FPOCKET_BIN") or shutil.which("fpocket")
+def tool_binary(env: str, name: str) -> str:
+    found = os.environ.get(env) or shutil.which(name)
     if not found:
-        raise RuntimeError("fpocket is not installed on this lane.")
+        raise RuntimeError(f"{name} is not installed on this lane.")
     return found
+
+
+def fpocket_bin() -> str:
+    return tool_binary("STUDIO_FPOCKET_BIN", "fpocket")
 
 
 def _info(text: str) -> list[dict[str, Any]]:
@@ -281,33 +285,22 @@ def check_numbering(residues: Mapping[int, str], sequence: str) -> dict[str, Any
     }
 
 
-def find_pockets(params: BaseModel | None, inputs: Mapping[str, object]) -> Mapping[str, object]:
-    source = cast(dict[str, Any], inputs["structure"])
+def evidence(
+    pockets: list[dict[str, Any]],
+    *,
+    source: Mapping[str, Any],
+    annotations: Mapping[str, Any] | None,
+    on_receptor: set[str],
+) -> dict[str, Any]:
+    """What either finder's candidates are checked against: the deposited
+    ligands, the numbering, and the annotated sites.
+
+    Each pocket arrives with its rank and lining residues and leaves with the
+    evidence columns added. The returned meta has no `top`, because each finder
+    names its own score there.
+    """
     ligands: list[dict[str, Any]] = source.get("meta", {}).get("ligands", [])
-    annotations = cast(dict[str, Any] | None, inputs.get("annotations"))
     features: list[dict[str, Any]] = (annotations or {}).get("features", [])
-
-    # fpocket tessellates ATOM records only, so a cofactor left as HETATM is a
-    # void it will rank as a pocket. Rewriting it makes it part of the receptor.
-    receptor = []
-    on_receptor: set[str] = set()
-    for line in cast(str, source["text"]).splitlines():
-        if line.startswith("HETATM") and line[17:20].strip() not in ADDITIVES:
-            on_receptor.add(line[17:20].strip())
-            receptor.append("ATOM  " + line[6:])
-        else:
-            receptor.append(line)
-
-    with tempfile.TemporaryDirectory() as tmp:
-        (Path(tmp) / "in.pdb").write_text("\n".join(receptor) + "\n")
-        subprocess.run(
-            [fpocket_bin(), "-f", "in.pdb"], cwd=tmp, check=True, capture_output=True, timeout=600
-        )
-        out = Path(tmp) / "in_out"
-        pockets = _info((out / "in_info.txt").read_text())
-        for pocket in pockets:
-            atoms = out / "pockets" / f"pocket{pocket['rank']}_atm.pdb"
-            pocket["residues"] = _residues(atoms.read_text())
 
     numbering = check_numbering(
         {r["resseq"]: r["resname"] for p in pockets for r in p["residues"]},
@@ -349,23 +342,51 @@ def find_pockets(params: BaseModel | None, inputs: Mapping[str, object]) -> Mapp
         ]
         pocket["interface"] = len({r["chain"] for r in pocket["residues"]}) > 1
 
-    top = (
-        {"rank": pockets[0]["rank"], "druggability": pockets[0]["druggability"]}
-        if pockets
-        else None
-    )
-    meta = {
+    return {
         "count": len(pockets),
         # The viewer on the result renders this entry, so the pocket value has to
         # carry which structure its residue numbers belong to.
         "structure_id": source.get("meta", {}).get("id"),
         "numbering": numbering,
         "receptor_ligands": sorted(on_receptor),
-        "top": top,
         "ligand_site_ranks": [
             p["rank"] for p in pockets if any(not o["additive"] for o in p["ligand_overlap"])
         ],
     }
+
+
+def find_pockets(params: BaseModel | None, inputs: Mapping[str, object]) -> Mapping[str, object]:
+    source = cast(dict[str, Any], inputs["structure"])
+    annotations = cast(dict[str, Any] | None, inputs.get("annotations"))
+
+    # fpocket tessellates ATOM records only, so a cofactor left as HETATM is a
+    # void it will rank as a pocket. Rewriting it makes it part of the receptor.
+    receptor = []
+    on_receptor: set[str] = set()
+    for line in cast(str, source["text"]).splitlines():
+        if line.startswith("HETATM") and line[17:20].strip() not in ADDITIVES:
+            on_receptor.add(line[17:20].strip())
+            receptor.append("ATOM  " + line[6:])
+        else:
+            receptor.append(line)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "in.pdb").write_text("\n".join(receptor) + "\n")
+        subprocess.run(
+            [fpocket_bin(), "-f", "in.pdb"], cwd=tmp, check=True, capture_output=True, timeout=600
+        )
+        out = Path(tmp) / "in_out"
+        pockets = _info((out / "in_info.txt").read_text())
+        for pocket in pockets:
+            atoms = out / "pockets" / f"pocket{pocket['rank']}_atm.pdb"
+            pocket["residues"] = _residues(atoms.read_text())
+
+    meta = evidence(pockets, source=source, annotations=annotations, on_receptor=on_receptor)
+    meta["top"] = (
+        {"rank": pockets[0]["rank"], "druggability": pockets[0]["druggability"]}
+        if pockets
+        else None
+    )
     return {"pockets": {"meta": meta, "pockets": pockets}}
 
 
