@@ -261,7 +261,13 @@ describe("the cores block", () => {
     expect(await screen.findByText(/2 candidate cores/)).toBeInTheDocument();
     expect(screen.getByText(/92%/)).toBeInTheDocument();
     expect(screen.getByText(/X1: O\/S/)).toBeInTheDocument();
-    expect(document.querySelectorAll("svg").length).toBeGreaterThanOrEqual(2);
+    const drawings = screen.getAllByAltText("Core drawing");
+    expect(drawings.length).toBeGreaterThanOrEqual(2);
+    // An image, never injected markup: scripts do not run in an SVG loaded this way.
+    for (const drawing of drawings) {
+      expect(drawing.tagName).toBe("IMG");
+      expect(drawing.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
+    }
     fireEvent.click(screen.getByRole("button", { name: /rank 2/i }));
     fireEvent.click(screen.getByRole("button", { name: /use this one/i }));
     expect(onApprove).toHaveBeenCalledWith(2);
@@ -298,8 +304,8 @@ describe("the SAR table", () => {
     render(<ValueBlock studyId="s1" value={{ id: "v6", key: "sar_table" } as never} />, {
       wrapper: Wrapper,
     });
-    expect(await screen.findByRole("img", { name: "R1 drawing" })).toBeInTheDocument();
-    expect(screen.getAllByRole("img", { name: "R1 drawing" })).toHaveLength(1);
+    expect(await screen.findByAltText("R1 drawing")).toBeInTheDocument();
+    expect(screen.getAllByAltText("R1 drawing")).toHaveLength(1);
     expect(screen.getByRole("cell", { name: "Me" })).toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "pIC50" })).toBeInTheDocument();
     expect(screen.queryByRole("columnheader", { name: "R1_svg" })).not.toBeInTheDocument();

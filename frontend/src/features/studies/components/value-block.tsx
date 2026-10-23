@@ -366,7 +366,8 @@ function Approved({
   );
 }
 
-/** RDKit's own drawing, made on the server from a SMARTS we built: not user input. */
+/** A server-made SVG can still carry user text (a core typed by the scientist, an uploaded
+ *  column), so it is shown as an image: scripts never run in an SVG loaded through `<img>`. */
 function Drawing({
   svg,
   className,
@@ -378,12 +379,10 @@ function Drawing({
 }) {
   if (typeof svg !== "string") return null;
   return (
-    <div
-      role="img"
-      aria-label={label}
-      className={cn("[&>svg]:h-auto [&>svg]:w-full", className)}
-      // biome-ignore lint/security/noDangerouslySetInnerHtml: our own RDKit output
-      dangerouslySetInnerHTML={{ __html: svg }}
+    <img
+      src={`data:image/svg+xml;utf8,${encodeURIComponent(svg)}`}
+      alt={label}
+      className={cn("h-auto w-full", className)}
     />
   );
 }
