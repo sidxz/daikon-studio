@@ -161,11 +161,14 @@ export function StudyChat({
         )}
       </div>
 
-      {/* Folded: it can run to a page, and open it would leave the thread no room. */}
+      {/* Folded, above the composer: it can run to a page. Open, it scrolls in its own box,
+          so the thread keeps its room. */}
       {thread.data?.summary && (
         <details className="rounded-sm border border-dashed px-3 py-2 text-sm">
           <summary className="cursor-pointer text-xs font-medium">Where this stands</summary>
-          <p className="mt-1 text-muted-foreground">{thread.data.summary}</p>
+          <p className="mt-1 max-h-40 overflow-y-auto text-muted-foreground">
+            {thread.data.summary}
+          </p>
         </details>
       )}
 

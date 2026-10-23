@@ -359,8 +359,11 @@ function StudyView({
 
       <aside className="w-full min-w-0 shrink-0 xl:w-[30rem]">
         {/* Pinned, so a claim can be read against the result it points at rather than from
-            memory after scrolling. */}
-        <div className="flex flex-col gap-3 xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)]">
+            memory after scrolling. A column of the viewport's height, less the header and the
+            page's top padding it starts below (4.25rem) and a margin under it: the thread
+            scrolls inside, and the composer is on screen at the top of the page as well as
+            scrolled. */}
+        <div className="flex flex-col gap-3 xl:sticky xl:top-[4.25rem] xl:h-[calc(100vh-5.25rem)]">
           {picker}
           <StudyChat
             studyId={study.id}
