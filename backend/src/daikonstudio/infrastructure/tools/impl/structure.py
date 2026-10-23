@@ -1,12 +1,13 @@
-"""The preparer (PDBFixer, PROPKA) and the pocket finder (fpocket).
+"""The preparer (PDBFixer, PROPKA) and the pocket finders (fpocket, p2rank).
 
-PDBFixer, OpenMM and PROPKA are the `chem-tools` extra and fpocket is a binary on
-that lane, so all of them are reached inside the function bodies: importing
-this module costs nothing where they are absent.
+PDBFixer, OpenMM and PROPKA are the `chem-tools` extra, and fpocket and p2rank
+(a Java program) are binaries on that lane, so all of them are reached inside
+the function bodies: importing this module costs nothing where they are absent.
 """
 
 from __future__ import annotations
 
+import csv
 import io
 import os
 import re
@@ -390,7 +391,88 @@ def find_pockets(params: BaseModel | None, inputs: Mapping[str, object]) -> Mapp
     return {"pockets": {"meta": meta, "pockets": pockets}}
 
 
+def prank_bin() -> str:
+    return tool_binary("STUDIO_P2RANK_BIN", "prank")
+
+
+def _rows(text: str) -> list[dict[str, str]]:
+    # p2rank pads every cell with spaces, the header cells included.
+    return [
+        {key.strip(): value.strip() for key, value in row.items()}
+        for row in csv.DictReader(io.StringIO(text), skipinitialspace=True)
+    ]
+
+
+def _predictions(predictions_csv: str, residues_csv: str) -> list[dict[str, Any]]:
+    """p2rank's predicted sites, by rank, with their lining residues.
+
+    The predictions file names a residue only as chain and label (`A_52A`); its
+    name comes from the residues file. A label can carry an insertion code, and
+    the residue keeps the number in front of it.
+    """
+    names = {(r["chain"], r["residue_label"]): r["residue_name"] for r in _rows(residues_csv)}
+    pockets = []
+    for row in _rows(predictions_csv):
+        residues = []
+        for residue_id in row["residue_ids"].split():
+            chain, _, label = residue_id.partition("_")
+            if number := re.match(r"-?\d+", label):
+                residues.append(
+                    {"chain": chain, "resname": names[(chain, label)], "resseq": int(number[0])}
+                )
+        pockets.append(
+            {
+                "rank": int(row["rank"]),
+                "score": float(row["score"]),
+                "probability": float(row["probability"]),
+                "residues": residues,
+            }
+        )
+    return sorted(pockets, key=lambda p: p["rank"])
+
+
+def predict_pockets(
+    params: BaseModel | None, inputs: Mapping[str, object]
+) -> Mapping[str, object]:
+    source = cast(dict[str, Any], inputs["structure"])
+    annotations = cast(dict[str, Any] | None, inputs.get("annotations"))
+    text = cast(str, source["text"])
+
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "in.pdb").write_text(text)
+        command = [prank_bin(), "predict", "-f", "in.pdb", "-o", "out"]
+        subprocess.run(
+            [*command, "-threads", "1", "-visualizations", "0"],
+            cwd=tmp,
+            check=True,
+            capture_output=True,
+            timeout=600,
+        )
+        out = Path(tmp) / "out"
+        pockets = _predictions(
+            (out / "in.pdb_predictions.csv").read_text(), (out / "in.pdb_residues.csv").read_text()
+        )
+
+    meta = evidence(pockets, source=source, annotations=annotations, on_receptor=set())
+    # p2rank reads protein atoms only: a cofactor is ignored whether it is
+    # written as HETATM or as ATOM, so it is neither part of the receptor nor a
+    # pocket of its own. The result says which ones were left out, because the
+    # site a cofactor occupies is then reported as open.
+    meta["ignored_ligands"] = sorted(
+        {
+            line[17:20].strip()
+            for line in text.splitlines()
+            if line.startswith("HETATM") and line[17:20].strip() not in ADDITIVES
+        }
+    )
+    meta["top"] = (
+        {"rank": pockets[0]["rank"], "probability": pockets[0]["probability"]} if pockets else None
+    )
+    return {"pockets": {"meta": meta, "pockets": pockets}}
+
+
 IMPLEMENTATIONS: dict[str, ToolImpl] = {
     "prepare_structure": prepare_structure,
     "find_pockets": find_pockets,
+    "predict_pockets": predict_pockets,
 }

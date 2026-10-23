@@ -1,11 +1,13 @@
-"""The preparer and the pocket finder.
+"""The preparer and the pocket finders.
 
 The preparer runs on crambin. fpocket finds no pocket on crambin at its default
 settings, so the pocket finder runs on ubiquitin (1UBQ, ATOM records only),
-which has four; crambin's first three residues are the no-pocket case.
+which has four; crambin's first three residues are the no-pocket case. p2rank
+finds no ligandable point on ubiquitin at its defaults, so its positive cases run
+on carbonic anhydrase II (1CA2, ATOM records only), whose active site is known.
 
-PDBFixer and PROPKA live in the `chem-tools` extra and fpocket is a binary on
-that lane, so each test skips where its dependency is missing rather than
+PDBFixer and PROPKA live in the `chem-tools` extra and fpocket and p2rank are
+binaries on that lane, so each test skips where its dependency is missing rather than
 failing CI, which installs none of them.
 """
 
@@ -24,10 +26,15 @@ from daikonstudio.infrastructure.tools.params import PrepareParams
 FIXTURES = Path(__file__).parents[2] / "fixtures"
 CRAMBIN = (FIXTURES / "1crn.pdb").read_text()
 UBIQUITIN = (FIXTURES / "1ubq.pdb").read_text()
+CARBONIC_ANHYDRASE = (FIXTURES / "1ca2.pdb").read_text()
 
 needs_fpocket = pytest.mark.skipif(
     not (os.environ.get("STUDIO_FPOCKET_BIN") or shutil.which("fpocket")),
     reason="fpocket is not installed",
+)
+needs_prank = pytest.mark.skipif(
+    not (os.environ.get("STUDIO_P2RANK_BIN") or shutil.which("prank")),
+    reason="p2rank is not installed",
 )
 
 
@@ -67,6 +74,13 @@ def _pockets(text: str, **kwargs: Any) -> dict[str, Any]:
     if "annotations" in kwargs:
         inputs["annotations"] = kwargs["annotations"]
     out = structure.find_pockets(None, inputs)["pockets"]
+    assert isinstance(out, dict)
+    return out
+
+
+def _predicted(text: str, **kwargs: Any) -> dict[str, Any]:
+    inputs: dict[str, object] = {"structure": _structure(text, kwargs.get("ligands"))}
+    out = structure.predict_pockets(None, inputs)["pockets"]
     assert isinstance(out, dict)
     return out
 
@@ -215,3 +229,86 @@ def test_missing_fpocket_is_a_plain_error(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(shutil, "which", lambda _: None)
     with pytest.raises(RuntimeError, match="fpocket is not installed"):
         structure.fpocket_bin()
+
+
+@needs_prank
+class TestP2rank:
+    def test_predicts_the_active_site_with_a_probability_not_a_druggability(self) -> None:
+        out = _predicted(CARBONIC_ANHYDRASE)
+        assert out["meta"]["count"] == len(out["pockets"]) >= 1
+        assert out["meta"]["top"] == {"rank": 1, "probability": out["pockets"][0]["probability"]}
+        assert out["meta"]["receptor_ligands"] == []
+        assert out["meta"]["ignored_ligands"] == []
+        for pocket in out["pockets"]:
+            assert 0 <= pocket["probability"] <= 1
+            assert "druggability" not in pocket and "volume" not in pocket
+            assert pocket["residues"]
+            assert set(pocket["residues"][0]) == {"chain", "resname", "resseq"}
+            assert all(r["resname"] in structure._AA3 for r in pocket["residues"])
+        # The zinc site: His94 binds the metal, His64 shuttles the proton, Thr200
+        # gates the substrate.
+        lining = {(r["chain"], r["resname"], r["resseq"]) for r in out["pockets"][0]["residues"]}
+        assert {("A", "HIS", 94), ("A", "HIS", 64), ("A", "THR", 200)} <= lining
+
+    def test_a_cofactor_is_ignored_and_said_so_while_an_additive_is_not_listed(self) -> None:
+        """p2rank reads protein atoms only, so a cofactor is neither part of the
+        receptor nor a pocket of its own; the result has to say it was left out.
+        Water and glycerol came from the drop and are not worth naming."""
+        out = _predicted(_with_hetero(UBIQUITIN))
+        assert out["meta"]["ignored_ligands"] == ["LIG"]
+
+    def test_the_same_ligand_contacts_give_the_same_overlap_as_fpocket(self) -> None:
+        first = _predicted(CARBONIC_ANHYDRASE)["pockets"][0]
+        contacts = [
+            {"chain": r["chain"], "resname": r["resname"], "resseq": r["resseq"]}
+            for r in first["residues"]
+        ]
+        ligand = {"comp_id": "LIG", "chain": "A", "resseq": 100, "contacts": contacts}
+        out = _predicted(CARBONIC_ANHYDRASE, ligands=[ligand])
+        assert out["pockets"][0]["ligand_overlap"][0]["shared"] == len(contacts)
+        assert 1 in out["meta"]["ligand_site_ranks"]
+
+    def test_a_peptide_has_no_pockets_and_that_is_an_answer(self) -> None:
+        peptide = "\n".join(
+            line
+            for line in CRAMBIN.splitlines()
+            if line.startswith("ATOM") and int(line[22:26]) <= 3
+        )
+        out = _predicted(peptide + "\nEND\n")
+        assert out["meta"]["count"] == 0
+        assert out["meta"]["top"] is None
+        assert out["pockets"] == []
+
+
+def test_predictions_parse_padded_cells_and_insertion_codes() -> None:
+    """Every cell in p2rank's CSVs is space-padded, the headers too, and a
+    residue label can carry an insertion code; the residue keeps its number."""
+    predictions = (
+        "name     ,  rank,   score, probability, sas_points, surf_atoms,   center_x,   "
+        "center_y,   center_z, residue_ids, surf_atom_ids\n"
+        "pocket1  ,     1,   17.86,       0.810,         88,         41,     8.0527,   "
+        "-34.4723,    11.2115, A_52A A_7, 1 2\n"
+    )
+    residues = (
+        "chain, residue_label, residue_name, score, zscore, probability, pocket\n"
+        "A,   52A, HIS,  0.5,  0.1,   0.4, 1\n"
+        "A,     7, GLY,  0.0,  0.0,   0.0, 1\n"
+    )
+    assert structure._predictions(predictions, residues) == [
+        {
+            "rank": 1,
+            "score": 17.86,
+            "probability": 0.81,
+            "residues": [
+                {"chain": "A", "resname": "HIS", "resseq": 52},
+                {"chain": "A", "resname": "GLY", "resseq": 7},
+            ],
+        }
+    ]
+
+
+def test_missing_prank_is_a_plain_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("STUDIO_P2RANK_BIN", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda _: None)
+    with pytest.raises(RuntimeError, match="prank is not installed"):
+        structure.prank_bin()
