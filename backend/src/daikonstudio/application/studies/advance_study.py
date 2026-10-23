@@ -96,12 +96,15 @@ def _reach(study: Study, until: uuid.UUID | None) -> int:
 
 
 def _ran(study: Study, start: uuid.UUID | None, until: uuid.UUID | None) -> str:
-    """A scientist's run as the thread says it: from where, and to where."""
+    """A run as the thread says it when it starts: from where, and where it is headed. Said as
+    intent, because a gate, a failure or a pause can end it before it gets there."""
     if start is not None and start == until:
-        return f"Ran {_label(study.step(start))}."
-    begin = "the next step waiting" if start is None else f"step {study.step(start).position + 1}"
-    end = "the next stop" if until is None else f"step {study.step(until).position + 1}"
-    return f"Ran from {begin} to {end}."
+        return f"Started a run of {_label(study.step(start))}."
+    first = study.next_step if start is None else study.step(start)
+    begin = "the next step waiting" if first is None else f"step {first.position + 1}"
+    if until is None:
+        return f"Started a run from {begin} to the next stop."
+    return f"Started a run from {begin} toward step {study.step(until).position + 1}."
 
 
 class AdvanceStudy:

@@ -7,6 +7,7 @@ import { StudyPage } from "@/features/studies";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { RUN_UNDER_WAY } from "../types";
 import { Wrapper, requests, route, step, study, turn } from "./study.fixture";
 
 vi.mock("@/shared/lib/api/custom-instance", async (importOriginal) => ({
@@ -157,6 +158,11 @@ describe("the study page", () => {
     expect(requests("POST", "/studies/s1/start")).toHaveLength(1);
     expect(requests("POST", "/studies/s1/run")[0].data).toEqual({});
     expect(screen.getByRole("button", { name: "Run step 2" })).toBeInTheDocument();
+
+    // A run is said once, under the steps heading, and each control it blocks points there.
+    expect(await screen.findAllByText(RUN_UNDER_WAY)).toHaveLength(1);
+    expect(screen.getByRole("button", { name: "Send" })).toHaveAccessibleDescription(RUN_UNDER_WAY);
+    expect(screen.getByLabelText("Add a file")).toHaveAccessibleDescription(RUN_UNDER_WAY);
   });
 
   it("reads the thread again when the study moves", async () => {

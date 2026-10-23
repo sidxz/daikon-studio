@@ -15,7 +15,7 @@ import {
 import { cn } from "@/shared/lib/utils";
 import { type ReactNode, useMemo, useState } from "react";
 import { useStudyValue } from "../hooks/use-studies";
-import type { ValueSummary } from "../types";
+import { RUN_UNDER_WAY, STEPS_REASON_ID, type ValueSummary } from "../types";
 import { type PocketResidue, PocketViewer } from "./pocket-viewer";
 
 type Row = Record<string, unknown>;
@@ -435,11 +435,13 @@ function Pockets({
                 size="sm"
                 variant="outline"
                 disabled={Boolean(approveBlocked)}
+                // A run is said once, under the steps heading; any other reason, here.
+                aria-describedby={approveBlocked === RUN_UNDER_WAY ? STEPS_REASON_ID : undefined}
                 onClick={() => onApprove(Number(active.rank))}
               >
                 Use this one
               </Button>
-              {approveBlocked && (
+              {approveBlocked && approveBlocked !== RUN_UNDER_WAY && (
                 <p className="max-w-48 text-xs text-muted-foreground">{approveBlocked}</p>
               )}
             </div>

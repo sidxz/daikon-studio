@@ -163,7 +163,7 @@ async def test_a_pressed_run_starts_the_loop_at_the_steps_it_names_once_saved() 
     assert _applied(stored, offered)
     event = stored.thread.turns[-1]
     assert (event.kind, event.about) == ("applied", pockets.id)
-    assert event.say == "Applied: Ran step 3 (Find binding pockets)."
+    assert event.say == "Applied: Started a run of step 3 (Find binding pockets)."
 
 
 async def test_a_run_with_nothing_left_to_run_is_refused_and_stays_unapplied() -> None:

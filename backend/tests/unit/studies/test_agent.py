@@ -251,7 +251,7 @@ async def test_a_plan_reply_expands_composites_and_pins_problems_to_steps() -> N
 
     stored = studies.rows[study.id]
     assert stored.answers == (Answered(ask=asked, answer="pIC50"),)
-    assert stored.thread.turns[-2].say == "Which column is the readout? → pIC50"
+    assert stored.thread.turns[-2].say == "Which column is the readout?: pIC50"
     assert [s.tool_id for s in stored.steps] == [
         "standardize",
         "property_profile",
@@ -290,6 +290,9 @@ async def test_the_scientist_turn_is_stored_before_the_model_is_asked() -> None:
     study = _study(*PROTEIN)
     agent, studies, _ = _agent(study, InMemoryBlobStore(), None)
 
+    with pytest.raises(ServiceUnavailableError):
+        await agent(_say(study, "What did the pockets show?"), AUTH)
+    # Sent again after the failure, the same words are a retry and are kept once.
     with pytest.raises(ServiceUnavailableError):
         await agent(_say(study, "What did the pockets show?"), AUTH)
 

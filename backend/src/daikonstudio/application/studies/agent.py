@@ -46,7 +46,12 @@ from daikonstudio.application.planner.plan import (
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.llm import LanguageModel, LanguageModels
 from daikonstudio.application.ports.study_repository import StudyRepository
-from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE, StartedBy, in_flight
+from daikonstudio.application.studies.advance_study import (
+    RUNNING_MESSAGE,
+    StartedBy,
+    _ran,
+    in_flight,
+)
 from daikonstudio.application.studies.approve import approve_candidate
 from daikonstudio.application.studies.edits import (
     _brought,
@@ -61,7 +66,6 @@ from daikonstudio.application.studies.proposals import vet
 from daikonstudio.application.studies.read_value import decode_view
 from daikonstudio.application.studies.readers import LOOK_ROWS_MAX, reader
 from daikonstudio.application.studies.schemas import (
-    Action,
     AskingTurn,
     Claim,
     Look,
@@ -153,20 +157,8 @@ def _asked(questions: Sequence[Question]) -> tuple[Asked, ...]:
 def _said(command: SayCommand) -> str:
     """The scientist's turn as the thread shows it: the message, then a line per answer."""
     message = (command.message or "").strip()
-    answers = [f"{a.ask} → {a.answer.strip() or '(no answer)'}" for a in command.answers]
+    answers = [f"{a.ask}: {a.answer.strip() or '(no answer)'}" for a in command.answers]
     return "\n".join([message, *answers] if message else answers)
-
-
-def _ran(run: Action, start: Step | None, until: Step | None) -> Acted:
-    """The run a turn started, as the thread records it."""
-    if start is not None and start is until:
-        detail = f"Ran {_label(start)}."
-    else:
-        begin = "the next step waiting" if start is None else _label(start)
-        end = "the next step that stops for a look" if until is None else _label(until)
-        detail = f"Ran from {begin} to {end}."
-    step = None if start is None else start.id
-    return Acted(does="run", step=step, detail=detail, quoting=run.quoting)
 
 
 def _pressable(study: Study, proposals: Sequence[Proposed]) -> tuple[list[Proposed], int]:
@@ -387,7 +379,12 @@ class StudyAgent:
         study = found.unwrap()
         if in_flight(study.id):
             return Failure(ConflictError(RUNNING_MESSAGE))
-        if said := _said(command):
+        said = _said(command)
+        last = study.thread.turns[-1] if study.thread.turns else None
+        # The same words again with no answer between are a retry of a send that failed: they
+        # are in the thread already, and so are its answers.
+        retry = last is not None and last.role == "scientist" and last.say == said
+        if said and not retry:
             study.answers += command.answers
             study.say(Turn(role="scientist", say=said, about=command.about, at=datetime.now(UTC)))
             # Before the model is asked, so a provider that fails loses nothing they wrote.
@@ -523,7 +520,10 @@ class StudyAgent:
         if run is not None:
             start = study.step_at(run.step - 1) if run.step else None
             until = study.step_at(run.until - 1) if run.until else None
-            acted.append(_ran(run, start, until))
+            ids = (None if start is None else start.id, None if until is None else until.id)
+            acted.append(
+                Acted(does="run", step=ids[0], detail=_ran(study, *ids), quoting=run.quoting)
+            )
 
         study.thread.summary = answer.summary.strip()
         study.say(

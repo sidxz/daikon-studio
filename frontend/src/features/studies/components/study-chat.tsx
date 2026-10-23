@@ -10,7 +10,7 @@ import { Loader2, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { threadKey } from "../hooks/query-keys";
 import { useSay, useStudy, useThread } from "../hooks/use-studies";
-import { RUN_UNDER_WAY } from "../types";
+import { STEPS_REASON_ID } from "../types";
 import { QuestionCard } from "./question-card";
 import { TurnView, aboutStep } from "./turn-view";
 
@@ -204,10 +204,10 @@ export function StudyChat({
           </p>
         )}
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {running && <p className="text-xs text-muted-foreground">{RUN_UNDER_WAY}</p>}
           <Button
             size="sm"
             disabled={say.isPending || !typed || running}
+            aria-describedby={running ? STEPS_REASON_ID : undefined}
             onClick={() => send(typed)}
           >
             Send

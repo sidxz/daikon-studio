@@ -247,7 +247,7 @@ async def test_run_one_step_observes_it_and_stops() -> None:
     assert _observed(studies, sid) == [fetch]
     assert len(model.calls) == 1
     (ran,) = (t for t in study.thread.turns if t.role == "event")
-    assert (ran.kind, ran.say, ran.about) == ("ran", f"Ran step 1 ({PDB}).", fetch)
+    assert (ran.kind, ran.say, ran.about) == ("ran", f"Started a run of step 1 ({PDB}).", fetch)
     assert not advance_study.in_flight(sid)
 
 
@@ -334,9 +334,9 @@ async def test_the_loop_stops_at_until_and_at_a_gate() -> None:
         False,  # the last
     ]
     assert [t.say for t in studies.rows[sid].thread.turns if t.kind == "ran"] == [
-        "Ran from the next step waiting to step 2.",
-        "Ran from step 3 to the next stop.",
-        "Ran from the next step waiting to the next stop.",
+        "Started a run from step 1 toward step 2.",
+        "Started a run from step 3 to the next stop.",  # the gate on step 3 ended it there
+        "Started a run from step 4 to the next stop.",
     ]
 
     turns = len(studies.rows[sid].thread.turns)

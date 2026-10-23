@@ -19,7 +19,7 @@ import {
   useStudy,
 } from "../hooks/use-studies";
 import type { Provider, Study } from "../types";
-import { PROVIDER_LABELS, RUN_UNDER_WAY } from "../types";
+import { PROVIDER_LABELS, RUN_UNDER_WAY, STEPS_REASON_ID } from "../types";
 import { PlanTerms } from "./plan-terms";
 import { MESSAGE_ID, StudyChat } from "./study-chat";
 import { StudySteps } from "./study-steps";
@@ -43,11 +43,14 @@ function FileButton({
   label,
   multiple = false,
   disabled = false,
+  describedBy,
   onFiles,
 }: {
   label: string;
   multiple?: boolean;
   disabled?: boolean;
+  /** The id of the line saying why it is disabled, when that is said elsewhere. */
+  describedBy?: string;
   onFiles: (files: File[]) => void;
 }) {
   return (
@@ -65,6 +68,7 @@ function FileButton({
         accept=".csv,.tsv,.tab,.pdb"
         className="sr-only"
         disabled={disabled}
+        aria-describedby={describedBy}
         onChange={(event) => {
           const files = Array.from(event.target.files ?? []);
           event.target.value = "";
@@ -285,11 +289,11 @@ function StudyView({
               <FileButton
                 label={attach.isPending ? "Adding…" : "Add a file"}
                 disabled={study.running || attach.isPending}
+                describedBy={study.running ? STEPS_REASON_ID : undefined}
                 onFiles={(files) => attach.mutate(files)}
               />
             </span>
           </div>
-          {study.running && <p className="text-xs text-muted-foreground">{RUN_UNDER_WAY}</p>}
           {study.brought.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Nothing yet. A study takes one compound table (.csv, .tsv or .tab) and one structure
@@ -310,7 +314,7 @@ function StudyView({
                 size="sm"
                 className="ml-auto"
                 disabled={Boolean(blocked) || start.isPending}
-                aria-describedby={blocked ? "steps-reason" : undefined}
+                aria-describedby={blocked ? STEPS_REASON_ID : undefined}
                 onClick={() => start.mutate()}
               >
                 {start.isPending ? "Starting…" : "Start this study"}
@@ -321,7 +325,7 @@ function StudyView({
                 variant="outline"
                 className="ml-auto"
                 disabled={Boolean(blocked) || runTo.isPending}
-                aria-describedby={blocked ? "steps-reason" : undefined}
+                aria-describedby={blocked ? STEPS_REASON_ID : undefined}
                 onClick={() => runTo.mutate({})}
               >
                 <FastForward aria-hidden="true" />
@@ -330,7 +334,7 @@ function StudyView({
             )}
           </div>
           {blocked && (
-            <p id="steps-reason" className="text-xs text-muted-foreground">
+            <p id={STEPS_REASON_ID} className="text-xs text-muted-foreground">
               {blocked}
             </p>
           )}

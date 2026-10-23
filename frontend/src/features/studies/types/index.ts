@@ -40,9 +40,13 @@ export const STEP_TONE: Record<string, StatusTone> = {
 
 /**
  * Why a control that writes to the study is blocked while a run is in flight. The server
- * refuses every such write until the run stops, so the page says so beside the control.
+ * refuses every such write until the run stops. The page says so once, under the steps
+ * heading (`STEPS_REASON_ID`), and each control it blocks points there.
  */
 export const RUN_UNDER_WAY = "A run is under way. Wait for it to stop.";
+
+/** The line under the steps heading that says why Start or a run is blocked. */
+export const STEPS_REASON_ID = "steps-reason";
 
 export const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",

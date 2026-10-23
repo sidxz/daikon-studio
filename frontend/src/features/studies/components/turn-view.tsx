@@ -5,7 +5,7 @@ import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useApplyProposal, useStudy } from "../hooks/use-studies";
 import type { Study, StudyProposal, StudyStep, Turn } from "../types";
-import { RUN_UNDER_WAY } from "../types";
+import { STEPS_REASON_ID } from "../types";
 
 /**
  * A step as the thread names it, numbered from 1 as the agent counts. A turn keeps the ids of
@@ -101,11 +101,11 @@ function Proposals({
                 size="sm"
                 variant="outline"
                 disabled={apply.isPending || running}
+                aria-describedby={running ? STEPS_REASON_ID : undefined}
                 onClick={() => apply.mutate(proposal.id)}
               >
                 Do it
               </Button>
-              {running && <p className="text-xs text-muted-foreground">{RUN_UNDER_WAY}</p>}
             </div>
           )}
         </li>
