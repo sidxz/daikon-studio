@@ -110,9 +110,10 @@ def _describe(data: Mapping[str, Any]) -> str:
     pockets = data.get("pockets") or []
     lines = [
         f"Kept in the receptor: {', '.join(meta.get('receptor_ligands') or []) or 'nothing'}.",
-        f"Numbering against UniProt: {meta.get('numbering') or 'not checked'}.",
-        "",
     ]
+    if meta.get("ignored_ligands"):
+        lines.append(f"Ignored by the predictor: {', '.join(meta['ignored_ligands'])}.")
+    lines += [f"Numbering against UniProt: {meta.get('numbering') or 'not checked'}.", ""]
     for pocket in pockets:
         overlap = ", ".join(
             f"{o.get('comp_id')}{' (additive)' if o.get('additive') else ''} "
@@ -125,9 +126,11 @@ def _describe(data: Mapping[str, Any]) -> str:
         residues = ", ".join(
             f"{r.get('resname')}{r.get('resseq')}" for r in (pocket.get("residues") or [])
         )
+        # A predicted site carries a probability and no volume; a cavity, druggability and both.
+        scored = "probability" if "probability" in pocket else "druggability"
+        volume = f"volume {pocket['volume']}, " if "volume" in pocket else ""
         lines.append(
-            f"Candidate {pocket.get('rank')}: druggability {pocket.get('druggability')}, "
-            f"volume {pocket.get('volume')}, "
+            f"Candidate {pocket.get('rank')}: {scored} {pocket.get(scored)}, {volume}"
             f"interface {'yes' if pocket.get('interface') else 'no'}"
         )
         lines.append(f"  lines: {residues or '(none)'}")
@@ -138,7 +141,7 @@ def _describe(data: Mapping[str, Any]) -> str:
 
 _POCKET_NOTES = (
     "Do not read the ranking as a recommendation. Rank and score come from the tool's "
-    "geometric model, which does not know what the protein does. A surface groove "
+    "model of the surface, which does not know what the protein does. A surface groove "
     "routinely outranks the site a drug binds. Judge each candidate on the residues that "
     "line it, the ligands it touches and the annotated sites it contains.\n"
     "Say when several candidates are one site. An extended cavity is often split across "

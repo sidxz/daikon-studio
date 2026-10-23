@@ -125,4 +125,46 @@ describe("the pockets block", () => {
     expect(screen.getByText("Ligands before preparation")).toBeInTheDocument();
     expect(screen.getByText("Kept in the receptor").nextSibling).toHaveTextContent("None");
   });
+
+  it("names a predicted site's score for what it is and leaves its absent volume blank", async () => {
+    const predicted = {
+      count: 1,
+      numbering: { checked: false, reason: "no UniProt sequence to compare against" },
+      receptor_ligands: [],
+      ignored_ligands: ["NAD"],
+      top: { rank: 1, probability: 0.81 },
+      ligand_site_ranks: [],
+    };
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v4",
+      key: "pocket_candidates",
+      kind: "pocket_candidates",
+      summary: predicted,
+      data: {
+        meta: predicted,
+        pockets: [
+          {
+            rank: 1,
+            score: 17.9,
+            probability: 0.81,
+            residues,
+            lines_ligand: [],
+            ligand_overlap: [],
+            annotated: [],
+            interface: false,
+          },
+        ],
+      },
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v4", key: "pocket_candidates" } as never} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(await screen.findByText("Probability")).toBeInTheDocument();
+    expect(screen.queryByText("Druggability")).toBeNull();
+    expect(screen.getByText(/Ignored by the predictor: NAD/)).toBeInTheDocument();
+    const detail = screen.getByText(/probability 0\.81/);
+    expect(detail).toHaveTextContent("— Å³");
+    expect(document.body.textContent).not.toMatch(/NaN|undefined/);
+  });
 });

@@ -249,7 +249,7 @@ function lining(pocket: Row): string {
 /** The selected pocket in words: the residue identities the table only counts,
  *  and the annotation descriptions behind its "Annotated" column. Without these
  *  a reader cannot check what the viewer is painting. */
-function PocketDetail({ pocket }: { pocket: Row }) {
+function PocketDetail({ pocket, scored }: { pocket: Row; scored: string }) {
   const residues = isRows(pocket.residues) ? pocket.residues : [];
   const overlap = isRows(pocket.ligand_overlap) ? pocket.ligand_overlap : [];
   const annotated = isRows(pocket.annotated) ? pocket.annotated : [];
@@ -259,7 +259,8 @@ function PocketDetail({ pocket }: { pocket: Row }) {
     <div className="min-w-0 flex-1 space-y-1 text-sm">
       <p>
         <span className="font-medium">Rank {cell(pocket.rank)}</span>
-        {" · "}druggability {cell(pocket.druggability)}
+        {" · "}
+        {scored} {cell(pocket[scored])}
         {" · "}
         {cell(pocket.volume)} Å³{" · "}
         {residues.length} residues on chain {chains.join(", ") || "—"}
@@ -357,6 +358,9 @@ function Pockets({
   const ranks = Array.isArray(meta.ligand_site_ranks) ? (meta.ligand_site_ranks as number[]) : [];
   const structureId = typeof meta.structure_id === "string" ? meta.structure_id : null;
   const receptor = Array.isArray(meta.receptor_ligands) ? (meta.receptor_ligands as string[]) : [];
+  const ignored = Array.isArray(meta.ignored_ligands) ? (meta.ignored_ligands as string[]) : [];
+  // A predicted site carries a probability; a cavity, a druggability score. Different numbers.
+  const scored = pockets.some((p) => "probability" in p) ? "probability" : "druggability";
   const numbering = asRecord(meta.numbering);
   // Said plainly, because every entry in the Annotated column depends on it and
   // an empty column otherwise looks like "nothing annotated here".
@@ -410,8 +414,10 @@ function Pockets({
           } a deposited ligand's contacts.`}{" "}
         {receptor.length > 0
           ? `${receptor.join(", ")} stayed in place as part of the receptor, so these are the cavities left beside ${receptor.length === 1 ? "it" : "them"}.`
-          : "Nothing was kept as a cofactor, so a cavity a cofactor would fill is reported as a pocket."}{" "}
-        Volumes are Monte Carlo estimates and move a few percent between runs.
+          : "Nothing was kept as a cofactor, so a cavity a cofactor would fill is reported as a pocket."}
+        {ignored.length > 0 && ` Ignored by the predictor: ${ignored.join(", ")}.`}
+        {scored === "druggability" &&
+          " Volumes are Monte Carlo estimates and move a few percent between runs."}
       </p>
       <p className="text-sm text-muted-foreground">{numberingNote}</p>
       {structureId && active && (
@@ -439,7 +445,7 @@ function Pockets({
           its pockets still need reading and choosing. */}
       {active && (
         <div className="flex flex-wrap items-start gap-3">
-          <PocketDetail pocket={active} />
+          <PocketDetail pocket={active} scored={scored} />
           {onApprove && (
             <div className="space-y-1">
               <Button
@@ -464,7 +470,9 @@ function Pockets({
           <TableHeader className="sticky top-0 z-10 bg-background">
             <TableRow>
               <TableHead>Rank</TableHead>
-              <TableHead className="text-right">Druggability</TableHead>
+              <TableHead className="text-right">
+                {scored === "probability" ? "Probability" : "Druggability"}
+              </TableHead>
               <TableHead className="text-right">Score</TableHead>
               <TableHead className="text-right">Volume (Å³)</TableHead>
               <TableHead className="text-right">Residues</TableHead>
@@ -502,7 +510,7 @@ function Pockets({
                       {cell(p.rank)}
                     </button>
                   </TableCell>
-                  <TableCell className="text-right">{cell(p.druggability)}</TableCell>
+                  <TableCell className="text-right">{cell(p[scored])}</TableCell>
                   <TableCell className="text-right">{cell(p.score)}</TableCell>
                   <TableCell className="text-right">{cell(p.volume)}</TableCell>
                   <TableCell

@@ -138,10 +138,14 @@ def test_alternatives_are_derived_from_slot_signatures() -> None:
     assert [m.id for m in alternatives(one, fake)] == ["two", "optional"]
     assert alternatives(needs_table, fake) == []
 
-    # The one pair the real catalogue has: both take nothing and give a structure.
+    # The real catalogue's first pair: both take nothing and give a structure.
     pdb, alphafold = REGISTRY.get("fetch_pdb"), REGISTRY.get("fetch_alphafold")
     assert [m.id for m in alternatives(pdb, REGISTRY)] == ["fetch_alphafold"]
     assert [m.id for m in alternatives(alphafold, REGISTRY)] == ["fetch_pdb"]
+    # The second pair: two pocket finders over the same structure.
+    assert [m.id for m in alternatives(REGISTRY.get("find_pockets"), REGISTRY)] == [
+        "predict_pockets"
+    ]
 
 
 def test_a_composite_or_an_automatic_tool_is_never_an_alternative() -> None:

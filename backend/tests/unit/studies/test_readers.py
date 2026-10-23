@@ -303,3 +303,24 @@ def test_a_kind_without_a_reader_summarizes_its_meta_and_cannot_be_checked() -> 
 
 def test_checkable_lists_pockets_and_every_table_kind() -> None:
     assert checkable() == sorted({"pocket_candidates", *codecs.TABLE_KINDS})
+
+
+def test_a_predicted_pocket_is_described_by_its_probability_and_what_was_ignored() -> None:
+    data: dict[str, Any] = {
+        "meta": {"receptor_ligands": [], "ignored_ligands": ["NAD"], "numbering": "not checked"},
+        "pockets": [
+            {
+                "rank": 1,
+                "probability": 0.81,
+                "score": 17.9,
+                "interface": False,
+                "residues": [{"chain": "A", "resname": "TYR", "resseq": 158}],
+                "ligand_overlap": [],
+                "annotated": [],
+            }
+        ],
+    }
+    text = reader("pocket_candidates").summarize(data, data["meta"])
+    assert "Ignored by the predictor: NAD." in text
+    assert "Candidate 1: probability 0.81" in text
+    assert "volume" not in text

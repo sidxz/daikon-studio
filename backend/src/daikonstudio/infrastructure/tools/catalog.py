@@ -463,6 +463,37 @@ _TOOLS: tuple[ToolManifest, ...] = (
         surface=ToolSurface.EDITOR,
         external=True,
     ),
+    ToolManifest(
+        id="predict_pockets",
+        version="1",
+        name="Predict binding sites",
+        area=ToolArea.STRUCTURE,
+        description=(
+            "Scores points on the protein surface with a model trained on known "
+            "protein-ligand complexes, clusters them into candidate sites and ranks "
+            "those by a calibrated probability of binding a ligand, with the residues "
+            "that line each one. No volume: the candidate is a patch of surface, not "
+            "a cavity. Works from the protein atoms alone, so a cofactor kept by "
+            "preparation is not part of the receptor here and the cleft it sits in "
+            "can be reported inside a candidate; the result names the ligands it "
+            "did not see. Its ranking has been right more often than a geometric "
+            "score on the entries checked, which is still not a recommendation: a "
+            "candidate is judged on the residues that line it, the ligands it "
+            "touches and the annotated sites it contains, exactly as for a cavity "
+            "search. Same numbering check and site labels as the cavity search."
+        ),
+        inputs=(
+            _in("structure", SlotKind.STRUCTURE, "Structure"),
+            _in("annotations", SlotKind.SITE_ANNOTATIONS, "Annotated sites", optional=True),
+        ),
+        outputs=(_in("pockets", SlotKind.POCKET_CANDIDATES, "Candidate sites"),),
+        library="p2rank",
+        judgment=True,
+        resolves_to=SlotKind.POCKET,
+        lane="chem-tools",
+        surface=ToolSurface.EDITOR,
+        external=True,
+    ),
     # -- Predicted properties ------------------------------------------------------
     ToolManifest(
         id="predict_admet",
