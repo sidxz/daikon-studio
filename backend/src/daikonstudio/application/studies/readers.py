@@ -257,16 +257,24 @@ def check_table(
 
 
 def summarize_structure(data: Any, summary: Mapping[str, Any]) -> str:
-    """What was recorded when a structure was fetched or prepared; its atoms stay out."""
+    """What was recorded when a structure was fetched or prepared; its atoms stay out.
+
+    An empty list is said, not left out: a prepared structure's `kept_ligands` empty is a
+    receptor stripped of every ligand, and left out, the entry's own ligands beside it would
+    read as still there. Those keep their name only until the structure is prepared.
+    """
     lines = []
     for key, value in summary.items():
-        if value in (None, "", [], {}):
+        if value in (None, "", {}):
             continue
         if key == "ligands":
+            if "kept_ligands" in summary:
+                key = "ligands before preparation"
             value = [f"{x.get('comp_id')} {x.get('chain')}{x.get('resseq')}" for x in value]
         elif isinstance(value, list) and any(isinstance(x, Mapping) for x in value):
             value = f"{len(value)} records"
-        lines.append(f"{key}: {', '.join(map(str, value)) if isinstance(value, list) else value}")
+        told = (", ".join(map(str, value)) or "none") if isinstance(value, list) else value
+        lines.append(f"{key}: {told}")
     return "\n".join(lines)
 
 

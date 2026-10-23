@@ -102,5 +102,27 @@ describe("the pockets block", () => {
 
     expect(await screen.findByText("GOL (additive) 3/6")).toBeInTheDocument();
     expect(screen.getByText(/no annotated sites are labelled/)).toBeInTheDocument();
+
+    // The structure those pockets were found in was stripped of every ligand: it says so,
+    // rather than listing the entry's zinc as if it stayed.
+    const prepared = {
+      id: "1CA2",
+      ligands: [{ comp_id: "ZN", chain: "A", resseq: 262, contacts: [] }],
+      kept_ligands: [],
+    };
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v3",
+      key: "structure",
+      kind: "structure",
+      summary: prepared,
+      data: { format: "pdb", meta: prepared },
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v3", key: "structure" } as never} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(await screen.findByText("Kept in the receptor")).toBeInTheDocument();
+    expect(screen.getByText("Ligands before preparation")).toBeInTheDocument();
+    expect(screen.getByText("Kept in the receptor").nextSibling).toHaveTextContent("None");
   });
 });

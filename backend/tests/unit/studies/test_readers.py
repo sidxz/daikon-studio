@@ -271,6 +271,11 @@ def test_a_kind_without_a_reader_summarizes_its_meta_and_cannot_be_checked() -> 
     told = reader("structure").summarize(None, structure)
     assert "4TRO" in told
     assert "ZN A101" in told
+    # Prepared with nothing kept, the receptor says so: `[]` is "keep nothing", not "not given",
+    # and the entry's own zinc no longer reads as still in place.
+    told = reader("structure").summarize(None, {**structure, "kept_ligands": []})
+    assert "kept_ligands: none" in told
+    assert "ligands before preparation: ZN A101" in told
     # A correlation is read whole: every coefficient the card shows, so none is "not reported".
     meta = {
         "activity_column": "pIC50",

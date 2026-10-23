@@ -103,6 +103,9 @@ function Facts({ facts }: { facts: [string, unknown][] }) {
 
 function Structure({ summary }: { summary: Row }) {
   const ligands = Array.isArray(summary.ligands) ? (summary.ligands as Row[]) : [];
+  // Once prepared, `ligands` are still the entry's own; what stayed in the receptor is
+  // `kept_ligands`, and an empty list there means every one was stripped.
+  const kept = Array.isArray(summary.kept_ligands) ? (summary.kept_ligands as string[]) : null;
   return (
     <div className="space-y-3">
       <Facts
@@ -113,7 +116,7 @@ function Structure({ summary }: { summary: Row }) {
           ["Resolution", summary.resolution != null ? `${cell(summary.resolution)} Å` : null],
           ["Chains", Array.isArray(summary.chains) ? summary.chains.join(", ") : null],
           [
-            "Ligands",
+            kept ? "Ligands before preparation" : "Ligands",
             ligands.length
               ? ligands
                   .map(
@@ -125,6 +128,7 @@ function Structure({ summary }: { summary: Row }) {
                   .join("; ")
               : "None",
           ],
+          ["Kept in the receptor", kept && (kept.join(", ") || "None")],
         ]}
       />
       {/* Mol* loads deposited entries by id; a predicted model has none to load. */}
