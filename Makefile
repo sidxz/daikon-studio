@@ -65,7 +65,7 @@ WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 WORKER_CHEM := env STUDIO_RUNNER_TOKEN=drt_dev_chem PATH=$(CURDIR)/backend/.tools/bin:$$PATH $(RUNNER)
 
 .DEFAULT_GOAL := help
-.PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu dev-worker-chem fpocket stop logs migrate \
+.PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu dev-worker-chem fpocket p2rank stop logs migrate \
         seed-runners backfill-maps register-protocols generate-api test test-api test-all test-fe lint lint-fe nuke \
         image-runner-cpu image-runner-gpu image-runner-chem image-smoke image-frontend security-scan publish-runner-gpu
 
@@ -123,7 +123,7 @@ dev: stop ## Start backend (:8002) + frontend (:3003) + both runner agents in th
 	@echo "  Frontend  http://localhost:3003        (pid $$(cat $(LOGDIR)/frontend.pid), log $(LOGDIR)/frontend.log)"
 	@echo "  Runner    default lane: ecfp4 engines                  (pid $$(cat $(LOGDIR)/worker.pid), log $(LOGDIR)/worker.log)"
 	@echo "  Runner    gpu lane: chemprop (Mac GPU via MPS)         (pid $$(cat $(LOGDIR)/worker-gpu.pid), log $(LOGDIR)/worker-gpu.log)"
-	@echo "  Runner    chem-tools lane: OpenMM, fpocket             (pid $$(cat $(LOGDIR)/worker-chem.pid), log $(LOGDIR)/worker-chem.log)"
+	@echo "  Runner    chem-tools lane: OpenMM, fpocket, p2rank     (pid $$(cat $(LOGDIR)/worker-chem.pid), log $(LOGDIR)/worker-chem.log)"
 	@echo "  make logs — tail all    ·    make stop — stop all"
 	@echo ""
 	@echo "  NOTE: both runner agents only matter when STUDIO_INLINE_JOBS=0 in backend/.env."
@@ -168,7 +168,7 @@ dev-worker-gpu: ## (Re)start the gpu-lane runner agent only (chemprop; Mac GPU v
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@echo "GPU-lane runner agent (re)started (log $(LOGDIR)/worker-gpu.log)"
 
-dev-worker-chem: ## (Re)start the chem-tools-lane runner agent only (OpenMM, PDBFixer, PROPKA, fpocket)
+dev-worker-chem: ## (Re)start the chem-tools-lane runner agent only (OpenMM, PDBFixer, PROPKA, fpocket, p2rank)
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker-chem.pid ] && kill $$(cat $(LOGDIR)/worker-chem.pid) 2>/dev/null || true
 	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_CHEM)' \
@@ -182,6 +182,25 @@ fpocket: ## Build the fpocket binary into backend/.tools/bin (the chem-tools dev
 	@arch=LINUXAMD64; case "$$(uname -s)-$$(uname -m)" in Darwin-arm64) arch=MACOSXARM64 ;; Darwin-x86_64) arch=MACOSXX86_64 ;; esac; \
 		$(MAKE) -C backend/.tools/src/fpocket ARCH=$$arch
 	cp backend/.tools/src/fpocket/bin/fpocket backend/.tools/bin/fpocket
+
+P2RANK_VERSION := 2.5.1
+# p2rank is MIT (Radoslav Krivák et al.); a Java program, so the wrapper below points
+# the launcher at the Homebrew JDK when `java` does not run (macOS ships a stub that
+# is not a runtime).
+P2RANK_SHA256 := d243f2d9036ac053fefb9407b5fe1c85f4fe077c519fd975ac585e995feab274
+P2RANK_TGZ := backend/.tools/p2rank/p2rank_$(P2RANK_VERSION).tar.gz
+p2rank: ## Download p2rank into backend/.tools and put a `prank` wrapper on the chem runner's PATH
+	@mkdir -p backend/.tools/p2rank backend/.tools/bin
+	@echo "$(P2RANK_SHA256)  $(P2RANK_TGZ)" | shasum -a 256 -c --status 2>/dev/null || \
+		curl -fL -o $(P2RANK_TGZ) https://github.com/rdk/p2rank/releases/download/$(P2RANK_VERSION)/p2rank_$(P2RANK_VERSION).tar.gz
+	@echo "$(P2RANK_SHA256)  $(P2RANK_TGZ)" | shasum -a 256 -c
+	@[ -d backend/.tools/p2rank/p2rank_$(P2RANK_VERSION) ] || tar -xzf $(P2RANK_TGZ) -C backend/.tools/p2rank
+	@printf '%s\n' '#!/bin/sh' '# Written by `make p2rank`.' \
+		'if [ -z "$$JAVA_HOME" ] && ! java -version >/dev/null 2>&1; then' \
+		'  export JAVA_HOME="$$(/usr/libexec/java_home -v 17+ 2>/dev/null || echo /opt/homebrew/opt/openjdk@21)"' \
+		'fi' \
+		'exec "$$(dirname "$$0")/../p2rank/p2rank_$(P2RANK_VERSION)/prank" "$$@"' > backend/.tools/bin/prank
+	@chmod +x backend/.tools/bin/prank
 
 stop: ## Stop the backend + frontend + runner-agent dev processes
 	@[ -f $(LOGDIR)/backend.pid ]  && kill $$(cat $(LOGDIR)/backend.pid)  2>/dev/null || true
@@ -233,6 +252,7 @@ image-runner-chem: ## Build the chem-tools runner image locally as daikon-runner
 	$(call BUILD_INFO,backend) && docker build --platform linux/amd64 -f backend/Dockerfile.chem -t daikon-runner:chem \
 		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE backend
 	docker run --rm --platform linux/amd64 --entrypoint fpocket daikon-runner:chem || true
+	docker run --rm --platform linux/amd64 --entrypoint prank daikon-runner:chem || true
 	docker run --rm --platform linux/amd64 --entrypoint python daikon-runner:chem -c "import pdbfixer, propka, openmm; print('chem-tools imports ok')"
 
 # The CUDA runner image is built, GPU-tested, scanned and pushed on atlantic: x86_64, an
