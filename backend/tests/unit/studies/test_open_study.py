@@ -179,6 +179,14 @@ async def test_a_cif_or_an_unreadable_csv_is_refused_with_a_sentence() -> None:
     # The one a scientist is likeliest to try says what to attach instead.
     assert errors[0].detail == "Attach a .csv, .tsv or .pdb file; .cif is not read yet."
 
+    # A file sorted by potency puts its censored reading last, past the first hundred rows: it
+    # is read, not refused.
+    world = World()
+    late = b"smiles,pIC50\n" + b"CCO,5.1\n" * 149 + b"CCN,>30\n"
+    opened = (await world.open(opening(Upload("sorted.csv", late)), AUTH)).unwrap()
+    (table,) = world.studies.rows[opened.id].values
+    assert table.summary["rows"] == 150
+
 
 async def test_start_needs_the_compounds_file_the_plan_hands_over() -> None:
     world = World()

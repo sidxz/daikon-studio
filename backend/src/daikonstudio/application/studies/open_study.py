@@ -115,8 +115,13 @@ async def bring(
         raw = upload.content.removeprefix(_BOM)
         tabbed = upload.filename.lower().endswith((".tsv", ".tab"))
         try:
+            # Typed from every row, not the first hundred: a file sorted by potency puts its
+            # censored readings (">30") last, and a column typed as numbers refuses them.
             frame = pl.read_csv(
-                io.BytesIO(raw), separator="\t" if tabbed else ",", encoding="utf8-lossy"
+                io.BytesIO(raw),
+                separator="\t" if tabbed else ",",
+                encoding="utf8-lossy",
+                infer_schema_length=None,
             )
         except pl.exceptions.PolarsError as error:
             raise ValidationError(
