@@ -130,8 +130,8 @@ class Turn:
     `role` is "scientist", "agent" or "event" (something the study itself did,
     written by the services and never by the aggregate). An agent turn's `kind`
     is asking, planning, observe or reply; an event's is started, ran, swapped,
-    approved, applied, attached, paused, edited or observe_failed. `about` is the
-    step a scientist's message is about, if any.
+    approved, applied, attached, paused, edited, run_refused or observe_failed.
+    `about` is the step a scientist's message is about, if any.
 
     `dropped` is kept rather than hidden: it counts the claims the agent made
     that its own step's result did not support, and a turn that drops several is
@@ -321,26 +321,6 @@ class Study(AggregateRoot):
         self._renumber()
         self._touch()
         return step
-
-    def add_step(
-        self, *, tool_id: str, tool_version: str, name: str, purpose: str, params: dict[str, Any]
-    ) -> Step:
-        """Put a new step at the end of the plan: `insert_step` for a caller with no Step yet."""
-        return self.insert_step(
-            Step(
-                id=uuid.uuid4(),
-                position=len(self.steps),
-                tool_id=tool_id,
-                tool_version=tool_version,
-                name=name,
-                purpose=purpose,
-                params=params,
-                gated=False,
-                always=False,
-                expanded_from=None,
-            ),
-            before=None,
-        )
 
     def remove_step(self, step_id: uuid.UUID) -> None:
         """Take a step out of the plan, if it has not run.
