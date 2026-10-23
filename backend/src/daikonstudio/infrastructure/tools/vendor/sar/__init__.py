@@ -11,7 +11,12 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 # ponytail: sys.path shim so the vendored files stay byte-identical;
 # a package-relative rewrite is the upgrade if we ever fork them
 if _HERE not in sys.path:
-    sys.path.insert(0, _HERE)
+    # Appended, not inserted: this runs at API startup, and in front of the path
+    # it would be searched ahead of the stdlib and site-packages for every later
+    # import in the process, so the next file vendored in under a name like
+    # `codecs.py` or `logging.py` would shadow the real one. The four modules
+    # below resolve the same either way.
+    sys.path.append(_HERE)
 
 import sar_cliffs  # noqa: E402
 import sar_core  # noqa: E402

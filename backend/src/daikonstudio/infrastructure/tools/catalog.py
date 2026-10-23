@@ -157,9 +157,10 @@ _TOOLS: tuple[ToolManifest, ...] = (
         name="Name substituents",
         description=(
             "Resolves each R group to the word a chemist would use (Me, OMe, CF3), "
-            "falling back to a drawing where no name is clearer than a picture. Decides "
-            "word-or-picture per column rather than per cell, so one column does not "
-            "mix the two."
+            "falling back to a drawing where no name is clearer than a picture. The "
+            "decision is per group: a group with a conventional short name is written as "
+            "that word, and anything else is drawn, because a SMILES string in a table "
+            "cell is not something a chemist reads."
         ),
         inputs=(_TABLE,),
         outputs=(_in("table", SlotKind.RGROUP_TABLE, "Named SAR table"),),

@@ -34,6 +34,14 @@ WHOLE_SET_TIMEOUT = 60
 CLUSTER_TIMEOUT = 15
 
 _POSITION = re.compile(r"[RX]\d+")
+_CORE_LINE = re.compile(r"\s*core\s*:")
+# The columns each tool writes, so an incoming column of the same name is moved
+# aside rather than overwritten. See `_set_aside`.
+_CLUSTER_WRITES = re.compile(
+    r"series|scaffold_smiles|series_size|series_similarity"
+    r"|whole_set_core_atoms|typical_series_core_atoms|split_recommended"
+)
+_DECOMPOSE_WRITES = re.compile(r"decomposed|ambiguous|[RX]\d+|R\d+_(smiles|svg)")
 
 
 def _frame(inputs: Mapping[str, object], key: str = "compounds") -> pl.DataFrame:
@@ -56,14 +64,68 @@ def _mols(frame: pl.DataFrame) -> tuple[list[str], list[str], list[Chem.Mol | No
     return ids, smiles, [Chem.MolFromSmiles(s) if s else None for s in smiles]
 
 
+def _refuse_repeats(column: pl.Series) -> None:
+    """Refuse a repeated identifier, which every later join would multiply.
+
+    A joined duplicate puts one compound's activity beside another's
+    substituent, so the numbers downstream are wrong rather than missing. The
+    scientist owns the fix, so the step stops and names the ids.
+    """
+    repeated = [str(v) for v in column.filter(column.is_duplicated()).unique(maintain_order=True)]
+    if not repeated:
+        return
+    more = f" and {len(repeated) - 5} more" if len(repeated) > 5 else ""
+    raise ValueError(
+        f"the identifier column {column.name!r} repeats: {', '.join(repeated[:5])}{more}. "
+        "Give every compound one row with its own id and run the step again."
+    )
+
+
 def _with_id(frame: pl.DataFrame, ids: Sequence[str]) -> pl.DataFrame:
     """The frame with its identifier column named `id` and moved first."""
     try:
         column = id_column(frame)
     except ValueError:
         return frame.insert_column(0, pl.Series("id", list(ids), dtype=pl.Utf8))
+    _refuse_repeats(frame[column])
+    # `Name,SMILES,ID,pIC50` picks `Name`, and renaming it onto the existing
+    # `id` is a polars DuplicateError that tells a scientist nothing.
+    if column != "id" and "id" in frame.columns:
+        frame = frame.rename({"id": "id_input"})
     rest = [c for c in frame.columns if c != column]
     return frame.rename({column: "id"}).select(["id", *rest])
+
+
+def _set_aside(frame: pl.DataFrame, written: re.Pattern[str]) -> pl.DataFrame:
+    """Move any incoming column this tool is about to write to `<name>_input`.
+
+    `with_columns` and a left join both replace a column of the same name
+    silently, so an upload with its own `series` or `R1` came back holding the
+    tool's answer, with the scientist's own values gone and every later tool
+    computing on whichever of the two survived.
+    """
+    # ponytail: a frame already carrying both `series` and `series_input` keeps
+    # the latter and loses the former; suffix-until-free if that ever turns up.
+    moved = {
+        c: f"{c}_input"
+        for c in frame.columns
+        if written.fullmatch(c) and f"{c}_input" not in frame.columns
+    }
+    return frame.rename(moved)
+
+
+def _readable(lines: Sequence[str]) -> list[str]:
+    """Description lines with the SMARTS-bearing ones dropped.
+
+    `description` is what the agent reads, and a SMARTS is a structure: the
+    spec keeps both it and the SVG out of the text.
+    """
+    return [line for line in lines if "[#" not in line and not _CORE_LINE.match(line)]
+
+
+def _notes(notes: Sequence[str]) -> list[str]:
+    """At most five notes, none of them the per-preset search trace."""
+    return [n for n in notes if len(n) <= 300][:5]
 
 
 def _positions(columns: Sequence[str]) -> list[str]:
@@ -78,11 +140,18 @@ def _variable(cand: Mapping[str, Any]) -> dict[str, str]:
     return {label: "/".join(elements.get(q, [])) for q, label in labels}
 
 
-def _candidate(cand: Mapping[str, Any], series: int | None) -> dict[str, Any]:
-    """One candidate core as Task 5/6 consume it: no query mol, no RDKit objects."""
+def _candidate(
+    cand: Mapping[str, Any], series: int | None, matched: Sequence[str]
+) -> dict[str, Any]:
+    """One candidate core as Task 5/6 consume it: no query mol, no RDKit objects.
+
+    `cand["rank"]` must already be the rank the candidate is shown under: the
+    description is headed with it, and approval goes by rank.
+    """
     analysis = cand["analysis"]
     return {
         "rank": cand["rank"],
+        "matched": list(matched),
         "smarts": cand["smarts"],
         "svg": sar.sar_core.render_core_svg(cand["smarts"], 360, 220),
         "coverage": cand["coverage"],
@@ -93,7 +162,7 @@ def _candidate(cand: Mapping[str, Any], series: int | None) -> dict[str, Any]:
         "n_rgroups": analysis.get("n_rgroups", 0),
         "unmatched": list(analysis["unmatched"]),
         "misses": [],
-        "description": sar.sar_variable.describe(cand),
+        "description": _readable(sar.sar_variable.describe(cand)),
         "preset_label": cand["preset_label"],
         "derived": cand.get("derived"),
         "timed_out": bool(cand.get("timed_out")),
@@ -175,6 +244,9 @@ def _core_atoms(smiles: Sequence[str], ids: Sequence[str], timeout: int) -> int:
 def cluster_series(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[str, Any]:
     frame = _frame(inputs)
     ids, smiles, mols = _mols(frame)
+    # Before the search, not after it: a repeated id fails the step, and a
+    # minute of clustering first is a minute wasted.
+    base = _with_id(_set_aside(frame, _CLUSTER_WRITES), ids)
     usable = [n for n, m in enumerate(mols) if m is not None]
 
     series: list[int | None] = [None] * len(ids)
@@ -223,7 +295,7 @@ def cluster_series(params: BaseModel | None, inputs: Mapping[str, object]) -> di
             separated and baseline and typical and typical / baseline >= MIN_CORE_GAIN
         )
 
-    out = _with_id(frame, ids).with_columns(
+    out = base.with_columns(
         pl.Series("series", series, dtype=pl.Int64),
         pl.Series("scaffold_smiles", scaffolds, dtype=pl.Utf8),
         pl.Series("series_size", sizes, dtype=pl.Int64),
@@ -245,6 +317,16 @@ def _groups(ids: Sequence[str], series: object) -> list[tuple[int | None, list[i
     everything: list[tuple[int | None, list[int]]] = [(None, list(range(len(ids))))]
     if not isinstance(series, pl.DataFrame) or "series" not in series.columns:
         return everything
+    # The clustering's own verdict decides, not the mere presence of clusters:
+    # searching per series against its advice gave every candidate a coverage
+    # over its own group that the card read as the whole set. Constant per row,
+    # so the first row answers for the table; no column counts as no.
+    if not (
+        "split_recommended" in series.columns
+        and series.height
+        and bool(series["split_recommended"][0])
+    ):
+        return everything
     assigned = dict(zip(series["id"].to_list(), series["series"].to_list(), strict=False))
     per_row = [assigned.get(i) for i in ids]
     if all(s is None for s in per_row):
@@ -265,26 +347,33 @@ def find_cores(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[s
     candidates: list[dict[str, Any]] = []
     notes: list[str] = []
     searched: list[int] = []
+    found_in: list[tuple[dict[str, Any], int | None, list[str]]] = []
     for group, rows in _groups(ids, inputs.get("series")):
+        group_ids = [ids[n] for n in rows]
         found = sar.sar_variable.find_core_candidates(
-            [smiles[n] for n in rows], [ids[n] for n in rows], timeout=WHOLE_SET_TIMEOUT
+            [smiles[n] for n in rows], group_ids, timeout=WHOLE_SET_TIMEOUT
         )
         prefix = "" if group is None else f"series {group}: "
         notes.extend(f"{prefix}{note}" for note in found["notes"])
-        candidates.extend(_candidate(c, group) for c in found["candidates"])
+        found_in.extend((c, group, group_ids) for c in found["candidates"])
         if group is not None:
             searched.append(group)
     # The ranks a candidate carries are within its own search; the list the
-    # chemist reads is one list, so they are reassigned across the whole of it.
-    for rank, cand in enumerate(candidates, start=1):
+    # chemist reads is one list, so they are reassigned across the whole of it
+    # — before the description is built, which is headed with the rank.
+    for rank, (cand, group, group_ids) in enumerate(found_in, start=1):
         cand["rank"] = rank
+        missed = set(cand["analysis"]["unmatched"])
+        candidates.append(
+            _candidate(cand, group, [i for i in group_ids if i not in missed]),
+        )
     return {
         "candidates": {
             "meta": {
                 "n_candidates": len(candidates),
                 "n_compounds": frame.height,
                 "n_unparsed": sum(m is None for m in mols),
-                "notes": notes,
+                "notes": _notes(notes),
                 "series": searched,
             },
             "candidates": candidates,
@@ -301,12 +390,12 @@ def score_core(params: CoreParams, inputs: Mapping[str, object]) -> dict[str, An
     # Nothing is filtered here: the chemist asked about this core, so a core
     # covering a fifth of the set is reported at a fifth, with the reason each
     # compound missed. The search filters; this answers.
-    cand = _candidate(report["candidate"], None)
+    report["candidate"]["rank"] = 1
+    cand = _candidate(report["candidate"], None, report["matched"])
     cand.update(
-        rank=1,
         variable={name: "/".join(info["elements"]) for name, info in report["variable"].items()},
         misses=[{"id": m["id"], "reason": m["reason"]} for m in report["misses"]],
-        description=sar.sar_edit.summarize(report),
+        description=_readable(sar.sar_edit.summarize(report)),
     )
     return {
         "candidates": {
@@ -314,7 +403,7 @@ def score_core(params: CoreParams, inputs: Mapping[str, object]) -> dict[str, An
                 "n_candidates": 1,
                 "n_compounds": frame.height,
                 "n_unparsed": sum(m is None for m in mols),
-                "notes": list(report["notes"]),
+                "notes": _notes(report["notes"]),
                 "series": [],
             },
             "candidates": [cand],
@@ -357,22 +446,32 @@ def decompose_rgroups(params: BaseModel | None, inputs: Mapping[str, object]) ->
 
     r_columns = sar.sar_core.rgroup_columns(rows)
     columns = _positions([*r_columns, *x_columns])
+    # An arbitrary embedding is what manufactures a matched pair that was never
+    # made, and the vendored analysis already knows which rows sit either way
+    # round, so the row carries the warning instead of the wrapper dropping it.
+    arbitrary = set(analysis["ambiguous"])
     decomposed = pl.DataFrame(
         {
             "id": [str(r["ID"]) for r in rows],
             "decomposed": [True] * len(rows),
+            "ambiguous": [str(r["ID"]) in arbitrary for r in rows],
             # Everything an R or X cell carries beyond the fragment itself is
             # the sibling UI's business (`_name`, `_sort`, `_display`), and
             # `Core` is the core we already have.
             **{c: [str(r.get(c, "") or "") or None for r in rows] for c in columns},
         },
-        schema={"id": pl.Utf8, "decomposed": pl.Boolean, **{c: pl.Utf8 for c in columns}},
+        schema={
+            "id": pl.Utf8,
+            "decomposed": pl.Boolean,
+            "ambiguous": pl.Boolean,
+            **{c: pl.Utf8 for c in columns},
+        },
     )
     out = (
-        _with_id(frame, ids)
+        _with_id(_set_aside(frame, _DECOMPOSE_WRITES), ids)
         .with_columns(pl.col("id").cast(pl.Utf8))
         .join(decomposed, on="id", how="left")
-        .with_columns(pl.col("decomposed").fill_null(False))
+        .with_columns(pl.col("decomposed", "ambiguous").fill_null(False))
         # The naming step rewrites R columns in place, so the fragment SMILES is
         # kept beside each one or naming could not be undone or repeated.
         .with_columns(pl.col(c).alias(f"{c}_smiles") for c in r_columns)
@@ -429,16 +528,30 @@ def _word(fragment: str) -> str | None:
 
 def name_substituents(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[str, Any]:
     table = _frame(inputs, "table")
-    # Word or picture is decided per column, not per cell: a column mixing "Me"
-    # with a SMILES string reads as two columns of different things.
+    # Word or picture per cell, not per column: one exotic group kept a whole
+    # column as SMILES, which is not something a chemist reads. A group with a
+    # conventional short name gets the word; anything else gets drawn.
     for column in (c for c in _positions(table.columns) if c.startswith("R")):
         source = f"{column}_smiles"
         if source not in table.columns:
             continue
-        words = [None if not v else _word(v) for v in table[source].to_list()]
-        if any(w is None for v, w in zip(table[source].to_list(), words, strict=True) if v):
-            continue
-        table = table.with_columns(pl.Series(column, words, dtype=pl.Utf8))
+        fragments = table[source].to_list()
+        named = [(v, None if not v else _word(v)) for v in fragments]
+        table = table.with_columns(
+            pl.Series(column, [word or fragment or None for fragment, word in named], pl.Utf8),
+            pl.Series(
+                f"{column}_svg",
+                [
+                    None
+                    if not fragment or word
+                    else sar.sar_core.render_fragment_svg(
+                        fragment, 160, 120, attachment_label=column
+                    )
+                    for fragment, word in named
+                ],
+                pl.Utf8,
+            ),
+        )
     return {"table": table}
 
 

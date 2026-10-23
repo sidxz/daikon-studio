@@ -35,8 +35,10 @@ TABLE_KINDS: frozenset[str] = frozenset(
 # structures under names no exact list would have. `smiles`, `sequence` and `inchi` count
 # anywhere in a header; the plain words only as the whole header, since an export names its
 # rows `molecule_chembl_id`.
+# `svg` counts too: a drawing is a structure, and a bounded look at a table of them would
+# pull kilobytes of markup into the agent's context for every row.
 WITHHELD_COLUMNS = re.compile(
-    r"smiles|sequence|inchi|^(molecule|structure|mol|seq|parse_error)$", re.I
+    r"smiles|sequence|inchi|svg|^(molecule|structure|mol|seq|parse_error)$", re.I
 )
 # And by what a column holds, without RDKit: a SMILES is one run of the SMILES alphabet with a
 # bond, branch, bracket or stereo mark in it, and a sequence is twenty residues or more.

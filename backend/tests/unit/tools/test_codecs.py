@@ -35,3 +35,8 @@ def test_dict_summary_is_meta() -> None:
 def test_list_summary_counts_items() -> None:
     assert encode("alerts", [1, 2])[1] == {"items": 2}
     assert encode("alerts", {"x": 1})[1] == {}
+
+
+def test_a_drawing_column_is_withheld() -> None:
+    frame = pl.DataFrame({"id": ["a"], "R1": ["Me"], "R1_svg": ["<svg><g/></svg>"]})
+    assert encode("rgroup_table", frame)[1]["withheld"] == ["R1_svg"]

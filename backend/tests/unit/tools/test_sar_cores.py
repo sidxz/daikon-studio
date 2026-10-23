@@ -97,22 +97,26 @@ def test_a_core_matching_nothing_decomposes_nothing_quietly() -> None:
     assert table.height == BENZAMIDES.height and not table["decomposed"].any()
 
 
-def test_naming_is_all_or_nothing_per_column() -> None:
+def test_a_group_with_no_name_is_drawn_and_a_named_one_is_not() -> None:
+    fragments = ["C[*:1]", "Cl[*:1]", "C1CN(CCO[*:1])CCO1"]
     table = pl.DataFrame(
         {
             "id": ["a", "b", "c"],
             "decomposed": [True] * 3,
-            "R1": ["C[*:1]", "Cl[*:1]", "[H][*:1]"],
-            "R1_smiles": ["C[*:1]", "Cl[*:1]", "[H][*:1]"],
-            "R2": ["CO[*:2]", "C1CCOCC1[*:2]", "FC(F)(F)[*:2]"],
-            "R2_smiles": ["CO[*:2]", "C1CCOCC1[*:2]", "FC(F)(F)[*:2]"],
+            "R1": fragments,
+            "R1_smiles": fragments,
         }
     )
     named = name_substituents(None, {"table": table})["table"]
-    assert named["R1"].to_list() == ["Me", "Cl", "H"]
-    assert named["R2"].to_list() == table["R2"].to_list()  # one unnamed fragment keeps SMILES
-    assert named["R1_smiles"].to_list() == table["R1_smiles"].to_list()
-    assert name_substituents(None, {"table": named})["table"]["R1"].to_list() == ["Me", "Cl", "H"]
+    # The named cells are still named although the column holds an unnameable
+    # group: deciding per column is what kept whole columns as SMILES.
+    assert named["R1"].to_list() == ["Me", "Cl", fragments[2]]
+    svg = named["R1_svg"].to_list()
+    assert svg[:2] == [None, None] and "<svg" in str(svg[2])
+    assert named["R1_smiles"].to_list() == fragments
+    assert (
+        name_substituents(None, {"table": named})["table"]["R1"].to_list() == named["R1"].to_list()
+    )
 
 
 def test_a_mixed_set_is_split_and_a_single_series_is_left_alone() -> None:
@@ -133,3 +137,111 @@ def test_find_cores_on_an_unclustered_series_table_searches_once() -> None:
     )
     out = find_cores(None, {"compounds": BENZAMIDES, "series": series})["candidates"]
     assert out["meta"]["series"] == [] and all(c["series"] is None for c in out["candidates"])
+
+
+TOLUENE = {"smarts": "c1ccccc1C"}
+
+
+def test_a_repeated_compound_id_is_refused_rather_than_joined() -> None:
+    frame = pl.DataFrame(
+        {
+            "ID": ["a", "a", "b"],
+            "SMILES": ["Cc1ccccc1", "CCc1ccccc1", "CC(C)c1ccccc1"],
+            "pIC50": [5.0, 6.0, 7.0],
+        }
+    )
+    with pytest.raises(ValueError, match="repeats: a"):
+        decompose_rgroups(None, {"compounds": frame, "core": TOLUENE})
+    with pytest.raises(ValueError, match="repeats: a"):
+        cluster_series(None, {"compounds": frame})
+
+
+def test_an_uploaded_rgroup_column_does_not_shadow_the_decomposition() -> None:
+    frame = pl.DataFrame(
+        {
+            "ID": ["a", "b"],
+            "SMILES": ["Cc1ccccc1", "CCc1ccccc1"],
+            "R1": ["whatever the chemist typed", "and here too"],
+        }
+    )
+    table = decompose_rgroups(None, {"compounds": frame, "core": TOLUENE})["table"]
+    assert table["R1_input"].to_list() == frame["R1"].to_list()
+    assert all("[" in str(v) for v in table["R1"].to_list())  # the fragment SMILES
+
+
+def test_a_table_that_already_has_an_id_column_still_decomposes() -> None:
+    frame = pl.DataFrame(
+        {
+            "Name": ["first", "second"],
+            "SMILES": ["Cc1ccccc1", "CCc1ccccc1"],
+            "id": ["x", "y"],
+            "pIC50": [5.0, 6.0],
+        }
+    )
+    table = decompose_rgroups(None, {"compounds": frame, "core": TOLUENE})["table"]
+    assert table["id"].to_list() == ["first", "second"]
+    assert table["id_input"].to_list() == ["x", "y"]
+    assert table["decomposed"].all()
+
+
+def test_a_series_table_that_does_not_recommend_a_split_is_searched_whole() -> None:
+    series = (
+        MIXED.rename({"ID": "id"})
+        .with_columns(
+            pl.Series("series", [1] * 8 + [2] * 7, dtype=pl.Int64),
+            pl.lit(False).alias("split_recommended"),
+        )
+        .select(["id", "series", "split_recommended"])
+    )
+    whole = find_cores(None, {"compounds": MIXED, "series": series})["candidates"]
+    assert whole["meta"]["series"] == []
+    assert all(c["series"] is None for c in whole["candidates"])
+    split = find_cores(
+        None,
+        {
+            "compounds": MIXED,
+            "series": series.with_columns(pl.lit(True).alias("split_recommended")),
+        },
+    )["candidates"]
+    assert split["meta"]["series"] == [1, 2]
+
+
+def test_a_candidates_description_carries_the_rank_it_is_shown_under() -> None:
+    series = (
+        MIXED.rename({"ID": "id"})
+        .with_columns(
+            pl.Series("series", [1] * 8 + [2] * 7, dtype=pl.Int64),
+            pl.lit(True).alias("split_recommended"),
+        )
+        .select(["id", "series", "split_recommended"])
+    )
+    out = find_cores(None, {"compounds": MIXED, "series": series})["candidates"]
+    for cand in out["candidates"]:
+        heading = re.search(r"#(\d+)", cand["description"][0])
+        assert heading is not None and int(heading.group(1)) == cand["rank"]
+
+
+def test_a_candidate_description_never_carries_its_smarts() -> None:
+    out = find_cores(None, {"compounds": BENZAMIDES})["candidates"]
+    assert out["candidates"]
+    for cand in out["candidates"]:
+        assert not any("[#" in line for line in cand["description"])
+    assert len(out["meta"]["notes"]) <= 5
+    (scored,) = score_core(CoreParams(core=AMIDE_CORE), {"compounds": BENZAMIDES})["candidates"][
+        "candidates"
+    ]
+    assert not any("[#" in line for line in scored["description"])
+
+
+def test_an_arbitrary_embedding_is_flagged_on_the_row() -> None:
+    table = decompose_rgroups(None, {"compounds": BENZAMIDES, "core": {"smarts": AMIDE_CORE}})[
+        "table"
+    ]
+    assert "ambiguous" in table.columns and not table["ambiguous"].any()
+
+
+def test_an_uploaded_series_column_is_kept_under_its_own_name() -> None:
+    frame = BENZAMIDES.with_columns(pl.lit("the chemist's own grouping").alias("series"))
+    out = cluster_series(None, {"compounds": frame})["series"]
+    assert out["series_input"].unique().to_list() == ["the chemist's own grouping"]
+    assert out["series"].dtype == pl.Int64
