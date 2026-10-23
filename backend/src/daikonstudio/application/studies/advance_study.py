@@ -1,9 +1,11 @@
-"""Advancing a study: run its steps in order until a gate, a failure, or the end;
-or run one step alone, like a notebook cell.
+"""Advancing a study: run its steps in order until a gate, a failure, a stop the agent asks
+for, or the end; or run one step alone, like a notebook cell.
 
 `AdvanceStudy` answers at once and runs the steps on a task of its own, writing the
-study after every change so a reader sees each step start and finish. One advance
-re-runs a failed step, and a step a restart left running.
+study after every change so a reader sees each step start and finish. After each step that
+finishes or fails the agent looks at it, and the loop waits for that look: the one thing it
+can do there is stop the run, and a stop that came after the next step had begun would be no
+stop. One advance re-runs a failed step, and a step a restart left running.
 
 ponytail: the run lives inside the API process, so a restart drops it mid-step; the
 step is recorded as failed ("Interrupted by a restart.") when the shutdown cancels it
@@ -19,6 +21,7 @@ import logging
 import uuid
 import weakref
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from returns.result import Failure, Result, Success
 
@@ -28,8 +31,17 @@ from daikonstudio.application.ports.study_repository import StudyRepository
 from daikonstudio.application.ports.tool_executor import ToolExecutor, ToolInput, ToolRunContext
 from daikonstudio.application.tools.manifest import DEFAULT_LANE
 from daikonstudio.application.tools.registry import ToolRegistry
-from daikonstudio.domain.shared.errors import DomainError, NotFoundError, ValidationError
-from daikonstudio.domain.studies.study import SlotValue, Step, StepStatus, Study
+from daikonstudio.domain.shared.errors import (
+    ConflictError,
+    DomainError,
+    NotFoundError,
+    ValidationError,
+)
+from daikonstudio.domain.studies.study import SlotValue, Step, StepStatus, Study, Turn
+
+if TYPE_CHECKING:
+    # `agent` imports `in_flight` from here, so this module cannot import it back at run time.
+    from daikonstudio.application.studies.agent import ObserveStep
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +72,30 @@ def _tool_lock() -> asyncio.Lock:
     return lock
 
 
+# What a request that would change a study says while a run is under way in it.
+RUNNING_MESSAGE = "A run is under way in this study. Wait for it to stop, then try again."
+
+
 def in_flight(study_id: uuid.UUID) -> bool:
     return study_id in _in_flight
+
+
+def _event(kind: str, say: str, about: uuid.UUID | None) -> Turn:
+    return Turn(role="event", kind=kind, say=say, about=about, at=datetime.now(UTC))
+
+
+def _label(step: Step) -> str:
+    # Stored positions are 0-based; people read the plan from 1.
+    return f"step {step.position + 1} ({step.name})"
+
+
+def _ran(study: Study, start: uuid.UUID | None, until: uuid.UUID | None) -> str:
+    """A scientist's run as the thread says it: from where, and to where."""
+    if start is not None and start == until:
+        return f"Ran {_label(study.step(start))}."
+    begin = "the next step waiting" if start is None else f"step {study.step(start).position + 1}"
+    end = "the next stop" if until is None else f"step {study.step(until).position + 1}"
+    return f"Ran from {begin} to {end}."
 
 
 class AdvanceStudy:
@@ -71,37 +105,46 @@ class AdvanceStudy:
         tools: ToolRegistry,
         executor: ToolExecutor,
         store: BlobStore,
+        observe: ObserveStep,
     ) -> None:
         self._studies = studies
         self._tools = tools
         self._executor = executor
         self._store = store
+        self._observe = observe
 
     async def __call__(
         self,
         study_id: uuid.UUID,
         auth: AuthContext | None = None,
         *,
-        position: int | None = None,
+        start: uuid.UUID | None = None,
+        until: uuid.UUID | None = None,
+        started_by: str = "scientist",
     ) -> Result[Study, DomainError]:
-        """Run the steps from the next one to a gate; or, given a position, that one
-        step alone, whatever its gate or status says."""
+        """Run the steps from `start`, whatever its status, or else from the next one waiting,
+        to `until`, the next gate, a failure, a pause the agent asks for, or the end.
+
+        Only a scientist's run is written into the thread as such; the agent's own turn
+        already says what it ran.
+        """
         require_authenticated(auth)
         require_editor(auth)
         assert auth is not None  # require_authenticated has already rejected None
         study = await self._studies.get(auth.workspace_id, study_id)
         if study is None or study.created_by != auth.user_id:
             return Failure(NotFoundError("Study", str(study_id)))
-        if position is not None and all(s.position != position for s in study.steps):
-            return Failure(ValidationError(f"No step {position} in this study."))
-        if in_flight(study_id) or (position is None and study.next_step is None):
+        known = {s.id for s in study.steps}
+        if any(step_id is not None and step_id not in known for step_id in (start, until)):
+            return Failure(ValidationError("No such step in this study."))
+        if study.started_at is None:
+            return Failure(ConflictError("This study has not started."))
+        if in_flight(study_id) or (start is None and study.next_step is None):
             return Success(study)
-        run = (
-            self._run(auth.workspace_id, study_id)
-            if position is None
-            else self._run_one(auth.workspace_id, study_id, position)
+        ran = (
+            _event("ran", _ran(study, start, until), start) if started_by == "scientist" else None
         )
-        task = asyncio.create_task(run)
+        task = asyncio.create_task(self._run(auth.workspace_id, study_id, start, until, ran))
         _running.add(task)
         _in_flight[study_id] = task
 
@@ -113,51 +156,81 @@ class AdvanceStudy:
         task.add_done_callback(_forget)
         return Success(study)
 
-    async def _run(self, workspace_id: uuid.UUID, study_id: uuid.UUID) -> None:
+    async def _run(
+        self,
+        workspace_id: uuid.UUID,
+        study_id: uuid.UUID,
+        start: uuid.UUID | None,
+        until: uuid.UUID | None,
+        ran: Turn | None,
+    ) -> None:
+        # Written here, not before the task exists: nothing may be awaited between
+        # `in_flight` answering no and this run being the one in flight.
+        if ran is not None:
+            await self._say(workspace_id, study_id, ran)
+        step_id = start
         while True:
+            # Afresh every time: the last step and its observation both wrote to it.
             study = await self._studies.get(workspace_id, study_id)
-            step = study.next_step if study else None
-            if study is None or step is None:
+            if study is None:
                 return
-            if not await self._guarded(workspace_id, study, step):
+            step = (
+                study.next_step
+                if step_id is None
+                else next((s for s in study.steps if s.id == step_id), None)
+            )
+            if step is None:
+                return
+            step_id = None
+            ended = await self._guarded(workspace_id, study, step)
+            # `study` is as the step left it, so it says whether another is waiting.
+            go_on = step.id != until and study.next_step is not None
+            if ended is not StepStatus.SKIPPED:  # a skipped step made nothing to look at
+                go_on = go_on and ended is StepStatus.DONE and not step.gated
+                paused = await self._observe(workspace_id, study_id, step.id, driving=go_on)
+                if paused and go_on:  # a pause means something only where the run would go on
+                    pause = _event("paused", f"Paused by the agent after {_label(step)}.", step.id)
+                    await self._say(workspace_id, study_id, pause)
+                    return
+            if not go_on:
                 return
 
-    async def _run_one(self, workspace_id: uuid.UUID, study_id: uuid.UUID, position: int) -> None:
+    async def _say(self, workspace_id: uuid.UUID, study_id: uuid.UUID, turn: Turn) -> None:
+        """Add an event to the study as it stands now, after whatever the agent wrote."""
         study = await self._studies.get(workspace_id, study_id)
-        step = next((s for s in study.steps if s.position == position), None) if study else None
-        if study is not None and step is not None:
-            await self._guarded(workspace_id, study, step)
+        if study is not None:
+            study.say(turn)
+            await self._studies.update(study)
 
-    async def _guarded(self, workspace_id: uuid.UUID, study: Study, step: Step) -> bool:
-        """`_step`, with whatever it raises recorded on the step; whether to go on."""
+    async def _guarded(self, workspace_id: uuid.UUID, study: Study, step: Step) -> StepStatus:
+        """`_step`, with whatever it raises recorded on the step; how the step ended."""
         try:
             return await self._step(workspace_id, study, step)
         except asyncio.CancelledError:
             # The API is shutting down mid-step; say so rather than leave it `running`.
             await self._record_failure(
-                workspace_id, study.id, step.position, "Interrupted by a restart."
+                workspace_id, study.id, step.id, "Interrupted by a restart."
             )
             raise
         except Exception as error:
-            logger.exception("Study %s step %s failed", study.id, step.position)
+            logger.exception("Study %s step %s failed", study.id, step.position + 1)
             message = f"{type(error).__name__}: {error}"[:500]
-            await self._record_failure(workspace_id, study.id, step.position, message)
-            return False
+            await self._record_failure(workspace_id, study.id, step.id, message)
+            return StepStatus.FAILED
 
     async def _record_failure(
-        self, workspace_id: uuid.UUID, study_id: uuid.UUID, position: int, message: str
+        self, workspace_id: uuid.UUID, study_id: uuid.UUID, step_id: uuid.UUID, message: str
     ) -> None:
         try:
             reloaded = await self._studies.get(workspace_id, study_id)
             if reloaded is not None:
-                await self._fail(reloaded, position, message)
+                await self._fail(reloaded, step_id, message)
         except Exception:
             # The step stays `running`; the next advance re-runs it.
             logger.exception("Study %s could not record its failure", study_id)
 
-    async def _step(self, workspace_id: uuid.UUID, study: Study, step: Step) -> bool:
-        """Run one step; whether the loop goes on to the next."""
-        position = step.position
+    async def _step(self, workspace_id: uuid.UUID, study: Study, step: Step) -> StepStatus:
+        """Run one step; how it ended."""
         manifest = self._tools.get(step.tool_id)
         if not await self._executor.available(step.tool_id):
             why = (
@@ -166,25 +239,25 @@ class AdvanceStudy:
                 else f"No runner is serving the {manifest.lane} lane."
             )
             if step.status is StepStatus.SKIPPED:
-                return True  # run alone after it was skipped: it already says why
+                return StepStatus.SKIPPED  # run alone after it was skipped: it already says why
             if step.status is not StepStatus.PENDING:
-                await self._fail(study, position, why)
-                return False
-            study.skip_step(position, why)
+                await self._fail(study, step.id, why)
+                return StepStatus.FAILED
+            study.skip_step(step.id, why)
             await self._studies.update(study)
-            return True
+            return StepStatus.SKIPPED
 
         bound: dict[str, SlotValue] = {}
         for slot in manifest.inputs:
-            value = study.latest(slot.kind.value, before=position)
+            value = study.latest(slot.kind.value, before=step.id)
             if value is not None:
                 bound[slot.key] = value
             elif not slot.optional:
                 kind = slot.kind.value.replace("_", " ")
-                await self._fail(study, position, f"Needs {kind}, which nothing produced.")
-                return False
+                await self._fail(study, step.id, f"Needs {kind}, which nothing produced.")
+                return StepStatus.FAILED
 
-        study.start_step(position)
+        study.start_step(step.id)
         await self._studies.update(study)
         inputs = [
             ToolInput(key=key, kind=value.kind, blob_key=value.blob_key)
@@ -194,7 +267,7 @@ class AdvanceStudy:
             workspace_id=workspace_id,
             requested_by=study.created_by,
             study_id=study.id,
-            position=position,
+            step_id=step.id,
             output_prefix=f"{workspace_id}/studies/{study.id}/values/",
         )
         # A lane step waits on a runner, not on this process, so it holds no lock.
@@ -211,8 +284,8 @@ class AdvanceStudy:
                 if not timer.expired():
                     raise  # the tool's own timeout, reported as it said it
                 minutes = f"{TOOL_TIMEOUT_SECONDS / 60:g}"
-                await self._fail(study, position, f"Timed out after {minutes} minutes.")
-                return False
+                await self._fail(study, step.id, f"Timed out after {minutes} minutes.")
+                return StepStatus.FAILED
         values = [
             SlotValue(
                 id=uuid.uuid4(),
@@ -220,18 +293,17 @@ class AdvanceStudy:
                 kind=output.kind,
                 blob_key=output.blob_key,
                 summary=output.summary,
-                produced_by=position,
+                produced_by=step.id,
                 created_at=datetime.now(UTC),
             )
             for output in outputs
         ]
-        study.finish_step(position, values)
+        study.finish_step(step.id, values)
         await self._studies.update(study)
-        return not step.gated
+        return StepStatus.DONE
 
-    async def _fail(self, study: Study, position: int, message: str) -> None:
-        step = next(s for s in study.steps if s.position == position)
-        if step.status is not StepStatus.RUNNING:
-            study.start_step(position)
-        study.fail_step(position, message)
+    async def _fail(self, study: Study, step_id: uuid.UUID, message: str) -> None:
+        if study.step(step_id).status is not StepStatus.RUNNING:
+            study.start_step(step_id)
+        study.fail_step(step_id, message)
         await self._studies.update(study)

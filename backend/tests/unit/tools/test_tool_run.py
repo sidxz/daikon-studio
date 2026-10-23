@@ -23,7 +23,7 @@ def _params(ws: uuid.UUID, sid: uuid.UUID, run_id: uuid.UUID) -> ToolRunParams:
         tool_id="standardize",
         lane="default",
         study_id=sid,
-        position=2,
+        step_id=uuid.uuid4(),
         params={},
         inputs=(
             ToolInput(

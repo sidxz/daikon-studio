@@ -32,7 +32,7 @@ class ToolRunContext:
     workspace_id: uuid.UUID
     requested_by: uuid.UUID
     study_id: uuid.UUID
-    position: int
+    step_id: uuid.UUID
     # Every output blob key starts with this; it starts with f"{workspace_id}/".
     output_prefix: str
 

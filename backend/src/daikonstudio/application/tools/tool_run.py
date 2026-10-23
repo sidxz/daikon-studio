@@ -37,7 +37,7 @@ class ToolRunParams:
     tool_id: str
     lane: str
     study_id: uuid.UUID
-    position: int
+    step_id: uuid.UUID
     params: dict[str, Any]
     inputs: tuple[ToolInput, ...]
     output_prefix: str
@@ -47,7 +47,7 @@ class ToolRunParams:
             "tool_id": self.tool_id,
             "lane": self.lane,
             "study_id": str(self.study_id),
-            "position": self.position,
+            "step_id": str(self.step_id),
             "params": dict(self.params),
             "inputs": [asdict(i) for i in self.inputs],
             "output_prefix": self.output_prefix,
@@ -59,7 +59,7 @@ class ToolRunParams:
             tool_id=params["tool_id"],
             lane=params["lane"],
             study_id=uuid.UUID(str(params["study_id"])),
-            position=int(params["position"]),
+            step_id=uuid.UUID(str(params["step_id"])),
             params=dict(params["params"]),
             inputs=tuple(ToolInput(**i) for i in params["inputs"]),
             output_prefix=params["output_prefix"],

@@ -10,10 +10,9 @@ from returns.result import Failure, Result, Success
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
 from daikonstudio.application.planner.plan import handed_over
 from daikonstudio.application.ports.study_repository import StudyRepository
-from daikonstudio.application.studies.advance_study import in_flight
+from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE, in_flight
 from daikonstudio.application.studies.edits import recheck, replace_automatic
 from daikonstudio.application.studies.get_study import GetStudy
-from daikonstudio.application.studies.open_study import RUNNING
 from daikonstudio.application.tools.manifest import SlotKind
 from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.domain.shared.errors import ConflictError, DomainError, ValidationError
@@ -44,7 +43,7 @@ class StartStudy:
             return Failure(found.failure())
         study = found.unwrap()
         if in_flight(study.id):
-            return Failure(ConflictError(RUNNING))
+            return Failure(ConflictError(RUNNING_MESSAGE))
         wanted = handed_over(
             [step.tool_id for step in study.steps if not step.always], self._tools
         )

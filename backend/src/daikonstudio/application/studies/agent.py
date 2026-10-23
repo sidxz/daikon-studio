@@ -46,7 +46,7 @@ from daikonstudio.application.planner.plan import (
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.llm import LanguageModel, LanguageModels
 from daikonstudio.application.ports.study_repository import StudyRepository
-from daikonstudio.application.studies.advance_study import in_flight
+from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE, in_flight
 from daikonstudio.application.studies.approve import approve_candidate
 from daikonstudio.application.studies.edits import (
     _brought,
@@ -94,7 +94,6 @@ from daikonstudio.domain.studies.study import (
 
 logger = logging.getLogger(__name__)
 
-_RUNNING = "A run is under way in this study. Wait for it to stop, then try again."
 _RETRY = "\n\nYour previous plan could not run as written:\n"
 _LOOKED = (
     "\n\nYou asked to see part of a result, and here it is. Answer again with it in front "
@@ -120,7 +119,9 @@ class SayCommand:
 
 class Advance(Protocol):
     """Starting the run loop (`AdvanceStudy`): from `start`, or the next step waiting, to
-    `until`, or the next step that stops for a look."""
+    `until`, or the next step that stops for a look. A run the scientist starts is written
+    into the thread as one; the agent's own turn already records the ones it starts, so it
+    passes `started_by="agent"`."""
 
     async def __call__(
         self,
@@ -129,6 +130,7 @@ class Advance(Protocol):
         *,
         start: uuid.UUID | None = None,
         until: uuid.UUID | None = None,
+        started_by: str = "scientist",
     ) -> Result[Study, DomainError]: ...
 
 
@@ -384,7 +386,7 @@ class StudyAgent:
             return Failure(found.failure())
         study = found.unwrap()
         if in_flight(study.id):
-            return Failure(ConflictError(_RUNNING))
+            return Failure(ConflictError(RUNNING_MESSAGE))
         if said := _said(command):
             study.answers += command.answers
             study.say(Turn(role="scientist", say=said, about=command.about, at=datetime.now(UTC)))
@@ -478,7 +480,7 @@ class StudyAgent:
         )
         if in_flight(study.id):
             # One began while the model was answering: change nothing, write nothing.
-            return Failure(ConflictError(_RUNNING))
+            return Failure(ConflictError(RUNNING_MESSAGE))
 
         # The words each approval quoted, by the step as the model numbered it.
         numbered = {step.position + 1: step.id for step in study.steps}
@@ -546,6 +548,7 @@ class StudyAgent:
                 auth,
                 start=None if start is None else start.id,
                 until=None if until is None else until.id,
+                started_by="agent",
             )
             if isinstance(started, Failure):
                 # The reply says it ran; the thread has to say it did not.

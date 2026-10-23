@@ -90,14 +90,14 @@ class LaneToolExecutor:
             cache_key=compute_cache_key(
                 tool=tool_id,
                 study=str(context.study_id),
-                position=context.position,
+                step=str(context.step_id),
                 nonce=str(uuid.uuid4()),
             ),
             params=ToolRunParams(
                 tool_id=tool_id,
                 lane=lane,
                 study_id=context.study_id,
-                position=context.position,
+                step_id=context.step_id,
                 params=dict(params),
                 inputs=tuple(inputs),
                 output_prefix=prefix,

@@ -92,7 +92,7 @@ CONTEXT = ToolRunContext(
     workspace_id=WS,
     requested_by=uuid.uuid4(),
     study_id=uuid.uuid4(),
-    position=1,
+    step_id=uuid.uuid4(),
     output_prefix=f"{WS}/studies/x/values/",
 )
 

@@ -72,7 +72,7 @@ async def _run_tool_step(app, anonymous_client, tool_id: str) -> tuple[Run, str]
         tool_id=tool_id,
         lane="default",
         study_id=study_id,
-        position=0,
+        step_id=uuid.uuid4(),
         params={},
         inputs=(ToolInput(key="compounds", kind="compound_table", blob_key=input_key),),
         output_prefix=prefix,

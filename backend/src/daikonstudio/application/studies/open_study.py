@@ -28,7 +28,7 @@ from daikonstudio.application.auth import AuthContext, require_authenticated, re
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.study_repository import StudyRepository
 from daikonstudio.application.ports.table_profiler import TableProfile, TableProfiler
-from daikonstudio.application.studies.advance_study import in_flight
+from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE, in_flight
 from daikonstudio.application.studies.agent import StudyAgent
 from daikonstudio.application.studies.edits import recheck, replace_automatic
 from daikonstudio.application.studies.get_study import GetStudy
@@ -39,8 +39,6 @@ from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.application.tools.structures import describe_pdb
 from daikonstudio.domain.shared.errors import ConflictError, DomainError, ValidationError
 from daikonstudio.domain.studies.study import SlotValue, Study, Turn
-
-RUNNING = "A run is under way in this study. Wait for it to stop, then try again."
 
 # A goal shorter than this is not yet something to ask questions about.
 _MIN_GOAL = 15
@@ -243,7 +241,7 @@ class AttachFiles:
             return Failure(found.failure())
         study = found.unwrap()
         if in_flight(study.id):
-            return Failure(ConflictError(RUNNING))
+            return Failure(ConflictError(RUNNING_MESSAGE))
         try:
             brought = await _bring_all(study, files, store=self._store, profiler=self._profiler)
         except ValidationError as error:

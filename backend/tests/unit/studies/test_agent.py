@@ -123,6 +123,7 @@ class _Advance:
 
     def __init__(self) -> None:
         self.runs: list[tuple[uuid.UUID | None, uuid.UUID | None]] = []
+        self.started_by: list[str] = []
 
     async def __call__(
         self,
@@ -131,8 +132,10 @@ class _Advance:
         *,
         start: uuid.UUID | None = None,
         until: uuid.UUID | None = None,
+        started_by: str = "scientist",
     ) -> Result[Study, DomainError]:
         self.runs.append((start, until))
+        self.started_by.append(started_by)
         return Success(_study(started=False))
 
 
@@ -388,6 +391,7 @@ async def test_a_quoted_run_starts_the_loop_and_an_unquoted_one_is_proposed() ->
 
     await agent(_say(study, "Please run the pockets again."), AUTH)
     assert advance.runs == [(pockets.id, pockets.id)]
+    assert advance.started_by == ["agent"]  # its own turn records the run
     ran = studies.rows[study.id].thread.turns[-1]
     assert [(a.does, a.step, a.quoting) for a in ran.actions] == [
         ("run", pockets.id, "run the pockets again")
