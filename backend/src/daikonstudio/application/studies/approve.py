@@ -61,13 +61,15 @@ async def approve_candidate(
     workspace_id: uuid.UUID,
     registry: ToolRegistry,
     store: BlobStore,
+    offered_on: str | None = None,
 ) -> SlotValue:
     """Write the chosen candidate as the value it resolves to, from the candidates the step
     reported last.
 
     The blob is written here; the caller records the value with `Study.approve`. Raises
-    `ValidationError` when the step has no finished result to choose from, or reported no
-    candidate by that rank.
+    `ValidationError` when the step has no finished result to choose from, reported no
+    candidate by that rank, or has reported a newer result than `offered_on`, the id of the
+    one a proposed choice was offered on: the same rank there may be another candidate.
     """
     step = study.step(step_id)
     manifest = registry.get(step.tool_id)
@@ -75,6 +77,8 @@ async def approve_candidate(
     reported = reported_candidates(study, step, manifest)
     if reported is None or manifest.resolves_to is None:
         raise ValidationError(f"{label} has no finished candidates to choose from.")
+    if offered_on is not None and offered_on != str(reported.id):
+        raise ValidationError("This result has changed since the candidate was offered.")
     stored = await asyncio.to_thread(store.get_bytes, reported.blob_key)
     entry = _entry(reported.kind, codecs.decode(reported.kind, stored), candidate)
     if entry is None:

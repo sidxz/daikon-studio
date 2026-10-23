@@ -319,11 +319,18 @@ function neighboursOf(pockets: Row[], active: Row | undefined): Row[] {
   );
 }
 
-/** A candidate the scientist chose: the value the rest of the study is expressed against. */
-function Approved({ data }: { data: Row }) {
+/**
+ * A candidate the scientist chose: the value the rest of the study is expressed against. One
+ * chosen on a result the step has since replaced stands for nothing now, since the same rank
+ * may be another candidate, and is labelled as such rather than as the current choice.
+ */
+function Approved({ data, earlier }: { data: Row; earlier: boolean }) {
+  const rank = cell(asRecord(data.meta).rank);
   return (
     <div className="space-y-1 text-sm">
-      <p className="font-medium">Approved: rank {cell(asRecord(data.meta).rank)}</p>
+      <p className={earlier ? "text-muted-foreground" : "font-medium"}>
+        {earlier ? `Approved on an earlier result: rank ${rank}` : `Approved: rank ${rank}`}
+      </p>
       <p className="text-muted-foreground">
         <span className="text-foreground">Lining </span>
         {lining(data)}
@@ -530,18 +537,21 @@ function Pockets({
 /**
  * One value a step produced or the scientist brought, read only when shown. `onApprove` offers
  * the choice of a reported candidate, which only a finished judgment step can take, and
- * `approveBlocked` says why it cannot be taken right now.
+ * `approveBlocked` says why it cannot be taken right now. `earlier` marks a choice made on a
+ * result its step has since replaced.
  */
 export function ValueBlock({
   studyId,
   value,
   onApprove,
   approveBlocked = null,
+  earlier = false,
 }: {
   studyId: string;
   value: ValueSummary;
   onApprove?: (rank: number) => void;
   approveBlocked?: string | null;
+  earlier?: boolean;
 }) {
   const query = useStudyValue(studyId, value.id);
   const read = query.data;
@@ -564,7 +574,7 @@ export function ValueBlock({
       <Pockets data={asRecord(read.data)} onApprove={onApprove} approveBlocked={approveBlocked} />
     );
   } else if (read.kind === "pocket") {
-    body = <Approved data={asRecord(read.data)} />;
+    body = <Approved data={asRecord(read.data)} earlier={earlier} />;
   } else if (isRows(read.data) && read.data.length > 0) {
     const columns = Array.isArray(read.summary.columns)
       ? (read.summary.columns as string[])

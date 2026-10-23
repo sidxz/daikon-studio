@@ -1,7 +1,7 @@
 import { StatusDot } from "@/shared/components/status-dot";
 import { Button } from "@/shared/components/ui/button";
 import { Check, Loader2, MessageSquare, PauseCircle, Play } from "lucide-react";
-import { STEP_STATUS_COPY, STEP_TONE, type StudyStep } from "../types";
+import { STEP_STATUS_COPY, STEP_TONE, type StudyStep, type ValueSummary } from "../types";
 import { ValueBlock } from "./value-block";
 
 function param(value: unknown): string {
@@ -46,6 +46,13 @@ export function StepCard({
   const params = Object.entries(step.params);
   const label = step.status === "done" ? `Run step ${number} again` : `Run step ${number}`;
   const ended = step.status === "done" || step.status === "failed";
+  // A choice names the result it was made on; once the step has replaced that result, the
+  // same rank may be another candidate.
+  const current = new Set(step.outputs.map((value) => value.id));
+  const earlier = (value: ValueSummary) =>
+    value.asserted_by !== null &&
+    typeof value.summary.from === "string" &&
+    !current.has(value.summary.from);
   return (
     <li className="min-w-0 space-y-3 rounded-sm border p-3">
       <div className="flex items-start gap-2">
@@ -145,6 +152,7 @@ export function StepCard({
           value={value}
           onApprove={onApprove}
           approveBlocked={approveBlocked}
+          earlier={earlier(value)}
         />
       ))}
 

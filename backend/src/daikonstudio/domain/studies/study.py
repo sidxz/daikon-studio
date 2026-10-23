@@ -409,7 +409,8 @@ class Study(AggregateRoot):
         rather than the deposited one. `before` is a step id, read through that
         step's position because ids carry no order. With it, values the scientist
         brought are always in scope and those of a step since removed from the
-        plan never are.
+        plan never are. A choice made on a result its step has since replaced is
+        never in scope (`superseded`).
         """
         bound = None if before is None else self.step(before).position
         positions = {s.id: s.position for s in self.steps}
@@ -422,8 +423,24 @@ class Study(AggregateRoot):
                 or v.produced_by is None
                 or (v.produced_by in positions and positions[v.produced_by] < bound)
             )
+            and not self.superseded(v)
         ]
         return max(of_kind, key=lambda v: v.created_at, default=None)
+
+    def superseded(self, value: SlotValue) -> bool:
+        """Whether this is the scientist's choice made on a result its step has since replaced.
+
+        A choice names its candidate by rank, and a step run again ranks a different list, so
+        the same rank may now be another candidate. `from` in its summary is the result it was
+        made on; a choice stored without one is taken as standing.
+        """
+        made_on = value.summary.get("from")
+        return (
+            value.asserted_by is not None
+            and value.produced_by is not None
+            and made_on is not None
+            and made_on not in {str(v.id) for v in self.current_outputs_of(value.produced_by)}
+        )
 
     def outputs_of(self, step_id: uuid.UUID) -> list[SlotValue]:
         return [v for v in self.values if v.produced_by == step_id]

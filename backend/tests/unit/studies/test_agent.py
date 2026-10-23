@@ -23,6 +23,7 @@ from daikonstudio.application.planner.plan import DraftPlan, Interrogation, Ques
 from daikonstudio.application.planner.plan import Step as PlanStep
 from daikonstudio.application.studies import advance_study
 from daikonstudio.application.studies.agent import ObserveStep, SayCommand, StudyAgent
+from daikonstudio.application.studies.apply_proposal import ApplyCommand, ApplyProposal
 from daikonstudio.application.studies.prompts import MAX_QUESTIONS
 from daikonstudio.application.studies.schemas import (
     Action,
@@ -31,10 +32,16 @@ from daikonstudio.application.studies.schemas import (
     ObserveTurn,
     PlanningTurn,
     ProgressClaim,
+    Proposal,
     ReplyTurn,
 )
 from daikonstudio.application.tools import codecs
-from daikonstudio.domain.shared.errors import ConflictError, DomainError, ServiceUnavailableError
+from daikonstudio.domain.shared.errors import (
+    ConflictError,
+    DomainError,
+    ServiceUnavailableError,
+    ValidationError,
+)
 from daikonstudio.domain.studies.study import Answered, Asked, SlotValue, Step, Study, Turn
 from daikonstudio.infrastructure.tools.catalog import default_registry
 from tests.fakes.auth import FakeAuth
@@ -425,11 +432,12 @@ async def test_approval_writes_an_asserted_pocket_from_the_rank() -> None:
     candidates = _done(study, store, 3, "pocket_candidates", POCKETS)
     approve = Action(does="approve", step=3, candidate=10, quoting="go with the zinc cone")
     again = Action(does="approve", step=3, candidate=1, quoting="take the first one instead")
+    offer = Proposal(does="approve", step=3, candidate=10, why="It holds the zinc.")
     model = ScriptedLanguageModel(
         ReplyTurn(say="Done.", actions=[approve], summary="s"),
-        ReplyTurn(say="Changed.", actions=[again], summary="s"),
+        ReplyTurn(say="Changed.", actions=[again], proposals=[offer], summary="s"),
     )
-    agent, studies, _ = _agent(study, store, model)
+    agent, studies, advance = _agent(study, store, model)
 
     await agent(_say(study, "Go with the zinc cone."), AUTH)
 
@@ -451,6 +459,18 @@ async def test_approval_writes_an_asserted_pocket_from_the_rank() -> None:
     assert newer is not None
     assert newer.summary == {"rank": 1, "from": str(candidates.id)}
     assert stored.thread.turns[-1].dropped == 0
+    (offered,) = stored.thread.turns[-1].proposals
+    assert offered.action["from_id"] == str(candidates.id)  # the result it was offered on
+
+    # The step runs again: its ranks now order a different list, so neither the choice made on
+    # the old one nor the button offered on it stands for anything.
+    _done(stored, store, 3, "pocket_candidates", POCKETS)
+    assert stored.latest("pocket") is None and stored.superseded(newer)
+    press = ApplyProposal(studies, REGISTRY, store, advance)
+    refused = (await press(ApplyCommand(study.id, offered.id), AUTH)).failure()
+    assert isinstance(refused, ValidationError)
+    assert refused.message == "This result has changed since the candidate was offered."
+    assert studies.rows[study.id].latest("pocket") is None
 
 
 async def test_a_message_while_a_run_is_in_flight_is_refused(

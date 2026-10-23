@@ -76,6 +76,8 @@ describe("the steps", () => {
 
   it("Use this one posts approve with the rank", async () => {
     const meta = { count: 2 };
+    // Chosen on the result the step had before it ran again (v0), not on the one shown (v1).
+    const chosen = { rank: 1, from: "v0" };
     const served = study({
       steps: [
         step({
@@ -92,6 +94,14 @@ describe("the steps", () => {
               produced_by: "st1",
               asserted_by: null,
             },
+            {
+              id: "v2",
+              key: "pocket",
+              kind: "pocket",
+              summary: chosen,
+              produced_by: "st1",
+              asserted_by: "u1",
+            },
           ],
         }),
       ],
@@ -106,9 +116,18 @@ describe("the steps", () => {
         summary: meta,
         data: { meta, pockets: [pocket(1), pocket(2)] },
       },
+      "GET /studies/s1/values/v2": {
+        id: "v2",
+        key: "pocket",
+        kind: "pocket",
+        summary: chosen,
+        data: { meta: chosen, ...pocket(1) },
+      },
       "POST /studies/s1/steps/st1/approve": served,
     });
     render(<StudySteps studyId="s1" onTalk={() => {}} />, { wrapper: Wrapper });
+
+    expect(await screen.findByText("Approved on an earlier result: rank 1")).toBeInTheDocument();
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Show pocket rank 2 in the viewer" }),

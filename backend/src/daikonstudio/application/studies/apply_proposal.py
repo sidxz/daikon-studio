@@ -5,7 +5,9 @@ makes on a quoted instruction, with nothing left to quote. It is rebuilt as the 
 stands for, against the plan as it is now, and the edits check it as they check any other.
 That is why a proposal keeps its steps by id: a button pressed after the plan was edited still
 means the step it meant, and one whose step has left the plan, or whose change the edits would
-no longer make, is refused and left unapplied rather than made to mean something else.
+no longer make, is refused and left unapplied rather than made to mean something else. A choice
+keeps the result it was offered on for the same reason, and is refused once its step has run
+again.
 
 An edit changes the plan and stops there, leaving the step for the play control every other
 step has, so a confirmation never turns into a long job the scientist did not know they were
@@ -136,9 +138,12 @@ class ApplyProposal:
                     workspace_id=study.workspace_id,
                     registry=self._tools,
                     store=self._store,
+                    offered_on=proposal.action.get("from_id"),
                 )
             except ValidationError as error:
-                return Failure(error)  # no finished result to choose from, or no such rank
+                # Nothing finished to choose from, no such rank, or the step has run again
+                # since the choice was offered and the rank may now be another candidate.
+                return Failure(error)
             study.approve(step_id, value)
             chose = f"Chose candidate {candidate} of {_label(study.step(step_id))}."
             acted.append(Acted(does="approve", step=step_id, detail=chose, quoting=""))

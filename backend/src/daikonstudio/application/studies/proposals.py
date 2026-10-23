@@ -11,7 +11,9 @@ must be to one of the step's alternatives, and settings must be ones the tool ta
 accepts. Two more hold because a proposal waits to be pressed. A new step must read only
 what the study already holds, since a step whose inputs nothing has produced would be
 offering a failure. And a candidate can be approved only on a finished result of a tool
-that reports candidates. What fails is dropped and counted rather than shown.
+that reports candidates, and only on that result: pressed after the step has run again, the
+same rank may be another candidate, so the press is refused. What fails is dropped and counted
+rather than shown.
 
 **Checks and stop conditions are not proposable at all.** They are the reason a result
 from this study can be trusted, and a criterion rewritten after seeing the data is not a
@@ -31,22 +33,23 @@ from daikonstudio.application.studies.approve import reported_candidates
 from daikonstudio.application.studies.edits import _EDITS, _name, _Named, _tool
 from daikonstudio.application.studies.schemas import Action, Proposal
 from daikonstudio.application.tools.registry import ToolRegistry
-from daikonstudio.domain.studies.study import Proposed, Step, Study
+from daikonstudio.domain.studies.study import Proposed, SlotValue, Step, Study
+
+
+def _candidates(named: _Named, study: Study, registry: ToolRegistry) -> SlotValue | None:
+    """What a choice would be made from: a judgment tool's newest finished candidates, of a
+    kind a choice can be written from."""
+    step = named.step
+    manifest = None if step is None else _tool(registry, step.tool_id)
+    return None if step is None or manifest is None else reported_candidates(study, step, manifest)
 
 
 def _offerable(named: _Named, study: Study, registry: ToolRegistry) -> bool:
-    action, step = named.action, named.step
+    action = named.action
     if action.does == "run":
         return True  # its steps are in the plan; where it stops is the loop's to find
     if action.does == "approve":
-        # Only a judgment tool's finished candidates, of a kind a choice can be written from.
-        manifest = None if step is None else _tool(registry, step.tool_id)
-        return (
-            step is not None
-            and manifest is not None
-            and bool(action.candidate)
-            and reported_candidates(study, step, manifest) is not None
-        )
+        return bool(action.candidate) and _candidates(named, study, registry) is not None
     if action.does == "insert":
         manifest = _tool(registry, action.tool_id)
         held = {value.kind for value in study.values}
@@ -58,14 +61,15 @@ def _offerable(named: _Named, study: Study, registry: ToolRegistry) -> bool:
     return _EDITS[action.does](study, registry, named) is not None
 
 
-def _plain(named: _Named) -> dict[str, Any]:
-    """The proposal as its button keeps it: every step by id, every setting by name."""
+def _plain(named: _Named, study: Study, registry: ToolRegistry) -> dict[str, Any]:
+    """The proposal as its button keeps it: every step by id, every setting by name, and a
+    choice by the result it was offered on."""
     action = named.action
 
     def ref(step: Step | None) -> str | None:
         return None if step is None else str(step.id)
 
-    return {
+    plain: dict[str, Any] = {
         "does": action.does,
         "step_id": ref(named.step),
         "tool_id": action.tool_id,
@@ -76,6 +80,11 @@ def _plain(named: _Named) -> dict[str, Any]:
         "candidate": action.candidate,
         "until_id": ref(named.until),
     }
+    if action.does == "approve" and (candidates := _candidates(named, study, registry)):
+        # Pressed after the step has run again, the same rank may be another candidate, so
+        # the press is refused rather than carried out on the newer result.
+        plain["from_id"] = str(candidates.id)
+    return plain
 
 
 def vet(
@@ -93,5 +102,7 @@ def vet(
         if named is None or not _offerable(named, study, registry):
             dropped += 1
             continue
-        kept.append(Proposed(id=uuid.uuid4(), action=_plain(named), why=proposal.why))
+        kept.append(
+            Proposed(id=uuid.uuid4(), action=_plain(named, study, registry), why=proposal.why)
+        )
     return kept, dropped
