@@ -16,6 +16,8 @@ from daikonstudio.application.studies.read_value import decode_view
 from daikonstudio.application.studies.readers import (
     LOOK_ROWS_MAX,
     _check_pockets,
+    check_cores,
+    check_fit,
     check_table,
     checkable,
     look_table,
@@ -262,7 +264,7 @@ def test_a_table_summary_never_quotes_a_row() -> None:
 
 
 def test_a_kind_without_a_reader_summarizes_its_meta_and_cannot_be_checked() -> None:
-    assert reader("model_fit").summarize(None, {"r2": 0.5}) == '{"r2": 0.5}'
+    assert reader("citations").summarize(None, {"r2": 0.5}) == '{"r2": 0.5}'
     structure = {
         "id": "4TRO",
         "chains": ["A", "B"],
@@ -296,13 +298,15 @@ def test_a_kind_without_a_reader_summarizes_its_meta_and_cannot_be_checked() -> 
         "- heavy_atoms: r 0.453 (0.1 to 0.7), n 26\n"
         "- hbd: r none (no interval), n 1"
     )
-    for kind in ("model_fit", "structure", "correlation"):
+    for kind in ("citations", "structure", "correlation"):
         assert reader(kind).look is None
         assert reader(kind).check is None
 
 
 def test_checkable_lists_pockets_and_every_table_kind() -> None:
-    assert checkable() == sorted({"pocket_candidates", *codecs.TABLE_KINDS})
+    assert checkable() == sorted(
+        {"pocket_candidates", "core_candidates", "model_fit", *codecs.TABLE_KINDS}
+    )
 
 
 def test_a_predicted_pocket_is_described_by_its_probability_and_what_was_ignored() -> None:
@@ -324,3 +328,116 @@ def test_a_predicted_pocket_is_described_by_its_probability_and_what_was_ignored
     assert text.startswith("Ignored by the predictor: NAD.")
     assert "Candidate 1: probability 0.81" in text
     assert "volume" not in text
+
+
+CORES = {
+    "meta": {
+        "n_candidates": 2,
+        "n_compounds": 26,
+        "n_unparsed": 0,
+        "notes": ["two presets searched"],
+        "series": [],
+    },
+    "candidates": [
+        {
+            "rank": 1,
+            "smarts": "[#6]",
+            "svg": "<svg/>",
+            "coverage": 1.0,
+            "n_atoms": 13,
+            "n_ring_atoms": 12,
+            "n_variable": 1,
+            "variable": {"X1": "O/S"},
+            "n_rgroups": 3,
+            "unmatched": [],
+            "misses": [],
+            "description": ["#1 ring-aromatic"],
+            "preset_label": "ring aromatic",
+            "derived": None,
+            "timed_out": False,
+            "series": None,
+        },
+        {
+            "rank": 2,
+            "smarts": "[#6]",
+            "svg": "<svg/>",
+            "coverage": 0.92,
+            "n_atoms": 14,
+            "n_ring_atoms": 12,
+            "n_variable": 0,
+            "variable": {},
+            "n_rgroups": 3,
+            "unmatched": ["CPD-004", "CPD-011"],
+            "misses": [],
+            "description": ["#2 strict"],
+            "preset_label": "strict",
+            "derived": None,
+            "timed_out": False,
+            "series": None,
+        },
+    ],
+}
+
+
+def _core_claim(**kw: Any) -> Claim:
+    return Claim(
+        step=1,
+        candidates=kw.get("candidates", [2]),
+        label=kw.get("label", "the amide-intact core"),
+        evidence=kw.get("evidence", "unmatched"),
+        cites=kw.get("cites", ["CPD-004"]),
+    )
+
+
+def test_a_core_claim_cites_what_the_candidate_missed_or_let_vary() -> None:
+    kept, dropped = check_cores([_core_claim()], CORES)
+    assert dropped == 0 and kept[0].at == "rank 2" and kept[0].cites == ("CPD-004",)
+    kept, dropped = check_cores(
+        [_core_claim(candidates=[1], evidence="variable", cites=["X1", "S"])], CORES
+    )
+    assert dropped == 0
+    _, dropped = check_cores(
+        [_core_claim(cites=["CPD-001"])], CORES
+    )  # matched, so not citable as a miss
+    assert dropped == 1
+    _, dropped = check_cores([_core_claim(candidates=[3])], CORES)
+    assert dropped == 1
+    _, dropped = check_cores([_core_claim(cites=[])], CORES)
+    assert dropped == 1
+
+
+def test_a_core_summary_names_every_candidate_and_never_its_smarts() -> None:
+    told = reader("core_candidates").summarize(CORES, CORES["meta"])
+    assert "rank 1" in told and "rank 2" in told and "X1" in told and "CPD-004" in told
+    assert "[#6]" not in told and "<svg" not in told
+
+
+FIT = {
+    "meta": {
+        "ok": True,
+        "reason": None,
+        "activity_column": "pIC50",
+        "n_compounds": 8,
+        "n_excluded_censored": 1,
+        "n_terms": 4,
+        "r2": 1.0,
+        "q2": 1.0,
+        "reference": {"R1": "a", "R2": "x"},
+        "varying_positions": ["R1", "R2"],
+    },
+    "terms": [{"position": "R1", "group": "b", "n": 3, "coef": 1.0, "reference": False}],
+    "fitted": [{"id": "ax", "fitted": 5.0}],
+    "unmade": [{"groups": {"R1": "c", "R2": "z"}, "prediction": 5.0}],
+}
+
+
+def test_a_fit_claim_cites_terms_groups_or_compounds_the_fit_has() -> None:
+    kept, dropped = check_fit(
+        [Claim(step=1, label="R1 b adds a log", evidence="term", cites=["R1", "b"])], FIT
+    )
+    assert dropped == 0 and kept[0].at == "term R1, b"
+    _, dropped = check_fit([Claim(step=1, label="", evidence="term", cites=["R3"])], FIT)
+    assert dropped == 1
+    told = reader("model_fit").summarize(FIT, FIT["meta"])
+    assert "q2" in told.lower() or "q²" in told
+    assert "R1 b" in told and "c" in told

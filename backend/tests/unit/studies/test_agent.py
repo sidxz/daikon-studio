@@ -73,6 +73,15 @@ POCKETS = {
 }
 
 
+CORES = {
+    "meta": {"n_candidates": 2},
+    "candidates": [
+        {"rank": 1, "smarts": "[#6]", "coverage": 1.0, "unmatched": []},
+        {"rank": 2, "smarts": "[#6]c1ccccc1", "coverage": 0.92, "unmatched": ["CPD-004"]},
+    ],
+}
+
+
 def _study(*plan: str | tuple[str, dict[str, str]], started: bool = True) -> Study:
     """The scientist's study, its steps the tools named, in order; started unless said not."""
     steps = []
@@ -481,6 +490,27 @@ async def test_approval_writes_an_asserted_pocket_from_the_rank() -> None:
     assert isinstance(refused, ValidationError)
     assert refused.message == "This result has changed since the candidate was offered."
     assert studies.rows[study.id].latest("pocket") is None
+
+
+async def test_approval_writes_an_asserted_core_from_the_rank() -> None:
+    store = InMemoryBlobStore()
+    study = _study("find_cores")
+    candidates = _done(study, store, 1, "core_candidates", CORES)
+    approve = Action(does="approve", step=1, candidate=2, quoting="go with the amide-intact core")
+    model = ScriptedLanguageModel(ReplyTurn(say="Done.", actions=[approve], summary="s"))
+    agent, studies, _ = _agent(study, store, model)
+
+    await agent(_say(study, "Go with the amide-intact core."), AUTH)
+
+    stored = studies.rows[study.id]
+    core = stored.latest("core")
+    assert core is not None
+    assert (core.asserted_by, core.produced_by) == (AUTH.user_id, study.steps[0].id)
+    meta = {"rank": 2, "from": str(candidates.id)}
+    assert core.summary == meta
+    blob = json.loads(store.get_bytes(core.blob_key))
+    assert blob["smarts"] == "[#6]c1ccccc1" and blob["meta"]["rank"] == 2
+    assert stored.thread.turns[-1].dropped == 0
 
 
 async def test_a_message_while_a_run_is_in_flight_is_refused(

@@ -26,13 +26,11 @@ _READABLE = frozenset({"pocket_candidates", "core_candidates"})
 
 
 def _entry(kind: str, data: object, candidate: int) -> dict[str, Any] | None:
-    """The candidate a result reported as `candidate`: a pocket by its rank, a core by its
-    place in the list, counted from 1."""
+    """The candidate a result reported as `candidate`: a pocket or a core, by its rank."""
     if kind == "pocket_candidates" and isinstance(data, dict):
         return next((p for p in data.get("pockets") or [] if p.get("rank") == candidate), None)
-    if kind == "core_candidates" and isinstance(data, list) and 1 <= candidate <= len(data):
-        entry = data[candidate - 1]
-        return entry if isinstance(entry, dict) else None
+    if kind == "core_candidates" and isinstance(data, dict):
+        return next((c for c in data.get("candidates") or [] if c.get("rank") == candidate), None)
     return None
 
 

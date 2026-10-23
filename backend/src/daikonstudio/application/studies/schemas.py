@@ -43,7 +43,18 @@ from daikonstudio.application.planner.plan import Setting as Setting  # re-expor
 Does = Literal["insert", "remove", "swap", "settings", "gate", "terms", "approve", "run"]
 Proposable = Literal["insert", "remove", "swap", "settings", "gate", "approve", "run"]
 Evidence = Literal[
-    "ligand_overlap", "annotated_site", "interface", "lining_residues", "column", "rows"
+    "ligand_overlap",
+    "annotated_site",
+    "interface",
+    "lining_residues",
+    "column",
+    "rows",
+    "coverage",
+    "unmatched",
+    "variable",
+    "term",
+    "fit",
+    "unmade",
 ]
 About = Literal["step", "check", "stop_condition"]
 
@@ -185,15 +196,19 @@ class Claim(BaseModel):
         description=(
             "Which part of the result carries this. For pockets: ligand_overlap, "
             "annotated_site, interface or lining_residues. For a table: column, when you cite "
-            "column names, or rows, when you cite values of its identifier column."
+            "column names, or rows, when you cite values of its identifier column. For a core: "
+            "coverage, unmatched when you cite compounds it misses, or variable when you cite "
+            "a position it lets vary. For a model of substituents: term, fit or unmade."
         )
     )
     cites: list[str] = Field(
         description=(
             "What you are relying on, spelled exactly as the result spells it: the lining "
             "residues for pockets; for a table, the column names when the evidence is column, "
-            "and the values of its identifier column when the evidence is rows. Anything not "
-            "found there costs you the whole claim."
+            "and the values of its identifier column when the evidence is rows; for a core, the "
+            "identifiers of compounds it misses, or the positions or elements it lets vary; for "
+            "a model of substituents, its positions, groups or compound identifiers. Anything "
+            "not found there costs you the whole claim."
         )
     )
 

@@ -152,6 +152,140 @@ _POCKET_NOTES = (
 )
 
 
+def _variable_cites(candidate: Mapping[str, Any]) -> set[str]:
+    """A core's variable positions as citable: each position and each element it takes."""
+    variable = candidate.get("variable") or {}
+    return {*variable, *(e for v in variable.values() for e in str(v).split("/"))}
+
+
+def check_cores(claims: Sequence[Claim], data: Mapping[str, Any]) -> tuple[list[Pointer], int]:
+    """Keep only the claims about a core this result has, citing what it missed or let vary."""
+    by_rank = {int(c["rank"]): c for c in data.get("candidates") or [] if "rank" in c}
+    kept: list[Pointer] = []
+    dropped = 0
+    for claim in claims:
+        named = [by_rank[r] for r in dict.fromkeys(claim.candidates) if r in by_rank]
+        if not named or len(named) != len(set(claim.candidates)):
+            dropped += 1
+            continue
+        known = {u for c in named for u in (*(c.get("unmatched") or []), *_variable_cites(c))}
+        # A core claimed about with nothing behind it is an opinion, not a reading.
+        if (
+            claim.evidence not in {"coverage", "unmatched", "variable"}
+            or not claim.cites
+            or any(c not in known for c in claim.cites)
+        ):
+            dropped += 1
+            continue
+        ranks = ", ".join(str(r) for r in dict.fromkeys(claim.candidates))
+        kept.append(
+            Pointer(
+                step=None,
+                at=f"rank{'s' if len(named) > 1 else ''} {ranks}",
+                label=claim.label,
+                evidence=claim.evidence,
+                cites=tuple(claim.cites),
+            )
+        )
+    return kept, dropped
+
+
+def summarize_cores(data: Mapping[str, Any], summary: Mapping[str, Any]) -> str:
+    """Every candidate core, with what it covers, lets vary and misses; no SMARTS or drawing."""
+    meta = data.get("meta") or {}
+    lines = [
+        f"{meta.get('n_candidates')} candidates for {meta.get('n_compounds')} compounds, "
+        f"{meta.get('n_unparsed')} unparsed. " + " ".join(meta.get("notes") or [])
+    ]
+    for c in data.get("candidates") or []:
+        series = f", series {c['series']}" if c.get("series") is not None else ""
+        variable = ", ".join(f"{k} ({v})" for k, v in (c.get("variable") or {}).items())
+        missed = c.get("unmatched") or []
+        told = f"misses {len(missed)}: {', '.join(missed)}" if missed else "misses none"
+        timed_out = " Search timed out." if c.get("timed_out") else ""
+        lines.append(
+            f"rank {c.get('rank')}{series}: coverage {c.get('coverage', 0):.0%}, "
+            f"{c.get('n_atoms')} atoms, variable {variable or 'none'}, {told}."
+            f"{timed_out} {' '.join(c.get('description') or [])}".rstrip()
+        )
+    return "\n".join(lines)
+
+
+_CORE_NOTES = (
+    "Do not read the ranking as a recommendation: rank one is the first option, and the "
+    "largest core often reaches full coverage only by letting several positions vary. A "
+    "narrower core that misses a few compounds may be the one a chemist wants. Say what each "
+    "core covers, lets vary and misses, citing the compounds and positions as listed."
+)
+
+
+def check_fit(claims: Sequence[Claim], data: Mapping[str, Any]) -> tuple[list[Pointer], int]:
+    """Keep only the claims whose citations are positions, groups or compounds this fit has."""
+    meta = data.get("meta") or {}
+    reference = meta.get("reference") or {}
+    known = {*reference, *map(str, reference.values())}
+    for t in data.get("terms") or []:
+        known |= {str(t.get("position")), str(t.get("group"))}
+    known |= {str(f.get("id")) for f in data.get("fitted") or []}
+    for u in data.get("unmade") or []:
+        known |= {*(u.get("groups") or {}), *map(str, (u.get("groups") or {}).values())}
+    kept: list[Pointer] = []
+    dropped = 0
+    for claim in claims:
+        if (
+            claim.evidence not in {"term", "fit", "unmade"}
+            or not claim.cites
+            or any(c not in known for c in claim.cites)
+        ):
+            dropped += 1
+            continue
+        kept.append(
+            Pointer(
+                step=None,
+                at=f"{claim.evidence} {', '.join(claim.cites)}",
+                label=claim.label,
+                evidence=claim.evidence,
+                cites=tuple(claim.cites),
+            )
+        )
+    return kept, dropped
+
+
+def summarize_fit(data: Mapping[str, Any], summary: Mapping[str, Any]) -> str:
+    """The substituent model as the agent reads it: how well it fits, then every term."""
+    meta = data.get("meta") or {}
+    if not meta.get("ok"):
+        return f"The model was not fitted: {meta.get('reason')}"
+    reference = ", ".join(f"{p} {g}" for p, g in (meta.get("reference") or {}).items())
+    lines = [
+        f"Activity: {meta.get('activity_column')}. {meta.get('n_compounds')} compounds fitted, "
+        f"{meta.get('n_excluded_censored')} left out as censored. r2 {_r(meta.get('r2'))}, "
+        f"q2 {_r(meta.get('q2'))} (leave-one-out).",
+        f"Reference group at each position: {reference or 'none'}.",
+        "Each term, as the change in activity from the reference, and the compounds behind it:",
+    ]
+    for t in data.get("terms") or []:
+        lines.append(
+            f"- {t.get('position')} {t.get('group')}: {round(t['coef'], 3):+} (n {t.get('n')})"
+        )
+    unmade = data.get("unmade") or []
+    lines.append(
+        "Combinations not made, with the model's prediction:" if unmade else "None unmade."
+    )
+    for u in unmade:
+        groups = ", ".join(f"{p} {g}" for p, g in (u.get("groups") or {}).items())
+        lines.append(f"- {groups}: {_r(u.get('prediction'))}")
+    return "\n".join(lines)
+
+
+_FIT_NOTES = (
+    "A term is the change in activity from the reference group, assuming each position acts "
+    "alone. Quote q2, not r2, for how far the model can be trusted: r2 only says it fits what "
+    "it was shown. A prediction for a combination not made is the sum of its terms and "
+    "nothing more."
+)
+
+
 def identifier_column(columns: Sequence[str], withheld: Collection[str] = ()) -> str:
     """The column that names a row: the first called an id or a name, else the first.
 
@@ -315,6 +449,18 @@ READERS: dict[str, KindReader] = {
         look=None,
         check=lambda claims, data, summary: _check_pockets(claims, data),
         notes=_POCKET_NOTES,
+    ),
+    "core_candidates": KindReader(
+        summarize=summarize_cores,
+        look=None,
+        check=lambda claims, data, summary: check_cores(claims, data),
+        notes=_CORE_NOTES,
+    ),
+    "model_fit": KindReader(
+        summarize=summarize_fit,
+        look=None,
+        check=lambda claims, data, summary: check_fit(claims, data),
+        notes=_FIT_NOTES,
     ),
     **dict.fromkeys(sorted(codecs.TABLE_KINDS), _TABLE),
     "structure": KindReader(summarize=summarize_structure, look=None, check=None),
