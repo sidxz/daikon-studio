@@ -5,10 +5,7 @@ import type { ApproveRequest, RunRequest, SayRequest, SwapRequest } from "@/shar
 import { RUN_POLL_MS, STALE_TIME } from "@/shared/lib/query-defaults";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Provider, Study, StudyValue, Thread } from "../types";
-import { PROVIDERS_KEY, STUDIES_KEY } from "./query-keys";
-
-/** Where a study's one conversation is cached. */
-const threadKey = (studyId: string) => [...STUDIES_KEY, studyId, "chat"];
+import { PROVIDERS_KEY, STUDIES_KEY, threadKey } from "./query-keys";
 
 /**
  * Which model providers this deployment can reach. Fixed at deploy time, so the
@@ -95,7 +92,10 @@ export function useOpenStudy() {
   });
 }
 
-/** Add files to a study that is already open. What was read from them is in `brought`. */
+/**
+ * Add files to a study that already exists, draft or started. What was read from
+ * them is in `brought`.
+ */
 export function useAttachFiles(studyId: string) {
   const written = useAfterWrite();
   return useMutation<Study, ApiError, File[]>({
@@ -212,7 +212,9 @@ export function useStudyValue(studyId: string, valueId: string | undefined) {
 /**
  * Say something to the agent: a message, the answers to its questions, or both,
  * and optionally which step it is about. Neither a message nor answers asks it
- * for the turn it owes.
+ * for the turn it owes. `provider` names the model for this turn. The study keeps
+ * none, so a page that offered a choice sends it each time; left out, the
+ * server's default answers.
  *
  * The answer is the whole thread rather than the new turn, because the server
  * appends both sides and is the one that knows what survived the check. The study

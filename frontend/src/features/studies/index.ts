@@ -33,7 +33,7 @@ export {
   useSwapTool,
   useThread,
 } from "./hooks/use-studies";
-export { PROVIDERS_KEY, STUDIES_KEY } from "./hooks/query-keys";
+export { PROVIDERS_KEY, STUDIES_KEY, threadKey } from "./hooks/query-keys";
 export { PlanComposer } from "./components/plan-composer";
 export { StudySteps } from "./components/study-steps";
 export { StudyList } from "./components/study-list";
