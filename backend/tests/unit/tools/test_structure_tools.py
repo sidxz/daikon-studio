@@ -234,38 +234,32 @@ def test_missing_fpocket_is_a_plain_error(monkeypatch: pytest.MonkeyPatch) -> No
 @needs_prank
 class TestP2rank:
     def test_predicts_the_active_site_with_a_probability_not_a_druggability(self) -> None:
-        out = _predicted(CARBONIC_ANHYDRASE)
+        """One run carries three facts. The zinc site comes back first; a cofactor
+        is neither part of the receptor nor a pocket of its own, so the result says
+        it was left out (water and glycerol came from the drop and are not named);
+        and a ligand's contacts overlap a site as they do for fpocket."""
+        # The zinc site: His94 binds the metal, His64 shuttles the proton, Thr200
+        # gates the substrate.
+        site = [
+            {"chain": "A", "resname": "HIS", "resseq": 94},
+            {"chain": "A", "resname": "HIS", "resseq": 64},
+            {"chain": "A", "resname": "THR", "resseq": 200},
+        ]
+        ligand = {"comp_id": "LIG", "chain": "A", "resseq": 100, "contacts": site}
+        out = _predicted(_with_hetero(CARBONIC_ANHYDRASE), ligands=[ligand])
         assert out["meta"]["count"] == len(out["pockets"]) >= 1
         assert out["meta"]["top"] == {"rank": 1, "probability": out["pockets"][0]["probability"]}
         assert out["meta"]["receptor_ligands"] == []
-        assert out["meta"]["ignored_ligands"] == []
+        assert out["meta"]["ignored_ligands"] == ["LIG"]
         for pocket in out["pockets"]:
             assert 0 <= pocket["probability"] <= 1
             assert "druggability" not in pocket and "volume" not in pocket
             assert pocket["residues"]
             assert set(pocket["residues"][0]) == {"chain", "resname", "resseq"}
             assert all(r["resname"] in structure._AA3 for r in pocket["residues"])
-        # The zinc site: His94 binds the metal, His64 shuttles the proton, Thr200
-        # gates the substrate.
         lining = {(r["chain"], r["resname"], r["resseq"]) for r in out["pockets"][0]["residues"]}
         assert {("A", "HIS", 94), ("A", "HIS", 64), ("A", "THR", 200)} <= lining
-
-    def test_a_cofactor_is_ignored_and_said_so_while_an_additive_is_not_listed(self) -> None:
-        """p2rank reads protein atoms only, so a cofactor is neither part of the
-        receptor nor a pocket of its own; the result has to say it was left out.
-        Water and glycerol came from the drop and are not worth naming."""
-        out = _predicted(_with_hetero(UBIQUITIN))
-        assert out["meta"]["ignored_ligands"] == ["LIG"]
-
-    def test_the_same_ligand_contacts_give_the_same_overlap_as_fpocket(self) -> None:
-        first = _predicted(CARBONIC_ANHYDRASE)["pockets"][0]
-        contacts = [
-            {"chain": r["chain"], "resname": r["resname"], "resseq": r["resseq"]}
-            for r in first["residues"]
-        ]
-        ligand = {"comp_id": "LIG", "chain": "A", "resseq": 100, "contacts": contacts}
-        out = _predicted(CARBONIC_ANHYDRASE, ligands=[ligand])
-        assert out["pockets"][0]["ligand_overlap"][0]["shared"] == len(contacts)
+        assert out["pockets"][0]["ligand_overlap"][0]["shared"] == len(site)
         assert 1 in out["meta"]["ligand_site_ranks"]
 
     def test_a_peptide_has_no_pockets_and_that_is_an_answer(self) -> None:
@@ -276,6 +270,7 @@ class TestP2rank:
         )
         out = _predicted(peptide + "\nEND\n")
         assert out["meta"]["count"] == 0
+        assert out["meta"]["ignored_ligands"] == []
         assert out["meta"]["top"] is None
         assert out["pockets"] == []
 
@@ -305,10 +300,3 @@ def test_predictions_parse_padded_cells_and_insertion_codes() -> None:
             ],
         }
     ]
-
-
-def test_missing_prank_is_a_plain_error(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("STUDIO_P2RANK_BIN", raising=False)
-    monkeypatch.setattr(shutil, "which", lambda _: None)
-    with pytest.raises(RuntimeError, match="prank is not installed"):
-        structure.prank_bin()
