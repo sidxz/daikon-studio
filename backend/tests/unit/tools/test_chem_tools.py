@@ -26,6 +26,18 @@ def test_structure_column() -> None:
         structure_column(pl.DataFrame({"ID": ["a", "b"]}))
 
 
+def test_structure_column_prefers_the_standardized_form() -> None:
+    std = standardize(None, {"compounds": FRAME})["compounds"]
+    assert structure_column(std) == "canonical_smiles"
+    assert structure_column(FRAME) == "SMILES"
+
+
+def test_vendored_sar_modules_import() -> None:
+    from daikonstudio.infrastructure.tools.vendor import sar
+
+    assert sar.sar_cliffs.interval_gap((1.0, 1.0), (3.0, 3.0)) == 2.0
+
+
 def test_standardize() -> None:
     out = standardize(None, {"compounds": FRAME})["compounds"]
     assert out.height == 4

@@ -54,6 +54,9 @@ def _frame(inputs: Mapping[str, object], key: str = "compounds") -> pl.DataFrame
 
 def structure_column(frame: pl.DataFrame) -> str:
     """The first text column at least half of whose first 100 values parse as SMILES."""
+    # standardize writes canonical_smiles; the raw column stays beside it.
+    if "canonical_smiles" in frame.columns:
+        return "canonical_smiles"
     tried = []
     for name, dtype in frame.schema.items():
         if dtype != pl.Utf8:

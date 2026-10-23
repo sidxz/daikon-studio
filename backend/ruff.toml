@@ -1,6 +1,8 @@
 target-version = "py313"
 line-length = 99
 src = ["src"]
+# Steve Berthel's modules are vendored and unedited (see VENDORED.md), so the style gates skip them.
+extend-exclude = ["src/daikonstudio/infrastructure/tools/vendor/sar/sar_*.py"]
 
 [lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
