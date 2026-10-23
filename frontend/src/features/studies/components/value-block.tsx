@@ -412,12 +412,15 @@ function Pockets({
           ` ${ranks.length === 1 ? "Rank" : "Ranks"} ${ranks.join(", ")} ${
             ranks.length === 1 ? "overlaps" : "overlap"
           } a deposited ligand's contacts.`}{" "}
-        {receptor.length > 0
-          ? `${receptor.join(", ")} stayed in place as part of the receptor, so these are the cavities left beside ${receptor.length === 1 ? "it" : "them"}.`
-          : "Nothing was kept as a cofactor, so a cavity a cofactor would fill is reported as a pocket."}
-        {ignored.length > 0 && ` Ignored by the predictor: ${ignored.join(", ")}.`}
-        {scored === "druggability" &&
-          " Volumes are Monte Carlo estimates and move a few percent between runs."}
+        {/* A predicted site is a patch of surface read from the protein atoms alone: what the
+            cavity search says about cofactors and volumes does not apply to it. */}
+        {scored === "probability"
+          ? ignored.length > 0 && `Ignored by the predictor: ${ignored.join(", ")}.`
+          : `${
+              receptor.length > 0
+                ? `${receptor.join(", ")} stayed in place as part of the receptor, so these are the cavities left beside ${receptor.length === 1 ? "it" : "them"}.`
+                : "Nothing was kept as a cofactor, so a cavity a cofactor would fill is reported as a pocket."
+            } Volumes are Monte Carlo estimates and move a few percent between runs.`}
       </p>
       <p className="text-sm text-muted-foreground">{numberingNote}</p>
       {structureId && active && (
@@ -436,8 +439,11 @@ function Pockets({
           </label>
           <p className="text-xs text-muted-foreground">
             Deposited entry {structureId.toUpperCase()} with its ligands, and the lining residues of
-            rank {cell(active.rank)} in magenta. fpocket ran on the prepared structure, which has no
-            ligands or waters. Pick a row to aim the view at another pocket.
+            rank {cell(active.rank)} in magenta.{" "}
+            {scored === "probability"
+              ? "The predictor ran on the prepared structure and read its protein atoms alone."
+              : "fpocket ran on the prepared structure, which has no ligands or waters."}{" "}
+            Pick a row to aim the view at another pocket.
           </p>
         </div>
       )}

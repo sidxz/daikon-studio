@@ -130,6 +130,7 @@ describe("the pockets block", () => {
     const predicted = {
       count: 1,
       numbering: { checked: false, reason: "no UniProt sequence to compare against" },
+      structure_id: "4trn",
       receptor_ligands: [],
       ignored_ligands: ["NAD"],
       top: { rank: 1, probability: 0.81 },
@@ -166,5 +167,8 @@ describe("the pockets block", () => {
     const detail = screen.getByText(/probability 0\.81/);
     expect(detail).toHaveTextContent("— Å³");
     expect(document.body.textContent).not.toMatch(/NaN|undefined/);
+    // No other tool's name, and no cavity search's account of cofactors and volumes.
+    expect(document.body.textContent).not.toMatch(/fpocket|cofactor|Monte Carlo/);
+    expect(screen.getByText(/The predictor ran on the prepared structure/)).toBeInTheDocument();
   });
 });
