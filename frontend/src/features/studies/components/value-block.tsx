@@ -40,7 +40,18 @@ function asRecord(value: unknown): Row {
   return typeof value === "object" && value !== null ? (value as Row) : {};
 }
 
-function RowsTable({ rows, columns, total }: { rows: Row[]; columns: string[]; total?: number }) {
+function RowsTable({
+  rows,
+  columns,
+  total,
+  override,
+}: {
+  rows: Row[];
+  columns: string[];
+  total?: number;
+  /** A cell drawn in place of its text; undefined leaves the text. */
+  override?: (row: Row, column: string) => ReactNode;
+}) {
   const shown = rows.slice(0, SHOWN_ROWS);
   return (
     <div className="space-y-1">
@@ -60,16 +71,17 @@ function RowsTable({ rows, columns, total }: { rows: Row[]; columns: string[]; t
               <TableRow key={index}>
                 {columns.map((column) => (
                   <TableCell key={column}>
-                    {STRUCTURE_COLUMN.test(column) && typeof row[column] === "string" ? (
-                      <div className="flex items-center gap-2">
-                        <StructureThumbnail smiles={row[column] as string} size={48} />
-                        <span className="max-w-48 truncate font-mono text-xs">
-                          {row[column] as string}
-                        </span>
-                      </div>
-                    ) : (
-                      cell(row[column])
-                    )}
+                    {override?.(row, column) ??
+                      (STRUCTURE_COLUMN.test(column) && typeof row[column] === "string" ? (
+                        <div className="flex items-center gap-2">
+                          <StructureThumbnail smiles={row[column] as string} size={48} />
+                          <span className="max-w-48 truncate font-mono text-xs">
+                            {row[column] as string}
+                          </span>
+                        </div>
+                      ) : (
+                        cell(row[column])
+                      ))}
                   </TableCell>
                 ))}
               </TableRow>
@@ -355,12 +367,20 @@ function Approved({
 }
 
 /** RDKit's own drawing, made on the server from a SMARTS we built: not user input. */
-function Drawing({ svg, className }: { svg: unknown; className?: string }) {
+function Drawing({
+  svg,
+  className,
+  label = "Core drawing",
+}: {
+  svg: unknown;
+  className?: string;
+  label?: string;
+}) {
   if (typeof svg !== "string") return null;
   return (
     <div
       role="img"
-      aria-label="Core drawing"
+      aria-label={label}
       className={cn("[&>svg]:h-auto [&>svg]:w-full", className)}
       // biome-ignore lint/security/noDangerouslySetInnerHtml: our own RDKit output
       dangerouslySetInnerHTML={{ __html: svg }}
@@ -451,7 +471,7 @@ function Cores({
                 aria-describedby={approveBlocked === RUN_UNDER_WAY ? STEPS_REASON_ID : undefined}
                 onClick={() => onApprove(Number(active.rank))}
               >
-                Approve this core
+                Use this one
               </Button>
               {approveBlocked && approveBlocked !== RUN_UNDER_WAY && (
                 <p className="max-w-48 text-xs text-muted-foreground">{approveBlocked}</p>
@@ -516,6 +536,25 @@ function Cores({
   );
 }
 
+const R_COLUMN = /^R\d+$/;
+const R_HELPER_COLUMN = /^R\d+_(svg|smiles)$/;
+
+/** The SAR table: a substituent with no conventional name arrives drawn, in `R{n}_svg`. */
+function RGroupTable({ rows, columns, total }: { rows: Row[]; columns: string[]; total?: number }) {
+  return (
+    <RowsTable
+      rows={rows}
+      columns={columns.filter((c) => !R_HELPER_COLUMN.test(c))}
+      total={total}
+      override={(row, column) =>
+        R_COLUMN.test(column) && typeof row[`${column}_svg`] === "string" ? (
+          <Drawing svg={row[`${column}_svg`]} className="w-16" label={`${column} drawing`} />
+        ) : undefined
+      }
+    />
+  );
+}
+
 function ModelFit({ data }: { data: Row }) {
   const meta = asRecord(data.meta);
   if (meta.ok === false) {
@@ -523,6 +562,9 @@ function ModelFit({ data }: { data: Row }) {
   }
   const terms = isRows(data.terms) ? data.terms : [];
   const unmade = isRows(data.unmade) ? data.unmade : [];
+  const reference = Object.entries(asRecord(meta.reference))
+    .map(([position, group]) => `${position} ${String(group)}`)
+    .join(", ");
   return (
     <div className="space-y-3">
       <Facts
@@ -531,7 +573,7 @@ function ModelFit({ data }: { data: Row }) {
           ["Left out as censored", meta.n_excluded_censored],
           ["r²", meta.r2 != null ? cell(meta.r2) : null],
           ["q²", meta.q2 != null ? cell(meta.q2) : null],
-          ["Reference", meta.reference],
+          ["Reference", reference || null],
         ]}
       />
       <RowsTable columns={["position", "group", "n", "coef"]} rows={terms} />
@@ -789,6 +831,13 @@ export function ValueBlock({
   const query = useStudyValue(studyId, value.id);
   const read = query.data;
 
+  const columns = Array.isArray(read?.summary.columns)
+    ? (read.summary.columns as string[])
+    : isRows(read?.data) && read.data.length > 0
+      ? Object.keys(read.data[0])
+      : [];
+  const total = typeof read?.summary.rows === "number" ? read.summary.rows : undefined;
+
   let body: ReactNode;
   if (query.isError) {
     body = <p className="text-sm text-destructive">Could not load this result.</p>;
@@ -816,11 +865,9 @@ export function ValueBlock({
     body = <ApprovedCore data={asRecord(read.data)} earlier={earlier} />;
   } else if (read.kind === "model_fit") {
     body = <ModelFit data={asRecord(read.data)} />;
+  } else if (read.kind === "rgroup_table" && isRows(read.data) && read.data.length > 0) {
+    body = <RGroupTable rows={read.data} columns={columns} total={total} />;
   } else if (isRows(read.data) && read.data.length > 0) {
-    const columns = Array.isArray(read.summary.columns)
-      ? (read.summary.columns as string[])
-      : Object.keys(read.data[0]);
-    const total = typeof read.summary.rows === "number" ? read.summary.rows : undefined;
     body = <RowsTable rows={read.data} columns={columns} total={total} />;
   } else {
     body = (

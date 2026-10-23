@@ -232,7 +232,7 @@ const FIT = {
     n_terms: 2,
     r2: 0.81,
     q2: 0.55,
-    reference: "X1=a",
+    reference: { R1: "a", R2: "x" },
     varying_positions: ["X1", "X2"],
   },
   terms: [{ position: "X1", group: "b", n: 4, coef: 0.4, reference: false }],
@@ -263,7 +263,7 @@ describe("the cores block", () => {
     expect(screen.getByText(/X1: O\/S/)).toBeInTheDocument();
     expect(document.querySelectorAll("svg").length).toBeGreaterThanOrEqual(2);
     fireEvent.click(screen.getByRole("button", { name: /rank 2/i }));
-    fireEvent.click(screen.getByRole("button", { name: /approve/i }));
+    fireEvent.click(screen.getByRole("button", { name: /use this one/i }));
     expect(onApprove).toHaveBeenCalledWith(2);
   });
 
@@ -282,6 +282,31 @@ describe("the cores block", () => {
   });
 });
 
+describe("the SAR table", () => {
+  it("draws a substituent with no name and writes the rest as text", async () => {
+    const rows = [
+      { id: "m1", R1: "Me", R1_smiles: "C", R1_svg: null, pIC50: 6.1 },
+      { id: "m2", R1: "C1CC1N", R1_smiles: "C1CC1N", R1_svg: SVG, pIC50: 7.2 },
+    ];
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v6",
+      key: "sar_table",
+      kind: "rgroup_table",
+      summary: { columns: ["id", "R1", "R1_smiles", "R1_svg", "pIC50"], rows: 2 },
+      data: rows,
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v6", key: "sar_table" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByRole("img", { name: "R1 drawing" })).toBeInTheDocument();
+    expect(screen.getAllByRole("img", { name: "R1 drawing" })).toHaveLength(1);
+    expect(screen.getByRole("cell", { name: "Me" })).toBeInTheDocument();
+    expect(screen.getByRole("columnheader", { name: "pIC50" })).toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "R1_svg" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("columnheader", { name: "R1_smiles" })).not.toBeInTheDocument();
+  });
+});
+
 describe("the model fit block", () => {
   it("shows the fit, its terms and its unmade combinations", async () => {
     vi.mocked(customInstance).mockResolvedValue({
@@ -295,8 +320,25 @@ describe("the model fit block", () => {
       wrapper: Wrapper,
     });
     expect(await screen.findByText(/q²/)).toBeInTheDocument();
+    expect(screen.getByText("R1 a, R2 x")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "b" })).toBeInTheDocument();
     expect(screen.getByText(/c.*z/)).toBeInTheDocument();
+  });
+
+  it("leaves out the reference when the map is empty", async () => {
+    const bare = { ...FIT, meta: { ...FIT.meta, reference: {} } };
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v5",
+      key: "model_fit",
+      kind: "model_fit",
+      summary: bare.meta,
+      data: bare,
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v5", key: "model_fit" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByText(/q²/)).toBeInTheDocument();
+    expect(screen.queryByText("Reference")).not.toBeInTheDocument();
   });
 
   it("gives only the reason when the fit was refused", async () => {
