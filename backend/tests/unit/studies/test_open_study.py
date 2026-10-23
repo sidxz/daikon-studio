@@ -69,10 +69,9 @@ class World:
             Interrogation(restated_goal=RESTATED, questions=[question])
         )
         profiler = PolarsTableProfiler()
-        agent = StudyAgent(
-            self.studies, REGISTRY, ScriptedLanguageModels(self.model), self.store, _no_run
-        )
-        self.open = OpenStudy(self.studies, self.store, profiler, agent)
+        models = ScriptedLanguageModels(self.model)
+        agent = StudyAgent(self.studies, REGISTRY, models, self.store, _no_run)
+        self.open = OpenStudy(self.studies, self.store, profiler, agent, models)
         self.attach = AttachFiles(self.studies, self.store, profiler, REGISTRY)
         self.start = StartStudy(self.studies, REGISTRY)
 

@@ -68,17 +68,23 @@ async def _run_tool_step(app, anonymous_client, tool_id: str) -> tuple[Run, str]
     blob, _ = encode("compound_table", pl.DataFrame({"SMILES": ["CCO", "c1ccccc1", "CCN"]}))
     store.put_bytes(input_key, blob)
     prefix = tool_run_prefix(workspace_id, study_id, run_id)
+    # A lane of its own: a claim takes the oldest pending run in the runner's lanes from any
+    # workspace, and other tests here leave pending runs in the shared database
+    # (test_sweeps.py does), which a "default" runner would claim first.
+    lane = f"tool-loop-{uuid.uuid4().hex[:12]}"  # the column holds 32 characters
     params = ToolRunParams(
         tool_id=tool_id,
-        lane="default",
+        lane=lane,
         study_id=study_id,
         step_id=uuid.uuid4(),
         params={},
         inputs=(ToolInput(key="compounds", kind="compound_table", blob_key=input_key),),
         output_prefix=prefix,
     )
-    await seed_run(app, workspace_id, kind=RunKind.TOOL, params=params.to_params(), id=run_id)
-    _, headers = await register_runner(app, ["default"])
+    await seed_run(
+        app, workspace_id, kind=RunKind.TOOL, lane=lane, params=params.to_params(), id=run_id
+    )
+    _, headers = await register_runner(app, [lane])
     claimed = await claim(anonymous_client, headers)
     assert claimed["run"]["id"] == str(run_id)
 

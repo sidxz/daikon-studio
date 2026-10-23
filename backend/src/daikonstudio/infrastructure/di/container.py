@@ -93,8 +93,6 @@ from daikonstudio.application.pages.manage import (
     RevisePage,
     UploadPageBlob,
 )
-from daikonstudio.application.planner.ask_first import AskFirst
-from daikonstudio.application.planner.draft_plan import WritePlan
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.chemcellar import ChemCellar
 from daikonstudio.application.ports.dataset_build_repository import DatasetBuildRepository
@@ -120,12 +118,13 @@ from daikonstudio.application.runners.manage import (
     RevokeRunner,
 )
 from daikonstudio.application.studies.advance_study import AdvanceStudy
+from daikonstudio.application.studies.agent import ObserveStep, StudyAgent
 from daikonstudio.application.studies.apply_proposal import ApplyProposal
 from daikonstudio.application.studies.get_study import GetStudy, ListStudies
+from daikonstudio.application.studies.open_study import AttachFiles, OpenStudy
 from daikonstudio.application.studies.read_value import ReadValue
-from daikonstudio.application.studies.stage_chat import StageChat
+from daikonstudio.application.studies.scientist_actions import ApproveCandidate, SwapTool
 from daikonstudio.application.studies.start_study import StartStudy
-from daikonstudio.application.studies.study_chat import StudyChat
 from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.chem.profile import ChildProcessProfileComputer
@@ -241,8 +240,6 @@ def create_container(settings: Settings | None = None) -> Container:
         ),
     )
     container.define(TableProfiler, Singleton(PolarsTableProfiler))  # type: ignore[type-abstract]
-    container.define(AskFirst, lambda c: AskFirst(c[LanguageModels], c[ToolRegistry]))
-    container.define(WritePlan, lambda c: WritePlan(c[LanguageModels], c[ToolRegistry]))
 
     def _datasets(c: Container) -> SqlAlchemyDatasetRepository:
         return SqlAlchemyDatasetRepository(c[async_sessionmaker])
@@ -269,22 +266,44 @@ def create_container(settings: Settings | None = None) -> Container:
     # `ProtocolRepository` directly (`interface/routes/runner_api.py`).
     container.define(RunRepository, lambda c: _runs(c))  # type: ignore[type-abstract]
     container.define(StudyRepository, lambda c: _studies(c))  # type: ignore[type-abstract]
-    container.define(StartStudy, lambda c: StartStudy(_studies(c), c[ToolRegistry], c[BlobStore]))
+    container.define(
+        ObserveStep,
+        lambda c: ObserveStep(_studies(c), c[ToolRegistry], c[LanguageModels], c[BlobStore]),
+    )
     container.define(
         AdvanceStudy,
-        lambda c: AdvanceStudy(_studies(c), c[ToolRegistry], c[ToolExecutor], c[BlobStore]),
+        lambda c: AdvanceStudy(
+            _studies(c), c[ToolRegistry], c[ToolExecutor], c[BlobStore], c[ObserveStep]
+        ),
+    )
+    container.define(
+        StudyAgent,
+        lambda c: StudyAgent(
+            _studies(c), c[ToolRegistry], c[LanguageModels], c[BlobStore], c[AdvanceStudy]
+        ),
+    )
+    container.define(
+        OpenStudy,
+        lambda c: OpenStudy(
+            _studies(c), c[BlobStore], c[TableProfiler], c[StudyAgent], c[LanguageModels]
+        ),
+    )
+    container.define(
+        AttachFiles,
+        lambda c: AttachFiles(_studies(c), c[BlobStore], c[TableProfiler], c[ToolRegistry]),
+    )
+    container.define(StartStudy, lambda c: StartStudy(_studies(c), c[ToolRegistry]))
+    container.define(SwapTool, lambda c: SwapTool(_studies(c), c[ToolRegistry]))
+    container.define(
+        ApproveCandidate, lambda c: ApproveCandidate(_studies(c), c[ToolRegistry], c[BlobStore])
+    )
+    container.define(
+        ApplyProposal,
+        lambda c: ApplyProposal(_studies(c), c[ToolRegistry], c[BlobStore], c[AdvanceStudy]),
     )
     container.define(GetStudy, lambda c: GetStudy(_studies(c)))
     container.define(ListStudies, lambda c: ListStudies(_studies(c)))
     container.define(ReadValue, lambda c: ReadValue(_studies(c), c[BlobStore]))
-    container.define(ApplyProposal, lambda c: ApplyProposal(_studies(c), c[ToolRegistry]))
-    container.define(
-        StudyChat, lambda c: StudyChat(_studies(c), c[LanguageModels], c[ToolRegistry])
-    )
-    container.define(
-        StageChat,
-        lambda c: StageChat(_studies(c), c[ReadValue], c[LanguageModels], c[ToolRegistry]),
-    )
     container.define(DatasetRepository, lambda c: _datasets(c))  # type: ignore[type-abstract]
     container.define(ProtocolRepository, lambda c: _protocols(c))  # type: ignore[type-abstract]
 

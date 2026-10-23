@@ -26,6 +26,7 @@ from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
 from daikonstudio.application.ports.blob_store import BlobStore
+from daikonstudio.application.ports.llm import LanguageModels
 from daikonstudio.application.ports.study_repository import StudyRepository
 from daikonstudio.application.ports.table_profiler import TableProfile, TableProfiler
 from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE, in_flight
@@ -126,7 +127,7 @@ async def bring(
     else:
         text = upload.content.decode("utf-8", errors="replace")
         try:
-            meta = describe_pdb(text)
+            meta = await asyncio.to_thread(describe_pdb, text)
         except ValueError as error:
             raise ValidationError(
                 "The structure file could not be read.", detail=str(error)
@@ -172,11 +173,13 @@ class OpenStudy:
         store: BlobStore,
         profiler: TableProfiler,
         agent: StudyAgent,
+        models: LanguageModels,
     ) -> None:
         self._studies = studies
         self._store = store
         self._profiler = profiler
         self._agent = agent
+        self._models = models
 
     async def __call__(
         self, command: OpenCommand, auth: AuthContext | None = None
@@ -184,7 +187,9 @@ class OpenStudy:
         """Open the draft and take the agent's first turn on it.
 
         The draft is kept before the agent is asked, so a provider that fails leaves a study
-        with no agent turn yet: its phase is still asking, and the next message asks again.
+        with no agent turn yet: its phase is still asking, and the next message asks again. A
+        provider this server cannot reach at all is refused first, before any file is kept,
+        since a draft that no model can answer would only wait.
         """
         require_authenticated(auth)
         require_editor(auth)
@@ -192,6 +197,7 @@ class OpenStudy:
         goal = command.goal.strip()
         if len(goal) < _MIN_GOAL:
             return Failure(ValidationError("Say what you want to find out."))
+        self._models.get(command.provider)  # raises, naming the variable to set
         study = Study(
             workspace_id=auth.workspace_id,
             created_by=auth.user_id,
