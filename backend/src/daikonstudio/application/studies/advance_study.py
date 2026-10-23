@@ -38,6 +38,7 @@ from daikonstudio.domain.shared.errors import (
     ConflictError,
     DomainError,
     NotFoundError,
+    ValidationError,
 )
 from daikonstudio.domain.studies.study import SlotValue, Step, StepStatus, Study, Turn
 
@@ -83,6 +84,16 @@ RUNNING_MESSAGE = "A run is under way in this study. Wait for it to stop, then t
 
 def in_flight(study_id: uuid.UUID) -> bool:
     return study_id in _in_flight
+
+
+def cannot_run(study: Study, start: uuid.UUID | None) -> ValidationError | None:
+    """Why a run cannot begin where it would, if it cannot: the step it begins with, `start` or
+    else the next one waiting, has a problem the plan check pinned on it, a setting missing or
+    an input nothing makes, and running it could only turn that into a failure."""
+    first = study.next_step if start is None else study.step(start)
+    if first is None or first.problem is None:
+        return None
+    return ValidationError(f"The step cannot run yet: {first.problem}")
 
 
 def _event(kind: str, say: str, about: uuid.UUID | None) -> Turn:
@@ -138,8 +149,9 @@ class AdvanceStudy:
         failure, a pause the agent asks for, or the end.
 
         `until` is a place in the plan: nothing beyond it runs, whether or not it has to run
-        itself. Only a scientist's run is written into the thread as such; the agent's own
-        turn already says what it ran.
+        itself. A run that would begin at a step with a problem is refused, naming it. Only a
+        scientist's run is written into the thread as such; the agent's own turn already says
+        what it ran.
         """
         require_authenticated(auth)
         require_editor(auth)
@@ -155,6 +167,8 @@ class AdvanceStudy:
             return Failure(ConflictError("This study has not started."))
         if in_flight(study_id) or (start is None and study.next_step is None):
             return Success(study)
+        if (refused := cannot_run(study, start)) is not None:
+            return Failure(refused)
         ran = (
             _event("ran", _ran(study, start, until), start) if started_by == "scientist" else None
         )

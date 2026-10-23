@@ -28,7 +28,12 @@ from returns.result import Failure, Result, Success
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.study_repository import StudyRepository
-from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE, _ran, in_flight
+from daikonstudio.application.studies.advance_study import (
+    RUNNING_MESSAGE,
+    _ran,
+    cannot_run,
+    in_flight,
+)
 from daikonstudio.application.studies.agent import Advance
 from daikonstudio.application.studies.approve import approve_candidate
 from daikonstudio.application.studies.edits import _label, apply_actions
@@ -154,6 +159,9 @@ class ApplyProposal:
             if not run.step and study.next_step is None:
                 return Failure(ValidationError("There is nothing left to run."))
             start, until = _step_id(study, run.step), _step_id(study, run.until)
+            # Refused here, not by the loop: the press would be recorded as made by then.
+            if (refused := cannot_run(study, start)) is not None:
+                return Failure(refused)
             detail = _ran(study, start, until)
             acted.append(Acted(does="run", step=start, detail=detail, quoting=""))
 

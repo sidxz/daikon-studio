@@ -182,3 +182,13 @@ async def test_a_run_with_nothing_left_to_run_is_refused_and_stays_unapplied() -
     stored = studies.rows[study.id]
     assert not _applied(stored, offered)
     assert [turn.kind for turn in stored.thread.turns] == ["reply"]
+
+    # Nor one that would begin at a step with a problem: refused naming it, before the press is
+    # recorded as having started anything. Here the entry to fetch is gone from its settings.
+    stored.set_params(stored.steps[0].id, {})
+    rerun = _offer(stored, Proposal(does="run", step=1, why="Fetch it again."))
+    result = await service(ApplyCommand(study.id, rerun.id), AUTH)
+    assert isinstance(result.failure(), ValidationError)
+    message = result.failure().message
+    assert message.startswith("The step cannot run yet: Step 1 (") and "pdb_id" in message
+    assert advance.runs == [] and not _applied(studies.rows[study.id], rerun)

@@ -249,6 +249,8 @@ function StudyView({
 
   const draft = study.status === "draft";
   const problem = study.steps.find((step) => step.problem);
+  // Where "Run to the next stop" begins: the first step still waiting, as the server picks it.
+  const next = study.steps.find((step) => ["pending", "running", "failed"].includes(step.status));
   // The house rule: a blocked button says why, in a sentence beside itself.
   const blocked = draft
     ? study.steps.length === 0
@@ -260,7 +262,9 @@ function StudyView({
       ? RUN_UNDER_WAY
       : study.status === "done"
         ? "Every step has run."
-        : null;
+        : next?.problem
+          ? `Step ${next.position + 1} has a problem, shown on its card. Settle it before running it.`
+          : null;
 
   /** The step a message will be about, and the cursor in the box to write it. */
   function talk(stepId: string) {

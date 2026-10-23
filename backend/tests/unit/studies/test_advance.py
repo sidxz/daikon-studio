@@ -16,7 +16,7 @@ from daikonstudio.application.studies import advance_study
 from daikonstudio.application.studies.advance_study import AdvanceStudy
 from daikonstudio.application.studies.agent import ObserveStep
 from daikonstudio.application.studies.schemas import ObserveTurn
-from daikonstudio.domain.shared.errors import ConflictError, NotFoundError
+from daikonstudio.domain.shared.errors import ConflictError, NotFoundError, ValidationError
 from daikonstudio.domain.studies.study import Step, StepStatus, Study, StudyStatus
 from daikonstudio.infrastructure.tools.catalog import default_registry
 from tests.fakes.auth import FakeAuth
@@ -443,7 +443,7 @@ async def test_a_second_click_while_running_is_a_no_op() -> None:
 
 
 async def test_running_a_step_that_does_not_exist_is_refused() -> None:
-    auth, _, executor, advance, sid = _setup(
+    auth, studies, executor, advance, sid = _setup(
         {"fetch_pdb": lambda _p, _i: {"structure": STRUCTURE}},
         ("fetch_pdb", {"pdb_id": "1abc"}, False),
     )
@@ -452,6 +452,15 @@ async def test_running_a_step_that_does_not_exist_is_refused() -> None:
         assert isinstance(result.failure(), NotFoundError)
         assert str(result.failure()) == "Step not found."
     assert executor.calls == []
+
+    # Nor is a run that would begin at a step with a problem: running it could only fail.
+    (fetch,) = studies.rows[sid].steps
+    fetch.problem = "Step 1 (Fetch a deposited structure) settings: pdb_id: Field required"
+    for run in ({"start": fetch.id}, {}):
+        refused = (await advance(sid, auth=auth, **run)).failure()
+        assert isinstance(refused, ValidationError)
+        assert str(refused) == f"The step cannot run yet: {fetch.problem}"
+    assert executor.calls == [] and studies.rows[sid].thread.turns == []
 
 
 async def test_a_default_lane_tool_with_no_implementation_says_so() -> None:

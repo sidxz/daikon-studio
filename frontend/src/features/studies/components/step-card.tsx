@@ -44,6 +44,8 @@ export function StepCard({
 }) {
   const number = step.position + 1;
   const params = Object.entries(step.params);
+  // A step with a problem cannot run, and the problem, shown on this card, is the reason.
+  const problemId = `problem-${step.id}`;
   const label = step.status === "done" ? `Run step ${number} again` : `Run step ${number}`;
   const ended = step.status === "done" || step.status === "failed";
   // A choice names the result it was made on; once the step has replaced that result, the
@@ -87,7 +89,8 @@ export function StepCard({
               size="icon-sm"
               aria-label={label}
               title={label}
-              disabled={disabled}
+              disabled={disabled || Boolean(step.problem)}
+              aria-describedby={step.problem ? problemId : undefined}
               onClick={onRun}
             >
               <Play className="size-4" aria-hidden="true" />
@@ -129,6 +132,7 @@ export function StepCard({
 
       {step.problem && (
         <div
+          id={problemId}
           className="rounded-sm border border-destructive/40 bg-destructive/5 p-3 text-sm"
           role="alert"
         >

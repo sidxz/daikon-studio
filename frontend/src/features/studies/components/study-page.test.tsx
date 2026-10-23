@@ -88,26 +88,35 @@ describe("the study page", () => {
   });
 
   it("disables Start while a step has a problem and says why", async () => {
+    const problem = "Fetch from AlphaFold needs accession, which is not set.";
+    const steps = [step({ tool_id: "fetch_alphafold", name: "Fetch from AlphaFold", problem })];
     route({
       "GET /studies/providers": one,
-      "GET /studies/s1": draft({
-        steps: [
-          step({
-            tool_id: "fetch_alphafold",
-            name: "Fetch from AlphaFold",
-            problem: "Fetch from AlphaFold needs accession, which is not set.",
-          }),
-        ],
-      }),
+      "GET /studies/s1": draft({ steps }),
+      "GET /studies/s1/chat": { summary: "", turns: [] },
+    });
+    const { unmount } = render(<StudyPage studyId="s1" />, { wrapper: Wrapper });
+
+    expect(await screen.findByRole("button", { name: "Start this study" })).toBeDisabled();
+    expect(screen.getByText(/Step 1 has a problem, shown on its card/)).toBeInTheDocument();
+    expect(screen.getByText(problem)).toBeInTheDocument();
+    unmount();
+
+    // Started, the step cannot run either: its play control and the run to the next stop,
+    // which would begin there, are blocked, each saying why.
+    route({
+      "GET /studies/providers": one,
+      "GET /studies/s1": study({ steps }),
       "GET /studies/s1/chat": { summary: "", turns: [] },
     });
     render(<StudyPage studyId="s1" />, { wrapper: Wrapper });
 
-    expect(await screen.findByRole("button", { name: "Start this study" })).toBeDisabled();
-    expect(screen.getByText(/Step 1 has a problem, shown on its card/)).toBeInTheDocument();
-    expect(
-      screen.getByText("Fetch from AlphaFold needs accession, which is not set."),
-    ).toBeInTheDocument();
+    const play = await screen.findByRole("button", { name: "Run step 1" });
+    expect(play).toBeDisabled();
+    expect(play).toHaveAccessibleDescription(problem);
+    const runOn = screen.getByRole("button", { name: "Run to the next stop" });
+    expect(runOn).toBeDisabled();
+    expect(runOn).toHaveAccessibleDescription(/Step 1 has a problem, shown on its card/);
   });
 
   it("shows the steps with a tool select where there are alternatives", async () => {
