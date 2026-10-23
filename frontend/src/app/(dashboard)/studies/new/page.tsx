@@ -1,5 +1,5 @@
-import { PlanComposer } from "@/features/studies";
+import { StudyPage } from "@/features/studies";
 
 export default function NewStudyPage() {
-  return <PlanComposer />;
+  return <StudyPage />;
 }

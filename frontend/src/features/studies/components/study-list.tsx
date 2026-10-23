@@ -20,6 +20,7 @@ import { useStudies } from "../hooks/use-studies";
 import type { Study } from "../types";
 
 function look(study: Study): { tone: StatusTone; word: string } {
+  if (study.status === "draft") return { tone: "muted", word: "Draft" };
   if (study.running) return { tone: "active", word: "Running" };
   if (study.status === "done") return { tone: "success", word: "Done" };
   if (study.status === "failed") return { tone: "failed", word: "Failed" };
@@ -38,7 +39,7 @@ export function StudyList() {
     <div className="w-full min-w-0 space-y-6">
       <PageHeader
         title="Studies"
-        description="Plans you started. Each runs one step at a time and keeps what every step found."
+        description="Every study you opened, drafts included. Each runs one step at a time and keeps what every step found."
         action={plan}
       />
       {isLoadingError ? (
@@ -49,7 +50,7 @@ export function StudyList() {
         <EmptyState
           icon={ListChecks}
           title="No studies yet"
-          description="Draft a plan, read it, and start it from the plan page."
+          description="Say what you want to find out. Daikon Studio asks, plans with you, and runs nothing until you start it."
           action={plan}
         />
       ) : (
@@ -59,7 +60,7 @@ export function StudyList() {
               <TableHead>Goal</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Steps done</TableHead>
-              <TableHead>Started</TableHead>
+              <TableHead>Opened</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

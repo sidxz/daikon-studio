@@ -52,23 +52,3 @@ export const PROVIDER_LABELS: Record<string, string> = {
  * acknowledged unknown.
  */
 export const NOT_SURE = "Not sure";
-
-/**
- * Steps grouped by the composite they came from, preserving order.
- *
- * The planner chose "build the SAR table"; the plan records the two steps that
- * will actually run. Showing the group is how the page reads the way the
- * planner thought, without hiding what gets recorded.
- */
-export function groupSteps(steps: StudyStep[]): { from: string | null; steps: StudyStep[] }[] {
-  const groups: { from: string | null; steps: StudyStep[] }[] = [];
-  for (const step of steps) {
-    const last = groups.at(-1);
-    if (last && last.from !== null && last.from === step.expanded_from) {
-      last.steps.push(step);
-    } else {
-      groups.push({ from: step.expanded_from, steps: [step] });
-    }
-  }
-  return groups;
-}

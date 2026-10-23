@@ -2,6 +2,7 @@
 
 import { StructureViewer } from "@/features/pages/components/renderers/structure-viewer";
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
+import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import {
   Table,
@@ -235,6 +236,12 @@ function SiteAnnotations({ summary, data }: { summary: Row; data: Row }) {
   );
 }
 
+/** A pocket's lining residues by chain and number, the identities a reader can check. */
+function lining(pocket: Row): string {
+  const residues = isRows(pocket.residues) ? pocket.residues : [];
+  return residues.map((r) => `${r.chain}:${r.resname}${r.resseq}`).join(", ") || "—";
+}
+
 /** The selected pocket in words: the residue identities the table only counts,
  *  and the annotation descriptions behind its "Annotated" column. Without these
  *  a reader cannot check what the viewer is painting. */
@@ -245,7 +252,7 @@ function PocketDetail({ pocket }: { pocket: Row }) {
   const chains = [...new Set(residues.map((r) => String(r.chain)))];
   const lines = Array.isArray(pocket.lines_ligand) ? (pocket.lines_ligand as string[]) : [];
   return (
-    <div className="space-y-1 text-sm">
+    <div className="min-w-0 flex-1 space-y-1 text-sm">
       <p>
         <span className="font-medium">Rank {cell(pocket.rank)}</span>
         {" · "}druggability {cell(pocket.druggability)}
@@ -256,7 +263,7 @@ function PocketDetail({ pocket }: { pocket: Row }) {
       </p>
       <p className="text-muted-foreground">
         <span className="text-foreground">Lining </span>
-        {residues.map((r) => `${r.chain}:${r.resname}${r.resseq}`).join(", ") || "—"}
+        {lining(pocket)}
       </p>
       {overlap.length > 0 && (
         <p className="text-muted-foreground">
@@ -312,7 +319,20 @@ function neighboursOf(pockets: Row[], active: Row | undefined): Row[] {
   );
 }
 
-function Pockets({ data }: { data: Row }) {
+/** A candidate the scientist chose: the value the rest of the study is expressed against. */
+function Approved({ data }: { data: Row }) {
+  return (
+    <div className="space-y-1 text-sm">
+      <p className="font-medium">Approved: rank {cell(asRecord(data.meta).rank)}</p>
+      <p className="text-muted-foreground">
+        <span className="text-foreground">Lining </span>
+        {lining(data)}
+      </p>
+    </div>
+  );
+}
+
+function Pockets({ data, onApprove }: { data: Row; onApprove?: (rank: number) => void }) {
   const meta = asRecord(data.meta);
   const pockets = isRows(data.pockets) ? data.pockets : [];
   const ranks = Array.isArray(meta.ligand_site_ranks) ? (meta.ligand_site_ranks as number[]) : [];
@@ -394,7 +414,18 @@ function Pockets({ data }: { data: Row }) {
             rank {cell(active.rank)} in magenta. fpocket ran on the prepared structure, which has no
             ligands or waters. Pick a row to aim the view at another pocket.
           </p>
+        </div>
+      )}
+      {/* Outside the viewer: a structure uploaded as a file has no entry for it to load, and
+          its pockets still need reading and choosing. */}
+      {active && (
+        <div className="flex flex-wrap items-start gap-3">
           <PocketDetail pocket={active} />
+          {onApprove && (
+            <Button size="sm" variant="outline" onClick={() => onApprove(Number(active.rank))}>
+              Use this one
+            </Button>
+          )}
         </div>
       )}
       <div className="max-h-[26rem] overflow-auto rounded-sm border">
@@ -476,8 +507,19 @@ function Pockets({ data }: { data: Row }) {
   );
 }
 
-/** One value a step produced or the scientist brought, read only when shown. */
-export function ValueBlock({ studyId, value }: { studyId: string; value: ValueSummary }) {
+/**
+ * One value a step produced or the scientist brought, read only when shown. `onApprove` offers
+ * the choice of a reported candidate, which only a finished judgment step can take.
+ */
+export function ValueBlock({
+  studyId,
+  value,
+  onApprove,
+}: {
+  studyId: string;
+  value: ValueSummary;
+  onApprove?: (rank: number) => void;
+}) {
   const query = useStudyValue(studyId, value.id);
   const read = query.data;
 
@@ -495,7 +537,9 @@ export function ValueBlock({ studyId, value }: { studyId: string; value: ValueSu
   } else if (read.kind === "site_annotations") {
     body = <SiteAnnotations summary={read.summary} data={asRecord(read.data)} />;
   } else if (read.kind === "pocket_candidates") {
-    body = <Pockets data={asRecord(read.data)} />;
+    body = <Pockets data={asRecord(read.data)} onApprove={onApprove} />;
+  } else if (read.kind === "pocket") {
+    body = <Approved data={asRecord(read.data)} />;
   } else if (isRows(read.data) && read.data.length > 0) {
     const columns = Array.isArray(read.summary.columns)
       ? (read.summary.columns as string[])
