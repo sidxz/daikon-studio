@@ -116,12 +116,13 @@ def test_an_amendment_is_shown_with_the_step_count() -> None:
 
     study.start()
     study.amend_terms(("check two",), None)
-    assert "amended after the study started, before any step ran" in standing(study, REGISTRY)
+    assert "These were amended before any step ran." in standing(study, REGISTRY)
 
-    _finish(study, study.steps[0])
+    # A count of the steps that had run, as the page says it, never a step's number.
+    _finish(study, study.steps[1])
     study.amend_terms(("check three",), None)
     text = standing(study, REGISTRY)
-    assert "amended after step 1 ran" in text
+    assert "These were amended after 1 step had run." in text
     assert "check three" in text
 
 

@@ -84,8 +84,13 @@ def _terms(study: Study) -> str:
         lines.append("When the plan said to stop instead:")
         lines += [f"  {i}. {c}" for i, c in enumerate(study.stop_conditions, start=1)]
     if lines and (ran := study.amended_after_steps) is not None:
-        when = f"step {ran} ran" if ran else "the study started, before any step ran"
-        lines.append(f"These were amended after {when}.")
+        # A count of the steps that had run, not a step's number, as the page says it.
+        when = (
+            f"after {ran} {'step' if ran == 1 else 'steps'} had run"
+            if ran
+            else "before any step ran"
+        )
+        lines.append(f"These were amended {when}.")
     return "\n".join(lines)
 
 
