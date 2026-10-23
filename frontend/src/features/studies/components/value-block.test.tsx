@@ -171,4 +171,29 @@ describe("the pockets block", () => {
     expect(document.body.textContent).not.toMatch(/fpocket|cofactor|Monte Carlo/);
     expect(screen.getByText(/The predictor ran on the prepared structure/)).toBeInTheDocument();
   });
+
+  it("describes a predicted result with no sites in the predictor's terms", async () => {
+    const empty = {
+      count: 0,
+      numbering: { checked: false, reason: "no UniProt sequence to compare against" },
+      structure_id: "1ubq",
+      receptor_ligands: [],
+      ignored_ligands: [],
+      top: null,
+      ligand_site_ranks: [],
+    };
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v5",
+      key: "pocket_candidates",
+      kind: "pocket_candidates",
+      summary: empty,
+      data: { meta: empty, pockets: [] },
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v5", key: "pocket_candidates" } as never} />, {
+      wrapper: Wrapper,
+    });
+
+    expect(await screen.findByText(/0 pockets\./)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/fpocket|cofactor|Monte Carlo/);
+  });
 });

@@ -321,6 +321,6 @@ def test_a_predicted_pocket_is_described_by_its_probability_and_what_was_ignored
         ],
     }
     text = reader("pocket_candidates").summarize(data, data["meta"])
-    assert "Ignored by the predictor: NAD." in text
+    assert text.startswith("Ignored by the predictor: NAD.")
     assert "Candidate 1: probability 0.81" in text
     assert "volume" not in text

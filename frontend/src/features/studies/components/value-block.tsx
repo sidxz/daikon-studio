@@ -360,7 +360,11 @@ function Pockets({
   const receptor = Array.isArray(meta.receptor_ligands) ? (meta.receptor_ligands as string[]) : [];
   const ignored = Array.isArray(meta.ignored_ligands) ? (meta.ignored_ligands as string[]) : [];
   // A predicted site carries a probability; a cavity, a druggability score. Different numbers.
-  const scored = pockets.some((p) => "probability" in p) ? "probability" : "druggability";
+  // Only the predictor sets ignored_ligands, so it still names the finder when no site came back.
+  const scored =
+    pockets.some((p) => "probability" in p) || "ignored_ligands" in meta
+      ? "probability"
+      : "druggability";
   const numbering = asRecord(meta.numbering);
   // Said plainly, because every entry in the Annotated column depends on it and
   // an empty column otherwise looks like "nothing annotated here".

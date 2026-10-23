@@ -108,12 +108,14 @@ def _describe(data: Mapping[str, Any]) -> str:
     """The result as the agent reads it: every candidate, with what lines it."""
     meta = data.get("meta") or {}
     pockets = data.get("pockets") or []
-    lines = [
-        f"Kept in the receptor: {', '.join(meta.get('receptor_ligands') or []) or 'nothing'}.",
-    ]
-    if meta.get("ignored_ligands"):
-        lines.append(f"Ignored by the predictor: {', '.join(meta['ignored_ligands'])}.")
-    lines += [f"Numbering against UniProt: {meta.get('numbering') or 'not checked'}.", ""]
+    # Only the predictor sets ignored_ligands; it keeps nothing in a receptor, so it
+    # gets its own account rather than the cavity search's.
+    if "ignored_ligands" in meta:
+        ligands = f"Ignored by the predictor: {', '.join(meta['ignored_ligands']) or 'nothing'}."
+    else:
+        kept = ", ".join(meta.get("receptor_ligands") or []) or "nothing"
+        ligands = f"Kept in the receptor: {kept}."
+    lines = [ligands, f"Numbering against UniProt: {meta.get('numbering') or 'not checked'}.", ""]
     for pocket in pockets:
         overlap = ", ".join(
             f"{o.get('comp_id')}{' (additive)' if o.get('additive') else ''} "
