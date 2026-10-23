@@ -344,24 +344,34 @@ async def test_the_loop_stops_at_until_and_at_a_gate() -> None:
     assert len(studies.rows[sid].thread.turns) == turns
 
     # `until` bounds the run by its place in the plan, so a step already done bounds it too:
-    # the pending step before it runs, and the pending step beyond it does not.
+    # the pending step before it runs, then the done step runs again, as everything after a
+    # step that ran again does, and the pending step beyond it does not run.
     for waiting in (ids[0], ids[2]):
         studies.rows[sid].set_params(waiting, {"pdb_id": "1abc"})
     assert statuses() == ["pending", "done", "pending", "done", "done"]
     await _advance(advance, sid, auth, until=ids[1])
     assert statuses() == ["done", "done", "pending", "done", "done"]
-    assert len(executor.calls) == 6
+    assert len(executor.calls) == 7
     assert "driving this run" not in model.calls[-1][1]  # it was told nothing more would run
 
     # With the next step waiting already beyond `until`, there is nothing to run.
     await _advance(advance, sid, auth, until=ids[1])
     assert statuses() == ["done", "done", "pending", "done", "done"]
-    assert len(executor.calls) == 6
+    assert len(executor.calls) == 7
 
     # Playing one step stops after it, though an earlier step is still waiting.
     await _advance(advance, sid, auth, start=ids[3], until=ids[3])
     assert statuses() == ["done", "done", "pending", "done", "done"]
-    assert len(executor.calls) == 7
+    assert len(executor.calls) == 8
+
+    # A step whose settings changed is run again with what follows it, done or not: from step
+    # 1 through the done step 2 to the gate on step 3, with no `until`.
+    studies.rows[sid].set_params(ids[0], {"pdb_id": "1abc"})
+    assert statuses() == ["pending", "done", "pending", "done", "done"]
+    await _advance(advance, sid, auth, start=ids[0])
+    assert statuses() == ["done"] * 5
+    assert len(executor.calls) == 11
+    assert _observed(studies, sid)[-3:] == ids[:3]
 
 
 async def test_a_run_the_agent_starts_writes_no_ran_event() -> None:

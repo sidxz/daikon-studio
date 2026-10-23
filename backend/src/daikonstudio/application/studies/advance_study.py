@@ -1,5 +1,7 @@
-"""Advancing a study: run its steps in order until a gate, a failure, a stop the agent asks
-for, or the end; or run one step alone, like a notebook cell.
+"""Advancing a study: run its steps in plan order from where the run starts, a step that has
+run already included, until a gate, a failure, a stop the agent asks for, or the end; or run
+one step alone, like a notebook cell. A step that ran again changed what every step after it
+was made from, so a run never skips one because it is done.
 
 `AdvanceStudy` answers at once and runs the steps on a task of its own, writing the
 study after every change so a reader sees each step start and finish. After each step that
@@ -132,7 +134,8 @@ class AdvanceStudy:
         started_by: StartedBy = "scientist",
     ) -> Result[Study, DomainError]:
         """Run the steps from `start`, whatever its status, or else from the next one waiting,
-        to `until`, the next gate, a failure, a pause the agent asks for, or the end.
+        and on in plan order, steps already done included, to `until`, the next gate, a
+        failure, a pause the agent asks for, or the end.
 
         `until` is a place in the plan: nothing beyond it runs, whether or not it has to run
         itself. Only a scientist's run is written into the thread as such; the agent's own
@@ -193,12 +196,11 @@ class AdvanceStudy:
             )
             if step is None or step.position > last:
                 return
-            step_id = None
             ended = await self._guarded(workspace_id, study, step)
-            # `study` is as the step left it, so it says what is waiting. The run goes on to
-            # that only while `until` is still ahead of this step and not behind that one.
-            waiting = study.next_step
-            go_on = waiting is not None and step.position < last and waiting.position <= last
+            # On to the step after this one in the plan, done or not: it was made from what
+            # this one has just replaced. Only while `until` is not behind it.
+            following = study.step_at(step.position + 1)
+            go_on = following is not None and following.position <= last
             if ended is not StepStatus.SKIPPED:  # a skipped step made nothing to look at
                 go_on = go_on and ended is StepStatus.DONE and not step.gated
                 paused = await self._observe(workspace_id, study_id, step.id, driving=go_on)
@@ -206,8 +208,9 @@ class AdvanceStudy:
                     pause = _event("paused", f"Paused by the agent after {_label(step)}.", step.id)
                     await self._say(workspace_id, study_id, pause)
                     return
-            if not go_on:
+            if following is None or not go_on:
                 return
+            step_id = following.id
 
     async def _say(self, workspace_id: uuid.UUID, study_id: uuid.UUID, turn: Turn) -> None:
         """Add an event to the study as it stands now, after whatever the agent wrote.
