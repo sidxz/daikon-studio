@@ -40,13 +40,16 @@ class OpenAILanguageModel:
             self._client = openai.AsyncOpenAI(api_key=self._api_key, timeout=_TIMEOUT_SECONDS)
         return self._client
 
-    async def parse[T: BaseModel](self, *, system: str, prompt: str, schema: type[T]) -> T:
+    async def parse[T: BaseModel](
+        self, *, system: str, prompt: str, schema: type[T], stable: str = ""
+    ) -> T:
         client = self._require()
+        text = f"{stable}\n\n{prompt}" if stable else prompt
         try:
             reply = await client.responses.parse(
                 model=self._model,
                 instructions=system,
-                input=prompt,
+                input=text,
                 max_output_tokens=_MAX_OUTPUT_TOKENS,
                 text_format=schema,
             )

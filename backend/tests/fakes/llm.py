@@ -22,15 +22,19 @@ class ScriptedLanguageModel:
         self._replies = (reply, *more)
         self._provider = provider
         self.calls: list[tuple[str, str]] = []
+        self.stables: list[str] = []
         self.schemas: list[type[BaseModel]] = []
 
     @property
     def choice(self) -> ModelChoice:
         return ModelChoice(provider=self._provider, model="scripted")
 
-    async def parse[T: BaseModel](self, *, system: str, prompt: str, schema: type[T]) -> T:
+    async def parse[T: BaseModel](
+        self, *, system: str, prompt: str, schema: type[T], stable: str = ""
+    ) -> T:
         reply = self._replies[min(len(self.calls), len(self._replies) - 1)]
         self.calls.append((system, prompt))
+        self.stables.append(stable)
         self.schemas.append(schema)
         return schema.model_validate(reply.model_dump())
 

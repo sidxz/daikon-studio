@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import anthropic
 import structlog
+from anthropic.types.beta import BetaTextBlockParam
 from pydantic import BaseModel, ValidationError
 
 from daikonstudio.application.ports.llm import ModelChoice
@@ -62,14 +63,24 @@ class AnthropicLanguageModel:
             )
         return self._client
 
-    async def parse[T: BaseModel](self, *, system: str, prompt: str, schema: type[T]) -> T:
+    async def parse[T: BaseModel](
+        self, *, system: str, prompt: str, schema: type[T], stable: str = ""
+    ) -> T:
         client = self._require()
+        # Two cache breakpoints: the system prompt, and the end of the stable prefix.
+        # The prefix is cached together with everything before it, so a later call
+        # that changes only `prompt` reads both from the cache.
+        blocks: list[BetaTextBlockParam] = [{"type": "text", "text": prompt}]
+        if stable:
+            blocks.insert(
+                0, {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}}
+            )
         try:
             reply = await client.beta.messages.parse(
                 model=self._model,
                 max_tokens=_MAX_TOKENS,
-                system=system,
-                messages=[{"role": "user", "content": prompt}],
+                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+                messages=[{"role": "user", "content": blocks}],
                 output_format=schema,
                 betas=[_FALLBACK_BETA],
                 fallbacks="default",
@@ -91,6 +102,14 @@ class AnthropicLanguageModel:
         except anthropic.APIError as exc:
             _logger.warning("anthropic call failed", error=str(exc)[:200])
             raise ServiceUnavailableError("The Anthropic model could not be reached.") from exc
+
+        _logger.info(
+            "anthropic answered",
+            input=reply.usage.input_tokens,
+            cache_read=reply.usage.cache_read_input_tokens,
+            cache_write=reply.usage.cache_creation_input_tokens,
+            output=reply.usage.output_tokens,
+        )
 
         if reply.stop_reason == "refusal":
             # Distinct from a malformed answer, and worth saying so: the remedy
