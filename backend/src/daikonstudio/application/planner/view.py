@@ -72,12 +72,24 @@ def _reach(
 
 
 def _wiring(
-    manifests: list[ToolManifest], forward: set[str], selected: Iterable[ToolManifest]
+    manifests: list[ToolManifest],
+    forward: set[str],
+    selected: Iterable[ToolManifest],
+    *,
+    in_hand: set[SlotKind],
+    view: Iterable[ToolManifest],
 ) -> list[ToolManifest]:
-    """The forward-reachable producers of what `selected` requires, so the model can connect it."""
+    """The forward-reachable producers of what `selected` requires and nothing supplies yet.
+
+    A kind in hand needs no producer, and neither does one a tool in the view already makes:
+    with a compound table always in hand, wiring every producer of one would fill the view.
+    """
     kinds: set[SlotKind] = set()
     for m in selected:
         kinds |= _needs(m)
+    kinds -= in_hand
+    for m in view:
+        kinds -= _gives(m)
     return [m for m in manifests if m.id in forward and _gives(m) & kinds]
 
 
@@ -116,7 +128,8 @@ def select(
     asked = [m for m in manifests if m.id in named]
     planned = [m for m in manifests if m.id in used]
     reached = [m for m, _ in _reach(manifests, forward, in_hand, targets)]
-    wiring = _wiring(manifests, forward, [*asked, *planned, *reached])
+    selected = [*asked, *planned, *reached]
+    wiring = _wiring(manifests, forward, selected, in_hand=in_hand, view=selected)
     chosen = {m.id for m in [*asked, *planned, *reached, *wiring]}
     composites = {
         m.id: m.expands_to
@@ -162,7 +175,9 @@ def widen(
     extra = [registry.get(i) for i in outside(registry, view, ids)]
     widened = list(view)
     seen = {m.id for m in view}
-    for m in [*extra, *_wiring(manifests, _forward(manifests, in_hand), extra)]:
+    forward = _forward(manifests, in_hand)
+    wiring = _wiring(manifests, forward, extra, in_hand=in_hand, view=[*view, *extra])
+    for m in [*extra, *wiring]:
         if m.id not in seen:
             seen.add(m.id)
             widened.append(m)

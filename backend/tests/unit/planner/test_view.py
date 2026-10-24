@@ -136,10 +136,7 @@ def test_outside_and_widen() -> None:
     )
     assert outside(MINI, view, ["pairs", "no_such_tool", "profile"]) == ["pairs"]
     assert {"pairs", "rgroups"} <= {
-        m.id
-        for m in widen(
-            MINI, view, ["pairs"], in_hand={SlotKind.COMPOUND_TABLE, SlotKind.RGROUP_TABLE}
-        )
+        m.id for m in widen(MINI, view, ["pairs"], in_hand={SlotKind.COMPOUND_TABLE})
     }
 
 
