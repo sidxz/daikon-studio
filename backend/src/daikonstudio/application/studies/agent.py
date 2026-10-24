@@ -242,7 +242,7 @@ async def _answer[T: (ObserveTurn, ReplyTurn)](
     A look is answered once: the rows asked for are put in front of the model and it is asked
     again, and that answer stands with whatever it asks to see ignored.
     """
-    instructions = system("running", registry, left=_left(study))
+    instructions = system("running", registry)
     answer = await model.parse(system=instructions, prompt=prompt, schema=schema)
     if not answer.look:
         return answer, (), frozenset()
@@ -373,8 +373,8 @@ class StudyAgent:
         model = self._models.get(provider)
         left = _left(study)
         answer = await model.parse(
-            system=system("asking", self._tools, left=left),
-            prompt=standing(study, self._tools),
+            system=system("asking", self._tools),
+            prompt=standing(study, self._tools, left=left),
             schema=AskingTurn,
         )
         study.restated_goal = answer.restated_goal.strip()
@@ -436,8 +436,8 @@ class StudyAgent:
     async def _plan(self, study: Study, model: LanguageModel) -> None:
         """A planning turn: the plan written whole, or edited, and what is still to ask."""
         left = _left(study)
-        instructions = system("planning", self._tools, left=left)
-        prompt = standing(study, self._tools)
+        instructions = system("planning", self._tools)
+        prompt = standing(study, self._tools, left=left)
         answer = await model.parse(system=instructions, prompt=prompt, schema=PlanningTurn)
         # A plan with no steps is the schema's "no plan": the turn edits the one there is.
         if answer.plan.steps and (problems := self._problems(answer.plan, study)):

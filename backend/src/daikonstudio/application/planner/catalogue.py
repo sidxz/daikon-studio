@@ -33,6 +33,11 @@ READING_THE_DATA = (
 )
 
 CATALOGUE_HEADING = "Catalogue of what this server can do:"
+INDEX_HEADING = "Catalogue of what this server can do, one line each:"
+VIEW_HEADING = (
+    "In full, the tools you are most likely to need "
+    "(name any other in `wanted` to read it in full):"
+)
 
 
 def _kind(kind: SlotKind) -> str:
@@ -96,6 +101,31 @@ def catalogue(manifests: list[ToolManifest]) -> str:
                 else "never list it"
             )
         lines.append(line)
+    return "\n".join(lines)
+
+
+def index(manifests: list[ToolManifest]) -> str:
+    """One line per tool, in the order `catalogue()` gives, for a model to choose from.
+
+    The first sentence of a description is what separates one tool from another; the rest is
+    what a model reads only once it has chosen, in `catalogue()`.
+    """
+    lines: list[str] = []
+    for m in sorted(manifests, key=lambda x: (not x.expands_to,)):
+        takes = ", ".join(_kind(s.kind) for s in m.inputs)
+        gives = ", ".join(_kind(s.kind) for s in m.outputs)
+        first = m.description.split(". ", 1)[0].rstrip(".")
+        marks = [m.area.value]
+        if m.expands_to:
+            marks.append("one step that runs several")
+        if m.judgment and m.resolves_to is not None:
+            marks.append("needs the scientist's decision")
+        if m.automatic:
+            marks.append("added for you")
+        lines.append(
+            f"- {m.id}: {m.name}. {first}. takes: {takes or 'nothing'}; gives: {gives} "
+            f"[{'; '.join(marks)}]"
+        )
     return "\n".join(lines)
 
 

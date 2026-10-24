@@ -60,6 +60,11 @@ scientist decides which questions are worth their time.
 
 5. %(always)s
 
+6. Name in `target_kinds` what the scientist should hold when the analysis \
+succeeds, as kinds from the catalogue, and in `wanted` every tool you might want \
+to read in full before planning. Naming a tool here costs nothing; one not named \
+is read in one line only.
+
 Write for a working scientist. Be specific and brief.
 """
 
@@ -72,7 +77,10 @@ Rules, in order of importance.
 1. Use only tools from the catalogue below, by their exact id. If the goal needs \
 something the catalogue cannot do, return no steps and one question naming what \
 you would need, rather than inventing a tool, pretending a different tool covers \
-it, or padding the plan with steps that do not answer the goal.
+it, or padding the plan with steps that do not answer the goal. The catalogue \
+lists every tool in one line, and the tools you are most likely to need are also \
+given in full; to read another in full before you plan, name it in `wanted` and \
+return no plan, and you will be asked once more with it in front of you.
 
 2. Order steps so that every step's inputs are produced by an earlier step. What \
 you start with is stated below; everything else has to be made. A tool marked as \
@@ -111,9 +119,9 @@ worth having, has answered itself: take that answer, state it as an assumption, 
 and move on. Leave `default` empty only if the plan in front of you is genuinely \
 wrong either way, which after a round of answers is rare.
 
-3c. You have %(left)d questions left for this whole analysis, counting every \
-round. Spend them on what would change the plan most. At zero, ask nothing: \
-write the plan on stated assumptions, which you can always do.
+3c. How many questions you have left for this whole analysis, counting every \
+round, is stated below. Spend them on what would change the plan most. At zero, \
+ask nothing: write the plan on stated assumptions, which you can always do.
 
 4. State what would count as a result before anything runs, and state at least \
 one condition under which the analysis should stop and report that the question \
@@ -192,19 +200,18 @@ Write for a working scientist. Be specific and brief.
 _BY_PHASE = {"asking": ASKING, "planning": PLANNING, "running": RUNNING}
 
 
-def system(phase: str, registry: ToolRegistry, *, left: int) -> str:
+def system(phase: str, registry: ToolRegistry) -> str:
     """The prompt for a phase ("asking", "planning" or "running").
 
-    `left` is how many questions the whole analysis may still ask, counting every
-    round; the caller derives it, because only it knows how many were already put.
-    A template names only the values it uses, so all of them are offered to each.
+    Nothing here changes from one turn to the next, so that it can be cached: how many
+    questions are left is said in the standing instead. A template names only the values it
+    uses, so all of them are offered to each.
     """
     return _BY_PHASE[phase] % {
         "reading": READING_THE_DATA,
         "always": always_runs(registry.manifests()),
         "limit": MAX_QUESTIONS,
         "budget": QUESTION_BUDGET,
-        "left": left,
         # Spelled as the catalogue spells kinds, so the model reads one vocabulary.
         "checkable": ", ".join(kind.replace("_", " ") for kind in checkable()),
     }
