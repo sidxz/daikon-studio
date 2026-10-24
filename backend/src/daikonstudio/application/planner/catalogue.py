@@ -112,7 +112,9 @@ def index(manifests: list[ToolManifest]) -> str:
     """
     lines: list[str] = []
     for m in sorted(manifests, key=lambda x: (not x.expands_to,)):
-        takes = ", ".join(_kind(s.kind) for s in m.inputs)
+        takes = ", ".join(
+            f"{_kind(s.kind)}{' (optional)' if s.optional else ''}" for s in m.inputs
+        )
         gives = ", ".join(_kind(s.kind) for s in m.outputs)
         first = m.description.split(". ", 1)[0].rstrip(".")
         marks = [m.area.value]

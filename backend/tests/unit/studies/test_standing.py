@@ -179,6 +179,7 @@ def test_a_view_is_rendered_in_full_and_first() -> None:
 def test_index_is_one_line_per_tool_in_catalogue_order() -> None:
     lines = index(REGISTRY.manifests()).splitlines()
     assert len(lines) == len(REGISTRY.manifests())
+    assert "series (optional)" in next(line for line in lines if line.startswith("- find_cores:"))
     assert all(line.startswith("- ") and "takes:" in line and "gives:" in line for line in lines)
     assert REGISTRY.get(lines[0][2:].split(":")[0]).expands_to, (
         "composites come first, as in catalogue()"
