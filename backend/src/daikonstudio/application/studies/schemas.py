@@ -33,12 +33,14 @@ here is a float: a number the agent writes is one no step computed.
 
 from __future__ import annotations
 
-from typing import Literal
+import functools
+from typing import Literal, cast
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
-from daikonstudio.application.planner.plan import DraftPlan, Interrogation, Question
+from daikonstudio.application.planner.plan import DraftPlan, Interrogation, Question, Step
 from daikonstudio.application.planner.plan import Setting as Setting  # re-exported
+from daikonstudio.application.tools.registry import ToolRegistry
 
 Does = Literal["insert", "remove", "swap", "settings", "gate", "terms", "approve", "run"]
 Proposable = Literal["insert", "remove", "swap", "settings", "gate", "approve", "run"]
@@ -101,6 +103,13 @@ _CANDIDATE = (
 _UNTIL = (
     "For run: the number of the step to stop after, or 0 to run to the next step that "
     "stops for a look. 0 for the rest."
+)
+
+
+WANTED_TO_ANSWER = (
+    "Tool ids from the catalogue you must read in full before you can answer. Return no plan "
+    "and no actions and name them, and you will be asked once more with them in front of you. "
+    "Otherwise leave this empty: naming tools here costs a second call."
 )
 
 
@@ -292,6 +301,38 @@ class PlanningTurn(BaseModel):
             "defend one. They count against the questions the analysis may still ask."
         ),
     )
+    wanted: list[str] = Field(default_factory=list, description=WANTED_TO_ANSWER)
+
+
+@functools.cache
+def _planning_turn_for(ids: tuple[str, ...]) -> type[PlanningTurn]:
+    # Literal[*ids] renders as a string enum, no union. Only Step.tool_id is narrowed: edits
+    # are checked by apply_actions and vet, and enumerating them again would double the tokens.
+    enum_step = create_model(
+        "Step",
+        __base__=Step,
+        tool_id=(Literal[*ids], Field(description=Step.model_fields["tool_id"].description)),
+    )
+    enum_draft = create_model("DraftPlan", __base__=DraftPlan, steps=(list[enum_step], ...))  # type: ignore[valid-type]
+    return cast(
+        "type[PlanningTurn]",
+        create_model(
+            "PlanningTurn",
+            __base__=PlanningTurn,
+            plan=(
+                enum_draft,
+                Field(
+                    default_factory=lambda: enum_draft(restated_goal="", steps=[]),
+                    description=PlanningTurn.model_fields["plan"].description,
+                ),
+            ),
+        ),
+    )
+
+
+def planning_turn_schema(registry: ToolRegistry) -> type[PlanningTurn]:
+    """PlanningTurn with `tool_id` constrained to this registry's ids; built once per registry."""
+    return _planning_turn_for(tuple(m.id for m in registry.manifests()))
 
 
 class _Reading(BaseModel):
@@ -374,4 +415,5 @@ class ReplyTurn(_Reading):
             "goes in `proposals`, not here."
         ),
     )
+    wanted: list[str] = Field(default_factory=list, description=WANTED_TO_ANSWER)
     summary: str = Field(description=_SUMMARY)

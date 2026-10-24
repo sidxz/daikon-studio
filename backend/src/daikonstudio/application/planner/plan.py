@@ -65,6 +65,17 @@ class Question(BaseModel):
         return not self.default
 
 
+TARGET_KINDS = (
+    "What the scientist will hold at the end if the analysis succeeds, as kinds from the "
+    "catalogue; not how to get there. Leave empty for a goal with no clear end point."
+)
+WANTED_FREELY = (
+    "Tool ids from the catalogue you might want to read in full before planning. Name "
+    "generously, up to 30: naming one here costs nothing, and one not named is read in one "
+    "line only."
+)
+
+
 class Interrogation(BaseModel):
     """What the planner needs to know before a plan would mean anything.
 
@@ -81,6 +92,8 @@ class Interrogation(BaseModel):
         )
     )
     questions: list[Question]
+    target_kinds: list[SlotKind] = Field(default_factory=list, description=TARGET_KINDS)
+    wanted: list[str] = Field(default_factory=list, description=WANTED_FREELY)
 
 
 class Answer(BaseModel):

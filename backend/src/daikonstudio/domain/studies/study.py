@@ -149,6 +149,8 @@ class Turn:
     unresolved: tuple[str, ...] = ()
     actions: tuple[Acted, ...] = ()
     looked: tuple[str, ...] = ()
+    wanted: tuple[str, ...] = ()
+    target_kinds: tuple[str, ...] = ()
     dropped: int = 0
     silent: bool = False
     written_by: str | None = None
