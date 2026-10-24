@@ -169,7 +169,7 @@ def test_only_cores_and_pockets_resolve() -> None:
     assert kinds == {SlotKind.CORE, SlotKind.POCKET}
 
 
-THRESHOLD = 0.75  # highest same-signature ratio today is 0.05 (find_pockets, predict_pockets)
+THRESHOLD = 0.75  # highest same-signature ratio today is 0.25 (find_pockets, predict_pockets)
 
 
 def _signature(m: ToolManifest) -> tuple[frozenset[SlotKind], frozenset[SlotKind]]:
@@ -184,7 +184,9 @@ def test_no_two_tools_with_the_same_signature_read_alike() -> None:
     for a, b in combinations(default_registry().manifests(), 2):
         if a.id in b.expands_to or b.id in a.expands_to or _signature(a) != _signature(b):
             continue
-        ratio = SequenceMatcher(None, a.description.lower(), b.description.lower()).ratio()
+        ratio = SequenceMatcher(
+            None, a.description.lower().split(), b.description.lower().split()
+        ).ratio()
         assert ratio < THRESHOLD, (
             f"{a.id} and {b.id} take and give the same kinds and read alike ({ratio:.2f}); "
             f"say in each description when it, and not the other, is the one to use."
