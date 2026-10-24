@@ -513,7 +513,7 @@ class StudyAgent:
         # A plan with no steps is the schema's "no plan": the turn edits the one there is.
         problems = self._problems(answer.plan, study) if answer.plan.steps else []
         asked_first = not answer.plan.steps and not answer.actions
-        if problems or (asked_first and outside(self._tools, view, answer.wanted)):
+        if problems or (asked_first and outside(self._tools, view, answer.wanted[:WANTED_CAP])):
             # One more try, with the plan's own problems in front of it or the tools it asked
             # to read: a missing setting or a step with nothing to feed it is a defect the
             # check names exactly, and the model fixes a named defect far more often than it
