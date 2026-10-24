@@ -113,10 +113,11 @@ def test_select_never_cuts_automatic_tools_and_prefers_a_composite_with_its_part
             in_plan=[],
             in_hand={SlotKind.COMPOUND_TABLE, SlotKind.CORE},
             targets=set(),
-            cap=2,
+            cap=1,
         )
     ]
     assert "clean" in view and len(view) <= 3
+    assert "pairs" not in view
     full = {
         m.id
         for m in select(
@@ -147,6 +148,8 @@ def test_the_index_and_the_view_hold_at_a_thousand_real_world_tools() -> None:
     three = ToolRegistry(
         (*default_registry().manifests(), *skills_registry(replicate=3).manifests())
     )  # about 560
+    # When this trips, shorten index lines or move to the two-level index (spec, Beyond 500);
+    # do not raise the number.
     assert (
         len(index(three.manifests())) // 4 < 35_000
     )  # about 60 tokens a line on real descriptions

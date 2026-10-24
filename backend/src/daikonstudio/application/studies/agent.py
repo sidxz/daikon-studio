@@ -50,7 +50,14 @@ from daikonstudio.application.planner.plan import (
     expand,
     incoherences,
 )
-from daikonstudio.application.planner.view import WANTED_CAP, outside, select, widen
+from daikonstudio.application.planner.view import (
+    VIEW_CAP,
+    WANTED_CAP,
+    outside,
+    reach,
+    select,
+    widen,
+)
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.llm import LanguageModel, LanguageModels
 from daikonstudio.application.ports.study_repository import StudyRepository
@@ -280,7 +287,7 @@ async def _answer[T: (ObserveTurn, ReplyTurn)](
     answer = await model.parse(system=instructions, prompt=prompt, schema=schema, stable=stable)
     named: list[str] = []
     if view is not None:
-        named += getattr(answer, "wanted", [])
+        named += getattr(answer, "wanted", [])[:WANTED_CAP]
         named += [action.tool_id for action in getattr(answer, "actions", [])]
         named += [proposal.tool_id for proposal in answer.proposals]
     unseen = outside(registry, view or (), named)
@@ -513,10 +520,10 @@ class StudyAgent:
             # avoids one unprompted. ponytail: one retry; the second answer stands whatever
             # its problems, and its steps show them.
             ids = [
-                *answer.wanted,
+                *answer.wanted[:WANTED_CAP],
                 *(s.tool_id for s in answer.plan.steps),
                 *(a.tool_id for a in answer.actions),
-                *self._unmade(answer.plan, study),
+                *self._unmade(answer.plan, study, in_hand),
             ]
             wider = widen(self._tools, view, ids, in_hand=in_hand)
             prompt = standing(study, self._tools, view=wider, left=left)
@@ -566,24 +573,33 @@ class StudyAgent:
         in_hand = brought | {SlotKind.COMPOUND_TABLE}
         return incoherences(chosen, self._tools, starting_with=in_hand)
 
-    def _unmade(self, plan: DraftPlan, study: Study) -> list[str]:
+    def _unmade(self, plan: DraftPlan, study: Study, in_hand: set[SlotKind]) -> list[str]:
         """The tools that make what a step needs and no step before it made, walking the plan
-        as `_problems` does, so a retry can read them in full."""
-        brought = _brought(study)
-        available = brought | {SlotKind.COMPOUND_TABLE}
+        as `_problems` does, so a retry can read them in full.
+
+        Bounded: only the producers `in_hand` can reach, and at most `VIEW_CAP` of them in all.
+        One unmade kind can have hundreds of producers in a large catalogue, and a retry that
+        read them all in full would be the prompt the view exists to avoid.
+        """
+        available = set(in_hand)
         by_id = {m.id: m for m in self._tools.manifests()}
-        ids: list[str] = []
-        for step in expand(plan, self._tools, starting_with=brought):
+        kinds: list[SlotKind] = []
+        for step in expand(plan, self._tools, starting_with=_brought(study)):
             manifest = by_id.get(step.tool_id)
             if step.always or manifest is None:
                 continue
-            for slot in manifest.inputs:
-                if not slot.optional and slot.kind not in available:
-                    ids += [m.id for m in self._tools.producing(slot.kind)]
+            needed = (s.kind for s in manifest.inputs if not s.optional)
+            kinds += [kind for kind in needed if kind not in available]
             available |= {slot.kind for slot in manifest.outputs}
             if manifest.resolves_to is not None:
                 available.add(manifest.resolves_to)
-        return ids
+        ids = [
+            m.id
+            for kind in dict.fromkeys(kinds)
+            for m, distance in reach(self._tools, in_hand=in_hand, targets={kind})
+            if distance == 0
+        ]
+        return list(dict.fromkeys(ids))[:VIEW_CAP]
 
     def _replace(self, study: Study, plan: DraftPlan) -> int:
         """Put a whole plan in the draft's place; how many of its steps name no tool."""
@@ -611,8 +627,9 @@ class StudyAgent:
         # A reply edits a plan rather than building one: its tools, what was named last, and
         # the automatic ones. Anything else it names is read on the one second call.
         in_plan = [s.tool_id for s in study.steps]
+        in_hand = _brought(study) | {SlotKind.COMPOUND_TABLE}
         view = select(
-            self._tools, wanted=_steer(study)[0], in_plan=in_plan, in_hand=set(), targets=set()
+            self._tools, wanted=_steer(study)[0], in_plan=in_plan, in_hand=in_hand, targets=set()
         )
         answer, looked, shown = await _answer(
             model,
@@ -624,7 +641,7 @@ class StudyAgent:
             trigger=trigger,
             stable=_index(self._tools),
             view=view,
-            in_hand=set(),
+            in_hand=in_hand,
         )
         points, proposals, dropped = await _checked(
             answer, study, self._tools, self._store, decoded, shown
