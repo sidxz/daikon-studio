@@ -13,8 +13,14 @@ reader for that kind of result finds it there; a claim about the plan only where
 plan's own words; a proposal only where the study could carry it out; an edit only where the
 catalogue and the plan agree. What fails is dropped and counted, never raised.
 
-A turn costs one model call, or two when the model asks to look at a table: the rows it asked
-for, capped, are put in front of it and it answers again, and that answer stands.
+A turn that chooses tools reads a one-line index of the whole catalogue, sent as a stable prefix
+the provider can cache, and a view of a few tools in full, chosen by the host from what the
+model named last, what the plan uses and, while planning, what reaches the kinds the study
+should end with. An observation reads neither: it cannot act.
+
+A turn costs one model call, or two: when the model asks to look at a table, the rows it asked
+for, capped, are put in front of it; when it names tools it was not shown in full, or a plan
+the checker rejects, the view widens to them. It answers again, and that answer stands.
 
 The scientist's own turn is stored before the model is asked, so a provider that fails leaves
 the message in the thread, and the error reaches the scientist rather than their words being
@@ -28,7 +34,7 @@ import dataclasses
 import json
 import logging
 import uuid
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence, Set
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Protocol
@@ -36,6 +42,7 @@ from typing import Any, Protocol
 from returns.result import Failure, Result, Success
 
 from daikonstudio.application.auth import AuthContext, require_authenticated, require_editor
+from daikonstudio.application.planner.catalogue import INDEX_HEADING, index
 from daikonstudio.application.planner.plan import (
     DraftPlan,
     PlanProblem,
@@ -43,6 +50,7 @@ from daikonstudio.application.planner.plan import (
     expand,
     incoherences,
 )
+from daikonstudio.application.planner.view import WANTED_CAP, outside, select, widen
 from daikonstudio.application.ports.blob_store import BlobStore
 from daikonstudio.application.ports.llm import LanguageModel, LanguageModels
 from daikonstudio.application.ports.study_repository import StudyRepository
@@ -70,9 +78,9 @@ from daikonstudio.application.studies.schemas import (
     Claim,
     Look,
     ObserveTurn,
-    PlanningTurn,
     ProgressClaim,
     ReplyTurn,
+    planning_turn_schema,
 )
 from daikonstudio.application.studies.standing import (
     standing,
@@ -80,7 +88,7 @@ from daikonstudio.application.studies.standing import (
     trigger_for_reply,
 )
 from daikonstudio.application.tools import codecs
-from daikonstudio.application.tools.manifest import SlotKind
+from daikonstudio.application.tools.manifest import SlotKind, ToolManifest
 from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.domain.shared.errors import ConflictError, DomainError, ValidationError
 from daikonstudio.domain.studies.study import (
@@ -103,6 +111,10 @@ _RETRY = "\n\nYour previous plan could not run as written:\n"
 _LOOKED = (
     "\n\nYou asked to see part of a result, and here it is. Answer again with it in front "
     "of you; a further look will not be answered.\n\n"
+)
+_WIDENED = (
+    "\n\nThe tools you asked to read are now given in full above. Answer again with them in "
+    "front of you."
 )
 _DRIVING = (
     "\n\nYou are driving this run on the scientist's instruction. To stop it before the "
@@ -142,6 +154,20 @@ class Advance(Protocol):
 def _left(study: Study) -> int:
     """How many questions the whole analysis may still ask: each answer spent one."""
     return max(QUESTION_BUDGET - len(study.answers), 0)
+
+
+def _index(registry: ToolRegistry) -> str:
+    """The whole catalogue, a line a tool, as the prefix a tool-choosing turn reads first."""
+    return f"{INDEX_HEADING}\n{index(registry.manifests())}"
+
+
+def _steer(study: Study) -> tuple[list[str], set[SlotKind]]:
+    """What steers the next view: the tools the agent's last turn named, and the kinds its
+    latest turn that named any said the study should end with."""
+    turns = [t for t in study.thread.turns if t.role == "agent"]
+    wanted = list(turns[-1].wanted) if turns else []
+    ends = next((t.target_kinds for t in reversed(turns) if t.target_kinds), ())
+    return wanted, {kind for kind in SlotKind if kind.value in ends}
 
 
 def _asked(questions: Sequence[Question]) -> tuple[Asked, ...]:
@@ -230,28 +256,49 @@ async def _look(look: Look, study: Study, store: BlobStore) -> tuple[str, str | 
 
 async def _answer[T: (ObserveTurn, ReplyTurn)](
     model: LanguageModel,
-    prompt: str,
     schema: type[T],
     study: Study,
     registry: ToolRegistry,
     store: BlobStore,
+    *,
+    held: Mapping[uuid.UUID, Any],
+    trigger: str,
+    stable: str = "",
+    view: Sequence[ToolManifest] | None = None,
+    in_hand: Set[SlotKind] = frozenset(),
 ) -> tuple[T, tuple[str, ...], frozenset[int]]:
     """The model's turn on a started study, what it looked at on the way, and the steps whose
     rows it was shown, by number as it counts them.
 
-    A look is answered once: the rows asked for are put in front of the model and it is asked
-    again, and that answer stands with whatever it asks to see ignored.
+    The prompt is the standing, with `view` in full, then `trigger`. Without a view the turn
+    reads no tools, and a tool it names widens nothing. A second call is made once, for a look
+    or for tools named outside the view, and that answer stands with whatever it asks for
+    ignored. A look's second call carries the widened view too.
     """
     instructions = system("running", registry)
-    answer = await model.parse(system=instructions, prompt=prompt, schema=schema)
-    if not answer.look:
+    prompt = standing(study, registry, view=view or (), data=held) + trigger
+    answer = await model.parse(system=instructions, prompt=prompt, schema=schema, stable=stable)
+    named: list[str] = []
+    if view is not None:
+        named += getattr(answer, "wanted", [])
+        named += [action.tool_id for action in getattr(answer, "actions", [])]
+        named += [proposal.tool_id for proposal in answer.proposals]
+    unseen = outside(registry, view or (), named)
+    if unseen:
+        wider = widen(registry, view or (), unseen, in_hand=set(in_hand))
+        prompt = standing(study, registry, view=wider, data=held) + trigger
+    looks: list[tuple[str, str | None]] = []
+    if answer.look:
+        looks = [await _look(look, study, store) for look in answer.look]
+        prompt += _LOOKED + "\n\n".join(text for text, _ in looks)
+    elif unseen:
+        prompt += _WIDENED
+    else:
         return answer, (), frozenset()
-    looks = [await _look(look, study, store) for look in answer.look]
     shown = frozenset(
         look.step for look, (_, line) in zip(answer.look, looks, strict=True) if line is not None
     )
-    prompt += _LOOKED + "\n\n".join(text for text, _ in looks)
-    answer = await model.parse(system=instructions, prompt=prompt, schema=schema)
+    answer = await model.parse(system=instructions, prompt=prompt, schema=schema, stable=stable)
     return answer, tuple(line for _, line in looks if line is not None), shown
 
 
@@ -376,6 +423,7 @@ class StudyAgent:
             system=system("asking", self._tools),
             prompt=standing(study, self._tools, left=left),
             schema=AskingTurn,
+            stable=_index(self._tools),
         )
         study.restated_goal = answer.restated_goal.strip()
         # Trimmed here, not trusted to the prompt: a form nobody finishes is worse than a
@@ -387,6 +435,8 @@ class StudyAgent:
                 kind="asking",
                 say=study.restated_goal,
                 questions=questions,
+                wanted=tuple(answer.wanted[:WANTED_CAP]),
+                target_kinds=tuple(kind.value for kind in answer.target_kinds),
                 written_by=str(model.choice),
                 at=datetime.now(UTC),
             )
@@ -434,20 +484,50 @@ class StudyAgent:
         return await self._reply(study, model, command, auth)
 
     async def _plan(self, study: Study, model: LanguageModel) -> None:
-        """A planning turn: the plan written whole, or edited, and what is still to ask."""
+        """A planning turn: the plan written whole, or edited, and what is still to ask.
+
+        The model reads the index and a view chosen from what its last turn named, what the
+        plan uses and what reaches the kinds the study should end with. A plan built from
+        tools it saw only in the index stands if the checker passes it.
+        """
         left = _left(study)
         instructions = system("planning", self._tools)
-        prompt = standing(study, self._tools, left=left)
-        answer = await model.parse(system=instructions, prompt=prompt, schema=PlanningTurn)
+        schema = planning_turn_schema(self._tools)
+        wanted, targets = _steer(study)
+        in_hand = _brought(study) | {SlotKind.COMPOUND_TABLE}
+        in_plan = [s.tool_id for s in study.steps]
+        view = select(
+            self._tools, wanted=wanted, in_plan=in_plan, in_hand=in_hand, targets=targets
+        )
+        prompt = standing(study, self._tools, view=view, left=left)
+        answer = await model.parse(
+            system=instructions, prompt=prompt, schema=schema, stable=_index(self._tools)
+        )
         # A plan with no steps is the schema's "no plan": the turn edits the one there is.
-        if answer.plan.steps and (problems := self._problems(answer.plan, study)):
-            # One more try with the plan's own problems in front of it: a missing setting or
-            # an invented tool is a defect the check names exactly, and the model fixes a named
-            # defect far more often than it avoids one unprompted. ponytail: one retry; the
-            # second answer stands whatever its problems, and its steps show them.
-            prompt += _RETRY + "\n".join(f"- {p.message}" for p in problems)
-            prompt += "\nReturn the corrected plan."
-            answer = await model.parse(system=instructions, prompt=prompt, schema=PlanningTurn)
+        problems = self._problems(answer.plan, study) if answer.plan.steps else []
+        asked_first = not answer.plan.steps and not answer.actions
+        if problems or (asked_first and outside(self._tools, view, answer.wanted)):
+            # One more try, with the plan's own problems in front of it or the tools it asked
+            # to read: a missing setting or a step with nothing to feed it is a defect the
+            # check names exactly, and the model fixes a named defect far more often than it
+            # avoids one unprompted. ponytail: one retry; the second answer stands whatever
+            # its problems, and its steps show them.
+            ids = [
+                *answer.wanted,
+                *(s.tool_id for s in answer.plan.steps),
+                *(a.tool_id for a in answer.actions),
+                *self._unmade(answer.plan, study),
+            ]
+            wider = widen(self._tools, view, ids, in_hand=in_hand)
+            prompt = standing(study, self._tools, view=wider, left=left)
+            if problems:
+                prompt += _RETRY + "\n".join(f"- {p.message}" for p in problems)
+                prompt += "\nReturn the corrected plan."
+            else:
+                prompt += _WIDENED
+            answer = await model.parse(
+                system=instructions, prompt=prompt, schema=schema, stable=_index(self._tools)
+            )
         acted: list[Acted] = []
         if answer.plan.steps:
             # A whole plan replaces the steps any action beside it was numbered against.
@@ -465,6 +545,7 @@ class StudyAgent:
                 say=answer.say.strip(),
                 questions=_asked(offered)[:left],
                 actions=tuple(acted),
+                wanted=tuple(answer.wanted[:WANTED_CAP]),
                 dropped=dropped,
                 written_by=str(model.choice),
                 at=datetime.now(UTC),
@@ -485,6 +566,25 @@ class StudyAgent:
         in_hand = brought | {SlotKind.COMPOUND_TABLE}
         return incoherences(chosen, self._tools, starting_with=in_hand)
 
+    def _unmade(self, plan: DraftPlan, study: Study) -> list[str]:
+        """The tools that make what a step needs and no step before it made, walking the plan
+        as `_problems` does, so a retry can read them in full."""
+        brought = _brought(study)
+        available = brought | {SlotKind.COMPOUND_TABLE}
+        by_id = {m.id: m for m in self._tools.manifests()}
+        ids: list[str] = []
+        for step in expand(plan, self._tools, starting_with=brought):
+            manifest = by_id.get(step.tool_id)
+            if step.always or manifest is None:
+                continue
+            for slot in manifest.inputs:
+                if not slot.optional and slot.kind not in available:
+                    ids += [m.id for m in self._tools.producing(slot.kind)]
+            available |= {slot.kind for slot in manifest.outputs}
+            if manifest.resolves_to is not None:
+                available.add(manifest.resolves_to)
+        return ids
+
     def _replace(self, study: Study, plan: DraftPlan) -> int:
         """Put a whole plan in the draft's place; how many of its steps name no tool."""
         steps = expand(plan, self._tools, starting_with=_brought(study))
@@ -502,13 +602,29 @@ class StudyAgent:
         """The answer to a message on a started study: what it says, checked, and what it
         does on the scientist's words."""
         decoded: dict[uuid.UUID, Any] = {}
-        prompt = standing(study, self._tools, data=await _held(study, self._store, decoded))
+        holding = await _held(study, self._store, decoded)
+        trigger = ""
         if about := next((s for s in study.steps if s.id == command.about), None):
             outputs = study.current_outputs_of(about.id)
             data = await _whole(self._store, outputs[0], decoded) if outputs else None
-            prompt += "\n\n" + trigger_for_reply(study, about, data)
+            trigger = "\n\n" + trigger_for_reply(study, about, data)
+        # A reply edits a plan rather than building one: its tools, what was named last, and
+        # the automatic ones. Anything else it names is read on the one second call.
+        in_plan = [s.tool_id for s in study.steps]
+        view = select(
+            self._tools, wanted=_steer(study)[0], in_plan=in_plan, in_hand=set(), targets=set()
+        )
         answer, looked, shown = await _answer(
-            model, prompt, ReplyTurn, study, self._tools, self._store
+            model,
+            ReplyTurn,
+            study,
+            self._tools,
+            self._store,
+            held=holding,
+            trigger=trigger,
+            stable=_index(self._tools),
+            view=view,
+            in_hand=set(),
         )
         points, proposals, dropped = await _checked(
             answer, study, self._tools, self._store, decoded, shown
@@ -574,6 +690,7 @@ class StudyAgent:
                 unresolved=tuple(answer.unresolved),
                 actions=tuple(acted),
                 looked=looked,
+                wanted=tuple(answer.wanted[:WANTED_CAP]),
                 dropped=dropped,
                 written_by=str(model.choice),
                 at=datetime.now(UTC),
@@ -656,12 +773,12 @@ class ObserveStep:
         outputs = [] if step.status is StepStatus.FAILED else study.current_outputs_of(step.id)
         data = {value.id: await _whole(self._store, value, decoded) for value in outputs}
         held = await _held(study, self._store, decoded)
-        prompt = f"{standing(study, self._tools, data=held)}\n\n"
-        prompt += trigger_for_observe(study, step, data)
+        trigger = "\n\n" + trigger_for_observe(study, step, data)
         if driving:
-            prompt += _DRIVING
+            trigger += _DRIVING
+        # No view and no index: an observation cannot act, so it has no tool to choose.
         answer, looked, shown = await _answer(
-            model, prompt, ObserveTurn, study, self._tools, self._store
+            model, ObserveTurn, study, self._tools, self._store, held=held, trigger=trigger
         )
         points, proposals, dropped = await _checked(
             answer, study, self._tools, self._store, decoded, shown
