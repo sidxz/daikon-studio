@@ -147,7 +147,7 @@ async def test_a_second_table_is_refused_and_nothing_is_created() -> None:
 
     error = result.failure()
     assert isinstance(error, ValidationError)
-    assert error.message == "A study takes one compound table file."
+    assert error.message == "Only one compound table file is permitted per study."
     assert world.studies.rows == {}
     assert world.store.blobs == {}  # the first file's blob was taken back with the refusal
     assert world.model.calls == []
@@ -165,7 +165,10 @@ async def test_a_cif_or_an_unreadable_csv_is_refused_with_a_sentence() -> None:
         ),
         (opening(Upload("empty.csv", b"")), "The compounds file could not be read."),
         (opening(Upload("empty.pdb", b"")), "The structure file could not be read."),
-        (opening(goal="Too short."), "Say what you want to find out."),
+        (
+            opening(goal="Too short."),
+            "Provide a research objective containing at least 15 characters.",
+        ),
     ]
     errors = []
     for command, sentence in refused:
@@ -177,7 +180,9 @@ async def test_a_cif_or_an_unreadable_csv_is_refused_with_a_sentence() -> None:
         assert world.studies.rows == {} and world.store.blobs == {}, sentence
         errors.append(error)
     # The one a scientist is likeliest to try says what to attach instead.
-    assert errors[0].detail == "Attach a .csv, .tsv or .pdb file; .cif is not read yet."
+    assert errors[0].detail == (
+        "Supported file formats are .csv, .tsv, .tab, and .pdb. The .cif format is not supported."
+    )
 
     # A file sorted by potency puts its censored reading last, past the first hundred rows: it
     # is read, not refused.

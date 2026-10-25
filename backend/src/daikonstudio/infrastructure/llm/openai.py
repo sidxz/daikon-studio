@@ -7,11 +7,13 @@ one compatibility shim.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import openai
 import structlog
 from pydantic import BaseModel, ValidationError
 
-from daikonstudio.application.ports.llm import ModelChoice
+from daikonstudio.application.ports.llm import Answer, ModelChoice, Tool
 from daikonstudio.domain.shared.errors import ServiceUnavailableError
 
 _logger = structlog.get_logger(__name__)
@@ -78,3 +80,22 @@ class OpenAILanguageModel:
             raise ServiceUnavailableError(
                 "The OpenAI model did not answer in the expected form."
             ) from exc
+
+    async def act[T: BaseModel](
+        self,
+        *,
+        system: str,
+        prompt: str,
+        schema: type[T],
+        tools: Sequence[Tool],
+        stable: str = "",
+    ) -> Answer[T]:
+        if tools:
+            # ponytail: the two-request shape is built for Anthropic only; add the Responses
+            # API's function calls here when a deployment runs studies on OpenAI.
+            raise ServiceUnavailableError(
+                "The OpenAI model cannot act on a study yet.",
+                detail="Ask the Anthropic provider on a started study.",
+            )
+        parsed = await self.parse(system=system, prompt=prompt, schema=schema, stable=stable)
+        return Answer(parsed)

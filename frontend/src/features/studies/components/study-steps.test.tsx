@@ -62,10 +62,14 @@ describe("the steps", () => {
     });
     render(<StudySteps studyId="s1" onTalk={() => {}} />, { wrapper: Wrapper });
 
-    expect(await screen.findByText("Looked, nothing to add")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Review complete; no additional observations."),
+    ).toBeInTheDocument();
     const cards = screen.getAllByRole("listitem");
-    expect(within(cards[0]).getByText("Looked, nothing to add")).toBeInTheDocument();
-    expect(screen.getAllByText("Looked, nothing to add")).toHaveLength(1);
+    expect(
+      within(cards[0]).getByText("Review complete; no additional observations."),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("Review complete; no additional observations.")).toHaveLength(1);
 
     expect(screen.getAllByRole("button", { name: /^Run step \d again$/ })).toHaveLength(3);
     fireEvent.click(screen.getByRole("button", { name: "Run step 2 again" }));
@@ -74,7 +78,7 @@ describe("the steps", () => {
     expect(requests("POST", "/studies/s1/steps/st1/run")).toHaveLength(0);
   });
 
-  it("Use this one posts approve with the rank", async () => {
+  it("Select this pocket posts approve with the rank", async () => {
     const meta = { count: 2 };
     // Chosen on the result the step had before it ran again (v0), not on the one shown (v1).
     const chosen = { rank: 1, from: "v0" };
@@ -133,7 +137,7 @@ describe("the steps", () => {
       await screen.findByRole("button", { name: "Show pocket rank 2 in the viewer" }),
     );
     expect(screen.getByText("A:HIS95")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Use this one" }));
+    fireEvent.click(screen.getByRole("button", { name: "Select this pocket" }));
 
     await waitFor(() => expect(requests("POST", "/studies/s1/steps/st1/approve")).toHaveLength(1));
     expect(requests("POST", "/studies/s1/steps/st1/approve")[0].data).toEqual({ candidate: 2 });
@@ -158,7 +162,7 @@ describe("the steps", () => {
     });
     render(<StudySteps studyId="s1" onTalk={() => {}} />, { wrapper: Wrapper });
 
-    expect(await screen.findByText("Daikon Studio is reading the result")).toBeInTheDocument();
+    expect(await screen.findByText("Reviewing results…")).toBeInTheDocument();
     // No play on the step being read, and the next step's play cannot start a second run.
     expect(screen.queryByRole("button", { name: "Run step 1 again" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Run step 2" })).toBeDisabled();

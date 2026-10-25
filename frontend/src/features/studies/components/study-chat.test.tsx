@@ -71,23 +71,27 @@ describe("the study's thread", () => {
 
     expect(
       await screen.findByText(
-        "Did: Changed step 2 (Prepare structure): keep_ligands=false, on your words: 'Rerun without the zinc'",
+        "Action completed: Changed step 2 (Prepare structure): keep_ligands=false. User instruction: “Rerun without the zinc”.",
       ),
     ).toBeInTheDocument();
     // A reply's count covers refused edits and proposals too; an observation's, only claims.
     expect(
       screen.getByText(
-        /2 of what it tried was refused: claims the result does not support, or edits and proposals the plan cannot carry/,
+        /2 items excluded: unsupported claims or changes incompatible with the current plan/,
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText(/1 claim dropped: not supported by this result/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        /1 claim omitted because supporting results were unavailable or insufficient/,
+      ),
+    ).toBeInTheDocument();
     // The label leads and the step is named only because this point is about another one;
     // what kind of evidence it is sits under it, with the cites, not in the middle of it.
     expect(screen.getByText("zinc site")).toBeInTheDocument();
     expect(screen.getByText("a removed step rank 2")).toBeInTheDocument();
     expect(screen.getByText("ligand overlap: ZN")).toBeInTheDocument();
     // The summary is folded above the composer, so it never crowds out the thread.
-    const folded = screen.getByText("Where this stands").closest("details");
+    const folded = screen.getByText("Study summary").closest("details");
     expect(folded).not.toHaveAttribute("open");
     expect(folded).toHaveTextContent("Step 2 waits to run again without the zinc.");
   });
@@ -135,12 +139,12 @@ describe("the study's thread", () => {
     expect(
       await screen.findByText("Change the settings of step 2: keep_ligands false"),
     ).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Do it" }));
+    fireEvent.click(screen.getByRole("button", { name: "Apply proposal" }));
 
     expect(
-      await screen.findByText("Done. The step is waiting for you to run it."),
+      await screen.findByText("Proposal applied. The step is ready for execution."),
     ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Do it" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Apply proposal" })).toBeNull();
     expect(requests("POST", "/studies/s1/proposals/p1/apply")).toHaveLength(1);
   });
 

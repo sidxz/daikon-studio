@@ -43,13 +43,15 @@ function proposed(
       return `Add ${tool} ${before ? `before ${before}` : "at the end"}${listed}`;
     }
     case "remove":
-      return `Take ${step} out of the plan`;
+      return `Remove ${step} from the plan`;
     case "swap":
       return `Use ${tool} for ${step}${listed}`;
     case "settings":
       return `Change the settings of ${step}${listed}`;
     case "gate":
-      return action.gated ? `Stop after ${step} for you to look` : `Let ${step} run on`;
+      return action.gated
+        ? `Pause after ${step} for review`
+        : `Continue after ${step} without a review pause`;
     case "approve":
       return `Use candidate ${String(action.candidate)} of ${step}`;
     case "run": {
@@ -93,8 +95,8 @@ function Proposals({
           {proposal.applied_at ? (
             <p className="text-xs text-muted-foreground">
               {["insert", "swap", "settings"].includes(String(proposal.action.does))
-                ? "Done. The step is waiting for you to run it."
-                : "Done."}
+                ? "Proposal applied. The step is ready for execution."
+                : "Proposal applied."}
             </p>
           ) : (
             <div className="flex flex-wrap items-center gap-2">
@@ -105,7 +107,7 @@ function Proposals({
                 aria-describedby={running ? STEPS_REASON_ID : undefined}
                 onClick={() => apply.mutate(proposal.id)}
               >
-                Do it
+                Apply proposal
               </Button>
             </div>
           )}
@@ -123,7 +125,9 @@ function Proposals({
 /** What the agent did on the scientist's word, quoting the words it acted on. */
 function did({ detail, quoting }: { detail: string; quoting: string }): string {
   const done = detail.replace(/\.$/, "");
-  return quoting ? `Did: ${done}, on your words: '${quoting}'` : `Did: ${done}`;
+  return quoting
+    ? `Action completed: ${done}. User instruction: “${quoting}”.`
+    : `Action completed: ${done}.`;
 }
 
 /**
@@ -149,7 +153,7 @@ export function TurnView({
     const where = turn.about ? aboutStep(steps, turn.about) : "a step";
     return (
       <p className="px-1 text-xs text-muted-foreground">
-        {failed ? `Could not look at ${where}: ${turn.say}` : turn.say}
+        {failed ? `Unable to review ${where}: ${turn.say}` : turn.say}
       </p>
     );
   }
@@ -162,8 +166,8 @@ export function TurnView({
       ? // Two reasons now, and saying only the first would misreport the second: a claim
         // about a step that has not run is dropped for having nothing in it, not for
         // being unsupported.
-        `${turn.dropped} ${turn.dropped === 1 ? "claim" : "claims"} dropped: not supported by this result, or about a step that has not run`
-      : `${turn.dropped} of what it tried was refused: claims the result does not support, or edits and proposals the plan cannot carry`);
+        `${turn.dropped} ${turn.dropped === 1 ? "claim" : "claims"} omitted because supporting results were unavailable or insufficient.`
+      : `${turn.dropped} ${turn.dropped === 1 ? "item" : "items"} excluded: unsupported claims or changes incompatible with the current plan.`);
   // A point about a check or a stop condition is the standing state of the plan, and the
   // panel under the steps now holds that, with the criterion's own words beside it. Repeating
   // it here put the whole criterion in the thread on every turn, including the ones that said
@@ -281,7 +285,7 @@ export function TurnView({
         </Fold>
       )}
       {turn.looked.length > 0 && (
-        <p className="text-xs text-muted-foreground">Looked at {turn.looked.join("; ")}.</p>
+        <p className="text-xs text-muted-foreground">Data reviewed: {turn.looked.join("; ")}.</p>
       )}
       {agent && (turn.written_by || dropped) && (
         <p className="text-xs text-muted-foreground">

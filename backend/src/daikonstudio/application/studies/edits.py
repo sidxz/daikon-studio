@@ -442,11 +442,11 @@ def _set_gate(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None
 
     def do() -> Acted:
         study.set_gate(step.id, gated)
-        stops = "stop for you to look at its result" if gated else "run on without stopping"
+        stops = "pause for result review" if gated else "continue without a review pause"
         return Acted(
             does="gate",
             step=step.id,
-            detail=f"Set {_label(step)} to {stops}.",
+            detail=f"Configured {_label(step)} to {stops}.",
             quoting=named.action.quoting,
         )
 
@@ -506,7 +506,7 @@ def _proposal(named: _Named) -> Proposal:
         step=_now(named.step),
         before=_now(named.before),
         until=_now(named.until),
-        why="Proposed, not done: it did not quote your message.",
+        why=named.action.why or "Proposed, not done: it did not quote your message.",
     )
     return Proposal.model_validate(fields)
 

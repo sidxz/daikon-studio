@@ -4,9 +4,9 @@ It keeps one conversation per study and answers in the schema of the phase the s
 which is what makes its rules mechanical rather than hoped for. Before there is a plan it may
 only ask. While the plan is a draft it writes and edits it with the scientist, and no change
 needs a quote, because nothing has run. Once the study has started it observes every step
-that ends, unprompted, and acts only in reply to a message and on that message's words: an
-observation has no field to act with, and an action that does not quote the message is
-handed back as a proposal for the scientist to press.
+that ends, unprompted, and acts only in reply to a message and on that message's words: a
+reply is offered one tool per kind of change and an observation none, and a call that does
+not quote the message is handed back as a proposal for the scientist to press.
 
 Nothing the model says is stored as it said it. A claim about a result is kept only where the
 reader for that kind of result finds it there; a claim about the plan only where it cites the
@@ -59,7 +59,7 @@ from daikonstudio.application.planner.view import (
     widen,
 )
 from daikonstudio.application.ports.blob_store import BlobStore
-from daikonstudio.application.ports.llm import LanguageModel, LanguageModels
+from daikonstudio.application.ports.llm import Answer, LanguageModel, LanguageModels, Tool
 from daikonstudio.application.ports.study_repository import StudyRepository
 from daikonstudio.application.studies.advance_study import (
     RUNNING_MESSAGE,
@@ -81,12 +81,15 @@ from daikonstudio.application.studies.proposals import vet
 from daikonstudio.application.studies.read_value import decode_view
 from daikonstudio.application.studies.readers import LOOK_ROWS_MAX, reader
 from daikonstudio.application.studies.schemas import (
+    ACT_TOOLS,
     AskingTurn,
     Claim,
     Look,
     ObserveTurn,
     ProgressClaim,
+    Proposal,
     ReplyTurn,
+    as_action,
     planning_turn_schema,
 )
 from daikonstudio.application.studies.standing import (
@@ -273,39 +276,46 @@ async def _answer[T: (ObserveTurn, ReplyTurn)](
     stable: str = "",
     view: Sequence[ToolManifest] | None = None,
     in_hand: Set[SlotKind] = frozenset(),
-) -> tuple[T, tuple[str, ...], frozenset[int]]:
-    """The model's turn on a started study, what it looked at on the way, and the steps whose
-    rows it was shown, by number as it counts them.
+    tools: Sequence[Tool] = (),
+) -> tuple[Answer[T], tuple[str, ...], frozenset[int]]:
+    """The model's turn on a started study, with the calls it made to `tools`, what it looked
+    at on the way, and the steps whose rows it was shown, by number as it counts them.
 
     The prompt is the standing, with `view` in full, then `trigger`. Without a view the turn
     reads no tools, and a tool it names widens nothing. A second call is made once, for a look
-    or for tools named outside the view, and that answer stands with whatever it asks for
-    ignored. A look's second call carries the widened view too.
+    or for tools named outside the view, and that answer stands, calls included, with whatever
+    it asks for ignored. A look's second call carries the widened view too.
     """
     instructions = system("running", registry)
     prompt = standing(study, registry, view=view or (), data=held) + trigger
-    answer = await model.parse(system=instructions, prompt=prompt, schema=schema, stable=stable)
+    answer = await model.act(
+        system=instructions, prompt=prompt, schema=schema, tools=tools, stable=stable
+    )
     named: list[str] = []
     if view is not None:
-        named += getattr(answer, "wanted", [])[:WANTED_CAP]
-        named += [action.tool_id for action in getattr(answer, "actions", [])]
-        named += [proposal.tool_id for proposal in answer.proposals]
+        named += getattr(answer.parsed, "wanted", [])[:WANTED_CAP]
+        named += [as_action(call).tool_id for call in answer.calls]
+        named += [proposal.tool_id for proposal in getattr(answer.parsed, "proposals", [])]
     unseen = outside(registry, view or (), named)
     if unseen:
         wider = widen(registry, view or (), unseen, in_hand=set(in_hand))
         prompt = standing(study, registry, view=wider, data=held) + trigger
     looks: list[tuple[str, str | None]] = []
-    if answer.look:
-        looks = [await _look(look, study, store) for look in answer.look]
+    if answer.parsed.look:
+        looks = [await _look(look, study, store) for look in answer.parsed.look]
         prompt += _LOOKED + "\n\n".join(text for text, _ in looks)
     elif unseen:
         prompt += _WIDENED
     else:
         return answer, (), frozenset()
     shown = frozenset(
-        look.step for look, (_, line) in zip(answer.look, looks, strict=True) if line is not None
+        look.step
+        for look, (_, line) in zip(answer.parsed.look, looks, strict=True)
+        if line is not None
     )
-    answer = await model.parse(system=instructions, prompt=prompt, schema=schema, stable=stable)
+    answer = await model.act(
+        system=instructions, prompt=prompt, schema=schema, tools=tools, stable=stable
+    )
     return answer, tuple(line for _, line in looks if line is not None), shown
 
 
@@ -376,13 +386,14 @@ def check_progress(claims: Sequence[ProgressClaim], study: Study) -> tuple[list[
 
 async def _checked(
     answer: ObserveTurn | ReplyTurn,
+    proposals: Sequence[Proposal],
     study: Study,
     registry: ToolRegistry,
     store: BlobStore,
     decoded: dict[uuid.UUID, Any],
     shown: frozenset[int],
 ) -> tuple[list[Pointer], list[Proposed], int]:
-    """What survives of a turn's claims and proposals, and how many did not.
+    """What survives of a turn's claims and of `proposals`, and how many did not.
 
     `shown` is the steps whose rows a look in this turn showed. A row is cited by its
     identifier, which only a look shows, so a claim citing rows of a step not looked at in
@@ -405,8 +416,8 @@ async def _checked(
         points += kept
         dropped += lost
     progress, unplanned = check_progress(answer.progress, study)
-    proposals, unusable = vet(answer.proposals, study, registry)
-    return [*points, *progress], proposals, dropped + unplanned + unusable
+    offered, unusable = vet(proposals, study, registry)
+    return [*points, *progress], offered, dropped + unplanned + unusable
 
 
 class StudyAgent:
@@ -646,7 +657,7 @@ class StudyAgent:
         view = select(
             self._tools, wanted=_steer(study)[0], in_plan=in_plan, in_hand=in_hand, targets=set()
         )
-        answer, looked, shown = await _answer(
+        answered, looked, shown = await _answer(
             model,
             ReplyTurn,
             study,
@@ -657,10 +668,14 @@ class StudyAgent:
             stable=_index(self._tools),
             view=view,
             in_hand=in_hand,
+            tools=ACT_TOOLS,
         )
+        answer = answered.parsed
+        actions = [as_action(call) for call in answered.calls]
         points, proposals, dropped = await _checked(
-            answer, study, self._tools, self._store, decoded, shown
+            answer, (), study, self._tools, self._store, decoded, shown
         )
+        dropped += answered.malformed
         if in_flight(study.id):
             # One began while the model was answering: change nothing, write nothing.
             return Failure(ConflictError(RUNNING_MESSAGE))
@@ -669,11 +684,11 @@ class StudyAgent:
         numbered = {step.position + 1: step.id for step in study.steps}
         quotes = {
             (numbered.get(a.step or 0), a.candidate): a.quoting
-            for a in answer.actions
+            for a in actions
             if a.does == "approve"
         }
         # With no message there is nothing to quote, so nothing is done and all is proposed.
-        applied = apply_actions(study, answer.actions, self._tools, message=command.message or "")
+        applied = apply_actions(study, actions, self._tools, message=command.message or "")
         held, unusable = vet(applied.downgraded, study, self._tools)
         offered, gone = _pressable(study, [*proposals, *held])
         acted = list(applied.acted)
@@ -755,10 +770,11 @@ class StudyAgent:
 class ObserveStep:
     """The turn the agent takes when a step ends: it observes, and that is all it can do.
 
-    `ObserveTurn` has no field to change the plan or run anything, so a result can only be
-    remarked on; the one thing an observation may do is stop a run the agent is driving, and
-    only with a reason. It runs inside the run loop rather than for a request, so it never
-    raises: a turn that could not be taken is recorded as an event and the loop goes on.
+    `ObserveTurn` has no field to change the plan or run anything, and the turn is offered
+    no tool, so a result can only be remarked on; the one thing an observation may do is
+    stop a run the agent is driving, and only with a reason. It runs inside the run loop
+    rather than for a request, so it never raises: a turn that could not be taken is
+    recorded as an event and the loop goes on.
     """
 
     def __init__(
@@ -808,12 +824,13 @@ class ObserveStep:
         trigger = "\n\n" + trigger_for_observe(study, step, data)
         if driving:
             trigger += _DRIVING
-        # No view and no index: an observation cannot act, so it has no tool to choose.
-        answer, looked, shown = await _answer(
+        # No view, no index and no tools: an observation cannot act.
+        answered, looked, shown = await _answer(
             model, ObserveTurn, study, self._tools, self._store, held=held, trigger=trigger
         )
+        answer = answered.parsed
         points, proposals, dropped = await _checked(
-            answer, study, self._tools, self._store, decoded, shown
+            answer, answer.proposals, study, self._tools, self._store, decoded, shown
         )
         say = answer.say.strip()
         study.thread.summary = answer.summary.strip()

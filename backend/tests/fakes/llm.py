@@ -8,22 +8,33 @@ better covered against `respx` than against a mock.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from pydantic import BaseModel
 
-from daikonstudio.application.ports.llm import LanguageModel, ModelChoice
+from daikonstudio.application.ports.llm import Answer, LanguageModel, ModelChoice, Tool
 from daikonstudio.domain.shared.errors import ServiceUnavailableError
 
 
 class ScriptedLanguageModel:
     """Returns its replies in order, then the last one for every call after, recording
-    the prompt and the schema of each call."""
+    the prompt, the schema and the tools of each call.
 
-    def __init__(self, reply: BaseModel, *more: BaseModel, provider: str = "anthropic") -> None:
+    A reply is the answer alone, or an `Answer` carrying the tool calls made before it.
+    """
+
+    def __init__(
+        self,
+        reply: BaseModel | Answer[BaseModel],
+        *more: BaseModel | Answer[BaseModel],
+        provider: str = "anthropic",
+    ) -> None:
         self._replies = (reply, *more)
         self._provider = provider
         self.calls: list[tuple[str, str]] = []
         self.stables: list[str] = []
         self.schemas: list[type[BaseModel]] = []
+        self.tools: list[tuple[str, ...]] = []
 
     @property
     def choice(self) -> ModelChoice:
@@ -32,11 +43,32 @@ class ScriptedLanguageModel:
     async def parse[T: BaseModel](
         self, *, system: str, prompt: str, schema: type[T], stable: str = ""
     ) -> T:
+        return (
+            await self.act(system=system, prompt=prompt, schema=schema, tools=(), stable=stable)
+        ).parsed
+
+    async def act[T: BaseModel](
+        self,
+        *,
+        system: str,
+        prompt: str,
+        schema: type[T],
+        tools: Sequence[Tool],
+        stable: str = "",
+    ) -> Answer[T]:
         reply = self._replies[min(len(self.calls), len(self._replies) - 1)]
         self.calls.append((system, prompt))
         self.stables.append(stable)
         self.schemas.append(schema)
-        return schema.model_validate(reply.model_dump())
+        self.tools.append(tuple(tool.name for tool in tools))
+        parsed, calls = (reply.parsed, reply.calls) if isinstance(reply, Answer) else (reply, ())
+        offered = {tool.schema for tool in tools}
+        # The real provider cannot return a call to a tool it was not given; a script that
+        # does is a test's mistake, not a turn's.
+        assert all(type(call) in offered for call in calls), (
+            "a call to a tool this turn was not offered"
+        )
+        return Answer(schema.model_validate(parsed.model_dump()), tuple(calls))
 
 
 class ScriptedLanguageModels:

@@ -16,7 +16,7 @@ import { Fold } from "./fold";
 import { QuestionCard } from "./question-card";
 import { TurnView, aboutStep } from "./turn-view";
 
-/** The composer's id, so "Talk about this result" on a card can put the cursor in it. */
+/** The composer's id, so "Discuss results" on a card can put the cursor in it. */
 export const MESSAGE_ID = "study-message";
 
 /**
@@ -161,16 +161,14 @@ export function StudyChat({
         {/* One bar for both waits: a step running is the model thinking, and a turn in
             flight is the model writing. Only one can be open at a time. */}
         {waiting && (
-          <ThinkingBar
-            label={say.isPending ? "Daikon Studio is writing a reply" : "Daikon Studio is thinking"}
-          />
+          <ThinkingBar label={say.isPending ? "Generating a response…" : "Analysis in progress…"} />
         )}
       </div>
 
       {/* Folded, above the composer: it can run to a page. Open, it scrolls in its own box,
           so the thread keeps its room. */}
       {thread.data?.summary && (
-        <Fold label="Where this stands">
+        <Fold label="Study summary">
           {/* Its own scroller: this one sits outside the thread's, and a long summary would
               otherwise push the composer off the rail. */}
           <p className="max-h-40 overflow-y-auto">{thread.data.summary}</p>
@@ -204,7 +202,7 @@ export function StudyChat({
             rows={2}
             value={message}
             disabled={say.isPending}
-            placeholder="Ask about the plan or a result, or say what to do next"
+            placeholder="Ask a question about the plan or results, or specify the next action."
             // A message can hold a pasted sequence, one long word that would push the rail wide.
             className="min-w-0 flex-1 wrap-anywhere"
             onChange={(event) => setMessage(event.target.value)}

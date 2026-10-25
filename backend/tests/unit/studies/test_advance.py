@@ -182,7 +182,7 @@ async def test_a_required_input_nobody_made_fails_the_step() -> None:
     await _advance(advance, sid, auth)
     step = studies.rows[sid].steps[0]
     assert step.status is StepStatus.FAILED
-    assert "Needs structure" in (step.error or "")
+    assert "Required input unavailable: structure" in (step.error or "")
     assert executor.calls == []
 
 
@@ -274,7 +274,7 @@ async def test_the_loop_stops_where_the_agent_pauses() -> None:
     assert [t.kind for t in study.thread.turns] == ["ran", "observe", "paused"]
     paused = study.thread.turns[-1]
     assert (paused.role, paused.about) == ("event", fetch)
-    assert paused.say == f"Paused by the agent after step 1 ({PDB})."
+    assert paused.say == f"Execution paused automatically after step 1 ({PDB})."
     assert "driving this run" in model.calls[0][1]
 
 
@@ -408,7 +408,7 @@ async def test_running_a_step_whose_input_is_missing_fails_it() -> None:
     await _run_one(advance, sid, auth, pockets)
     step = studies.rows[sid].steps[0]
     assert step.status is StepStatus.FAILED
-    assert "Needs structure" in (step.error or "")
+    assert "Required input unavailable: structure" in (step.error or "")
     assert executor.calls == []
 
 
@@ -466,7 +466,10 @@ async def test_running_a_step_that_does_not_exist_is_refused() -> None:
 async def test_a_default_lane_tool_with_no_implementation_says_so() -> None:
     auth, studies, _, advance, sid = _setup({}, ("fetch_pdb", {"pdb_id": "1abc"}, False))
     await _advance(advance, sid, auth)
-    assert studies.rows[sid].steps[0].error == "Not available on this server yet."
+    assert (
+        studies.rows[sid].steps[0].error
+        == "This analysis tool is unavailable on the current server."
+    )
 
 
 async def test_an_executor_failure_is_recorded_on_the_step() -> None:

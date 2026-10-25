@@ -127,9 +127,9 @@ describe("the pockets block", () => {
     expect(screen.getByText("Kept in the receptor").nextSibling).toHaveTextContent("None");
     // Named, not counted: a gap at the N-terminus borders nothing, one on a loop beside a
     // site makes every cavity there suspect, and a count alone cannot tell them apart.
-    expect(screen.getByText("Not located in the experiment").nextSibling).toHaveTextContent(
-      "MET A1",
-    );
+    expect(
+      screen.getByText("Residues unresolved in the experimental structure").nextSibling,
+    ).toHaveTextContent("MET A1");
   });
 
   it("names a predicted site's score for what it is and leaves its absent volume blank", async () => {
@@ -175,7 +175,9 @@ describe("the pockets block", () => {
     expect(document.body.textContent).not.toMatch(/NaN|undefined/);
     // No other tool's name, and no cavity search's account of cofactors and volumes.
     expect(document.body.textContent).not.toMatch(/fpocket|cofactor|Monte Carlo/);
-    expect(screen.getByText(/The predictor ran on the prepared structure/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/The predictor used only protein atoms from the prepared structure/),
+    ).toBeInTheDocument();
   });
 
   it("describes a predicted result with no sites in the predictor's terms", async () => {
@@ -276,7 +278,7 @@ describe("the cores block", () => {
       expect(drawing.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
     }
     fireEvent.click(screen.getByRole("button", { name: /rank 2/i }));
-    fireEvent.click(screen.getByRole("button", { name: /use this one/i }));
+    fireEvent.click(screen.getByRole("button", { name: /select this core/i }));
     expect(onApprove).toHaveBeenCalledWith(2);
   });
 
@@ -334,7 +336,7 @@ describe("the model fit block", () => {
     });
     expect(await screen.findByText(/q²/)).toBeInTheDocument();
     expect(screen.getByText("R1 a, R2 x")).toBeInTheDocument();
-    expect(screen.getByText("Left out for a missing group")).toBeInTheDocument();
+    expect(screen.getByText("Excluded: missing substituent assignments")).toBeInTheDocument();
     expect(screen.getByRole("cell", { name: "b" })).toBeInTheDocument();
     expect(screen.getByText(/c.*z/)).toBeInTheDocument();
   });
@@ -353,7 +355,7 @@ describe("the model fit block", () => {
     });
     expect(await screen.findByText(/q²/)).toBeInTheDocument();
     expect(screen.queryByText("Reference")).not.toBeInTheDocument();
-    expect(screen.queryByText("Left out for a missing group")).not.toBeInTheDocument();
+    expect(screen.queryByText("Excluded: missing substituent assignments")).not.toBeInTheDocument();
   });
 
   it("gives only the reason when the fit was refused", async () => {

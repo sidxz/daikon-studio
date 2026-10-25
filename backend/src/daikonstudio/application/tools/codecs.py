@@ -15,6 +15,8 @@ from typing import Any
 
 import polars as pl
 
+from daikonstudio.domain.shared.measurement import RELATION_SUFFIX
+
 TABLE_KINDS: frozenset[str] = frozenset(
     {
         "compound_table",
@@ -37,8 +39,12 @@ TABLE_KINDS: frozenset[str] = frozenset(
 # rows `molecule_chembl_id`.
 # `svg` counts too: a drawing is a structure, and a bounded look at a table of them would
 # pull kilobytes of markup into the agent's context for every row.
+# `scaffold` counts anywhere, which is what catches `scaffold_generic` beside it. A scaffold
+# is a structure, and it is the case the content test below cannot see: a bare ring such as
+# `c1ccccc1` carries no bond, branch or bracket mark, so it fails the mark test and the
+# column reads as ordinary text. Caught by name instead, as the note below predicted.
 WITHHELD_COLUMNS = re.compile(
-    r"smiles|sequence|inchi|svg|^(molecule|structure|mol|seq|parse_error)$", re.I
+    r"smiles|sequence|inchi|svg|scaffold|^(molecule|structure|mol|seq|parse_error)$", re.I
 )
 # And by what a column holds, without RDKit: a SMILES is one run of the SMILES alphabet with a
 # bond, branch, bracket or stereo mark in it, and a sequence is twenty residues or more.
@@ -81,6 +87,17 @@ def _withheld(frame: pl.DataFrame) -> list[str]:
     for column in frame:
         values = column.drop_nulls()
         by_content = False
+        # A relation column holds `=`, `>` and `<`, and `=` is both a SMILES character and a
+        # SMILES mark, so the content test below reads a column of exact readings as
+        # structures and withholds the one column that says which values are bounds.
+        # Excluded by name, since what it holds is fixed and never a structure.
+        #
+        # An `_id` column is an identifier whatever it is named after: `scaffold_id` numbers
+        # the groups whose structures the next rule withholds, and withholding the number
+        # too would leave a reader able to see that two groupings differ but not where.
+        # This is why `molecule_chembl_id` is already spared by the word-boundary rule below.
+        if column.name.endswith(RELATION_SUFFIX) or column.name.lower().endswith("_id"):
+            continue
         if column.dtype == pl.String and values.len():
             # ponytail: no RDKit here, so a column of mostly bare SMILES (CCO, c1ccccc1) under a
             # header no pattern lists is not recognised; parse them here if that ever bites.

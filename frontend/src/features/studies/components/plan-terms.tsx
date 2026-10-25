@@ -5,7 +5,7 @@ import { useStudy, useThread } from "../hooks/use-studies";
 import type { Turn } from "../types";
 
 /**
- * What would count as a result, and when the plan would stop instead, as the study holds them,
+ * Evaluation criteria, and when the plan would stop instead, as the study holds them,
  * each with where it stands now.
  *
  * The standing lives here and not in the thread. The agent reports a criterion's state as it
@@ -59,10 +59,11 @@ export function PlanTerms({
     <>
       {checks.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-medium">What would count as a result</h2>
+          <h2 className="text-sm font-medium">Evaluation criteria</h2>
           {amendedAfterSteps === null && (
             <p className="text-xs text-muted-foreground">
-              Written before anything runs, so the answer cannot be decided after seeing it.
+              Criteria are specified before execution to reduce the risk of interpreting results
+              against retrospectively selected criteria.
             </p>
           )}
           <ul className="space-y-2 text-sm">
@@ -75,7 +76,7 @@ export function PlanTerms({
 
       {stopConditions.length > 0 && (
         <section className="space-y-2">
-          <h2 className="text-sm font-medium">When it would stop instead</h2>
+          <h2 className="text-sm font-medium">Stopping criteria</h2>
           <ul className="space-y-2 text-sm">
             {stopConditions.map((condition) => (
               <Term

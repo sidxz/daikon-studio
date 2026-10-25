@@ -79,7 +79,7 @@ def _tool_lock() -> asyncio.Lock:
 
 
 # What a request that would change a study says while a run is under way in it.
-RUNNING_MESSAGE = "A run is under way in this study. Wait for it to stop, then try again."
+RUNNING_MESSAGE = "Study execution is in progress. Retry after execution stops."
 
 
 def in_flight(study_id: uuid.UUID) -> bool:
@@ -219,7 +219,9 @@ class AdvanceStudy:
                 go_on = go_on and ended is StepStatus.DONE and not step.gated
                 paused = await self._observe(workspace_id, study_id, step.id, driving=go_on)
                 if paused and go_on:  # a pause means something only where the run would go on
-                    pause = _event("paused", f"Paused by the agent after {_label(step)}.", step.id)
+                    pause = _event(
+                        "paused", f"Execution paused automatically after {_label(step)}.", step.id
+                    )
                     await self._say(workspace_id, study_id, pause)
                     return
             if following is None or not go_on:
@@ -272,7 +274,7 @@ class AdvanceStudy:
         manifest = self._tools.get(step.tool_id)
         if not await self._executor.available(step.tool_id):
             why = (
-                "Not available on this server yet."
+                "This analysis tool is unavailable on the current server."
                 if manifest.lane == DEFAULT_LANE
                 else f"No runner is serving the {manifest.lane} lane."
             )
@@ -292,7 +294,7 @@ class AdvanceStudy:
                 bound[slot.key] = value
             elif not slot.optional:
                 kind = slot.kind.value.replace("_", " ")
-                await self._fail(study, step.id, f"Needs {kind}, which nothing produced.")
+                await self._fail(study, step.id, f"Required input unavailable: {kind}.")
                 return StepStatus.FAILED
 
         study.start_step(step.id)

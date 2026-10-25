@@ -25,7 +25,7 @@ export type Provider = ProviderResponse;
 export const STEP_STATUS_COPY: Record<string, string> = {
   pending: "Not run yet",
   running: "Running",
-  done: "Done",
+  done: "Completed",
   failed: "Failed",
   skipped: "Skipped",
 };
@@ -43,7 +43,8 @@ export const STEP_TONE: Record<string, StatusTone> = {
  * refuses every such write until the run stops. The page says so once, under the steps
  * heading (`STEPS_REASON_ID`), and each control it blocks points there.
  */
-export const RUN_UNDER_WAY = "A run is under way. Wait for it to stop.";
+export const RUN_UNDER_WAY =
+  "Execution is in progress. Changes are available when execution stops.";
 
 /** The line under the steps heading that says why Start or a run is blocked. */
 export const STEPS_REASON_ID = "steps-reason";

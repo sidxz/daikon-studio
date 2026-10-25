@@ -55,6 +55,54 @@ class ConfoundParams(BaseModel):
     )
 
 
+class SubstructureParams(BaseModel):
+    smarts: str = Field(
+        min_length=1,
+        description=(
+            "The substructure to look for, as SMARTS. A plain SMILES is valid SMARTS, so "
+            "a literal fragment such as c1ccccc1 works; use SMARTS only where the query "
+            "needs wildcards or atom lists"
+        ),
+    )
+
+
+class SimilarityParams(BaseModel):
+    query_smiles: str = Field(
+        min_length=1,
+        description="The structure to compare every compound against, as SMILES",
+    )
+    cutoff: float = Field(
+        default=0.7,
+        ge=0,
+        le=1,
+        description=(
+            "Tanimoto at or above which a compound is reported as similar. Only counted, "
+            "never used to drop rows. 0.7 on this fingerprint is the usual convention and "
+            "is a convention, not a threshold with meaning"
+        ),
+    )
+
+
+class ClusterParams(BaseModel):
+    cutoff: float = Field(
+        default=0.35,
+        gt=0,
+        le=1,
+        description=(
+            "Tanimoto *distance* below which two compounds join a cluster, so a smaller "
+            "number makes tighter, more numerous clusters. 0.35 distance is the common "
+            "default, equivalent to 0.65 similarity"
+        ),
+    )
+
+
+class DiverseParams(BaseModel):
+    n: int = Field(
+        gt=0,
+        description="How many compounds to pick. Fewer are returned if the table is smaller",
+    )
+
+
 class PrepareParams(BaseModel):
     ph: float = Field(
         default=7.4, ge=0, le=14, description="pH at which protonation states are assigned"

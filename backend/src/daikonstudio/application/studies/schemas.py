@@ -1,8 +1,17 @@
-"""What the model says about a study: the changes it wants and the claims it makes.
+"""What the model says about a study: the claims it makes, and the changes it asks for.
 
-One flat `Action` with a `does` literal rather than a model per edit: the providers'
-structured output closes every object and has no union to offer, and one shape is one
-thing for a prompt to describe. `does` says which of the other fields count.
+What a turn says is its answer, in the schema of its phase. What a reply does is a tool
+call: one tool per kind of change, offered only to the turn that may make it, and each
+call becomes an `Action` before the host checks it. The two are split because a provider
+compiles the answer's schema into a grammar with a ceiling it does not publish, and an
+answer that also carried every act as fields, with a twelve-field action and a ten-field
+proposal inside lists, outgrew it ("The compiled grammar is too large"). Tools are not
+compiled into that grammar, and every call is checked here before anything changes, so
+nothing is lost by leaving them unstrict.
+
+One flat `Action` with a `does` literal rather than a model per edit, for the host and the
+planning turn: `does` says which of the other fields count, and the tools are cut from it,
+each taking only the fields its verb reads.
 
 Every position is 1-based and means the plan as the model was shown it; the server
 resolves each to a step before it changes anything, so a number never drifts mid-turn.
@@ -10,10 +19,8 @@ resolves each to a step before it changes anything, so a number never drifts mid
 The model fills every field of an action, a proposal and a look, and "none" is a value, not
 a missing field: 0 for a step, a rank or a position, "" for a tool or a purpose, an empty
 list for settings, checks and stop conditions. A field the model may leave out is a branch
-in the grammar the provider compiles from the schema, and an `X | None` is two more, so a
-reply carrying both actions and proposals grew past what Anthropic will compile ("The
-compiled grammar is too large"). The defaults stay in Python, so code builds one by the
-fields that matter.
+in the grammar, and an `X | None` is two more. The defaults stay in Python, so code builds
+one by the fields that matter.
 
 A `Proposal` is an action the scientist has not yet confirmed. It leaves out what a
 button must never carry: the checks and stop conditions, because a criterion rewritten
@@ -34,16 +41,54 @@ here is a float: a number the agent writes is one no step computed.
 from __future__ import annotations
 
 import functools
-from typing import Literal, cast
+from typing import Any, Literal, cast, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from daikonstudio.application.planner.plan import DraftPlan, Interrogation, Question, Step
 from daikonstudio.application.planner.plan import Setting as Setting  # re-exported
+from daikonstudio.application.ports.llm import Tool
 from daikonstudio.application.tools.registry import ToolRegistry
 
 Does = Literal["insert", "remove", "swap", "settings", "gate", "terms", "approve", "run"]
 Proposable = Literal["insert", "remove", "swap", "settings", "gate", "approve", "run"]
+
+# What each verb does, and the fields of an Action it reads. One source for the `does`
+# descriptions and for the tools, so the model reads the same words wherever it meets a verb.
+_VERBS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "insert": ("add a step", ("tool_id", "before", "purpose", "settings", "gated")),
+    "remove": ("take out a step that has not run", ("step",)),
+    "swap": (
+        "point a step at another tool that takes the same inputs and gives the same results",
+        ("step", "tool_id", "settings"),
+    ),
+    "settings": ("change some of a step's settings", ("step", "settings")),
+    "gate": (
+        "set whether a step stops for the scientist to look at its result",
+        ("step", "gated"),
+    ),
+    "terms": ("replace the checks or the stop conditions", ("checks", "stop_conditions")),
+    "approve": ("choose one of the candidates a step reported", ("step", "candidate")),
+    "run": ("run steps", ("step", "until")),
+}
+_TOOL_NAMES = {
+    "insert": "insert_step",
+    "remove": "remove_step",
+    "swap": "swap_tool",
+    "settings": "change_settings",
+    "gate": "set_gate",
+    "terms": "replace_terms",
+    "approve": "approve_candidate",
+    "run": "run_steps",
+}
+
+
+def _does(verbs: tuple[str, ...]) -> str:
+    return "What to do. " + " ".join(
+        f"{verb}: {_VERBS[verb][0]} ({', '.join(_VERBS[verb][1])})." for verb in verbs
+    )
+
+
 Evidence = Literal[
     "ligand_overlap",
     "annotated_site",
@@ -108,6 +153,18 @@ _UNTIL = (
 )
 
 
+_QUOTING = (
+    "The words of the scientist's latest message that you are acting on, copied exactly. "
+    "Every change and every run made in reply to a message needs them. Leave it empty to "
+    "propose this for the scientist to confirm instead of doing it; a call that does not "
+    "quote the message is only proposed, never done."
+)
+_WHY = (
+    "For what you propose rather than do: one sentence on what it would settle that is "
+    "open now, shown beside the button. Empty for what you do."
+)
+
+
 WANTED_TO_ANSWER = (
     "Tool ids from the catalogue you must read in full before you can answer. Return no plan "
     "and no actions and name them, and you will be asked once more with them in front of you. "
@@ -120,18 +177,7 @@ class Action(BaseModel):
 
     model_config = _FILLED
 
-    does: Does = Field(
-        description=(
-            "What to do. insert: add a step (tool_id; before, purpose, settings and gated "
-            "if needed). remove: take out a step that has not run (step). swap: point a "
-            "step at another tool that takes the same inputs and gives the same results "
-            "(step, tool_id). settings: change some of a step's settings (step, settings). "
-            "gate: set whether a step stops for the scientist to look at its result (step, "
-            "gated). terms: replace the checks or the stop conditions (checks, "
-            "stop_conditions). approve: choose one of the candidates a step reported "
-            "(step, candidate). run: run steps (step, until)."
-        )
-    )
+    does: Does = Field(description=_does(get_args(Does)))
     step: int = Field(default=0, description=_STEP)
     tool_id: str = Field(default="", description=_TOOL)
     before: int = Field(default=0, description=_BEFORE)
@@ -154,14 +200,8 @@ class Action(BaseModel):
     )
     candidate: int = Field(default=0, description=_CANDIDATE)
     until: int = Field(default=0, description=_UNTIL)
-    quoting: str = Field(
-        default="",
-        description=(
-            "The words of the scientist's latest message that you are acting on, copied "
-            "exactly. Every change and every run made in reply to a message needs them; "
-            "one that does not quote the message is only proposed, not done."
-        ),
-    )
+    quoting: str = Field(default="", description=_QUOTING)
+    why: str = Field(default="", description=_WHY)
 
 
 class Proposal(BaseModel):
@@ -169,9 +209,7 @@ class Proposal(BaseModel):
 
     model_config = _FILLED
 
-    does: Proposable = Field(
-        description="What you would like done, with the same meanings as in an action."
-    )
+    does: Proposable = Field(description=_does(get_args(Proposable)))
     step: int = Field(default=0, description=_STEP)
     tool_id: str = Field(default="", description=_TOOL)
     before: int = Field(default=0, description=_BEFORE)
@@ -382,13 +420,6 @@ class _Reading(BaseModel):
     unresolved: list[str] = Field(
         default_factory=list, description="What cannot be settled yet, one short line each."
     )
-    proposals: list[Proposal] = Field(
-        default_factory=list,
-        description=(
-            "What you would like done, for the scientist to confirm. Propose only what an "
-            "open question actually needs; an exchange that settles nothing needs none."
-        ),
-    )
     look: list[Look] = Field(
         default_factory=list,
         description=(
@@ -399,18 +430,27 @@ class _Reading(BaseModel):
 
 
 _SUMMARY = (
-    "Where the study stands, in one paragraph, for someone opening it cold. It is read in "
-    "place of the turns that have scrolled away, so rewrite it whole and keep what matters."
+    "Summarize the research objective, completed analyses, principal findings, and "
+    "unresolved questions in one concise paragraph. Update the full summary as the study "
+    "progresses."
 )
 
 
 class ObserveTurn(_Reading):
     """What the agent may produce when a step has finished or failed.
 
-    There is no field here to change the plan or run a step. An event can only be
-    observed; the one thing it can do is end a run the agent was told to drive.
+    There is no field here to change the plan or run a step, and the turn is offered no
+    tool. An event can only be observed; the one thing it can do is end a run the agent
+    was told to drive. What it would do, it proposes.
     """
 
+    proposals: list[Proposal] = Field(
+        default_factory=list,
+        description=(
+            "What you would like done, for the scientist to confirm. Propose only what an "
+            "open question actually needs; an exchange that settles nothing needs none."
+        ),
+    )
     pause: bool = Field(
         default=False,
         description=(
@@ -422,11 +462,11 @@ class ObserveTurn(_Reading):
         default="",
         description=(
             "Two or three sentences answering the scientist's goal in the words they asked "
-            "it in, written only once nothing is left to run. Name what they should act on, "
-            "not how it was computed: the site, the residues, the compounds. Say in the same "
-            "breath what the study does not support, and if it did not answer the question, "
-            "say that instead of the nearest thing it did answer. Leave it empty while any "
-            "step is still to run, and a conclusion written early is dropped."
+            "it in, written only once nothing is left to run. State the findings relevant to "
+            "the research objective, identify the supporting results, and describe the "
+            "limitations. Recommend further action only when supported by the evidence. "
+            "If the study did not answer the question, state this explicitly. Leave it empty "
+            "while any step is still to run, and a conclusion written early is dropped."
         ),
     )
     summary: str = Field(description=_SUMMARY)
@@ -435,17 +475,43 @@ class ObserveTurn(_Reading):
 class ReplyTurn(_Reading):
     """What the agent may produce in answer to the scientist's message.
 
-    It may act, and only here. It cannot pause: nothing is running while the scientist
-    is talking to it, and a run it starts is stopped by the next event, not by this turn.
+    It may act, and only here, by calling the tools in `ACT_TOOLS` before it answers; a
+    call that quotes the message is done and one that does not is proposed. It cannot
+    pause: nothing is running while the scientist is talking to it, and a run it starts
+    is stopped by the next event, not by this turn.
     """
 
-    actions: list[Action] = Field(
-        default_factory=list,
-        description=(
-            "What you do on the scientist's word: change the plan, run steps, approve a "
-            "candidate. Each quotes the words it carries out. Whatever they did not ask for "
-            "goes in `proposals`, not here."
-        ),
-    )
     wanted: list[str] = Field(default_factory=list, description=WANTED_TO_ANSWER)
     summary: str = Field(description=_SUMMARY)
+
+
+def _tool(verb: str) -> Tool:
+    """The tool for one verb: the Action fields it reads, then the quote and the reason.
+
+    Plain models, defaults and all: a tool is not compiled into the answer's grammar, so a
+    field the model leaves out costs nothing here and saves it the tokens.
+    """
+    what, reads = _VERBS[verb]
+    fields: dict[str, Any] = {
+        name: (Action.model_fields[name].annotation, Action.model_fields[name])
+        for name in (*reads, "quoting", "why")
+    }
+    model = create_model(f"{verb.capitalize()}Call", **fields)
+    return Tool(name=_TOOL_NAMES[verb], description=what, schema=model)
+
+
+#: What a reply may do, one tool per verb. Offered to no other turn.
+ACT_TOOLS: tuple[Tool, ...] = tuple(_tool(verb) for verb in get_args(Does))
+_VERB_OF: dict[type[BaseModel], Does] = {
+    tool.schema: verb for tool, verb in zip(ACT_TOOLS, get_args(Does), strict=True)
+}
+
+
+def act(does: Does, **fields: Any) -> BaseModel:
+    """A call to the tool for `does`, as the model would make it."""
+    return ACT_TOOLS[get_args(Does).index(does)].schema(**fields)
+
+
+def as_action(call: BaseModel) -> Action:
+    """The action a tool call asks for, with every field the tool did not take at its default."""
+    return Action(does=_VERB_OF[type(call)], **call.model_dump())

@@ -22,9 +22,9 @@ import type { Study } from "../types";
 function look(study: Study): { tone: StatusTone; word: string } {
   if (study.status === "draft") return { tone: "muted", word: "Draft" };
   if (study.running) return { tone: "active", word: "Running" };
-  if (study.status === "done") return { tone: "success", word: "Done" };
+  if (study.status === "done") return { tone: "success", word: "Completed" };
   if (study.status === "failed") return { tone: "failed", word: "Failed" };
-  return { tone: "muted", word: "Waiting for you" };
+  return { tone: "muted", word: "Awaiting action" };
 }
 
 export function StudyList() {
@@ -39,7 +39,7 @@ export function StudyList() {
     <div className="w-full min-w-0 space-y-6">
       <PageHeader
         title="Studies"
-        description="Every study you opened, drafts included. Each runs one step at a time and keeps what every step found."
+        description="Review draft and active studies, monitor progress, and inspect results from each analysis step."
         action={plan}
       />
       {isLoadingError ? (
@@ -50,17 +50,17 @@ export function StudyList() {
         <EmptyState
           icon={ListChecks}
           title="No studies yet"
-          description="Say what you want to find out. Daikon Studio asks, plans with you, and runs nothing until you start it."
+          description="Define a research objective to begin planning a study. Review the proposed plan before enabling execution."
           action={plan}
         />
       ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Goal</TableHead>
+              <TableHead>Research objective</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead>Steps done</TableHead>
-              <TableHead>Opened</TableHead>
+              <TableHead>Completed steps</TableHead>
+              <TableHead>Created</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

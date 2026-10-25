@@ -16,6 +16,7 @@ from rdkit.Chem.FilterCatalog import FilterCatalog, FilterCatalogParams
 from rdkit.Chem.MolStandardize import rdMolStandardize
 
 from daikonstudio.application.studies.readers import _IDENTIFIER
+from daikonstudio.infrastructure.tools.measurements import read_measurements
 from daikonstudio.infrastructure.tools.params import ActivityParams, ConfoundParams
 
 ToolImpl = Callable[[BaseModel | None, Mapping[str, object]], Mapping[str, object]]
@@ -136,9 +137,13 @@ def property_profile(params: ActivityParams, inputs: Mapping[str, object]) -> di
         for i, name in enumerate(PROPERTY_COLUMNS)
     ).with_columns(pl.col("heavy_atoms").cast(pl.Int64))
     if params.activity_column:
-        # strict=False: a censored reading ('>64') is null here, not a crash.
-        activity = pl.col(params.activity_column).cast(pl.Float64, strict=False)
-        out = out.with_columns(
+        # A censored reading ('>64') keeps its bound instead of becoming a null. Both
+        # efficiencies are monotone in activity -- one multiplies by a positive constant,
+        # the other subtracts logp -- so a bound on the activity is a bound on them in
+        # the same direction, and the relation column describes all three.
+        readings = read_measurements(frame[params.activity_column])
+        activity = pl.lit(readings.values)
+        out = out.with_columns(readings.relations).with_columns(
             (1.37 * activity / pl.col("heavy_atoms")).alias("ligand_efficiency"),
             (activity - pl.col("logp")).alias("lipophilic_efficiency"),
         )
@@ -151,11 +156,13 @@ def property_confound(params: ConfoundParams, inputs: Mapping[str, object]) -> d
     else:
         frame = property_profile(ActivityParams(), inputs)["properties"]
     rng = np.random.default_rng(0)
-    raw = frame[params.activity_column]
-    # Censored readings ('>64', '<0.01') are not numbers. They are left out and
-    # counted, so the exclusion is stated rather than silently shrinking n.
-    activity = raw.cast(pl.Float64, strict=False)
-    excluded = int(activity.null_count() - raw.null_count())
+    # A bound ('>64') cannot enter a correlation: the true value is somewhere above it, so
+    # a Pearson r computed on 64 is a number about data nobody has. Bounds are left out and
+    # counted -- separately from cells that were never readings ('NT'), because "9 left out
+    # as censored" and "9 unreadable" send a scientist to different places.
+    readings = read_measurements(frame[params.activity_column])
+    activity = readings.exact_only
+    excluded = readings.n_censored
     results: list[dict[str, Any]] = []
     for name in PROPERTY_COLUMNS:
         pair = pl.DataFrame({"x": frame[name].cast(pl.Float64), "y": activity}).drop_nulls()
@@ -179,6 +186,7 @@ def property_confound(params: ConfoundParams, inputs: Mapping[str, object]) -> d
                 "activity_column": params.activity_column,
                 "n": n_rows,
                 "excluded": excluded,
+                "excluded_unreadable": readings.n_unreadable,
                 "strongest": (
                     {"property": strongest["property"], "r": strongest["r"]} if strongest else None
                 ),

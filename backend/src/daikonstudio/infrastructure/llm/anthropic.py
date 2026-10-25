@@ -4,16 +4,27 @@ Follows `infrastructure/chemcellar/client.py`: an empty key means the integratio
 is off, and the refusal names the environment variable rather than saying
 "unauthorized", because nothing the caller did was wrong. Validated at the point
 of use, not at boot -- a deployment without a model key still trains models.
+
+A turn with tools is two requests when the model uses them: the first offers the
+tools and the answer's schema together, and a model that calls tools stops there;
+each call is acknowledged as recorded and the second request, with tool choice off,
+gets the answer. Nothing is carried out between the two: the caller checks every
+call against the study after the turn, which is why the tools are not strict and the
+provider's grammar is spent on the answer alone.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Any
+
 import anthropic
 import structlog
-from anthropic.types.beta import BetaTextBlockParam
+from anthropic import transform_schema
+from anthropic.types.beta import BetaMessage, BetaTextBlockParam
 from pydantic import BaseModel, ValidationError
 
-from daikonstudio.application.ports.llm import ModelChoice
+from daikonstudio.application.ports.llm import Answer, ModelChoice, Tool
 from daikonstudio.domain.shared.errors import ServiceUnavailableError
 
 _logger = structlog.get_logger(__name__)
@@ -39,6 +50,13 @@ _TIMEOUT_SECONDS = 120.0
 # stale. The fallback is a different model, which is why the plan records what
 # actually wrote it rather than what was asked for.
 _FALLBACK_BETA = "server-side-fallback-2026-07-01"
+
+# What each tool call is answered with before the model answers. It is not carried out
+# yet, and the numbers the model used still mean the plan it was shown.
+_RECORDED = (
+    "Recorded. It is checked and carried out, or offered to the scientist, after you "
+    "answer; step numbers in your answer still mean the plan as you were shown it."
+)
 
 
 class AnthropicLanguageModel:
@@ -66,25 +84,97 @@ class AnthropicLanguageModel:
     async def parse[T: BaseModel](
         self, *, system: str, prompt: str, schema: type[T], stable: str = ""
     ) -> T:
-        client = self._require()
-        # Two cache breakpoints: the system prompt, and the end of the stable prefix.
-        # The prefix is cached together with everything before it, so a later call
-        # that changes only `prompt` reads both from the cache.
+        answer = await self.act(
+            system=system, prompt=prompt, schema=schema, tools=(), stable=stable
+        )
+        return answer.parsed
+
+    async def act[T: BaseModel](
+        self,
+        *,
+        system: str,
+        prompt: str,
+        schema: type[T],
+        tools: Sequence[Tool],
+        stable: str = "",
+    ) -> Answer[T]:
+        # Cache breakpoints: the system prompt, the end of the stable prefix, and, when a
+        # second request may follow, the prompt itself, so that request reads it back.
+        # The prefix is cached together with everything before it, so a later call that
+        # changes only `prompt` reads both from the cache.
         blocks: list[BetaTextBlockParam] = [{"type": "text", "text": prompt}]
+        if tools:
+            blocks[0]["cache_control"] = {"type": "ephemeral"}
         if stable:
             blocks.insert(
                 0, {"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}}
             )
-        try:
-            reply = await client.beta.messages.parse(
-                model=self._model,
-                max_tokens=_MAX_TOKENS,
-                system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
-                messages=[{"role": "user", "content": blocks}],
-                output_format=schema,
-                betas=[_FALLBACK_BETA],
-                fallbacks="default",
+        request: dict[str, Any] = {
+            "model": self._model,
+            "max_tokens": _MAX_TOKENS,
+            "system": [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}],
+            "output_config": {
+                "format": {"type": "json_schema", "schema": transform_schema(schema)}
+            },
+            "betas": [_FALLBACK_BETA],
+            "fallbacks": "default",
+        }
+        if tools:
+            request["tools"] = [
+                {
+                    "name": tool.name,
+                    "description": tool.description,
+                    "input_schema": tool.schema.model_json_schema(),
+                }
+                for tool in tools
+            ]
+        messages: list[dict[str, Any]] = [{"role": "user", "content": blocks}]
+        reply = await self._send(messages=messages, **request)
+
+        calls: list[BaseModel] = []
+        malformed = 0
+        used = [block for block in reply.content if block.type == "tool_use"]
+        if used:
+            by_name = {tool.name: tool.schema for tool in tools}
+            for block in used:
+                try:
+                    calls.append(by_name[block.name].model_validate(block.input))
+                except (KeyError, ValidationError):
+                    malformed += 1
+            messages += [
+                {"role": "assistant", "content": reply.content},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": block.id, "content": _RECORDED}
+                        for block in used
+                    ],
+                },
+            ]
+            reply = await self._send(messages=messages, tool_choice={"type": "none"}, **request)
+
+        text = "".join(block.text for block in reply.content if block.type == "text")
+        if not text:
+            # The model answered but not in the shape asked for. Reported as the
+            # provider failing rather than as a bad request, because the caller
+            # supplied a goal and has no way to act on this.
+            raise ServiceUnavailableError(
+                "The Anthropic model did not answer in the expected form.",
+                detail=f"Stopped because: {reply.stop_reason}.",
             )
+        try:
+            parsed = schema.model_validate_json(text)
+        except ValidationError as exc:
+            raise ServiceUnavailableError(
+                "The Anthropic model did not answer in the expected form."
+            ) from exc
+        return Answer(parsed, tuple(calls), malformed)
+
+    async def _send(self, **request: Any) -> BetaMessage:
+        """One request, with the provider's failures mapped to this deployment's."""
+        client = self._require()
+        try:
+            reply: BetaMessage = await client.beta.messages.create(**request)
         except anthropic.APIStatusError as exc:
             # Every status failure is this deployment's problem, not the caller's:
             # a 401 means our key is wrong, a 429 that we are over our own limit.
@@ -109,6 +199,7 @@ class AnthropicLanguageModel:
             cache_read=reply.usage.cache_read_input_tokens,
             cache_write=reply.usage.cache_creation_input_tokens,
             output=reply.usage.output_tokens,
+            calls=sum(block.type == "tool_use" for block in reply.content),
         )
 
         if reply.stop_reason == "refusal":
@@ -124,19 +215,4 @@ class AnthropicLanguageModel:
                     "Try rewording the goal, or ask a different provider."
                 ),
             )
-
-        parsed = reply.parsed_output
-        if parsed is None:
-            # The model answered but not in the shape asked for. Reported as the
-            # provider failing rather than as a bad request, because the caller
-            # supplied a goal and has no way to act on this.
-            raise ServiceUnavailableError(
-                "The Anthropic model did not answer in the expected form.",
-                detail=f"Stopped because: {reply.stop_reason}.",
-            )
-        try:
-            return schema.model_validate(parsed.model_dump())
-        except ValidationError as exc:
-            raise ServiceUnavailableError(
-                "The Anthropic model did not answer in the expected form."
-            ) from exc
+        return reply

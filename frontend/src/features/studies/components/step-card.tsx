@@ -78,23 +78,21 @@ export function StepCard({
             <span className="font-medium">{step.name}</span>
           </p>
           <p className="text-xs text-muted-foreground">
-            {reading
-              ? "Daikon Studio is reading the result"
-              : (STEP_STATUS_COPY[step.status] ?? step.status)}
+            {reading ? "Reviewing results…" : (STEP_STATUS_COPY[step.status] ?? step.status)}
             {step.expanded_from && ` · part of: ${step.expanded_from.replace(/_/g, " ")}`}
           </p>
         </div>
         {step.gated && (
           <span className="mt-2 flex items-center gap-1 whitespace-nowrap text-xs text-muted-foreground">
             <PauseCircle className="size-3.5" aria-hidden="true" />
-            stops for you
+            Pauses for review
           </span>
         )}
         {started &&
           (step.status === "running" || reading ? (
             <Button variant="ghost" size="sm" disabled>
               <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              {reading ? "Reading" : "Running"}
+              {reading ? "Reviewing" : "Running"}
             </Button>
           ) : (
             <Button
@@ -178,7 +176,7 @@ export function StepCard({
       {looked && (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Check className="size-3.5" aria-hidden="true" />
-          Looked, nothing to add
+          Review complete; no additional observations.
         </p>
       )}
 
@@ -190,7 +188,7 @@ export function StepCard({
           onClick={onTalk}
         >
           <MessageSquare className="size-4" aria-hidden="true" />
-          Talk about this result
+          Discuss results
         </Button>
       )}
     </li>

@@ -1,9 +1,15 @@
 """The language-model port.
 
-Narrow on purpose: one method, which takes a system prompt, a user message and a
-schema, and returns an instance of that schema. Everything the planner needs is
-expressible that way, and nothing else leaks -- no provider types, no message
-lists, no streaming.
+Narrow on purpose: two methods. `parse` takes a system prompt, a user message and a
+schema, and returns an instance of that schema. `act` takes the same and a few tools,
+and returns the answer with the calls the model made to them. Nothing else leaks --
+no provider types, no message lists, no streaming.
+
+**Why tools for what a turn does.** A provider compiles the answer's schema into a
+grammar, and the grammar has a ceiling: a schema that also carried every act a turn
+might make, as fields the model fills, outgrew it. A tool is the shape providers give
+to an act, small, named and offered only to the turns allowed to make it, and a tool
+that is not offered cannot be called, which is the same guarantee a missing field gave.
 
 **Why a schema rather than text.** The planner's output is a plan, and a plan that
 arrives as prose has to be parsed by something that can be wrong in a second way.
@@ -19,6 +25,7 @@ anything past plain chat. Two thin adapters cost less than one leaky abstraction
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -41,6 +48,33 @@ class ModelChoice:
         return f"{self.provider}/{self.model}"
 
 
+@dataclass(frozen=True)
+class Tool:
+    """Something a turn may do, offered to the model by name; `schema` is its parameters.
+
+    Not strict: the host checks every call against the study before anything changes, so
+    the provider's grammar is spent on the answer and not on this.
+    """
+
+    name: str
+    description: str
+    schema: type[BaseModel]
+
+
+@dataclass(frozen=True)
+class Answer[T: BaseModel]:
+    """What a turn produced: the answer in its schema, and the calls it made first.
+
+    Each call is an instance of its tool's `schema`; `malformed` counts the ones whose
+    arguments did not fit it, which the caller counts as dropped. The calls are recorded
+    before the model answers, so the answer can refer to what it did.
+    """
+
+    parsed: T
+    calls: tuple[BaseModel, ...] = ()
+    malformed: int = 0
+
+
 class LanguageModel(Protocol):
     @property
     def choice(self) -> ModelChoice: ...
@@ -58,6 +92,23 @@ class LanguageModel(Protocol):
         cannot do -- including an unconfigured key, which is a deployment problem
         and must say which environment variable is missing rather than failing as
         an authorization error against the caller, who did nothing wrong.
+        """
+        ...
+
+    async def act[T: BaseModel](
+        self,
+        *,
+        system: str,
+        prompt: str,
+        schema: type[T],
+        tools: Sequence[Tool],
+        stable: str = "",
+    ) -> Answer[T]:
+        """Ask once, letting the model call `tools` before it answers in `schema`.
+
+        With no tools this is `parse`. With them, a model that calls some is told each
+        call is recorded and asked for its answer; the calls are not carried out here,
+        and the answer and the calls come back together. Raises as `parse` does.
         """
         ...
 

@@ -22,19 +22,21 @@ from daikonstudio.application.auth import AuthContext
 from daikonstudio.application.planner.catalogue import INDEX_HEADING, VIEW_HEADING
 from daikonstudio.application.planner.plan import DraftPlan, Interrogation, Question, Setting
 from daikonstudio.application.planner.plan import Step as PlanStep
+from daikonstudio.application.ports.llm import Answer
 from daikonstudio.application.studies import advance_study
 from daikonstudio.application.studies.agent import _WIDENED, ObserveStep, SayCommand, StudyAgent
 from daikonstudio.application.studies.apply_proposal import ApplyCommand, ApplyProposal
 from daikonstudio.application.studies.prompts import MAX_QUESTIONS
 from daikonstudio.application.studies.schemas import (
+    ACT_TOOLS,
     Action,
     Claim,
     Look,
     ObserveTurn,
     PlanningTurn,
     ProgressClaim,
-    Proposal,
     ReplyTurn,
+    act,
     planning_turn_schema,
 )
 from daikonstudio.application.studies.standing import standing
@@ -416,14 +418,15 @@ async def test_a_turn_never_makes_a_third_call() -> None:
 async def test_a_quoted_run_starts_the_loop_and_an_unquoted_one_is_proposed() -> None:
     study = _study(*PROTEIN)
     pockets = study.steps[2]
-    run = Action(does="run", step=3, until=3, quoting="run the pockets again")
+    run = act("run", step=3, until=3, quoting="run the pockets again")
     model = ScriptedLanguageModel(
-        ReplyTurn(say="Running it.", actions=[run], summary="s"),
-        ReplyTurn(say="I would run it again.", actions=[run], summary="s"),
+        Answer(ReplyTurn(say="Running it.", summary="s"), calls=(run,)),
+        Answer(ReplyTurn(say="I would run it again.", summary="s"), calls=(run,)),
     )
     agent, studies, advance = _agent(study, InMemoryBlobStore(), model)
 
     await agent(_say(study, "Please run the pockets again."), AUTH)
+    assert model.tools[-1] == tuple(t.name for t in ACT_TOOLS)  # a reply is offered the acts
     assert advance.runs == [(pockets.id, pockets.id)]
     assert advance.started_by == ["agent"]  # its own turn records the run
     ran = studies.rows[study.id].thread.turns[-1]
@@ -454,12 +457,13 @@ async def test_approval_writes_an_asserted_pocket_from_the_rank() -> None:
     store = InMemoryBlobStore()
     study = _study(*PROTEIN)
     candidates = _done(study, store, 3, "pocket_candidates", POCKETS)
-    approve = Action(does="approve", step=3, candidate=10, quoting="go with the zinc cone")
-    again = Action(does="approve", step=3, candidate=1, quoting="take the first one instead")
-    offer = Proposal(does="approve", step=3, candidate=10, why="It holds the zinc.")
+    approve = act("approve", step=3, candidate=10, quoting="go with the zinc cone")
+    again = act("approve", step=3, candidate=1, quoting="take the first one instead")
+    # A call that quotes nothing is a proposal, carrying its own reason to the button.
+    offer = act("approve", step=3, candidate=10, why="It holds the zinc.")
     model = ScriptedLanguageModel(
-        ReplyTurn(say="Done.", actions=[approve], summary="s"),
-        ReplyTurn(say="Changed.", actions=[again], proposals=[offer], summary="s"),
+        Answer(ReplyTurn(say="Done.", summary="s"), calls=(approve,)),
+        Answer(ReplyTurn(say="Changed.", summary="s"), calls=(again, offer)),
     )
     agent, studies, advance = _agent(study, store, model)
 
@@ -485,6 +489,7 @@ async def test_approval_writes_an_asserted_pocket_from_the_rank() -> None:
     assert stored.thread.turns[-1].dropped == 0
     (offered,) = stored.thread.turns[-1].proposals
     assert offered.action["from_id"] == str(candidates.id)  # the result it was offered on
+    assert offered.why == "It holds the zinc."
 
     # The step runs again: its ranks now order a different list, so neither the choice made on
     # the old one nor the button offered on it stands for anything.
@@ -503,8 +508,8 @@ async def test_approval_writes_an_asserted_core_from_the_rank() -> None:
     store = InMemoryBlobStore()
     study = _study("find_cores")
     candidates = _done(study, store, 1, "core_candidates", CORES)
-    approve = Action(does="approve", step=1, candidate=2, quoting="go with the amide-intact core")
-    model = ScriptedLanguageModel(ReplyTurn(say="Done.", actions=[approve], summary="s"))
+    approve = act("approve", step=1, candidate=2, quoting="go with the amide-intact core")
+    model = ScriptedLanguageModel(Answer(ReplyTurn(say="Done.", summary="s"), calls=(approve,)))
     agent, studies, _ = _agent(study, store, model)
 
     await agent(_say(study, "Go with the amide-intact core."), AUTH)

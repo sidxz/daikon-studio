@@ -143,7 +143,7 @@ function Structure({ summary }: { summary: Row }) {
           ["Kept in the receptor", kept && (kept.join(", ") || "None")],
           // Named, not counted: whether a gap matters is decided by where it sits.
           [
-            "Not located in the experiment",
+            "Residues unresolved in the experimental structure",
             Array.isArray(summary.missing_residues)
               ? (summary.missing_residues as string[]).join(", ") || "None"
               : null,
@@ -167,8 +167,9 @@ function Correlation({ data }: { data: Row }) {
     <div className="space-y-2">
       {excluded > 0 && (
         <p className="text-xs text-muted-foreground">
-          {excluded} {excluded === 1 ? "reading" : "readings"} in {String(meta.activity_column)}{" "}
-          could not be read as a number and {excluded === 1 ? "was" : "were"} left out.
+          {excluded} nonnumeric {excluded === 1 ? "value" : "values"} in{" "}
+          {String(meta.activity_column)} {excluded === 1 ? "was" : "were"} excluded from the
+          analysis.
         </p>
       )}
       <div className="overflow-x-auto rounded-sm border">
@@ -452,12 +453,12 @@ function Cores({
             ))}
             {active.timed_out === true && (
               <p className="text-muted-foreground">
-                The search for this core ran out of time, so a larger one may exist.
+                The core search reached its time limit; a larger common core may exist.
               </p>
             )}
             {misses.length > 0 && (
               <div>
-                <p className="text-foreground">Compounds it does not match</p>
+                <p className="text-foreground">Unmatched compounds</p>
                 <ul className="text-muted-foreground">
                   {misses.map((m) => (
                     <li key={String(m.id)}>
@@ -477,7 +478,7 @@ function Cores({
                 aria-describedby={approveBlocked === RUN_UNDER_WAY ? STEPS_REASON_ID : undefined}
                 onClick={() => onApprove(Number(active.rank))}
               >
-                Use this one
+                Select this core
               </Button>
               {approveBlocked && approveBlocked !== RUN_UNDER_WAY && (
                 <p className="max-w-48 text-xs text-muted-foreground">{approveBlocked}</p>
@@ -576,10 +577,10 @@ function ModelFit({ data }: { data: Row }) {
       <Facts
         facts={[
           ["Compounds", meta.n_compounds],
-          ["Left out as censored", meta.n_excluded_censored],
+          ["Excluded: censored activity values", meta.n_excluded_censored],
           // Zero of these is the usual case, and a 0 beside the censored count
           // reads as a second kind of exclusion the chemist has to think about.
-          ["Left out for a missing group", meta.n_excluded_incomplete || null],
+          ["Excluded: missing substituent assignments", meta.n_excluded_incomplete || null],
           ["r²", meta.r2 != null ? cell(meta.r2) : null],
           ["q²", meta.q2 != null ? cell(meta.q2) : null],
           ["Reference", reference || null],
@@ -588,7 +589,9 @@ function ModelFit({ data }: { data: Row }) {
       <RowsTable columns={["position", "group", "n", "coef"]} rows={terms} />
       {unmade.length > 0 && (
         <div className="space-y-1">
-          <p className="text-sm text-muted-foreground">Combinations not yet made, predicted</p>
+          <p className="text-sm text-muted-foreground">
+            Predictions for unobserved substituent combinations
+          </p>
           <RowsTable
             columns={["combination", "predicted"]}
             rows={unmade.map((u) => ({
@@ -685,8 +688,8 @@ function Pockets({
           : `${
               receptor.length > 0
                 ? `${receptor.join(", ")} stayed in place as part of the receptor, so these are the cavities left beside ${receptor.length === 1 ? "it" : "them"}.`
-                : "Nothing was kept as a cofactor, so a cavity a cofactor would fill is reported as a pocket."
-            } Volumes are Monte Carlo estimates and move a few percent between runs.`}
+                : "No cofactors were retained; reported pockets may therefore include cofactor-binding cavities."
+            } Pocket volumes are estimated by Monte Carlo sampling and may vary between runs.`}
       </p>
       <p className="text-sm text-muted-foreground">{numberingNote}</p>
       {structureId && active && (
@@ -700,16 +703,16 @@ function Pockets({
               onChange={(e) => setShowOthers(e.target.checked)}
             />
             {neighbours.length > 0
-              ? `Show the ${neighbours.length} candidate${neighbours.length === 1 ? "" : "s"} touching this one, in amber (rank${neighbours.length === 1 ? "" : "s"} ${neighbours.map((p) => cell(p.rank)).join(", ")})`
-              : "No other candidate touches this one"}
+              ? `Show ${neighbours.length} related pocket${neighbours.length === 1 ? "" : "s"} in amber (rank${neighbours.length === 1 ? "" : "s"} ${neighbours.map((p) => cell(p.rank)).join(", ")})`
+              : "No other pockets share lining residues or deposited ligand contacts with this pocket."}
           </label>
           <p className="text-xs text-muted-foreground">
             Deposited entry {structureId.toUpperCase()} with its ligands, and the lining residues of
             rank {cell(active.rank)} in magenta.{" "}
             {scored === "probability"
-              ? "The predictor ran on the prepared structure and read its protein atoms alone."
+              ? "The predictor used only protein atoms from the prepared structure."
               : "fpocket ran on the prepared structure, which has no ligands or waters."}{" "}
-            Pick a row to aim the view at another pocket.
+            Select a table row to display another pocket.
           </p>
         </div>
       )}
@@ -728,7 +731,7 @@ function Pockets({
                 aria-describedby={approveBlocked === RUN_UNDER_WAY ? STEPS_REASON_ID : undefined}
                 onClick={() => onApprove(Number(active.rank))}
               >
-                Use this one
+                Select this pocket
               </Button>
               {approveBlocked && approveBlocked !== RUN_UNDER_WAY && (
                 <p className="max-w-48 text-xs text-muted-foreground">{approveBlocked}</p>

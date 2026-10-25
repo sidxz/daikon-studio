@@ -361,7 +361,9 @@ def free_wilson(params: AssayParams, inputs: Mapping[str, object]) -> dict[str, 
         )
         return {"fit": {"meta": meta, "terms": [], "fitted": [], "unmade": []}}
     if len(records) < 3:
-        meta["reason"] = "Need at least three compounds with an exact activity value"
+        meta["reason"] = (
+            "Model fitting requires at least three compounds with exact activity values."
+        )
         return {"fit": {"meta": meta, "terms": [], "fitted": [], "unmade": []}}
 
     counts = {col: Counter(vec[i] for _, vec, _ in records) for i, col in enumerate(columns)}
@@ -372,8 +374,9 @@ def free_wilson(params: AssayParams, inputs: Mapping[str, object]) -> dict[str, 
     meta["reference"] = reference
     if len(terms) + 1 >= len(records):
         meta["reason"] = (
-            f"{len(records)} compounds but {len(terms)} substituent terms — the model "
-            f"would fit them exactly and mean nothing"
+            f"Model fitting was not performed: {len(records)} compounds are insufficient to "
+            f"estimate {len(terms)} substituent coefficients plus an intercept with "
+            "residual degrees of freedom."
         )
         return {"fit": {"meta": meta, "terms": [], "fitted": [], "unmade": []}}
 

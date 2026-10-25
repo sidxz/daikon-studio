@@ -29,11 +29,11 @@ from daikonstudio.application.planner.plan import (
 )
 from daikonstudio.application.planner.plan import Step as PlanStep
 from daikonstudio.application.ports.blob_store import BlobStore
-from daikonstudio.application.ports.llm import LanguageModels
+from daikonstudio.application.ports.llm import Answer, LanguageModels
 from daikonstudio.application.ports.tool_executor import ToolExecutor
 from daikonstudio.application.studies import advance_study
 from daikonstudio.application.studies.advance_study import RUNNING_MESSAGE
-from daikonstudio.application.studies.schemas import ObserveTurn, PlanningTurn, Proposal, ReplyTurn
+from daikonstudio.application.studies.schemas import ObserveTurn, PlanningTurn, ReplyTurn, act
 from daikonstudio.infrastructure.tools.impl import chem
 from daikonstudio.infrastructure.tools.runtime import ToolImpl
 
@@ -109,7 +109,9 @@ def tools(app: FastAPI) -> dict[str, ToolImpl]:
     return impls
 
 
-def _script(app: FastAPI, plan: PlanningTurn, *then: BaseModel) -> ScriptedLanguageModel:
+def _script(
+    app: FastAPI, plan: PlanningTurn, *then: BaseModel | Answer[BaseModel]
+) -> ScriptedLanguageModel:
     """A deployment whose model asks one question, writes `plan` once it is answered, then says
     `then` in order, the last of them for every turn after.
 
@@ -363,10 +365,13 @@ async def test_approve_writes_an_asserted_pocket(
 
 
 async def test_apply_proposal_twice_answers_409(client: httpx.AsyncClient, app: FastAPI) -> None:
-    offer = ReplyTurn(
-        say="The profile could stop for you to read it.",
-        proposals=[Proposal(does="gate", step=2, gated=True, why="So you read it first.")],
-        summary="Planned; nothing has run.",
+    offer = Answer(
+        ReplyTurn(
+            say="The profile could stop for you to read it.", summary="Planned; nothing has run."
+        ),
+        calls=(
+            act("gate", step=2, gated=True, why="So you read it first."),
+        ),  # no quote: proposed
     )
     _script(app, COMPOUNDS, offer)
     study = await _started(client, COMPOUNDS_FILE)

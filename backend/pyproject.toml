@@ -86,6 +86,9 @@ packages = ["src/daikonstudio"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+# `live` tests spend money at a provider; run them on purpose with `pytest -m live`.
+addopts = "-m 'not live'"
+markers = ["live: calls a paid provider with the key in backend/.env; skipped without one"]
 filterwarnings = [
     # ponytail: fastapi.testclient.TestClient (the standard FastAPI test tool) wraps
     # httpx's sync API, which starlette flags as deprecated pending a hypothetical

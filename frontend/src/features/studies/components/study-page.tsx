@@ -130,9 +130,9 @@ function OpenForm({
   const reason = unconfigured
     ? "No model provider is configured on this server. Set STUDIO_ANTHROPIC_API_KEY or STUDIO_OPENAI_API_KEY."
     : !words
-      ? "Say what you want to find out."
+      ? "Describe the research objective."
       : words.length < MIN_GOAL
-        ? "Give a little more detail, so Daikon Studio can ask about the right things."
+        ? "Provide a more detailed research objective (at least 15 characters)."
         : null;
 
   function submit() {
@@ -148,11 +148,11 @@ function OpenForm({
     <div className="w-full min-w-0 space-y-6 wrap-anywhere">
       <PageHeader
         title="New study"
-        description="Say what you want to find out. Daikon Studio asks what it needs to know, then writes the plan with you. Nothing runs until you start the study."
+        description="Define the research objective and provide any relevant data. Daikon Studio will request clarification as needed and prepare a draft analysis plan for review."
       />
 
       <div className="space-y-3 rounded-sm border p-4">
-        <Label htmlFor="goal">What do you want to find out?</Label>
+        <Label htmlFor="goal">Research objective</Label>
         <Textarea
           id="goal"
           value={goal}
@@ -161,7 +161,7 @@ function OpenForm({
           // `wrap-anywhere`, not `break-words`: only `anywhere` lowers the min-content width, and
           // a pasted sequence would otherwise push the column past its share of the page.
           className="wrap-anywhere"
-          placeholder="I've got 48 compounds from our last two rounds against the same target. Help me work out what's driving activity and what to make next."
+          placeholder="Analyze structure–activity relationships for 48 compounds evaluated against the same target across two experimental rounds, and identify candidates for synthesis."
           onChange={(event) => setGoal(event.target.value)}
         />
 
@@ -192,18 +192,18 @@ function OpenForm({
             aria-describedby={reason ? "open-reason" : undefined}
             onClick={submit}
           >
-            {open.isPending ? "Reading…" : "Ask Daikon Studio"}
+            {open.isPending ? "Processing…" : "Create draft study"}
           </Button>
         </div>
 
         {/* The longest wait in the product: the model reads the brief and any file, then
             writes the plan. The same bar the conversation uses. */}
-        {open.isPending && <ThinkingBar label="Daikon Studio is reading what you brought" />}
+        {open.isPending && <ThinkingBar label="Processing study information…" />}
 
         <p className="text-xs text-muted-foreground">
-          At most two files: one compound table (.csv, .tsv or .tab) and one structure (.pdb). The
-          model reads a summary of each and can ask to see up to 50 rows of a table, with structure
-          and sequence columns left out.
+          Upload up to two files: one compound table (.csv, .tsv, or .tab) and one structure (.pdb).
+          The model receives file summaries and may inspect up to 50 table rows, excluding structure
+          and sequence columns.
         </p>
         {reason && (
           <p id="open-reason" className="text-xs text-muted-foreground" aria-live="polite">
@@ -254,21 +254,21 @@ function StudyView({
 
   const draft = study.status === "draft";
   const problem = study.steps.find((step) => step.problem);
-  // Where "Run to the next stop" begins: the first step still waiting, as the server picks it.
+  // Where "Continue execution" begins: the first step still waiting, as the server picks it.
   const next = study.steps.find((step) => ["pending", "running", "failed"].includes(step.status));
   // The house rule: a blocked button says why, in a sentence beside itself.
   const blocked = draft
     ? study.steps.length === 0
-      ? "There is no plan to start yet."
+      ? "No analysis steps have been defined."
       : problem
-        ? `Step ${problem.position + 1} has a problem, shown on its card. Settle it before starting: a study runs the plan as written.`
+        ? `Resolve the issue shown for step ${problem.position + 1} before finalizing the plan.`
         : null
     : study.running
       ? RUN_UNDER_WAY
       : study.status === "done"
-        ? "Every step has run."
+        ? "All analysis steps have completed."
         : next?.problem
-          ? `Step ${next.position + 1} has a problem, shown on its card. Settle it before running it.`
+          ? `Resolve the issue shown for step ${next.position + 1} before execution.`
           : null;
 
   /** The step a message will be about, and the cursor in the box to write it. */
@@ -285,9 +285,10 @@ function StudyView({
         <PageHeader title={draft ? "Draft study" : "Study"} description={study.goal} />
 
         <section className="space-y-1">
-          <h2 className="text-sm font-medium">Daikon Studio&apos;s understanding</h2>
+          <h2 className="text-sm font-medium">Interpreted research objective</h2>
           <p className="text-sm text-muted-foreground">
-            {study.restated_goal || "Daikon Studio has not said how it reads the goal yet."}
+            {study.restated_goal ||
+              "An interpretation of the research objective is not yet available."}
           </p>
         </section>
 
@@ -297,7 +298,7 @@ function StudyView({
 
         <section className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-sm font-medium">What you brought</h2>
+            <h2 className="text-sm font-medium">Input data</h2>
             <span className="ml-auto">
               <FileButton
                 label={attach.isPending ? "Adding…" : "Add a file"}
@@ -309,8 +310,8 @@ function StudyView({
           </div>
           {study.brought.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Nothing yet. A study takes one compound table (.csv, .tsv or .tab) and one structure
-              (.pdb).
+              No files uploaded. Supported inputs are one compound table (.csv, .tsv, or .tab) and
+              one structure (.pdb).
             </p>
           ) : (
             study.brought.map((value) => (
@@ -321,7 +322,7 @@ function StudyView({
 
         <section className="space-y-2">
           <div className="flex flex-wrap items-center gap-3">
-            <h2 className="text-sm font-medium">The steps</h2>
+            <h2 className="text-sm font-medium">Analysis plan</h2>
             {draft ? (
               <Button
                 size="sm"
@@ -330,7 +331,7 @@ function StudyView({
                 aria-describedby={blocked ? STEPS_REASON_ID : undefined}
                 onClick={() => start.mutate()}
               >
-                {start.isPending ? "Starting…" : "Start this study"}
+                {start.isPending ? "Finalizing…" : "Finalize plan"}
               </Button>
             ) : (
               <Button
@@ -342,7 +343,7 @@ function StudyView({
                 onClick={() => runTo.mutate({})}
               >
                 <FastForward aria-hidden="true" />
-                Run to the next stop
+                Continue execution
               </Button>
             )}
           </div>

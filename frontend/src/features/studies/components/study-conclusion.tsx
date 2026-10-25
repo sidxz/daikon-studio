@@ -21,7 +21,7 @@ export function StudyConclusion({ studyId }: { studyId: string }) {
   if (!conclusion) return null;
   return (
     <section className="space-y-2">
-      <h2 className="text-sm font-medium">What it found</h2>
+      <h2 className="text-sm font-medium">Study findings</h2>
       <p className="whitespace-pre-wrap text-sm">{conclusion}</p>
     </section>
   );

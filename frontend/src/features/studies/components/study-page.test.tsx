@@ -53,13 +53,13 @@ describe("the study page", () => {
     });
     render(<StudyPage />, { wrapper: Wrapper });
 
-    fireEvent.change(await screen.findByLabelText("What do you want to find out?"), {
+    fireEvent.change(await screen.findByLabelText("Research objective"), {
       target: { value: "Find the binding pocket of carbonic anhydrase II, PDB 1CA2" },
     });
     fireEvent.change(await screen.findByRole("combobox", { name: "Model" }), {
       target: { value: "openai" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Ask Daikon Studio" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create draft study" }));
 
     // The draft is open and the address is the study's, without leaving the page.
     expect(await screen.findByText("Should the zinc stay in the structure?")).toBeInTheDocument();
@@ -97,8 +97,8 @@ describe("the study page", () => {
     });
     const { unmount } = render(<StudyPage studyId="s1" />, { wrapper: Wrapper });
 
-    expect(await screen.findByRole("button", { name: "Start this study" })).toBeDisabled();
-    expect(screen.getByText(/Step 1 has a problem, shown on its card/)).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Finalize plan" })).toBeDisabled();
+    expect(screen.getByText(/Resolve the issue shown for step 1/)).toBeInTheDocument();
     expect(screen.getByText(problem)).toBeInTheDocument();
     unmount();
 
@@ -114,9 +114,9 @@ describe("the study page", () => {
     const play = await screen.findByRole("button", { name: "Run step 1" });
     expect(play).toBeDisabled();
     expect(play).toHaveAccessibleDescription(problem);
-    const runOn = screen.getByRole("button", { name: "Run to the next stop" });
+    const runOn = screen.getByRole("button", { name: "Continue execution" });
     expect(runOn).toBeDisabled();
-    expect(runOn).toHaveAccessibleDescription(/Step 1 has a problem, shown on its card/);
+    expect(runOn).toHaveAccessibleDescription(/Resolve the issue shown for step 1/);
   });
 
   it("shows the steps with a tool select where there are alternatives", async () => {
@@ -161,8 +161,8 @@ describe("the study page", () => {
     });
 
     // Started, the steps can run, one at a time or on to the next stop.
-    fireEvent.click(screen.getByRole("button", { name: "Start this study" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Run to the next stop" }));
+    fireEvent.click(screen.getByRole("button", { name: "Finalize plan" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Continue execution" }));
     await waitFor(() => expect(requests("POST", "/studies/s1/run")).toHaveLength(1));
     expect(requests("POST", "/studies/s1/start")).toHaveLength(1);
     expect(requests("POST", "/studies/s1/run")[0].data).toEqual({});

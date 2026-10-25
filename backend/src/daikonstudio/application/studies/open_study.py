@@ -76,7 +76,10 @@ def kind_of(filename: str) -> str:
     if kind is None:
         raise ValidationError(
             "That file type is not supported.",
-            detail="Attach a .csv, .tsv or .pdb file; .cif is not read yet.",
+            detail=(
+                "Supported file formats are .csv, .tsv, .tab, and .pdb. "
+                "The .cif format is not supported."
+            ),
         )
     return kind
 
@@ -110,7 +113,7 @@ async def bring(
     """
     kind = kind_of(upload.filename)
     if any(v.kind == kind and v.produced_by is None for v in study.values):
-        raise ValidationError(f"A study takes one {_spelled(kind)} file.")
+        raise ValidationError(f"Only one {_spelled(kind)} file is permitted per study.")
     if kind == SlotKind.COMPOUND_TABLE:
         raw = upload.content.removeprefix(_BOM)
         tabbed = upload.filename.lower().endswith((".tsv", ".tab"))
@@ -201,7 +204,9 @@ class OpenStudy:
         assert auth is not None  # require_authenticated has already rejected None
         goal = command.goal.strip()
         if len(goal) < _MIN_GOAL:
-            return Failure(ValidationError("Say what you want to find out."))
+            return Failure(
+                ValidationError("Provide a research objective containing at least 15 characters.")
+            )
         self._models.get(command.provider)  # raises, naming the variable to set
         study = Study(
             workspace_id=auth.workspace_id,

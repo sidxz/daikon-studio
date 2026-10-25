@@ -29,12 +29,16 @@ from daikonstudio.infrastructure.tools.params import (
     ActivityParams,
     AssayParams,
     CliffParams,
+    ClusterParams,
     ConfoundParams,
     CoreParams,
+    DiverseParams,
     FetchAlphafoldParams,
     FetchPdbParams,
     FetchUniprotParams,
     PrepareParams,
+    SimilarityParams,
+    SubstructureParams,
 )
 
 
@@ -239,6 +243,114 @@ _TOOLS: tuple[ToolManifest, ...] = (
         library="rdkit.Chem.Descriptors",
         surface=ToolSurface.NONE,
         params=ActivityParams,
+    ),
+    ToolManifest(
+        id="substructure_search",
+        version="1",
+        area=ToolArea.DATA,
+        name="Substructure search",
+        description=(
+            "Flags which compounds contain a given substructure, written as SMARTS. "
+            "Annotates the table with a column rather than returning only the hits, so a "
+            "query that matched nothing reads as a count of zero instead of an empty "
+            "table. Answers 'which of these have the piece I care about', which is the "
+            "question that usually precedes defining a series."
+        ),
+        inputs=(_COMPOUNDS,),
+        outputs=(_in("compounds", SlotKind.COMPOUND_TABLE, "Compounds"),),
+        library="rdkit.Chem.HasSubstructMatch",
+        surface=ToolSurface.NONE,
+        params=SubstructureParams,
+    ),
+    ToolManifest(
+        id="similarity_search",
+        version="1",
+        area=ToolArea.DATA,
+        name="Similarity search",
+        description=(
+            "Ranks every compound by Tanimoto similarity to a query structure on Morgan "
+            "fingerprints, most similar first, and says how many reach the cutoff. Use it "
+            "to find the near neighbours of a hit, or to ask whether a proposed compound "
+            "is actually new. Similarity is not activity: close neighbours can differ "
+            "sharply in potency, which is what the activity-cliff tool is for."
+        ),
+        inputs=(_COMPOUNDS,),
+        outputs=(_in("compounds", SlotKind.COMPOUND_TABLE, "Compounds"),),
+        library="rdkit.DataStructs.TanimotoSimilarity",
+        surface=ToolSurface.VIEW,
+        params=SimilarityParams,
+    ),
+    ToolManifest(
+        id="cluster_compounds",
+        version="1",
+        area=ToolArea.DATA,
+        name="Cluster compounds",
+        description=(
+            "Groups a set of compounds into chemotypes by Taylor-Butina clustering, "
+            "numbering clusters from largest and marking each cluster's centroid. Use it "
+            "to see how many distinct chemistries a set really holds before treating it as "
+            "one series, and to pick one representative per group. The cutoff decides the "
+            "answer, so a cluster count is only meaningful next to the cutoff that "
+            "produced it."
+        ),
+        inputs=(_COMPOUNDS,),
+        outputs=(_in("compounds", SlotKind.COMPOUND_TABLE, "Compounds"),),
+        library="rdkit.ML.Cluster.Butina",
+        surface=ToolSurface.VIEW,
+        params=ClusterParams,
+    ),
+    ToolManifest(
+        id="pick_diverse_subset",
+        version="1",
+        area=ToolArea.DATA,
+        name="Pick a diverse subset",
+        description=(
+            "Chooses a maximally dissimilar subset of a given size by MaxMin, for a plate, "
+            "a first screen, or a spread of examples to look at by hand. This is the one "
+            "tool here that returns fewer rows than it was given, and it reports what it "
+            "picked from. Diversity is measured on fingerprints alone, so it knows nothing "
+            "about which compounds are available or affordable."
+        ),
+        inputs=(_COMPOUNDS,),
+        outputs=(_in("compounds", SlotKind.COMPOUND_TABLE, "Compounds"),),
+        library="rdkit.SimDivFilters.MaxMinPicker",
+        surface=ToolSurface.VIEW,
+        params=DiverseParams,
+    ),
+    ToolManifest(
+        id="murcko_scaffolds",
+        version="1",
+        area=ToolArea.SAR,
+        name="Scaffolds per compound",
+        description=(
+            "Reduces each compound to its Bemis-Murcko scaffold, and to the generic ring "
+            "skeleton beside it, so a set can be counted and grouped by chemotype. The "
+            "generic form ignores which atoms the rings are made of, which is what groups "
+            "two series that differ only by a ring heteroatom. Unlike finding series, this "
+            "assigns a scaffold to every compound without deciding what the core is."
+        ),
+        inputs=(_COMPOUNDS,),
+        outputs=(_in("compounds", SlotKind.COMPOUND_TABLE, "Compounds"),),
+        library="rdkit.Chem.Scaffolds.MurckoScaffold",
+        surface=ToolSurface.NONE,
+    ),
+    ToolManifest(
+        id="synthetic_accessibility",
+        version="1",
+        area=ToolArea.DATA,
+        name="Synthetic accessibility",
+        description=(
+            "Scores how hard each compound looks to make, from 1 for easy to 10 for hard, "
+            "from the frequency of its fragments in known chemistry plus size and "
+            "complexity penalties. Worth running over anything a model or an agent "
+            "proposed, before it reaches a chemist. It is a prior and not a route: compare "
+            "within one table rather than against a fixed cutoff, and nothing here says "
+            "whether a given compound can actually be made."
+        ),
+        inputs=(_COMPOUNDS,),
+        outputs=(_in("properties", SlotKind.PROPERTY_TABLE, "Properties"),),
+        library="rdkit Contrib SA_Score (Ertl-Schuffenhauer)",
+        surface=ToolSurface.NONE,
     ),
     ToolManifest(
         id="property_confound",

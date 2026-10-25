@@ -362,15 +362,14 @@ class ApproveRequest(BaseModel):
 async def _uploads(files: list[UploadFile]) -> tuple[Upload, ...]:
     if len(files) > _MAX_FILES:  # refused before any of them is read
         raise ValidationError(
-            "A study takes two files at most: one compound table and one structure."
+            "A study supports up to two input files: one compound table and one structure."
         )
     uploads: list[Upload] = []
     for file in files:
         content = await file.read(_MAX_UPLOAD_BYTES + 1)
         if len(content) > _MAX_UPLOAD_BYTES:
             raise ValidationError(
-                "That file is too large to read.",
-                detail="A study keeps the whole file, and this one is past the upload limit.",
+                f"The file exceeds the {_MAX_UPLOAD_BYTES // (1024 * 1024)} MiB upload limit.",
             )
         uploads.append(Upload(filename=file.filename or "", content=content))
     return tuple(uploads)

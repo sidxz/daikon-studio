@@ -46,7 +46,7 @@ function reading(step: StudyStep, turns: Turn[], running: boolean): boolean {
  * The plan, one card per step, the same list in a draft and once started. Each step has its
  * own play control and runs only itself; each result sits under the step that made it.
  *
- * The page draws the heading, Start and "Run to the next stop" above this, and the study's
+ * The page draws the heading, Start and "Continue execution" above this, and the study's
  * conversation beside it: `onTalk` hands it the step a message should be about.
  */
 export function StudySteps({
@@ -66,7 +66,7 @@ export function StudySteps({
   if (study.steps.length === 0) {
     return (
       <p className="text-sm text-muted-foreground">
-        No steps yet. Daikon Studio writes the plan once it has asked what it needs to know.
+        The analysis plan will be prepared after the initial clarification stage.
       </p>
     );
   }

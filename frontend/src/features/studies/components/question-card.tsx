@@ -93,8 +93,8 @@ export function QuestionCard({
       {assumed !== null && (
         <p className="text-xs text-muted-foreground" aria-live="polite">
           {untouched
-            ? "This is what Daikon Studio assumed, and what the plan does unless you change it."
-            : "Changed from what Daikon Studio assumed."}
+            ? "Default assumption used in the analysis plan unless revised."
+            : "Default assumption revised."}
         </p>
       )}
     </li>
