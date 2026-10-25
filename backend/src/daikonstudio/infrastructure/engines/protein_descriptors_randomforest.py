@@ -49,9 +49,9 @@ _MANIFEST = EngineManifest(
     version="1.0.0",
     name="Protein descriptors + Random Forest",
     description=(
-        "Amino-acid composition and bulk physicochemistry — hydropathy, charge, "
-        "isoelectric point, predicted secondary-structure content — with a random "
-        "forest. The required baseline every sequence model is measured against."
+        "A random forest using amino-acid composition, hydropathy, charge, "
+        "isoelectric point and predicted secondary-structure content. "
+        "The default comparison baseline for protein models."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(
