@@ -73,7 +73,10 @@ faithful substitute, for what that is worth later: on 1HSG and 1CA2 it returns t
 same rank 1, the same score and probability, the same centre and the same lining
 residues as 2.5.1.
 
-That leaves three options, none of them taken yet:
+**Decided 2026-10-25: option 2.** The eight ids are suppressed in
+`.trivyignore.yaml` with the reasoning above and an expiry of 2026-12-31, so the gate
+passes and the expiry forces the question again rather than letting it rot. The three
+options, kept for whoever revisits:
 
 1. Wait for a stable p2rank after 2.5.1 that bundles current jackson.
 2. Accept the risk and record it in `.trivyignore` against these eight ids. The case

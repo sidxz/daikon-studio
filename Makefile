@@ -327,15 +327,19 @@ image-frontend: ## Build the daikon-frontend:local image (Next standalone + RDKi
 
 security-scan: image-runner-cpu image-frontend image-runner-chem ## Trivy gate before a release: lockfiles + secrets, then every published image; fails on fixable HIGH/CRITICAL
 	@command -v trivy >/dev/null || { echo "trivy is not installed: brew install trivy"; exit 1; }
-	trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
+	# --ignorefile is explicit: trivy 0.74 auto-discovers the plain .trivyignore but not
+	# the yaml form, and the yaml form is the one that carries a reason and an expiry.
+	# Named on every call so a suppression cannot apply to one image and silently not
+	# another.
+	trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --ignorefile .trivyignore.yaml \
 	  --skip-dirs node_modules,.venv,.next,.claude,.logs,.blobs,.superpowers,docs,internal-docs .
-	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-runner:cpu
-	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-frontend:local
+	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 daikon-runner:cpu
+	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 daikon-frontend:local
 	# The chem image ships p2rank, whose bundled jars are not ours to upgrade. It was left
 	# out of this gate and so went unscanned until 2026-10-25; publishing it unscanned is
 	# the hole, not the findings. Scan a directory of jars and trivy reports nothing at
 	# all, so the image is the only measurement worth trusting here.
-	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-runner:chem
+	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 daikon-runner:chem
 
 nuke: ## Stop containers and DELETE all data volumes + local blobs
 	$(COMPOSE) down -v

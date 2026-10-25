@@ -1,0 +1,45 @@
+# Findings the scan gate is told to pass. Each one carries why, and a date to revisit.
+# The reasoning behind this file lives in RELEASING.md under "The p2rank findings";
+# read that before adding to it.
+#
+# Everything here ships inside p2rank 2.5.1, the second pocket finder. We do not build
+# those jars: p2rank is fetched as a released tarball, pinned by checksum, and its
+# bin/lib is its own. Upgrading does not help -- 2.6-alpha scanned as an image carries
+# eighteen findings rather than eight -- so the only real fixes are a stable upstream
+# release or dropping p2rank.
+#
+# Why this is acceptable, stated so a reader can disagree rather than take it on faith:
+# p2rank runs as a subprocess over a prepared PDB this product wrote, inside a runner,
+# and its jackson parses p2rank's own configuration and model files. Nothing routes a
+# scientist's upload into it. The denial-of-service entries cost a failed step. The
+# deserialisation entries need attacker-controlled polymorphic JSON, which never
+# arrives. That argument stops holding the moment p2rank is handed untrusted JSON or
+# put on a network, which is why every entry expires rather than sitting here forever.
+#
+# Accepted by Sid on 2026-10-25. Revisit at expiry, or sooner if p2rank publishes a
+# stable release after 2.5.1.
+vulnerabilities:
+  - id: CVE-2025-52999
+    statement: jackson-core 2.13.4, vendored in p2rank 2.5.1. Stack overflow on deeply nested input.
+    expired_at: 2026-12-31
+  - id: CVE-2026-68494
+    statement: jackson-core 2.13.4, vendored in p2rank 2.5.1.
+    expired_at: 2026-12-31
+  - id: CVE-2026-89425
+    statement: jackson-core 2.13.4, vendored in p2rank 2.5.1. Denial of service.
+    expired_at: 2026-12-31
+  - id: CVE-2026-54512
+    statement: jackson-databind 2.13.4.2, vendored in p2rank 2.5.1. Needs attacker-controlled polymorphic JSON, which nothing here supplies.
+    expired_at: 2026-12-31
+  - id: CVE-2026-54513
+    statement: jackson-databind 2.13.4.2, vendored in p2rank 2.5.1. As above.
+    expired_at: 2026-12-31
+  - id: CVE-2026-91776
+    statement: jackson-databind 2.13.4.2, vendored in p2rank 2.5.1.
+    expired_at: 2026-12-31
+  - id: CVE-2026-91777
+    statement: jackson-databind 2.13.4.2, vendored in p2rank 2.5.1.
+    expired_at: 2026-12-31
+  - id: CVE-2026-21452
+    statement: msgpack-core 0.8.24, vendored in p2rank 2.5.1. Denial of service on malformed input.
+    expired_at: 2026-12-31
