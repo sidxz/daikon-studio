@@ -19,10 +19,11 @@ import pytest
 from returns.result import Result, Success
 
 from daikonstudio.application.auth import AuthContext
+from daikonstudio.application.planner.catalogue import INDEX_HEADING, VIEW_HEADING
 from daikonstudio.application.planner.plan import DraftPlan, Interrogation, Question, Setting
 from daikonstudio.application.planner.plan import Step as PlanStep
 from daikonstudio.application.studies import advance_study
-from daikonstudio.application.studies.agent import ObserveStep, SayCommand, StudyAgent
+from daikonstudio.application.studies.agent import _WIDENED, ObserveStep, SayCommand, StudyAgent
 from daikonstudio.application.studies.apply_proposal import ApplyCommand, ApplyProposal
 from daikonstudio.application.studies.prompts import MAX_QUESTIONS
 from daikonstudio.application.studies.schemas import (
@@ -34,9 +35,11 @@ from daikonstudio.application.studies.schemas import (
     ProgressClaim,
     Proposal,
     ReplyTurn,
+    planning_turn_schema,
 )
 from daikonstudio.application.studies.standing import standing
 from daikonstudio.application.tools import codecs
+from daikonstudio.application.tools.manifest import SlotKind
 from daikonstudio.domain.shared.errors import (
     ConflictError,
     DomainError,
@@ -226,7 +229,7 @@ async def test_zero_questions_chains_straight_into_a_plan() -> None:
     stored = studies.rows[study.id]
     assert [t.kind for t in stored.thread.turns] == ["asking", "planning"]
     assert [s.tool_id for s in stored.steps] == ["fetch_pdb", "prepare_structure", "find_pockets"]
-    assert model.schemas == [Interrogation, PlanningTurn]
+    assert model.schemas == [Interrogation, planning_turn_schema(REGISTRY)]
 
 
 async def test_a_plan_reply_expands_composites_and_pins_problems_to_steps() -> None:
@@ -575,3 +578,89 @@ async def test_observe_survives_a_model_failure() -> None:
     (turn,) = studies.rows[study.id].thread.turns
     assert (turn.role, turn.kind, turn.about) == ("event", "observe_failed", study.steps[0].id)
     assert turn.say == "No anthropic model is configured on this server."
+
+
+async def test_the_asking_turn_reads_the_index_as_a_stable_prefix_and_stores_what_it_steers() -> (
+    None
+):
+    model = ScriptedLanguageModel(
+        Interrogation(
+            restated_goal="r",
+            questions=[],
+            target_kinds=[SlotKind.EFFECTS],
+            wanted=["matched_pairs"],
+        ),
+        PlanningTurn(
+            say="",
+            plan=DraftPlan(
+                restated_goal="r",
+                steps=[PlanStep(tool_id="matched_pairs", purpose="p", gated=False)],
+            ),
+        ),
+    )
+    study = _study(started=False)
+    agent, studies, _ = _agent(study, InMemoryBlobStore(), model)
+    await agent.ask(study, None)
+    assert model.stables[0].startswith(INDEX_HEADING) and VIEW_HEADING not in model.calls[0][1]
+    turn = studies.rows[study.id].thread.turns[0]
+    assert turn.wanted == ("matched_pairs",) and turn.target_kinds == ("effects",)
+    assert VIEW_HEADING in model.calls[1][1] and "- matched_pairs: " in model.calls[1][1]
+
+
+async def test_a_coherent_plan_over_index_only_tools_stands_in_one_call() -> None:
+    plan = DraftPlan(
+        restated_goal="r", steps=[PlanStep(tool_id="property_profile", purpose="p", gated=False)]
+    )
+    model = ScriptedLanguageModel(PlanningTurn(say="", plan=plan, wanted=["structural_alerts"]))
+    study = _study(started=False)
+    # A draft with an agent turn is in planning.
+    study.say(Turn(role="agent", kind="asking", say="r", at=datetime.now(UTC)))
+    agent, studies, _ = _agent(study, InMemoryBlobStore(), model)
+    await agent(_say(study, "go"), AUTH)
+    assert len(model.calls) == 1
+    assert [s.tool_id for s in studies.rows[study.id].steps if not s.always] == [
+        "property_profile"
+    ]
+
+
+async def test_show_me_these_first_spends_the_one_retry_with_a_wider_view() -> None:
+    first = PlanningTurn(say="", wanted=["matched_pairs"])
+    second = PlanningTurn(
+        say="",
+        plan=DraftPlan(
+            restated_goal="r", steps=[PlanStep(tool_id="matched_pairs", purpose="p", gated=False)]
+        ),
+    )
+    model = ScriptedLanguageModel(first, second)
+    study = _study(started=False)
+    study.say(Turn(role="agent", kind="asking", say="r", at=datetime.now(UTC)))
+    agent, *_ = _agent(study, InMemoryBlobStore(), model)
+    await agent(_say(study, "go"), AUTH)
+    assert len(model.calls) == 2
+    assert (
+        "- matched_pairs: " not in model.calls[0][1] and "- matched_pairs: " in model.calls[1][1]
+    )
+    assert _WIDENED.strip() in model.calls[1][1]
+
+
+async def test_an_observe_turn_carries_no_catalogue_and_no_prefix() -> None:
+    store = InMemoryBlobStore()
+    study = _study("standardize", "property_profile")
+    _done(study, store, 2, "property_table", pl.DataFrame({"id": ["a"], "clogp": [1.5]}))
+    model = ScriptedLanguageModel(ObserveTurn(say="", summary="s"))
+    observer, _ = _observer(study, store, model)
+    await observer(study.workspace_id, study.id, study.steps[1].id)
+    assert model.stables == [""]
+    assert INDEX_HEADING not in model.calls[0][1] and VIEW_HEADING not in model.calls[0][1]
+
+
+async def test_a_reply_that_looks_and_names_an_unseen_tool_still_makes_two_calls() -> None:
+    store = InMemoryBlobStore()
+    study = _study("standardize", "property_profile")
+    _done(study, store, 2, "property_table", pl.DataFrame({"id": ["a"], "clogp": [1.5]}))
+    model = ScriptedLanguageModel(
+        ReplyTurn(say="", look=[Look(step=2)], wanted=["matched_pairs"], summary="s")
+    )
+    agent, *_ = _agent(study, store, model)
+    await agent(_say(study, "Show me."), AUTH)
+    assert len(model.calls) == 2 and "- matched_pairs: " in model.calls[1][1]

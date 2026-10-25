@@ -45,8 +45,14 @@ class LanguageModel(Protocol):
     @property
     def choice(self) -> ModelChoice: ...
 
-    async def parse[T: BaseModel](self, *, system: str, prompt: str, schema: type[T]) -> T:
+    async def parse[T: BaseModel](
+        self, *, system: str, prompt: str, schema: type[T], stable: str = ""
+    ) -> T:
         """Ask once and return the answer as `schema`.
+
+        `stable` is text that is identical from one call to the next (a catalogue
+        index, say) and goes ahead of `prompt` so a provider that caches prefixes
+        can reuse it. Empty means there is none.
 
         Raises `ServiceUnavailableError` for anything the provider does wrong or
         cannot do -- including an unconfigured key, which is a deployment problem

@@ -31,5 +31,9 @@ def test_every_template_carries_the_reading_rules_once() -> None:
     cannot be filled fails here too."""
     registry = default_registry()
     for phase in ("asking", "planning", "running"):
-        rendered = system(phase, registry, left=3)
+        rendered = system(phase, registry)
         assert rendered.count(catalogue.READING_THE_DATA) == 1, phase
+
+
+def test_the_planning_prompt_no_longer_carries_a_number_that_changes_per_turn() -> None:
+    assert "%(left)" not in prompts.PLANNING and "questions you have left" in prompts.PLANNING

@@ -7,12 +7,14 @@ field for a step. A model cannot be talked into a field that is not there.
 
 from __future__ import annotations
 
+import json
 from collections.abc import Iterator, Mapping
 from typing import Any
 
 import pytest
 from pydantic import ValidationError
 
+from daikonstudio.application.planner.plan import Interrogation
 from daikonstudio.application.studies.schemas import (
     Action,
     AskingTurn,
@@ -22,7 +24,9 @@ from daikonstudio.application.studies.schemas import (
     PlanningTurn,
     Proposal,
     ReplyTurn,
+    planning_turn_schema,
 )
+from daikonstudio.infrastructure.tools.catalog import default_registry
 
 
 def test_the_asking_schema_cannot_carry_steps() -> None:
@@ -35,6 +39,33 @@ def test_an_event_turn_has_no_field_to_act_with() -> None:
 
 def test_a_reply_turn_cannot_pause() -> None:
     assert "pause" not in ReplyTurn.model_fields
+
+
+def test_only_turns_that_can_choose_a_tool_may_ask_to_read_one() -> None:
+    assert "wanted" in PlanningTurn.model_fields and "wanted" in ReplyTurn.model_fields
+    assert "wanted" not in ObserveTurn.model_fields
+    assert "target_kinds" in Interrogation.model_fields
+    assert "anyOf" not in json.dumps(Interrogation.model_json_schema())
+
+
+def test_the_planning_schema_only_admits_the_registry_tool_ids() -> None:
+    schema_cls = planning_turn_schema(default_registry())
+    defs = schema_cls.model_json_schema()["$defs"]
+    step = defs[defs["DraftPlan"]["properties"]["steps"]["items"]["$ref"].rsplit("/", 1)[-1]]
+    assert set(step["properties"]["tool_id"]["enum"]) == {
+        m.id for m in default_registry().manifests()
+    }
+    assert planning_turn_schema(default_registry()) is schema_cls  # cached, not rebuilt per call
+    with pytest.raises(ValidationError):
+        schema_cls.model_validate(
+            {
+                "say": "",
+                "plan": {
+                    "restated_goal": "r",
+                    "steps": [{"tool_id": "no_such_tool", "purpose": "p", "gated": False}],
+                },
+            }
+        )
 
 
 def _types(node: Any) -> Iterator[Any]:
@@ -76,7 +107,13 @@ def test_every_turn_schema_fits_the_providers_structured_output_limits() -> None
     one it cannot compile ("The compiled grammar is too large"). A reply carrying actions and
     proposals had 28 and 16, and every message on a started study was refused. "None" is a
     value now, never a union, so the count has to stay where it cannot creep back over."""
-    for model in (PlanningTurn, ObserveTurn, ReplyTurn):
+    for model in (
+        PlanningTurn,
+        planning_turn_schema(default_registry()),
+        ObserveTurn,
+        ReplyTurn,
+        Interrogation,
+    ):
         schema = model.model_json_schema()
         optional, unions = _limits(schema, schema.get("$defs", {}))
         assert unions == 0, model.__name__

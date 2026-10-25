@@ -21,14 +21,14 @@ from textwrap import indent
 from typing import Any
 
 from daikonstudio.application.planner.catalogue import (
-    CATALOGUE_HEADING,
+    VIEW_HEADING,
     catalogue,
     profile_text,
     starting_note,
 )
 from daikonstudio.application.ports.table_profiler import ColumnProfile, TableProfile
 from daikonstudio.application.studies.readers import checkable, reader
-from daikonstudio.application.tools.manifest import SlotKind
+from daikonstudio.application.tools.manifest import SlotKind, ToolManifest
 from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.domain.studies.study import Pointer, SlotValue, Step, StepStatus, Study, Turn
 
@@ -188,21 +188,30 @@ def standing(
     study: Study,
     registry: ToolRegistry,
     *,
+    view: Sequence[ToolManifest] = (),
+    left: int | None = None,
     data: Mapping[uuid.UUID, Any] = {},
     memory: Sequence[str] = (),
     tool_notes: Mapping[str, str] = {},
 ) -> str:
     """The study as the agent reads it, whichever turn it is about to take.
 
-    The catalogue comes first because the prompts point at it ("the catalogue below") and it
-    is the part that does not change between turns. `data` is what each current result holds,
+    The tools in `view` come first, in full, because the prompts point at them; the rest of
+    the catalogue is the caller's to put before the prompt as a stable prefix. `left` is how
+    many questions the whole analysis may still ask, counting every round: it changes each
+    turn, so it is said here and not in the system prompt, which stays the same from turn to
+    turn so that it can be cached. The caller derives it, because only it knows how many were
+    already put; a turn that asks nothing passes none. `data` is what each current result holds,
     by value id, for the readers that describe one from more than its stored summary; a table
     is described from its summary alone and needs none. `memory` and `tool_notes` are the
     places for what the study recalls from earlier work and what a tool's manual says; nothing
     fills them yet, so nothing is written for them.
     """
     sections = [
-        f"{CATALOGUE_HEADING}\n{catalogue(registry.manifests())}",
+        f"{VIEW_HEADING}\n{catalogue(list(view))}" if view else "",
+        f"You have {left} questions left for this whole analysis, counting every round."
+        if left is not None
+        else "",
         f"The scientist's goal, in their words:\n{study.goal}",
         f"The goal as understood: {study.restated_goal}" if study.restated_goal else "",
         _questions(study),

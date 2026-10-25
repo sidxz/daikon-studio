@@ -11,6 +11,12 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from daikonstudio.application.planner.catalogue import (
+    CATALOGUE_HEADING,
+    INDEX_HEADING,
+    VIEW_HEADING,
+    index,
+)
 from daikonstudio.application.studies.standing import CONTEXT_TURNS, standing
 from daikonstudio.domain.studies.study import Pointer, SlotValue, Step, Study, Turn
 from daikonstudio.infrastructure.tools.catalog import default_registry
@@ -155,3 +161,26 @@ def test_a_removed_step_is_named_as_removed_not_looked_up() -> None:
 
     assert "about a removed step" in text
     assert "a removed step, rank 1 · the zinc cone" in text
+
+
+def test_standing_carries_no_catalogue_unless_given_a_view() -> None:
+    text = standing(_study("standardize"), REGISTRY)
+    assert CATALOGUE_HEADING not in text and INDEX_HEADING not in text and VIEW_HEADING not in text
+
+
+def test_a_view_is_rendered_in_full_and_first() -> None:
+    view = [REGISTRY.get("find_cores")]
+    text = standing(_study(), REGISTRY, view=view, left=4)
+    assert text.startswith(VIEW_HEADING)
+    assert "- find_cores: " in text and "takes:" in text
+    assert "You have 4 questions left" in text
+
+
+def test_index_is_one_line_per_tool_in_catalogue_order() -> None:
+    lines = index(REGISTRY.manifests()).splitlines()
+    assert len(lines) == len(REGISTRY.manifests())
+    assert "series (optional)" in next(line for line in lines if line.startswith("- find_cores:"))
+    assert all(line.startswith("- ") and "takes:" in line and "gives:" in line for line in lines)
+    assert REGISTRY.get(lines[0][2:].split(":")[0]).expands_to, (
+        "composites come first, as in catalogue()"
+    )

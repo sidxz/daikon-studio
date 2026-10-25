@@ -86,6 +86,8 @@ def _thread_to_json(t: Thread) -> dict[str, Any]:
                     for a in turn.actions
                 ],
                 "looked": list(turn.looked),
+                "wanted": list(turn.wanted),
+                "target_kinds": list(turn.target_kinds),
                 "dropped": turn.dropped,
                 "silent": turn.silent,
                 "written_by": turn.written_by,
@@ -145,6 +147,8 @@ def _thread_from_json(d: dict[str, Any]) -> Thread:
                     for a in t.get("actions", [])
                 ),
                 looked=tuple(t.get("looked", ())),
+                wanted=tuple(t.get("wanted", ())),
+                target_kinds=tuple(t.get("target_kinds", ())),
                 dropped=t.get("dropped", 0),
                 silent=t.get("silent", False),
                 written_by=t.get("written_by"),
