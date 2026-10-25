@@ -1116,6 +1116,7 @@ chem-tools = [
     { name = "meeko" },
     { name = "openmm" },
     { name = "pdbfixer" },
+    { name = "posebusters" },
     { name = "prolif" },
     { name = "propka" },
 ]
@@ -1168,6 +1169,7 @@ requires-dist = [
     { name = "pdbfixer", marker = "extra == 'chem-tools'", specifier = ">=1.12" },
     { name = "peft", marker = "extra == 'gpu'", specifier = ">=0.21" },
     { name = "polars", specifier = ">=1.17" },
+    { name = "posebusters", marker = "extra == 'chem-tools'", specifier = ">=0.6.5" },
     { name = "prolif", marker = "extra == 'chem-tools'", specifier = ">=2.2" },
     { name = "propka", marker = "extra == 'chem-tools'", specifier = ">=3.5" },
     { name = "pyarrow", specifier = ">=18.0" },
@@ -3356,6 +3358,21 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/db/e2/047c7695f08a9b18614c0e1ec5e70a754455542a21a6d52955f7f05c6268/polars_runtime_32-1.43.0-cp310-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:9cd8b813afe67d59e87027dedcaf5c6a06fe602472fd74e1a49f4bafea47259c", size = 55169401, upload-time = "2026-07-21T04:29:25.902Z" },
     { url = "https://files.pythonhosted.org/packages/92/dc/bfd2533c487563c7a21ab7d7af3d78f820b0236e14dc5ee63d46188cd275/polars_runtime_32-1.43.0-cp310-abi3-win_amd64.whl", hash = "sha256:41a75fb3cb4cc574eb21801383578f75cfc374597c22322ef457ab7bac8a3301", size = 52541527, upload-time = "2026-07-21T04:29:29.162Z" },
     { url = "https://files.pythonhosted.org/packages/46/d7/5c47f1bf57479d1671669af9c421f9abf4986b2ddaa64c177244ff811de0/polars_runtime_32-1.43.0-cp310-abi3-win_arm64.whl", hash = "sha256:c285e598dd91e08560e519275b8b8108adbafb438d218a175ebe073dbc2027fb", size = 46552281, upload-time = "2026-07-21T04:29:32.224Z" },
+]
+
+[[package]]
+name = "posebusters"
+version = "0.6.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "pyyaml" },
+    { name = "rdkit" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5b/1a/257c45d93b895c51fc411f7a40a39d10c129f90b7d320a7dada8795a9632/posebusters-0.6.5.tar.gz", hash = "sha256:066d4e9589979bd72c5c1cfe49f3f7fd30246cacd63fa492c3b0d15bca5c4b12", size = 5022843, upload-time = "2026-03-07T23:25:46.253Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f5/76/62fbbfc0c6b1df40b3d424d33a8588f23d22a59b81498c07ca629c99b3fb/posebusters-0.6.5-py3-none-any.whl", hash = "sha256:3e0cbca6481079d5ab7d1989a8a8f184dbba27366613c4b515658ea52fb95ea3", size = 567794, upload-time = "2026-03-07T23:25:44.467Z" },
 ]
 
 [[package]]

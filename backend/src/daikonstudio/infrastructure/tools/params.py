@@ -115,6 +115,16 @@ class InteractionParams(BaseModel):
     )
 
 
+class ValidityParams(BaseModel):
+    keep_invalid: bool = Field(
+        default=False,
+        description=(
+            "Keep the poses that fail, marked, instead of dropping them. Off, the output "
+            "is the poses that passed and the failures are reported beside it"
+        ),
+    )
+
+
 class DockParams(BaseModel):
     exhaustiveness: int = Field(
         default=8,

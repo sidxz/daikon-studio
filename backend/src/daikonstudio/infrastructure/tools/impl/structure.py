@@ -24,6 +24,7 @@ from daikonstudio.infrastructure.tools.params import (
     DockParams,
     InteractionParams,
     PrepareParams,
+    ValidityParams,
 )
 
 ToolImpl = Callable[[BaseModel | None, Mapping[str, object]], Mapping[str, object]]
@@ -922,10 +923,93 @@ def pose_interactions(params: BaseModel | None, inputs: Mapping[str, object]) ->
     }
 
 
+def _verdict(report: Any) -> tuple[bool, str]:
+    """One PoseBusters row as a pass and the names of what failed.
+
+    Anything that is not `True` counts as a failure, including a check that could not
+    run: a pose this cannot judge is not a pose to trust.
+    """
+    failed = [str(name) for name, value in report.items() if value is not True]
+    return (not failed, ", ".join(failed))
+
+
+def check_poses(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[str, Any]:
+    """Which poses are physically possible, before anyone reads their scores.
+
+    PoseBusters' docking checks: chemistry, bond geometry, ring and double-bond
+    flatness, internal strain against the molecule's own conformer ensemble, and
+    distance to and volume overlap with the receptor. A pose that fails is wrong, not
+    weak, and nothing in a score says so -- the blind assessments this comes from found
+    low-RMSD poses that no force field would accept.
+    """
+    import polars as pl
+    from posebusters import PoseBusters
+
+    settings = cast(ValidityParams, params or ValidityParams())
+    receptor = cast(dict[str, Any], inputs["receptor"])
+    frame = cast(pl.DataFrame, inputs["poses"])
+
+    verdicts: list[tuple[bool, str]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "receptor.pdb"
+        path.write_text(cast(str, receptor["text"]))
+        # The receptor is loaded once per call; poses are judged one at a time so a pose
+        # that cannot be rebuilt is a failure of that pose and not of the step.
+        buster = PoseBusters(config="dock")
+        for record in frame.iter_rows(named=True):
+            try:
+                ligand = _pose_molecule(
+                    str(record["pose_pdbqt"]), float(record["affinity_kcal_mol"]), tmp
+                )
+                report = buster.bust(mol_pred=ligand, mol_cond=path)
+            except (ValueError, RuntimeError) as error:
+                verdicts.append((False, f"could not be rebuilt: {str(error)[:80]}"))
+                continue
+            verdicts.append(_verdict(report.iloc[0]))
+
+    checked = frame.with_columns(
+        pl.Series("valid", [ok for ok, _ in verdicts], dtype=pl.Boolean),
+        pl.Series("failed_checks", [why for _, why in verdicts], dtype=pl.String),
+    )
+    invalid = checked.filter(~pl.col("valid"))
+    by_check: dict[str, int] = {}
+    for why in invalid["failed_checks"]:
+        for name in str(why).split(", "):
+            by_check[name] = by_check.get(name, 0) + 1
+    return {
+        "poses": checked if settings.keep_invalid else checked.filter(pl.col("valid")),
+        # Passed through, not re-derived: a pose is only worth drawing inside the receptor
+        # it was docked into, and a viewer looks for that among its own step's outputs.
+        "receptor": receptor,
+        "meta": {
+            "n_poses": frame.height,
+            "n_valid": frame.height - invalid.height,
+            "n_invalid": invalid.height,
+            "failures_by_check": dict(sorted(by_check.items(), key=lambda kv: -kv[1])),
+            # Named here because the invalid poses are the answer and may sit past
+            # the rows a reader sees.
+            "invalid": [
+                {"compound": c, "pose_rank": r, "failed_checks": w}
+                for c, r, w in zip(
+                    invalid["compound"].head(25),
+                    invalid["pose_rank"].head(25),
+                    invalid["failed_checks"].head(25),
+                    strict=True,
+                )
+            ],
+            "note": (
+                "A pose that passes is physically possible, not correct. A pose that "
+                "fails is wrong whatever its score."
+            ),
+        },
+    }
+
+
 IMPLEMENTATIONS: dict[str, ToolImpl] = {
     "prepare_structure": prepare_structure,
     "find_pockets": find_pockets,
     "predict_pockets": predict_pockets,
     "dock_compounds": dock_compounds,
     "pose_interactions": pose_interactions,
+    "check_poses": check_poses,
 }

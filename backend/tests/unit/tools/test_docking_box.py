@@ -138,3 +138,31 @@ def test_interactions_are_declared_and_implemented() -> None:
     assert [slot.kind for slot in tool.inputs] == ["poses", "structure"]
     assert [slot.kind for slot in tool.outputs] == ["interactions"]
     assert "pose_interactions" in IMPLEMENTATIONS
+
+
+def test_a_pose_fails_on_anything_that_is_not_true() -> None:
+    """A check that could not run reads as a failure: a pose that cannot be judged is
+    not a pose to trust. The names come back so the reader knows what to disbelieve."""
+    import pandas as pd
+
+    from daikonstudio.infrastructure.tools.impl.structure import _verdict
+
+    passing = pd.Series({"sanitization": True, "minimum_distance_to_protein": True})
+    assert _verdict(passing) == (True, "")
+    failing = pd.Series(
+        {"sanitization": True, "minimum_distance_to_protein": False, "internal_energy": None}
+    )
+    assert _verdict(failing) == (False, "minimum_distance_to_protein, internal_energy")
+
+
+def test_validity_is_declared_and_implemented() -> None:
+    from daikonstudio.infrastructure.tools.catalog import default_registry
+    from daikonstudio.infrastructure.tools.runtime import IMPLEMENTATIONS
+
+    tool = default_registry().get("check_poses")
+    assert tool.lane == "chem-tools"
+    assert [slot.kind for slot in tool.inputs] == ["poses", "structure"]
+    # Poses in, poses out, with the receptor carried along so the survivors can still be
+    # drawn in what they were docked into.
+    assert [slot.kind for slot in tool.outputs] == ["poses", "structure"]
+    assert "check_poses" in IMPLEMENTATIONS

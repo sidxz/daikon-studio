@@ -168,7 +168,7 @@ dev-worker-gpu: ## (Re)start the gpu-lane runner agent only (chemprop; Mac GPU v
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@echo "GPU-lane runner agent (re)started (log $(LOGDIR)/worker-gpu.log)"
 
-dev-worker-chem: ## (Re)start the chem-tools-lane runner agent only (OpenMM, PDBFixer, PROPKA, fpocket, p2rank, vina)
+dev-worker-chem: ## (Re)start the chem-tools-lane runner agent only (OpenMM, PDBFixer, PROPKA, fpocket, p2rank, vina, posebusters)
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker-chem.pid ] && kill $$(cat $(LOGDIR)/worker-chem.pid) 2>/dev/null || true
 	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_CHEM)' \
@@ -278,7 +278,7 @@ image-runner-chem: ## Build the chem-tools runner image locally as daikon-runner
 	docker run --rm --platform linux/amd64 --entrypoint fpocket daikon-runner:chem || true
 	docker run --rm --platform linux/amd64 --entrypoint prank daikon-runner:chem || true
 	docker run --rm --platform linux/amd64 --entrypoint vina daikon-runner:chem --version || true
-	docker run --rm --platform linux/amd64 --entrypoint python daikon-runner:chem -c "import pdbfixer, propka, openmm, meeko, prolif; print('chem-tools imports ok')"
+	docker run --rm --platform linux/amd64 --entrypoint python daikon-runner:chem -c "import pdbfixer, propka, openmm, meeko, prolif, posebusters; print('chem-tools imports ok')"
 	docker run --rm --platform linux/amd64 --entrypoint mk_prepare_receptor.py daikon-runner:chem --help > /dev/null && echo "meeko receptor prep ok"
 
 # The CUDA runner image is built, GPU-tested, scanned and pushed on atlantic: x86_64, an

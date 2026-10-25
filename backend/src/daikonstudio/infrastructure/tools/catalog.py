@@ -41,6 +41,7 @@ from daikonstudio.infrastructure.tools.params import (
     PrepareParams,
     SimilarityParams,
     SubstructureParams,
+    ValidityParams,
 )
 
 
@@ -672,6 +673,34 @@ _TOOLS: tuple[ToolManifest, ...] = (
         lane="chem-tools",
         surface=ToolSurface.VIEW,
         params=InteractionParams,
+    ),
+    ToolManifest(
+        id="check_poses",
+        version="1",
+        name="Check poses are physically possible",
+        area=ToolArea.STRUCTURE,
+        description=(
+            "Tests each docked pose for things no real complex does: bond lengths and "
+            "angles off their bounds, aromatic rings bent, a conformation far more "
+            "strained than the molecule's own low-energy shapes, atoms inside the "
+            "protein, or the ligand drifted out of the site. A pose that fails is not "
+            "a weak answer but a wrong one, however good its score, and this is the "
+            "step that refuses it. Run it on every set of poses before reading their "
+            "scores or contacts, since a scoring function cannot tell a clash from a "
+            "tight fit. It says a pose is possible, not that it is right."
+        ),
+        inputs=(
+            _in("poses", SlotKind.POSES, "Poses"),
+            _in("receptor", SlotKind.STRUCTURE, "Receptor"),
+        ),
+        outputs=(
+            _in("poses", SlotKind.POSES, "Poses that passed"),
+            _in("receptor", SlotKind.STRUCTURE, "Receptor docked into"),
+        ),
+        library="PoseBusters",
+        lane="chem-tools",
+        surface=ToolSurface.VIEW,
+        params=ValidityParams,
     ),
     ToolManifest(
         id="predict_admet",
