@@ -41,11 +41,51 @@ changes at once rather than each fix as it lands.
    is CI's job.
 2. While that CI runs, run the security gate locally:
    ```bash
-   make security-scan   # Trivy: lockfiles, secrets, then both images
+   make security-scan   # Trivy: lockfiles, secrets, then every published image
    ```
    It fails on any fixable HIGH/CRITICAL finding. Fix the dependency or base
    image; only add an id to `.trivyignore`, with the reason, when the code
    cannot run or the fix is a scheduled major. Never tag over a red scan.
+
+   Two things about this gate are worth knowing before you trust a number from it.
+
+   It covers the chem runner image as of 2026-10-25, and did not before. That image
+   is published and had never been scanned, which is how eight findings sat in it
+   unseen; the findings were not the hole, the absence of a scan was.
+
+   `trivy fs` over a directory of jars reports zero findings whether they are current
+   or years old, because it does not detect them. Scan the built image. A zero from a
+   directory scan means the scanner did not look, not that there is nothing there.
+
+### The p2rank findings, open as of 2026-10-25
+
+The chem image is **red on eight findings and must not be published** until someone
+decides what to do about them. All eight are in jars that ship inside p2rank 2.5.1:
+`jackson-core` 2.13.4 (CVE-2025-52999, CVE-2026-68494, CVE-2026-89425),
+`jackson-databind` 2.13.4.2 (CVE-2026-54512, CVE-2026-54513, CVE-2026-91776,
+CVE-2026-91777) and `msgpack-core` 0.8.24 (CVE-2026-21452).
+
+We do not build those jars. p2rank is fetched as a released tarball pinned by
+checksum, and `bin/lib` is its own. Upgrading does not help: 2.6-alpha scanned as an
+image carries eighteen findings rather than eight, bundling more jars and a jackson
+still behind its own advisories. It was tried and reverted. The alpha is otherwise a
+faithful substitute, for what that is worth later: on 1HSG and 1CA2 it returns the
+same rank 1, the same score and probability, the same centre and the same lining
+residues as 2.5.1.
+
+That leaves three options, none of them taken yet:
+
+1. Wait for a stable p2rank after 2.5.1 that bundles current jackson.
+2. Accept the risk and record it in `.trivyignore` against these eight ids. The case
+   for accepting: p2rank runs as a subprocess over a prepared PDB this product wrote,
+   its jackson parses p2rank's own configuration and model files, and nothing routes
+   scientist-supplied input into it. The denial-of-service entries cost a failed step;
+   the deserialisation entries need attacker-controlled polymorphic JSON that never
+   arrives. That argument dies the moment p2rank is handed untrusted JSON or put on a
+   network, so any such entry should carry an expiry and a date, not sit forever.
+3. Drop p2rank and keep fpocket as the only pocket finder.
+
+Whoever picks one should write the choice here.
 3. Pick the next version per the table above. Inspect what changed:
    ```bash
    # commits touching the backend since its last tag
