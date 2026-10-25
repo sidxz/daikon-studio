@@ -397,6 +397,62 @@ describe("a cell that is a payload rather than a value", () => {
   });
 });
 
+describe("the contacts a pose makes", () => {
+  it("groups a pose's contacts by residue and puts the hydrogen bonds first", async () => {
+    // One row per contact is the shape the tool returns and the shape nobody can hold
+    // against the literature. The question is which residues the pose reaches, and the
+    // directional contacts are the ones a reader weighs first.
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v10",
+      key: "interactions",
+      kind: "interactions",
+      summary: { columns: ["compound", "pose_rank", "residue", "chain", "interaction"], rows: 4 },
+      data: [
+        {
+          compound: "indinavir",
+          pose_rank: 1,
+          residue: "ILE50",
+          chain: "B",
+          interaction: "VdWContact",
+        },
+        {
+          compound: "indinavir",
+          pose_rank: 1,
+          residue: "ASP25",
+          chain: "A",
+          interaction: "HBDonor",
+        },
+        {
+          compound: "indinavir",
+          pose_rank: 1,
+          residue: "ASP25",
+          chain: "A",
+          interaction: "Hydrophobic",
+        },
+        {
+          compound: "indinavir",
+          pose_rank: 1,
+          residue: "GLY48",
+          chain: "A",
+          interaction: "Hydrophobic",
+        },
+      ],
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v10", key: "interactions" } as never} />, {
+      wrapper: Wrapper,
+    });
+    // Three residues from four contacts: ASP25 is one residue making two kinds.
+    expect(await screen.findByText(/3 residues/)).toBeInTheDocument();
+    // A chip per residue, hydrogen bond first, then the two that only pack or touch.
+    const chips = [...document.querySelectorAll('[data-slot="badge"]')].map((c) => c.textContent);
+    expect(chips).toEqual([
+      "ASP25 AHBDonor / Hydrophobic",
+      "GLY48 AHydrophobic",
+      "ILE50 BVdWContact",
+    ]);
+  });
+});
+
 describe("judging a grouping", () => {
   it("draws clustered compounds grouped, with the centroid marked", async () => {
     vi.mocked(customInstance).mockResolvedValue({

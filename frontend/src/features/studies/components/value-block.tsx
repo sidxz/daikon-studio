@@ -3,6 +3,7 @@
 import { StructureViewer } from "@/features/pages/components/renderers/structure-viewer";
 import { ForestChart } from "@/shared/components/charts";
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
+import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import {
@@ -762,6 +763,105 @@ function Effects({ rows, columns, total }: { rows: Row[]; columns: string[]; tot
   );
 }
 
+/**
+ * The kinds ProLIF names, in the order a reader weighs them: a directional bond first,
+ * then a charge pairing or a ring stacking, then mere proximity. A kind not named here
+ * sits with the hydrophobic ones, because a catalogue of contact types is not something
+ * this view should be the authority on.
+ */
+const CONTACT_WEIGHT: Record<string, number> = {
+  HBDonor: 0,
+  HBAcceptor: 0,
+  Anionic: 1,
+  Cationic: 1,
+  PiStacking: 1,
+  FaceToFace: 1,
+  EdgeToFace: 1,
+  CationPi: 1,
+  PiCation: 1,
+  XBDonor: 1,
+  XBAcceptor: 1,
+  Hydrophobic: 2,
+  VdWContact: 3,
+};
+
+function contactRank(kind: string): number {
+  return CONTACT_WEIGHT[kind] ?? 2;
+}
+
+/**
+ * The contacts a pose makes, read as residues rather than as one row per contact.
+ *
+ * The table underneath says the same thing in a form nobody can hold against the
+ * literature: a reader asking whether indinavir reaches Asp25 should not have to count
+ * rows to find out. Residues are ordered by the strongest contact each one makes, so the
+ * hydrogen bonds come first, which is where the question usually is.
+ */
+function Interactions({
+  rows,
+  columns,
+  total,
+}: {
+  rows: Row[];
+  columns: string[];
+  total?: number;
+}) {
+  const poses = useMemo(() => {
+    const byPose = new Map<string, Map<string, Set<string>>>();
+    for (const row of rows) {
+      const pose = `${String(row.compound ?? "")} \u00b7 pose ${String(row.pose_rank ?? "")}`;
+      const residue = row.chain
+        ? `${String(row.residue)} ${String(row.chain)}`
+        : String(row.residue);
+      const residues = byPose.get(pose) ?? new Map<string, Set<string>>();
+      byPose.set(pose, residues);
+      const kinds = residues.get(residue) ?? new Set<string>();
+      residues.set(residue, kinds);
+      kinds.add(String(row.interaction));
+    }
+    return [...byPose].map(([pose, residues]) => ({
+      pose,
+      residues: [...residues]
+        .map(([residue, kinds]) => ({
+          residue,
+          kinds: [...kinds].sort((a, b) => contactRank(a) - contactRank(b)),
+        }))
+        .sort(
+          (a, b) =>
+            contactRank(a.kinds[0]) - contactRank(b.kinds[0]) || a.residue.localeCompare(b.residue),
+        ),
+    }));
+  }, [rows]);
+  return (
+    <div className="space-y-3">
+      {poses.map(({ pose, residues }) => (
+        <div key={pose} className="space-y-1">
+          <p className="font-medium text-sm">
+            {pose} &middot; {residues.length} {residues.length === 1 ? "residue" : "residues"}
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {residues.map(({ residue, kinds }) => (
+              <Badge
+                key={residue}
+                variant={contactRank(kinds[0]) === 0 ? "secondary" : "outline"}
+                className="gap-1.5"
+              >
+                {residue}
+                <span className="font-normal text-muted-foreground">{kinds.join(" / ")}</span>
+              </Badge>
+            ))}
+          </div>
+        </div>
+      ))}
+      <p className="text-muted-foreground text-xs">
+        Contacts are geometric: the pose is placed to make an interaction, which is not a
+        measurement that it does.
+      </p>
+      <RowsTable rows={rows} columns={columns} total={total} />
+    </div>
+  );
+}
+
 function ModelFit({ data }: { data: Row }) {
   const meta = asRecord(data.meta);
   if (meta.ok === false) {
@@ -1104,6 +1204,8 @@ export function ValueBlock({
     body = <ModelFit data={asRecord(read.data)} />;
   } else if (read.kind === "poses" && isRows(read.data) && read.data.length > 0) {
     body = <Poses rows={read.data} columns={columns} total={total} receptor={receptor} />;
+  } else if (read.kind === "interactions" && isRows(read.data) && read.data.length > 0) {
+    body = <Interactions rows={read.data} columns={columns} total={total} />;
   } else if (read.kind === "effects" && isRows(read.data) && read.data.length > 0) {
     body = <Effects rows={read.data} columns={columns} total={total} />;
   } else if (read.kind === "rgroup_table" && isRows(read.data) && read.data.length > 0) {
