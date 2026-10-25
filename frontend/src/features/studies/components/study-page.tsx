@@ -2,6 +2,7 @@
 
 import { PageHeader } from "@/shared/components/page-header";
 import { QueryError } from "@/shared/components/query-error";
+import { ThinkingBar } from "@/shared/components/thinking-bar";
 import { Button } from "@/shared/components/ui/button";
 import { Label } from "@/shared/components/ui/label";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -194,6 +195,10 @@ function OpenForm({
           </Button>
         </div>
 
+        {/* The longest wait in the product: the model reads the brief and any file, then
+            writes the plan. The same bar the conversation uses. */}
+        {open.isPending && <ThinkingBar label="Daikon Studio is reading what you brought" />}
+
         <p className="text-xs text-muted-foreground">
           At most two files: one compound table (.csv, .tsv or .tab) and one structure (.pdb). The
           model reads a summary of each and can ask to see up to 50 rows of a table, with structure
@@ -222,11 +227,10 @@ function OpenForm({
 function StudyView({
   studyId,
   provider,
-  picker,
 }: {
   studyId: string;
+  /** The model chosen when the study was opened, sent with every message of it. */
   provider: string;
-  picker: ReactNode;
 }) {
   const { data: study, isLoadingError, refetch, isRefetching } = useStudy(studyId);
   const start = useStartStudy(studyId);
@@ -363,8 +367,9 @@ function StudyView({
             page's top padding it starts below (4.25rem) and a margin under it: the thread
             scrolls inside, and the composer is on screen at the top of the page as well as
             scrolled. */}
+        {/* No model picker here: the model is chosen when the study is opened and does not
+            change mid-conversation, and the rail's height belongs to the thread. */}
         <div className="flex flex-col gap-3 xl:sticky xl:top-[4.25rem] xl:h-[calc(100vh-5.25rem)]">
-          {picker}
           <StudyChat
             studyId={study.id}
             provider={provider}
@@ -393,7 +398,7 @@ export function StudyPage({ studyId }: { studyId?: string } = {}) {
       <ProviderSelect choices={choices} value={provider} onChange={setProvider} />
     ) : null;
 
-  if (id) return <StudyView studyId={id} provider={provider} picker={picker} />;
+  if (id) return <StudyView studyId={id} provider={provider} />;
   return (
     <OpenForm
       provider={provider}

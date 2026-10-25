@@ -48,7 +48,7 @@ export function usePageSave(opts: { save: (doc: PMDoc) => Promise<void> }) {
       if (err instanceof ApiError && err.status === 409) setConflict(true);
       // 423 = archived mid-session: retrying can't succeed, say why instead.
       else if (err instanceof ApiError && err.status === 423)
-        toast.error(err.message || "The page is archived — restore it to make changes");
+        toast.error(err.message || "This page is archived. Restore it to make changes.");
       setStatus("error");
       pending.current ??= doc; // keep the doc so Save retries without another edit
       return false;

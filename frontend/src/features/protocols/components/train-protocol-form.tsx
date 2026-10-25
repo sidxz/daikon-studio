@@ -767,8 +767,7 @@ export function TrainProtocolForm() {
                 </CollapsibleTrigger>
                 <CollapsibleContent className="mt-4 space-y-3">
                   <p className="text-xs text-muted-foreground">
-                    Defaults measure the model as well as this platform can. Change them only to
-                    match how a published number was produced.
+                    Adjust these evaluation settings to match the methods used in a published study.
                   </p>
                   {datasetColumns != null && datasetColumns.length > 0 && (
                     <div className="space-y-1.5 rounded-lg border p-4">
@@ -808,9 +807,8 @@ export function TrainProtocolForm() {
                         </Label>
                       </div>
                       <p className="text-xs text-muted-foreground">
-                        On by default. Without it there is no verdict on the scorecard: a score with
-                        nothing to compare it against cannot say whether the model learned anything.
-                        Switch it off to reproduce a published protocol exactly.
+                        On by default. Fits a reference model for the scorecard comparison. Turning
+                        it off removes the baseline comparison and verdict.
                       </p>
                     </div>
                     {dataset != null && hasRandomComparison(dataset.split.strategy) && (
@@ -826,9 +824,9 @@ export function TrainProtocolForm() {
                           </Label>
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          On by default, and it doubles the training time. This is the only
-                          measurement of how much this split's score was flattered; without it the
-                          optimism gap cannot be reported.
+                          On by default. Adds training on a random split so the scorecard can report
+                          the optimism gap. Turning it off reduces training time and removes that
+                          comparison.
                         </p>
                       </div>
                     )}
@@ -853,11 +851,10 @@ export function TrainProtocolForm() {
                           className="w-24"
                         />
                         <p className="text-xs text-muted-foreground">
-                          None by default. Each draw divides the same compounds into training and
-                          test sets again and trains the engine on them, so it adds a full training
-                          run apiece. The scorecard then reports how much the score moves when the
-                          split changes, which is what says whether a lead over the baseline is
-                          real.
+                          None by default. Each draw creates another training and test split of the
+                          same compounds and adds a full training run. The scorecard reports score
+                          variation across splits to help assess whether a lead over the baseline is
+                          consistent.
                         </p>
                       </div>
                     )}

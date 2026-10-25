@@ -1,7 +1,13 @@
 import { StatusDot } from "@/shared/components/status-dot";
 import { Button } from "@/shared/components/ui/button";
 import { Check, Loader2, MessageSquare, PauseCircle, Play } from "lucide-react";
-import { STEP_STATUS_COPY, STEP_TONE, type StudyStep, type ValueSummary } from "../types";
+import {
+  RUN_UNDER_WAY,
+  STEP_STATUS_COPY,
+  STEP_TONE,
+  type StudyStep,
+  type ValueSummary,
+} from "../types";
 import { ValueBlock } from "./value-block";
 
 function param(value: unknown): string {
@@ -18,6 +24,7 @@ export function StepCard({
   step,
   started,
   disabled,
+  reading,
   looked,
   onRun,
   onSwap,
@@ -31,6 +38,8 @@ export function StepCard({
   started: boolean;
   /** True while any step of the study is running: one run at a time. */
   disabled: boolean;
+  /** This step's tool has finished and the agent is reading what it made. Still working. */
+  reading: boolean;
   /** The agent's latest look at this result had nothing to add. */
   looked: boolean;
   onRun: () => void;
@@ -59,7 +68,8 @@ export function StepCard({
     <li className="min-w-0 space-y-3 rounded-sm border p-3">
       <div className="flex items-start gap-2">
         <span className="mt-2">
-          <StatusDot tone={STEP_TONE[step.status] ?? "muted"} />
+          {/* Still the running dot while the agent reads: the step is not finished with. */}
+          <StatusDot tone={STEP_TONE[reading ? "running" : step.status] ?? "muted"} />
         </span>
         <div className="min-w-0 flex-1">
           <p className="text-sm">
@@ -67,7 +77,9 @@ export function StepCard({
             <span className="font-medium">{step.name}</span>
           </p>
           <p className="text-xs text-muted-foreground">
-            {STEP_STATUS_COPY[step.status] ?? step.status}
+            {reading
+              ? "Daikon Studio is reading the result"
+              : (STEP_STATUS_COPY[step.status] ?? step.status)}
             {step.expanded_from && ` · part of: ${step.expanded_from.replace(/_/g, " ")}`}
           </p>
         </div>
@@ -78,17 +90,19 @@ export function StepCard({
           </span>
         )}
         {started &&
-          (step.status === "running" ? (
+          (step.status === "running" || reading ? (
             <Button variant="ghost" size="sm" disabled>
               <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-              Running
+              {reading ? "Reading" : "Running"}
             </Button>
           ) : (
             <Button
               variant="ghost"
               size="icon-sm"
               aria-label={label}
-              title={label}
+              // A disabled control says why it is disabled, the house rule: a run holds the
+              // whole study, so no step's play does anything until it stops.
+              title={disabled && !step.problem ? RUN_UNDER_WAY : label}
               disabled={disabled || Boolean(step.problem)}
               aria-describedby={step.problem ? problemId : undefined}
               onClick={onRun}

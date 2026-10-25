@@ -1,16 +1,18 @@
 "use client";
 
 import { QueryError } from "@/shared/components/query-error";
+import { ThinkingBar } from "@/shared/components/thinking-bar";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
 import { Textarea } from "@/shared/components/ui/textarea";
 import type { SayRequest } from "@/shared/lib/api/model";
 import { useQueryClient } from "@tanstack/react-query";
-import { Loader2, X } from "lucide-react";
+import { SendHorizontal, X } from "lucide-react";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { threadKey } from "../hooks/query-keys";
 import { useSay, useStudy, useThread } from "../hooks/use-studies";
-import { STEPS_REASON_ID } from "../types";
+import { RUN_UNDER_WAY, STEPS_REASON_ID } from "../types";
+import { Fold } from "./fold";
 import { QuestionCard } from "./question-card";
 import { TurnView, aboutStep } from "./turn-view";
 
@@ -69,10 +71,13 @@ export function StudyChat({
   }, [client, studyId, updated]);
 
   const count = turns.length;
+  // The bar is the last thing in the list, so a wait that begins moves the bottom just as a
+  // new turn does. Both scroll, or answering a question leaves the bar below the fold.
+  const waiting = say.isPending || running;
   useEffect(() => {
-    // The newest turn is the one to read: keep it in view as the thread grows.
-    if (count > 0 && list.current) list.current.scrollTop = list.current.scrollHeight;
-  }, [count]);
+    // The newest turn, or the wait for the next one, is what to keep in view as the list grows.
+    if ((count > 0 || waiting) && list.current) list.current.scrollTop = list.current.scrollHeight;
+  }, [count, waiting]);
 
   /**
    * The one way a turn is sent. The open questions' answers go with every message, so a choice
@@ -153,23 +158,23 @@ export function StudyChat({
             </Fragment>
           ))
         )}
-        {say.isPending && (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-4 animate-spin" aria-hidden="true" />
-            Daikon Studio is writing a reply
-          </p>
+        {/* One bar for both waits: a step running is the model thinking, and a turn in
+            flight is the model writing. Only one can be open at a time. */}
+        {waiting && (
+          <ThinkingBar
+            label={say.isPending ? "Daikon Studio is writing a reply" : "Daikon Studio is thinking"}
+          />
         )}
       </div>
 
       {/* Folded, above the composer: it can run to a page. Open, it scrolls in its own box,
           so the thread keeps its room. */}
       {thread.data?.summary && (
-        <details className="rounded-sm border border-dashed px-3 py-2 text-sm">
-          <summary className="cursor-pointer text-xs font-medium">Where this stands</summary>
-          <p className="mt-1 max-h-40 overflow-y-auto text-muted-foreground">
-            {thread.data.summary}
-          </p>
-        </details>
+        <Fold label="Where this stands">
+          {/* Its own scroller: this one sits outside the thread's, and a long summary would
+              otherwise push the composer off the rail. */}
+          <p className="max-h-40 overflow-y-auto">{thread.data.summary}</p>
+        </Fold>
       )}
 
       <div className="space-y-2 border-t pt-3">
@@ -191,31 +196,35 @@ export function StudyChat({
         <label className="sr-only" htmlFor={MESSAGE_ID}>
           Message to Daikon Studio
         </label>
-        <Textarea
-          id={MESSAGE_ID}
-          rows={2}
-          value={message}
-          disabled={say.isPending}
-          placeholder="Ask about the plan or a result, or say what to do next"
-          // A message can hold a pasted sequence, one long word that would push the rail wide.
-          className="wrap-anywhere"
-          onChange={(event) => setMessage(event.target.value)}
-        />
+        {/* Send beside the box, not under it: a row of its own cost the thread 40px of the
+            rail, and the control is the same one icon every message. */}
+        <div className="flex items-end gap-2">
+          <Textarea
+            id={MESSAGE_ID}
+            rows={2}
+            value={message}
+            disabled={say.isPending}
+            placeholder="Ask about the plan or a result, or say what to do next"
+            // A message can hold a pasted sequence, one long word that would push the rail wide.
+            className="min-w-0 flex-1 wrap-anywhere"
+            onChange={(event) => setMessage(event.target.value)}
+          />
+          <Button
+            size="icon-sm"
+            aria-label="Send"
+            title={running ? RUN_UNDER_WAY : "Send"}
+            disabled={say.isPending || !typed || running}
+            aria-describedby={running ? STEPS_REASON_ID : undefined}
+            onClick={() => send(typed)}
+          >
+            <SendHorizontal className="size-4" aria-hidden="true" />
+          </Button>
+        </div>
         {say.error && (
           <p className="text-sm text-destructive" role="alert">
             {say.error.message}
           </p>
         )}
-        <div className="flex flex-wrap items-center justify-end gap-2">
-          <Button
-            size="sm"
-            disabled={say.isPending || !typed || running}
-            aria-describedby={running ? STEPS_REASON_ID : undefined}
-            onClick={() => send(typed)}
-          >
-            Send
-          </Button>
-        </div>
       </div>
     </section>
   );

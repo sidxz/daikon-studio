@@ -99,7 +99,7 @@ describe("ScorecardAggregate", () => {
     );
 
     expect(screen.getByText(/1 target left out of the average/)).toBeInTheDocument();
-    expect(screen.getByText(/the average above is over 2 of 3/)).toBeInTheDocument();
+    expect(screen.getByText(/The average includes 2 of 3 targets/)).toBeInTheDocument();
     expect(screen.getByText(/no compound in the test set carries a label/)).toBeInTheDocument();
     expect(screen.queryByRole("rowheader", { name: "blank" })).not.toBeInTheDocument();
   });

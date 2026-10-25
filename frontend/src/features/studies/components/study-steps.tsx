@@ -5,19 +5,41 @@ import { RUN_UNDER_WAY, type StudyStep, type Turn } from "../types";
 import { StepCard } from "./step-card";
 
 /**
- * Whether the agent's newest look at a step's current result found nothing to add. Only an
- * observation made after the step last started is about that result, and a failure to observe
- * after it means nobody looked.
+ * The agent's newest look at a step's current result, or undefined if it has not looked yet.
+ * Only a turn made after the step last started is about that result; an earlier one belongs
+ * to the result this run replaced.
  */
-function quiet(step: StudyStep, turns: Turn[]): boolean {
-  if ((step.status !== "done" && step.status !== "failed") || !step.started_at) return false;
+function observation(step: StudyStep, turns: Turn[]): Turn | undefined {
+  if (!step.started_at) return undefined;
   const since = Date.parse(step.started_at);
-  const last = turns.findLast(
+  return turns.findLast(
     (t) =>
       t.about === step.id &&
-      (t.kind === "observe_failed" || (t.kind === "observe" && Date.parse(t.at) > since)),
+      (t.kind === "observe" || t.kind === "observe_failed") &&
+      Date.parse(t.at) > since,
   );
+}
+
+/**
+ * Whether the agent's newest look at a step's current result found nothing to add. A failure
+ * to observe means nobody looked, so it is not quiet.
+ */
+function quiet(step: StudyStep, turns: Turn[]): boolean {
+  if (step.status !== "done" && step.status !== "failed") return false;
+  const last = observation(step, turns);
   return last?.kind === "observe" && last.silent;
+}
+
+/**
+ * Whether the step's tool has finished but the agent has not read the result yet.
+ *
+ * The run holds the study for this whole window -- the tool and then the look at what it made
+ * -- so nothing else can run during it. Without this the card drops "Running" the moment the
+ * tool returns, and every play button on the page is disabled with nothing saying why.
+ */
+function reading(step: StudyStep, turns: Turn[], running: boolean): boolean {
+  if (!running || (step.status !== "done" && step.status !== "failed")) return false;
+  return observation(step, turns) === undefined;
 }
 
 /**
@@ -67,6 +89,7 @@ export function StudySteps({
           step={step}
           started={started}
           disabled={busy}
+          reading={reading(step, turns, study.running)}
           looked={quiet(step, turns)}
           onRun={() => run.mutate(step.id)}
           onSwap={(toolId) => swap.mutate({ stepId: step.id, toolId })}

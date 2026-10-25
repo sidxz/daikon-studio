@@ -158,7 +158,7 @@ export function PageContainer({ id, embedded = false }: { id: string; embedded?:
       },
       {
         onSuccess: () => void qc.invalidateQueries({ queryKey: pagesKeys.revisions(id) }),
-        onError: () => toast.error("Could not unlock — reload and try again"),
+        onError: () => toast.error("Could not unlock. Reload and try again."),
       },
     );
   };
@@ -208,7 +208,7 @@ export function PageContainer({ id, embedded = false }: { id: string; embedded?:
     status === "saving"
       ? "Saving…"
       : status === "error"
-        ? "Couldn’t save — try again"
+        ? "Couldn’t save. Try again."
         : dirty
           ? "Unsaved changes"
           : status === "saved"
@@ -511,7 +511,7 @@ export function PageContainer({ id, embedded = false }: { id: string; embedded?:
       {page.archived && mode !== "history" && (
         <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/50 px-4 py-2 text-sm">
           <Archive className="size-4 shrink-0 text-muted-foreground" aria-hidden />
-          <span>This page is archived — it’s read-only and listed under archived pages.</span>
+          <span>This page is archived. It is read-only and listed under archived pages.</span>
           {page.can_archive !== false && (
             <Button
               size="sm"

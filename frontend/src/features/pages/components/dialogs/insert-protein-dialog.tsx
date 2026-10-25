@@ -185,8 +185,8 @@ export function InsertProteinDialog({
           value="protcellar"
           className={`${PANE_CLASS} items-center justify-center text-center text-sm text-muted-foreground`}
         >
-          <p>Coming soon — cellar link.</p>
-          <p>Search ProtCellar&apos;s registered structures once it&apos;s wired in.</p>
+          <p>ProtCellar search is not available yet.</p>
+          <p>Use a PDB ID to insert a protein structure.</p>
         </TabsContent>
       </Tabs>
     </EmbedDialogFrame>

@@ -564,7 +564,7 @@ export function ScorecardView({
       <ScorecardDiagnostics scorecard={scorecard} mode="overview" />
       <ScorecardSection
         title="Where does the model struggle?"
-        description="Explore how performance changes with training similarity and chemical family."
+        description="Performance by training similarity and chemical family."
       >
         <ScorecardSimilarity
           key={scorecard.target}

@@ -6,6 +6,7 @@ import { cn } from "@/shared/lib/utils";
 import { useApplyProposal, useStudy } from "../hooks/use-studies";
 import type { Study, StudyProposal, StudyStep, Turn } from "../types";
 import { STEPS_REASON_ID } from "../types";
+import { Fold } from "./fold";
 
 /**
  * A step as the thread names it, numbered from 1 as the agent counts. A turn keeps the ids of
@@ -216,12 +217,16 @@ export function TurnView({
           ))}
         </ul>
       )}
+      {/* Folded: what a turn could not settle is worth keeping and not worth re-reading on
+          every scroll past it. The count is on the line, so nothing is hidden silently. */}
       {turn.unresolved.length > 0 && (
-        <ul className="space-y-0.5 text-muted-foreground">
-          {turn.unresolved.map((line) => (
-            <li key={line}>Unresolved: {line}</li>
-          ))}
-        </ul>
+        <Fold label={`${turn.unresolved.length} unresolved`}>
+          <ul className="space-y-0.5">
+            {turn.unresolved.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </Fold>
       )}
       {turn.looked.length > 0 && (
         <p className="text-xs text-muted-foreground">Looked at {turn.looked.join("; ")}.</p>

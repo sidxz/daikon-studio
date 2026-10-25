@@ -138,4 +138,29 @@ describe("the steps", () => {
     await waitFor(() => expect(requests("POST", "/studies/s1/steps/st1/approve")).toHaveLength(1));
     expect(requests("POST", "/studies/s1/steps/st1/approve")[0].data).toEqual({ candidate: 2 });
   });
+
+  it("a step whose tool has finished still reads as working until the agent has looked", async () => {
+    // The window the run holds but no status names: step 1's tool returned, so the server
+    // calls it done, and the agent has not written its look at the result yet.
+    route({
+      "GET /studies/s1": study({
+        running: true,
+        steps: [
+          step({ status: "done", started_at: "2026-10-22T00:02:00Z" }),
+          step({ id: "st2", position: 1, name: "Profile properties" }),
+        ],
+      }),
+      // The only look at step 1 is older than its run, so it is about the result this one replaced.
+      "GET /studies/s1/chat": {
+        summary: "",
+        turns: [turn({ kind: "observe", about: "st1", at: "2026-10-22T00:01:00Z" })],
+      },
+    });
+    render(<StudySteps studyId="s1" onTalk={() => {}} />, { wrapper: Wrapper });
+
+    expect(await screen.findByText("Daikon Studio is reading the result")).toBeInTheDocument();
+    // No play on the step being read, and the next step's play cannot start a second run.
+    expect(screen.queryByRole("button", { name: "Run step 1 again" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Run step 2" })).toBeDisabled();
+  });
 });

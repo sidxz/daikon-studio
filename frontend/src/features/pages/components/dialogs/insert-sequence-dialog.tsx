@@ -106,7 +106,9 @@ export function InsertSequenceDialog({
             <SequenceTrack seqType={seqType} sequence={cleaned} features={[]} />
           ) : (
             <p className="flex h-full w-full items-center justify-center text-center text-sm text-muted-foreground">
-              {raw ? "Letters only — no digits or punctuation." : "Paste a sequence to preview"}
+              {raw
+                ? "Use letters only, without digits or punctuation."
+                : "Paste a sequence to preview"}
             </p>
           )}
         </div>
