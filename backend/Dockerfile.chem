@@ -33,9 +33,15 @@ ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 WORKDIR /app
 
 # libgomp1: same OpenMP runtime trap as Dockerfile. The JRE runs p2rank.
+# The X11 and font libraries are prolif's doing, not ours: it imports rdkit.Chem.Draw at
+# package load, and that module links against the whole 2D drawing stack whether or not
+# anything is ever drawn. Without them the lane dies on import, which a laptop never shows
+# because a desktop has them already. Listed together rather than added one failed build
+# at a time: libXrender and libXext for the canvas, expat and the font pair beneath it.
 RUN apt-get update \
  && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends libgomp1 openjdk-21-jre-headless ca-certificates \
+    libxrender1 libxext6 libexpat1 libfreetype6 libfontconfig1 \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=fpocket /usr/local/bin/fpocket /usr/local/bin/fpocket
 # ADD does not preserve the execute bit, so it is set here rather than in the fetch stage.

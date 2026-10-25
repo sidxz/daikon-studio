@@ -277,7 +277,9 @@ image-runner-chem: ## Build the chem-tools runner image locally as daikon-runner
 		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE backend
 	docker run --rm --platform linux/amd64 --entrypoint fpocket daikon-runner:chem || true
 	docker run --rm --platform linux/amd64 --entrypoint prank daikon-runner:chem || true
-	docker run --rm --platform linux/amd64 --entrypoint python daikon-runner:chem -c "import pdbfixer, propka, openmm; print('chem-tools imports ok')"
+	docker run --rm --platform linux/amd64 --entrypoint vina daikon-runner:chem --version || true
+	docker run --rm --platform linux/amd64 --entrypoint python daikon-runner:chem -c "import pdbfixer, propka, openmm, meeko, prolif; print('chem-tools imports ok')"
+	docker run --rm --platform linux/amd64 --entrypoint mk_prepare_receptor.py daikon-runner:chem --help > /dev/null && echo "meeko receptor prep ok"
 
 # The CUDA runner image is built, GPU-tested, scanned and pushed on atlantic: x86_64, an
 # NVIDIA GPU, a lasting layer cache, and room for a ~22 GB image a GitHub-hosted runner
@@ -323,12 +325,17 @@ image-frontend: ## Build the daikon-frontend:local image (Next standalone + RDKi
 	$(call BUILD_INFO,frontend) && docker build -f frontend/Dockerfile -t daikon-frontend:local \
 		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE frontend
 
-security-scan: image-runner-cpu image-frontend ## Trivy gate before a release: lockfiles + secrets, then both images; fails on fixable HIGH/CRITICAL
+security-scan: image-runner-cpu image-frontend image-runner-chem ## Trivy gate before a release: lockfiles + secrets, then every published image; fails on fixable HIGH/CRITICAL
 	@command -v trivy >/dev/null || { echo "trivy is not installed: brew install trivy"; exit 1; }
 	trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 \
 	  --skip-dirs node_modules,.venv,.next,.claude,.logs,.blobs,.superpowers,docs,internal-docs .
 	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-runner:cpu
 	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-frontend:local
+	# The chem image ships p2rank, whose bundled jars are not ours to upgrade. It was left
+	# out of this gate and so went unscanned until 2026-10-25; publishing it unscanned is
+	# the hole, not the findings. Scan a directory of jars and trivy reports nothing at
+	# all, so the image is the only measurement worth trusting here.
+	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 daikon-runner:chem
 
 nuke: ## Stop containers and DELETE all data volumes + local blobs
 	$(COMPOSE) down -v
