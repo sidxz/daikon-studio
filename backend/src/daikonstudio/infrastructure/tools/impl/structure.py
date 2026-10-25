@@ -206,8 +206,64 @@ def prepare_structure(
         "nonstandard_replaced": replaced,
         "atoms": sum(line.startswith("ATOM") for line in prepared.splitlines()),
         "pkas": pkas,
+        # The pKa list is 50-odd records and reaches a reader as a count, here and in the
+        # card. What a gate is for is the residues that came out against expectation, so
+        # those are named and the sentence below says what the silence about the rest means.
+        "protonation_shifted": shifted_protonation(pkas, ph),
+        "protonation": (
+            f"Assigned from estimated pKa at pH {ph}. Titratable groups not named above "
+            f"took the state their kind usually has at this pH."
+        ),
     }
     return {"structure": {"format": "pdb", "text": prepared, "meta": meta}}
+
+
+# The pKa a titratable group has in free solution, and whether being protonated makes it
+# charged. A group whose computed pKa puts it on the other side of the working pH from
+# these is the only thing worth saying about protonation: the rest took the state anyone
+# would have assumed. Values are the usual textbook set; PROPKA names the termini N+ and C-.
+_USUAL_PKA = {
+    "ASP": 3.8,
+    "GLU": 4.5,
+    "C-": 3.2,
+    "CYS": 9.0,
+    "TYR": 10.0,
+    "HIS": 6.5,
+    "LYS": 10.5,
+    "ARG": 12.5,
+    "N+": 8.0,
+}
+# Protonating these removes a charge rather than adding one, so the comparison flips.
+_ACIDIC = frozenset({"ASP", "GLU", "C-", "CYS", "TYR"})
+
+
+def _charged(residue: str, pka: float, ph: float) -> bool:
+    """Whether the group carries a charge at this pH, given this pKa."""
+    return ph > pka if residue in _ACIDIC else ph < pka
+
+
+def shifted_protonation(pkas: list[dict[str, Any]], ph: float) -> list[str]:
+    """The residues whose assigned state is not the one their kind usually takes at this pH.
+
+    A preparation gate exists so a scientist can read the protonation before docking into
+    it, and 56 pKa values is not something anyone reads. What changes a result is the
+    residue that came out against expectation -- a buried aspartate left neutral, a
+    histidine that came out charged -- so those are named and the rest are covered by
+    saying what the others did.
+    """
+    told = []
+    for group in pkas:
+        residue = str(group["residue"])
+        usual = _USUAL_PKA.get(residue)
+        pka = float(group["pka"])
+        if usual is None or _charged(residue, pka, ph) == _charged(residue, usual, ph):
+            continue
+        state = "charged" if _charged(residue, pka, ph) else "neutral"
+        told.append(
+            f"{residue}{group['number']} {group['chain']} pKa {pka}, {state} "
+            f"(usually {'neutral' if state == 'charged' else 'charged'})"
+        )
+    return told
 
 
 def _unmodelled(text: str, gaps: int) -> list[str]:

@@ -453,6 +453,36 @@ describe("the contacts a pose makes", () => {
   });
 });
 
+describe("reading a prepared structure before docking into it", () => {
+  it("names the residues whose protonation came out against expectation", async () => {
+    // The card is the gate. Behind this summary sit fifty-odd pKa records, which nobody
+    // reads; the aspartate left neutral is the one thing that changes what the scores mean.
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v11",
+      key: "receptor",
+      kind: "structure",
+      summary: {
+        id: "1HSG",
+        chains: ["A", "B"],
+        kept_ligands: [],
+        prepared: true,
+        ph: 7.0,
+        protonation_shifted: ["ASP25 A pKa 7.9, neutral (usually charged)"],
+        protonation:
+          "Assigned from estimated pKa at pH 7.0. Titratable groups not named above took the state their kind usually has at this pH.",
+      },
+      data: {},
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v11", key: "receptor" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(
+      await screen.findByText("ASP25 A pKa 7.9, neutral (usually charged)"),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/took the state their kind usually has/)).toBeInTheDocument();
+  });
+});
+
 describe("judging a grouping", () => {
   it("draws clustered compounds grouped, with the centroid marked", async () => {
     vi.mocked(customInstance).mockResolvedValue({

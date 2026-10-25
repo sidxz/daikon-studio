@@ -172,6 +172,17 @@ function Structure({ summary }: { summary: Row }) {
               ? (summary.missing_residues as string[]).join(", ") || "None"
               : null,
           ],
+          // A preparation gate is there to be read before anything docks into the result.
+          // The pKa list behind this is fifty-odd records; what a reader needs is the
+          // residues that came out against expectation, and the sentence that says what
+          // the silence about the others means.
+          [
+            "Protonation differing from the usual state",
+            Array.isArray(summary.protonation_shifted)
+              ? (summary.protonation_shifted as string[]).join("; ") || "None"
+              : null,
+          ],
+          ["Protonation", summary.protonation],
         ]}
       />
       {/* Mol* loads deposited entries by id; a predicted model has none to load. */}

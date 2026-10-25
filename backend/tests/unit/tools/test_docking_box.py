@@ -166,3 +166,29 @@ def test_validity_is_declared_and_implemented() -> None:
     # drawn in what they were docked into.
     assert [slot.kind for slot in tool.outputs] == ["poses", "structure"]
     assert "check_poses" in IMPLEMENTATIONS
+
+
+def test_only_the_residues_that_came_out_against_expectation_are_named() -> None:
+    """A preparation gate exists so someone can read the protonation before docking into
+    it, and 56 pKa values is not something anyone reads. The aspartate left neutral is the
+    whole of what a reader needs; the lysine that came out charged like every lysine is not."""
+    from daikonstudio.infrastructure.tools.impl.structure import shifted_protonation
+
+    told = shifted_protonation(
+        [
+            # Buried and left neutral at pH 7: against expectation, so it is named.
+            {"residue": "ASP", "number": 25, "chain": "A", "pka": 7.9},
+            # The partner, charged as an aspartate usually is: silent.
+            {"residue": "ASP", "number": 25, "chain": "B", "pka": 3.6},
+            # A histidine that came out charged: against expectation at pH 7.
+            {"residue": "HIS", "number": 69, "chain": "A", "pka": 7.4},
+            {"residue": "LYS", "number": 14, "chain": "A", "pka": 10.4},
+            # A ligand group has no usual value to be compared with.
+            {"residue": "MK1", "number": 902, "chain": "B", "pka": 11.2},
+        ],
+        ph=7.0,
+    )
+    assert told == [
+        "ASP25 A pKa 7.9, neutral (usually charged)",
+        "HIS69 A pKa 7.4, charged (usually neutral)",
+    ]
