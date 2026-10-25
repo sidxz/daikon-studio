@@ -1,0 +1,93 @@
+"""The box a pocket implies. Pure geometry: no binary, no lane.
+
+A pocket carries residues and no coordinates, so this is the step between an approved
+site and anything that docks into it, and the place where the two can silently disagree.
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from daikonstudio.infrastructure.tools.impl.structure import BOX_MINIMUM, box_for_pocket
+
+
+def _atom(serial: int, resseq: int, x: float, y: float, z: float, chain: str = "A") -> str:
+    """One ATOM line in the fixed columns a PDB uses."""
+    return (
+        f"ATOM  {serial:>5} CA   ALA {chain}{resseq:>4}    "
+        f"{x:>8.3f}{y:>8.3f}{z:>8.3f}  1.00  0.00           C"
+    )
+
+
+def test_the_box_is_centred_on_the_lining_and_padded_around_it() -> None:
+    text = "\n".join(
+        [
+            _atom(1, 10, 0.0, 0.0, 0.0),
+            _atom(2, 11, 20.0, 10.0, 0.0),
+            _atom(3, 99, 500.0, 500.0, 500.0),  # a residue outside the pocket
+        ]
+    )
+    pocket = [{"chain": "A", "resname": "ALA", "resseq": 10}, {"chain": "A", "resseq": 11}]
+
+    box = box_for_pocket(text, pocket, padding=4.0)
+
+    # Centred between the two lining atoms, and the far residue is ignored entirely.
+    assert (box["center_x"], box["center_y"], box["center_z"]) == (10.0, 5.0, 0.0)
+    # Each axis is its extent plus padding on both sides: 20 + 8 across, 10 + 8 up. The
+    # third has no extent at all, and 0 + 8 is below the floor, so it takes the floor.
+    assert box["size_x"] == 28.0
+    assert box["size_y"] == 18.0
+    assert box["size_z"] == BOX_MINIMUM
+    assert (box["n_residues"], box["n_atoms"]) == (2, 2)
+
+
+def test_a_pocket_from_another_structure_refuses_rather_than_guesses() -> None:
+    text = _atom(1, 10, 0.0, 0.0, 0.0)
+    with pytest.raises(ValueError, match="not the same molecule"):
+        box_for_pocket(text, [{"chain": "A", "resseq": 777}])
+
+
+def test_only_atom_records_count_so_a_cofactor_cannot_move_the_box() -> None:
+    """Pocket residues are read from ATOM lines, so the box must be too: a HETATM ligand
+    sitting in the site would otherwise drag the centre onto itself."""
+    text = "\n".join(
+        [
+            _atom(1, 10, 0.0, 0.0, 0.0),
+            "HETATM    2 ZN    ZN A  10     100.000 100.000 100.000  1.00  0.00          ZN",
+        ]
+    )
+    box = box_for_pocket(text, [{"chain": "A", "resseq": 10}])
+    assert (box["center_x"], box["n_atoms"]) == (0.0, 1)
+
+
+def test_pose_geometry_is_withheld_and_the_kind_reads_as_a_table() -> None:
+    """A pose is a structure. It must never reach the agent's context, and the poses kind
+    has to be a table so it gets the generic reader rather than needing one of its own."""
+    import polars as pl
+
+    from daikonstudio.application.tools import codecs
+
+    poses = pl.DataFrame(
+        {
+            "compound": ["a"],
+            "smiles": ["CCO"],
+            "pose_rank": [1],
+            "affinity_kcal_mol": [-7.1],
+            "pose_pdbqt": ["ATOM      1  C   LIG     1       0.000   0.000   0.000"],
+        }
+    )
+    assert "poses" in codecs.TABLE_KINDS
+    _, summary = codecs.encode("poses", poses)
+    assert "pose_pdbqt" in summary["withheld"]
+    assert "affinity_kcal_mol" not in summary["withheld"]
+
+
+def test_docking_is_declared_and_implemented() -> None:
+    from daikonstudio.infrastructure.tools.catalog import default_registry
+    from daikonstudio.infrastructure.tools.runtime import IMPLEMENTATIONS
+
+    tool = default_registry().get("dock_compounds")
+    assert tool.lane == "chem-tools"  # it needs the vina binary
+    # The receptor comes back too, so a pose can be drawn in what it was docked into.
+    assert [slot.kind for slot in tool.outputs] == ["poses", "structure"]
+    assert "dock_compounds" in IMPLEMENTATIONS

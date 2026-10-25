@@ -165,3 +165,18 @@ def test_every_tool_is_reachable_through_the_runtime_registry() -> None:
     catalogued = {tool.id for tool in default_registry().manifests()}
     assert declared <= catalogued, declared - catalogued
     assert declared <= set(IMPLEMENTATIONS), declared - set(IMPLEMENTATIONS)
+
+
+def test_a_table_tools_findings_reach_the_agent(table: pl.DataFrame) -> None:
+    """A table has nowhere in its blob to carry what the tool found, so `meta` is folded
+    into the summary. Without this the counts and the named rows are computed and binned."""
+    from daikonstudio.application.studies import readers
+    from daikonstudio.application.tools.codecs import encode
+    from daikonstudio.infrastructure.tools.runtime import run_tool
+
+    blob, _ = encode("compound_table", table)
+    outputs = run_tool("substructure_search", {"smarts": "c1ccccc1"}, {"compounds": blob})
+
+    assert outputs[0].summary["meta"]["n_matched"] == 3
+    told = readers.summarize_table(None, outputs[0].summary)
+    assert "n_matched" in told  # the agent is told the finding, not only the shape

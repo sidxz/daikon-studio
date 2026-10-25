@@ -22,6 +22,10 @@ declare global {
       interface IntrinsicElements {
         "pdbe-molstar": React.DetailedHTMLProps<React.HTMLAttributes<HTMLElement>, HTMLElement> & {
           "molecule-id"?: string;
+          // Coordinates we hand it ourselves, rather than an entry it fetches by id.
+          "custom-data-url"?: string;
+          "custom-data-format"?: string;
+          "custom-data-binary"?: string;
           "hide-controls"?: string;
           "hide-water"?: string;
           "bg-color-r"?: number;
@@ -67,10 +71,23 @@ export function StructureViewer({
   source,
   sourceId,
   width = "full",
+  elementRef,
 }: {
-  source: "pdb" | "protcellar";
+  /**
+   * Where the coordinates come from. "url" is the case where we have them already --
+   * a docked pose in the receptor it was docked into -- and the deposited entry would
+   * be the wrong molecule to show, since it still holds the ligand and waters that
+   * were stripped before anything was docked.
+   */
+  source: "pdb" | "protcellar" | "url";
   sourceId: string;
   width?: EmbedWidth;
+  /**
+   * The rendered element, for a caller that needs to drive the viewer rather than only
+   * show it: painting residues and placing the camera are done through the instance it
+   * carries. Called with null on unmount, so a subscription can be dropped.
+   */
+  elementRef?: (element: HTMLElement | null) => void;
 }) {
   const [status, setStatus] = useState<Status>("loading");
   // Lazy initial read (client-only; `bg` is never part of the SSR output because
@@ -92,7 +109,8 @@ export function StructureViewer({
   }, []);
 
   useEffect(() => {
-    if (source !== "pdb" || !sourceId) return;
+    // "url" loads the same bundle; only "protcellar" has nothing to load.
+    if (source === "protcellar" || !sourceId) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -113,7 +131,7 @@ export function StructureViewer({
     "flex items-center justify-center rounded-md border border-dashed text-sm text-muted-foreground",
   );
 
-  if (source !== "pdb") {
+  if (source === "protcellar") {
     return <div className={placeholder}>ProtCellar structures aren&apos;t available yet.</div>;
   }
   if (status === "error") {
@@ -152,7 +170,10 @@ export function StructureViewer({
         // its own leaves the old structure on screen (the caption updates and the
         // canvas doesn't). Remounting is what actually reloads it.
         key={`${sourceId}-${bg.r}-${bg.g}-${bg.b}-${width}`}
-        molecule-id={sourceId.toLowerCase()}
+        ref={elementRef}
+        {...(source === "url"
+          ? { "custom-data-url": sourceId, "custom-data-format": "pdb" }
+          : { "molecule-id": sourceId.toLowerCase() })}
         hide-controls="true"
         pdbe-link="false"
         hide-animation-icon="true"

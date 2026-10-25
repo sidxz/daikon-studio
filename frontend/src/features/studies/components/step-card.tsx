@@ -170,6 +170,7 @@ export function StepCard({
           onApprove={onApprove}
           approveBlocked={approveBlocked}
           earlier={earlier(value)}
+          siblings={step.outputs.filter((other) => other.id !== value.id)}
         />
       ))}
 

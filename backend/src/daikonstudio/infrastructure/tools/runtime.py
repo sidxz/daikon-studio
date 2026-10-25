@@ -56,11 +56,19 @@ def run_tool(
         if slot.key in inputs
     }
     produced = impls[tool_id](validated, decoded)
-    outputs = []
+    # A tool may return `meta` beside its outputs: what it found, said once, for a reader
+    # that gets a summary and fifty rows. A table has nowhere to carry it -- its blob is a
+    # frame -- so it is folded into the first output's summary here. Without this the
+    # counts, the named rows and the refusals a table tool computed are thrown away, and
+    # the step reports a shape with no finding in it.
+    extra = produced.get("meta")
+    outputs: list[RawOutput] = []
     for slot in manifest.outputs:
         if slot.key not in produced:
             raise KeyError(f"Tool {tool_id} did not produce its output {slot.key!r}")
         blob, summary = encode(slot.kind.value, produced[slot.key])
+        if not outputs and isinstance(extra, Mapping) and "meta" not in summary:
+            summary = {**summary, "meta": dict(extra)}
         outputs.append(RawOutput(key=slot.key, kind=slot.kind.value, data=blob, summary=summary))
     return outputs
 

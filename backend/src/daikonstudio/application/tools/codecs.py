@@ -27,6 +27,7 @@ TABLE_KINDS: frozenset[str] = frozenset(
         "gaps",
         "admet_table",
         "series",
+        "poses",
     }
 )
 
@@ -44,7 +45,8 @@ TABLE_KINDS: frozenset[str] = frozenset(
 # `c1ccccc1` carries no bond, branch or bracket mark, so it fails the mark test and the
 # column reads as ordinary text. Caught by name instead, as the note below predicted.
 WITHHELD_COLUMNS = re.compile(
-    r"smiles|sequence|inchi|svg|scaffold|^(molecule|structure|mol|seq|parse_error)$", re.I
+    r"smiles|sequence|inchi|svg|scaffold|pdbqt|^(molecule|structure|mol|seq|parse_error)$",
+    re.I,
 )
 # And by what a column holds, without RDKit: a SMILES is one run of the SMILES alphabet with a
 # bond, branch, bracket or stereo mark in it, and a sequence is twenty residues or more.

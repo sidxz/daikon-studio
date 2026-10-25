@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 
 from daikonstudio.application.ports.llm import LanguageModels
@@ -23,7 +24,7 @@ from daikonstudio.application.studies.apply_proposal import ApplyCommand, ApplyP
 from daikonstudio.application.studies.edits import alternatives
 from daikonstudio.application.studies.get_study import GetStudy, ListStudies
 from daikonstudio.application.studies.open_study import AttachFiles, OpenCommand, OpenStudy, Upload
-from daikonstudio.application.studies.read_value import ReadValue
+from daikonstudio.application.studies.read_value import ReadValue, ReadValueFile
 from daikonstudio.application.studies.scientist_actions import ApproveCandidate, SwapTool
 from daikonstudio.application.studies.start_study import StartStudy
 from daikonstudio.application.tools.manifest import ToolManifest
@@ -56,6 +57,7 @@ ApplyProposalDep = Annotated[ApplyProposal, Depends(use_case(ApplyProposal))]
 GetStudyDep = Annotated[GetStudy, Depends(use_case(GetStudy))]
 ListStudiesDep = Annotated[ListStudies, Depends(use_case(ListStudies))]
 ReadValueDep = Annotated[ReadValue, Depends(use_case(ReadValue))]
+ReadValueFileDep = Annotated[ReadValueFile, Depends(use_case(ReadValueFile))]
 ToolRegistryDep = Annotated[ToolRegistry, Depends(use_case(ToolRegistry))]
 LanguageModelsDep = Annotated[LanguageModels, Depends(use_case(LanguageModels))]
 
@@ -560,3 +562,17 @@ async def read_value(
     view = result_to_response(await service(study_id, value_id, auth=auth))
     v = view.value
     return ValueResponse(id=str(v.id), key=v.key, kind=v.kind, summary=v.summary, data=view.data)
+
+
+@router.get("/{study_id}/values/{value_id}/file")
+async def read_value_file(
+    study_id: uuid.UUID, value_id: uuid.UUID, auth: AuthDep, service: ReadValueFileDep
+) -> PlainTextResponse:
+    """The coordinates behind a value, as a file.
+
+    Everything else about a value is served without its text, which is right for a page
+    of twenty rows and wrong for the two cases that need the molecule itself: drawing a
+    docked pose in the receptor it was docked into, and opening a result in whatever
+    program the chemist actually works in."""
+    text = result_to_response(await service(study_id, value_id, auth=auth))
+    return PlainTextResponse(text, media_type="chemical/x-pdb")

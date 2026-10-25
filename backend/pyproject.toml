@@ -57,8 +57,10 @@ azure = ["adlfs>=2024.7"]
 # The GPU lane. chemprop pulls torch, lightning and rdkit itself and owns their floors;
 # torch is listed bare, with no version, only so [tool.uv.sources] below can pick its
 # build (uv applies sources to direct dependencies only).
-# The chem-tools lane: structure prep and pockets. fpocket and p2rank are binaries, not wheels (make fpocket, make p2rank).
-chem-tools = ["openmm>=8.6", "pdbfixer>=1.12", "propka>=3.5"]
+# The chem-tools lane: structure prep, pockets and docking. fpocket, p2rank and vina are
+# binaries, not wheels (make fpocket, make p2rank, make vina). meeko writes the PDBQT both
+# sides of a docking run need; it is LGPL-2.1, imported rather than linked, and pulls gemmi.
+chem-tools = ["openmm>=8.6", "pdbfixer>=1.12", "propka>=3.5", "meeko>=0.8", "gemmi>=0.7"]
 gpu = ["chemprop>=2.2,<3", "transformers>=5.16", "peft>=0.21", "torch"]
 
 [dependency-groups]

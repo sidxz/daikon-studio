@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1
-# The chem-tools lane runner: OpenMM, PDBFixer, PROPKA, the fpocket binary and p2rank. CPU only.
+# The chem-tools lane runner: OpenMM, PDBFixer, PROPKA, the fpocket and vina binaries and
+# p2rank. CPU only.
 # fpocket is not an apt package on Debian trixie, so it is built from source in a
 # throwaway stage (the CC flag: fpocket 4.2.3 predates GCC 14, which makes its pointer-type
 # mismatches hard errors) and only the binary is copied across.
@@ -18,6 +19,13 @@ ADD --checksum=sha256:d243f2d9036ac053fefb9407b5fe1c85f4fe077c519fd975ac585e995f
     https://github.com/rdk/p2rank/releases/download/2.5.1/p2rank_2.5.1.tar.gz /opt/p2rank.tar.gz
 RUN mkdir -p /opt/p2rank && tar -xzf /opt/p2rank.tar.gz -C /opt/p2rank
 
+# AutoDock Vina 1.2.7, Apache-2.0 (Scripps). A statically linked 4 MB binary, so unlike
+# fpocket it needs no build stage: BuildKit fetches it and checks it against the pin.
+FROM python:3.13-slim AS vina
+ADD --checksum=sha256:f31f774f723bba7bbe6e9d1c47577020eea9a8da16424284c043d22593570644 \
+    https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64 \
+    /usr/local/bin/vina
+
 FROM python:3.13-slim
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
@@ -30,6 +38,9 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends libgomp1 openjdk-21-jre-headless ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 COPY --from=fpocket /usr/local/bin/fpocket /usr/local/bin/fpocket
+# ADD does not preserve the execute bit, so it is set here rather than in the fetch stage.
+COPY --from=vina /usr/local/bin/vina /usr/local/bin/vina
+RUN chmod 0755 /usr/local/bin/vina
 
 # p2rank is a Java program; the same JRE is what OPSIN would need if substituent naming
 # ever wants the name check. A wrapper, not a symlink: the launcher finds its jars beside

@@ -660,3 +660,70 @@ export function EpochCurveChart({
   if (!theme) return <Pending height={height} />;
   return <PlotFigure options={options} height={height} caption={caption} />;
 }
+
+/**
+ * An estimate per row with the interval around it, ordered as given.
+ *
+ * The question a chemist asks of a per-substituent effect, a per-transform effect or a
+ * property correlation is the same one: is this distinguishable from zero, and by how
+ * much. A column of numbers answers it one row at a time; a line crossing the zero rule
+ * answers it at a glance, and an interval that straddles zero stops a claim before it
+ * is made. Rows without an interval still draw their point, because a missing interval
+ * is a reason to be careful rather than a reason to hide the estimate.
+ */
+export function ForestChart({
+  data,
+  xLabel,
+  height = 240,
+  format,
+  caption,
+}: {
+  data: {
+    label: string;
+    value: number;
+    low?: number | null;
+    high?: number | null;
+    detail?: string;
+  }[];
+  xLabel: string;
+  height?: number;
+  format?: (value: number) => string;
+  caption?: React.ReactNode;
+}) {
+  const theme = useChartTheme();
+  const options = useCallback((): Plot.PlotOptions => {
+    const render = format ?? ((value: number) => value.toFixed(2));
+    const ends = data.flatMap((d) => [d.value, d.low ?? d.value, d.high ?? d.value]);
+    const span = Math.max(...ends.map(Math.abs), 0) * 1.25 || 1;
+    return {
+      ...baseOptions(theme as ChartTheme),
+      marginLeft: 150,
+      height,
+      x: { label: xLabel, domain: [-span, span], grid: true },
+      y: { label: null, domain: data.map((d) => d.label) },
+      marks: [
+        Plot.ruleX([0], { stroke: (theme as ChartTheme).muted, strokeOpacity: 0.9 }),
+        Plot.ruleY(
+          data.filter((d) => d.low != null && d.high != null),
+          {
+            y: "label",
+            x1: "low",
+            x2: "high",
+            stroke: (theme as ChartTheme).pair[0],
+            strokeWidth: 2,
+          },
+        ),
+        Plot.dot(data, { y: "label", x: "value", fill: (theme as ChartTheme).pair[0], r: 4 }),
+        Plot.text(data, {
+          y: "label",
+          x: "value",
+          text: (d: { value: number }) => render(d.value),
+          dy: -10,
+          fill: (theme as ChartTheme).text,
+          fontSize: 10,
+        }),
+      ],
+    };
+  }, [data, xLabel, height, format, theme]);
+  return <PlotFigure options={options} height={height} caption={caption} />;
+}

@@ -33,6 +33,7 @@ from daikonstudio.infrastructure.tools.params import (
     ConfoundParams,
     CoreParams,
     DiverseParams,
+    DockParams,
     FetchAlphafoldParams,
     FetchPdbParams,
     FetchUniprotParams,
@@ -616,6 +617,35 @@ _TOOLS: tuple[ToolManifest, ...] = (
         external=True,
     ),
     # -- Predicted properties ------------------------------------------------------
+    ToolManifest(
+        id="dock_compounds",
+        version="1",
+        name="Dock compounds into the pocket",
+        area=ToolArea.STRUCTURE,
+        description=(
+            "Places each compound in the approved pocket with AutoDock Vina and ranks the "
+            "poses it finds. The search box is derived from the pocket's own residues, not "
+            "typed in, because a box aimed at the wrong site is the commonest way a docking "
+            "run answers a question nobody asked. Read the result as an ordering: a Vina "
+            "affinity is a score, and in blind assessment molecular weight tracked the truth "
+            "about as well as the best method did, so it ranks compounds in this box and is "
+            "not a binding energy. Each compound takes seconds to minutes, so the number "
+            "docked is capped and whatever is left over is reported rather than dropped."
+        ),
+        inputs=(
+            _in("structure", SlotKind.STRUCTURE, "Structure"),
+            _in("pocket", SlotKind.POCKET, "Pocket"),
+            _COMPOUNDS,
+        ),
+        outputs=(
+            _in("poses", SlotKind.POSES, "Poses"),
+            _in("receptor", SlotKind.STRUCTURE, "Receptor docked into"),
+        ),
+        library="AutoDock Vina 1.2.7, Meeko",
+        lane="chem-tools",
+        surface=ToolSurface.VIEW,
+        params=DockParams,
+    ),
     ToolManifest(
         id="predict_admet",
         version="1",

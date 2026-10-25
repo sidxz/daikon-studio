@@ -103,6 +103,37 @@ class DiverseParams(BaseModel):
     )
 
 
+class DockParams(BaseModel):
+    exhaustiveness: int = Field(
+        default=8,
+        ge=1,
+        le=32,
+        description=(
+            "How hard to search per compound. 8 is the usual default; raising it costs "
+            "time roughly in proportion and buys little on a well-placed box"
+        ),
+    )
+    poses_per_compound: int = Field(
+        default=5,
+        ge=1,
+        le=20,
+        description="How many poses to keep for each compound, best score first",
+    )
+    max_compounds: int = Field(
+        default=50,
+        ge=1,
+        le=500,
+        description=(
+            "A ceiling on how many compounds to dock, since each takes seconds to minutes. "
+            "Compounds beyond it are left undocked and reported, never silently dropped"
+        ),
+    )
+    seed: int = Field(
+        default=42,
+        description="Fixed so the same compounds in the same box give the same poses twice",
+    )
+
+
 class PrepareParams(BaseModel):
     ph: float = Field(
         default=7.4, ge=0, le=14, description="pH at which protonation states are assigned"

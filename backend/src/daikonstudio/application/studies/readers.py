@@ -365,6 +365,11 @@ def summarize_table(data: Any, summary: Mapping[str, Any]) -> str:
     withheld = _withheld(columns, summary)
     profile = {p["name"]: p for p in summary.get("columns_profile") or []}
     lines = [f"Rows: {summary.get('rows', 0)}. Columns: {len(columns)}."]
+    # What the tool found, in its own words. A table says its shape; only this says
+    # which rows matched, how many were left out and why, or what the tool refused --
+    # none of which a fifty-row look at the top of a long table would reach.
+    if isinstance(meta := summary.get("meta"), Mapping) and meta:
+        lines.append(f"What the tool reported: {json.dumps(meta, default=str)}")
     key = identifier_column(columns, withheld) if columns else None
     if key is not None and key not in withheld:
         lines.append(f"Rows are named by the values of {key}.")

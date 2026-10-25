@@ -1,6 +1,7 @@
 "use client";
 
 import { StructureViewer } from "@/features/pages/components/renderers/structure-viewer";
+import { ForestChart } from "@/shared/components/charts";
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
 import { Button } from "@/shared/components/ui/button";
 import { Skeleton } from "@/shared/components/ui/skeleton";
@@ -14,22 +15,37 @@ import {
 } from "@/shared/components/ui/table";
 import { cn } from "@/shared/lib/utils";
 import { type ReactNode, useMemo, useState } from "react";
-import { useStudyValue } from "../hooks/use-studies";
+import { useStudyValue, useStudyValueFile } from "../hooks/use-studies";
 import { RUN_UNDER_WAY, STEPS_REASON_ID, type ValueSummary } from "../types";
 import { type PocketResidue, PocketViewer } from "./pocket-viewer";
+import { PoseViewer } from "./pose-viewer";
 
 type Row = Record<string, unknown>;
 
 /** A page shows a look at a table, not the table; the rest is a download away. */
 const SHOWN_ROWS = 20;
-const STRUCTURE_COLUMN = /^(canonical_)?smiles$/i;
+// Columns that hold a drawable structure. `scaffold` and `scaffold_generic` earn their
+// place here for the reason the backend withholds them from the agent: they are
+// structures, and the one thing that defines a chemotype should not be the one thing
+// shown as a string of brackets.
+const STRUCTURE_COLUMN = /^(canonical_)?smiles$|^scaffold(_generic)?$/i;
+
+/**
+ * Past this, a cell is a payload rather than a value, and its size says more than any
+ * prefix of it would. A docked pose carries kilobytes of coordinates per row: shown as
+ * text it buries every column beside it, and the first eighty characters of it tell a
+ * reader nothing. The value still holds it; there is nowhere yet to send a reader for it,
+ * which is the gap a pose viewer and a file download both close.
+ */
+const CELL_MAX = 200;
 
 function cell(value: unknown): string {
   if (value == null) return "—";
   if (typeof value === "number")
     return value.toLocaleString(undefined, { maximumFractionDigits: 3 });
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
+  const text = typeof value === "object" ? JSON.stringify(value) : String(value);
+  if (text.length <= CELL_MAX) return text;
+  return `${(text.length / 1024).toFixed(1)} kB, not shown`;
 }
 
 function isRows(data: unknown): data is Row[] {
@@ -45,10 +61,13 @@ function RowsTable({
   columns,
   total,
   override,
+  highlight,
 }: {
   rows: Row[];
   columns: string[];
   total?: number;
+  /** A SMARTS coloured on every drawn structure, so a match can be seen and not just asserted. */
+  highlight?: string;
   /** A cell drawn in place of its text; undefined leaves the text. */
   override?: (row: Row, column: string) => ReactNode;
 }) {
@@ -74,7 +93,11 @@ function RowsTable({
                     {override?.(row, column) ??
                       (STRUCTURE_COLUMN.test(column) && typeof row[column] === "string" ? (
                         <div className="flex items-center gap-2">
-                          <StructureThumbnail smiles={row[column] as string} size={48} />
+                          <StructureThumbnail
+                            smiles={row[column] as string}
+                            size={48}
+                            highlight={highlight}
+                          />
                           <span className="max-w-48 truncate font-mono text-xs">
                             {row[column] as string}
                           </span>
@@ -171,6 +194,19 @@ function Correlation({ data }: { data: Row }) {
           {String(meta.activity_column)} {excluded === 1 ? "was" : "were"} excluded from the
           analysis.
         </p>
+      )}
+      {properties.length > 0 && (
+        <ForestChart
+          data={properties.map((p) => ({
+            label: String(p.property),
+            value: typeof p.r === "number" ? p.r : 0,
+            low: typeof p.ci_low === "number" ? p.ci_low : null,
+            high: typeof p.ci_high === "number" ? p.ci_high : null,
+          }))}
+          xLabel="Correlation with activity (r)"
+          height={Math.max(160, properties.length * 26 + 60)}
+          caption="An interval crossing zero is a property activity does not track."
+        />
       )}
       <div className="overflow-x-auto rounded-sm border">
         <Table>
@@ -562,6 +598,170 @@ function RGroupTable({ rows, columns, total }: { rows: Row[]; columns: string[];
   );
 }
 
+/**
+ * What each change is worth, with the interval around it.
+ *
+ * A transform table sorted by mean delta reads as a ranking of ideas, which is exactly
+ * the mistake: a change measured on three pairs and a change measured on forty look the
+ * same in a column. Drawn, the wide interval says "we do not know this yet" without
+ * anyone having to check n, and a bar crossing zero stops the claim.
+ */
+/**
+ * Compounds grouped by what they share, drawn.
+ *
+ * A clustering or a scaffold assignment answers "which of these belong together", and
+ * the answer is a column of integers. No chemist can agree or disagree with an integer.
+ * Shown as the structures themselves, grouped, with the representative named, the call
+ * becomes reviewable in the way the gate on it assumes: would I have put these together.
+ */
+function GroupedStructures({
+  rows,
+  groupColumn,
+  structureColumn,
+  centroidColumn,
+  label,
+}: {
+  rows: Row[];
+  groupColumn: string;
+  structureColumn: string;
+  centroidColumn?: string;
+  label: string;
+}) {
+  const groups = useMemo(() => {
+    const by = new Map<string, Row[]>();
+    for (const row of rows) {
+      const key = row[groupColumn];
+      if (key == null) continue;
+      const id = String(key);
+      by.set(id, [...(by.get(id) ?? []), row]);
+    }
+    // Biggest first: a singleton is not a chemotype and should not head the list.
+    return [...by.entries()].sort((a, b) => b[1].length - a[1].length).slice(0, 12);
+  }, [rows, groupColumn]);
+  const ungrouped = rows.filter((r) => r[groupColumn] == null).length;
+  if (groups.length === 0) return null;
+  return (
+    <div className="space-y-3">
+      {groups.map(([id, members]) => (
+        <div key={id} className="rounded-sm border p-2">
+          <p className="mb-1 text-xs text-muted-foreground">
+            {label} {id} · {members.length} {members.length === 1 ? "compound" : "compounds"}
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {members.slice(0, 16).map((row, i) => {
+              const centroid = centroidColumn ? row[centroidColumn] === true : false;
+              return (
+                // biome-ignore lint/suspicious/noArrayIndexKey: a preview tile is its position
+                <div key={i} className="flex flex-col items-center">
+                  <div className={cn("rounded-sm", centroid && "ring-2 ring-primary")}>
+                    <StructureThumbnail smiles={String(row[structureColumn] ?? "")} size={64} />
+                  </div>
+                  <span className="max-w-20 truncate text-[10px] text-muted-foreground">
+                    {String(row.compound_id ?? row.name ?? row.id ?? "")}
+                    {centroid ? " ·" : ""}
+                  </span>
+                </div>
+              );
+            })}
+            {members.length > 16 && (
+              <span className="self-center text-xs text-muted-foreground">
+                +{members.length - 16} more
+              </span>
+            )}
+          </div>
+        </div>
+      ))}
+      {ungrouped > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {ungrouped} {ungrouped === 1 ? "compound has" : "compounds have"} no {label.toLowerCase()}
+          .
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Docked poses: the ranking, and the pose a reader picked, drawn in the receptor.
+ *
+ * The table answers which compound scored best. Only the picture answers whether the
+ * pose is worth believing, which is the question that matters most here, because a Vina
+ * affinity is the least reliable number in the whole product.
+ */
+function Poses({
+  rows,
+  columns,
+  total,
+  receptor,
+}: {
+  rows: Row[];
+  columns: string[];
+  total?: number;
+  receptor?: string;
+}) {
+  const [picked, setPicked] = useState(0);
+  const pose = rows[picked];
+  const geometry = typeof pose?.pose_pdbqt === "string" ? pose.pose_pdbqt : undefined;
+  return (
+    <div className="space-y-2">
+      {receptor && geometry ? (
+        <div className="space-y-1">
+          <PoseViewer
+            receptor={receptor}
+            pose={geometry}
+            name={`${String(pose?.compound ?? "pose")}-${String(pose?.pose_rank ?? "")}`}
+          />
+          <div className="flex flex-wrap items-center gap-1">
+            {rows.slice(0, 12).map((row, i) => (
+              <Button
+                // biome-ignore lint/suspicious/noArrayIndexKey: a pose is its row
+                key={i}
+                size="sm"
+                variant={i === picked ? "secondary" : "ghost"}
+                onClick={() => setPicked(i)}
+              >
+                {String(row.compound ?? i + 1)} #{String(row.pose_rank ?? i + 1)}
+              </Button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          {geometry
+            ? "The receptor this was docked into is not on this step, so the pose cannot be drawn."
+            : "No pose geometry was returned."}
+        </p>
+      )}
+      <RowsTable rows={rows} columns={columns} total={total} />
+    </div>
+  );
+}
+
+function Effects({ rows, columns, total }: { rows: Row[]; columns: string[]; total?: number }) {
+  const shown = rows
+    .filter((r) => typeof r.mean_delta === "number")
+    .sort((a, b) => Math.abs(Number(b.mean_delta)) - Math.abs(Number(a.mean_delta)))
+    .slice(0, 20);
+  return (
+    <div className="space-y-2">
+      {shown.length > 0 && (
+        <ForestChart
+          data={shown.map((r) => ({
+            label: `${String(r.position)} ${String(r.from)}\u2192${String(r.to)}`,
+            value: Number(r.mean_delta),
+            low: typeof r.ci_low === "number" ? r.ci_low : null,
+            high: typeof r.ci_high === "number" ? r.ci_high : null,
+          }))}
+          xLabel="Mean change in activity"
+          height={Math.max(180, shown.length * 24 + 60)}
+          caption="The strongest changes by size of effect. An interval crossing zero is a change this series cannot yet distinguish from none."
+        />
+      )}
+      <RowsTable rows={rows} columns={columns} total={total} />
+    </div>
+  );
+}
+
 function ModelFit({ data }: { data: Row }) {
   const meta = asRecord(data.meta);
   if (meta.ok === false) {
@@ -585,6 +785,17 @@ function ModelFit({ data }: { data: Row }) {
           ["q²", meta.q2 != null ? cell(meta.q2) : null],
           ["Reference", reference || null],
         ]}
+      />
+      <ForestChart
+        data={terms.map((t) => ({
+          label: `${String(t.position)} ${String(t.group)}`,
+          value: typeof t.coef === "number" ? t.coef : 0,
+          low: typeof t.ci_low === "number" ? t.ci_low : null,
+          high: typeof t.ci_high === "number" ? t.ci_high : null,
+        }))}
+        xLabel="Change in activity from the reference group"
+        height={Math.max(180, terms.length * 24 + 60)}
+        caption="Each substituent against the reference at its position. Compare within a position, not across."
       />
       <RowsTable columns={["position", "group", "n", "coef"]} rows={terms} />
       {unmade.length > 0 && (
@@ -833,15 +1044,29 @@ export function ValueBlock({
   onApprove,
   approveBlocked = null,
   earlier = false,
+  siblings = [],
 }: {
   studyId: string;
   value: ValueSummary;
   onApprove?: (rank: number) => void;
   approveBlocked?: string | null;
   earlier?: boolean;
+  /**
+   * The other values the same step produced. Docking returns its poses and the receptor
+   * it docked into as two values, and the pose is only worth drawing inside that
+   * receptor -- so one needs to be able to find the other.
+   */
+  siblings?: ValueSummary[];
 }) {
   const query = useStudyValue(studyId, value.id);
   const read = query.data;
+
+  // Only fetched when this value is a set of poses; every other kind leaves it disabled.
+  const receptorId =
+    value.kind === "poses" ? siblings.find((v) => v.kind === "structure")?.id : undefined;
+  // Fetched as a file: a value's own payload is served without its text.
+  const receptorRead = useStudyValueFile(studyId, receptorId);
+  const receptor = typeof receptorRead.data === "string" ? receptorRead.data : undefined;
 
   const columns = Array.isArray(read?.summary.columns)
     ? (read.summary.columns as string[])
@@ -877,10 +1102,40 @@ export function ValueBlock({
     body = <ApprovedCore data={asRecord(read.data)} earlier={earlier} />;
   } else if (read.kind === "model_fit") {
     body = <ModelFit data={asRecord(read.data)} />;
+  } else if (read.kind === "poses" && isRows(read.data) && read.data.length > 0) {
+    body = <Poses rows={read.data} columns={columns} total={total} receptor={receptor} />;
+  } else if (read.kind === "effects" && isRows(read.data) && read.data.length > 0) {
+    body = <Effects rows={read.data} columns={columns} total={total} />;
   } else if (read.kind === "rgroup_table" && isRows(read.data) && read.data.length > 0) {
     body = <RGroupTable rows={read.data} columns={columns} total={total} />;
   } else if (isRows(read.data) && read.data.length > 0) {
-    body = <RowsTable rows={read.data} columns={columns} total={total} />;
+    // A substructure search says which query it ran, so the match can be coloured on every
+    // structure rather than left as a column of true and false.
+    const smarts = asRecord(read.summary.meta).smarts;
+    const rows = read.data;
+    // A table that carries a grouping carries the only answer its tool produced, and a
+    // column of integers is not a form anyone can judge it in.
+    const structure = columns.find((c) => STRUCTURE_COLUMN.test(c));
+    const grouping = ["cluster", "scaffold_id"].find((c) => columns.includes(c));
+    body = (
+      <div className="space-y-3">
+        {structure && grouping && (
+          <GroupedStructures
+            rows={rows}
+            groupColumn={grouping}
+            structureColumn={structure}
+            centroidColumn={grouping === "cluster" ? "is_centroid" : undefined}
+            label={grouping === "cluster" ? "Cluster" : "Scaffold"}
+          />
+        )}
+        <RowsTable
+          rows={rows}
+          columns={columns}
+          total={total}
+          highlight={typeof smarts === "string" ? smarts : undefined}
+        />
+      </div>
+    );
   } else {
     body = (
       <pre className="max-h-80 overflow-auto rounded-sm bg-muted p-3 text-xs">

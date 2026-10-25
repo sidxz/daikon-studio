@@ -2,6 +2,7 @@
 
 import { getRDKit } from "@/shared/lib/rdkit/rdkit-loader";
 import { cn } from "@/shared/lib/utils";
+import type { JSMol, RDKitModule } from "@rdkit/rdkit";
 import { useTheme } from "next-themes";
 import { memo, useEffect, useState } from "react";
 
@@ -35,6 +36,36 @@ const DARK_PALETTE = {
 const RESIDUES = /^[ACDEFGHIKLMNPQRSTVWYBXZUO*]{25,}$/;
 
 /**
+ * The atoms and bonds a SMARTS picks out, in the shape `get_svg_with_highlights` wants.
+ *
+ * Every match is coloured, not just the first: a molecule with two of the queried group
+ * has two of them, and showing one would be a quieter kind of wrong.
+ */
+function matched(
+  rdkit: RDKitModule,
+  mol: JSMol,
+  smarts: string | undefined,
+): { atoms?: number[]; bonds?: number[] } {
+  if (!smarts) return {};
+  const query = rdkit.get_qmol(smarts);
+  if (!query) return {};
+  try {
+    if (!query.is_valid()) return {};
+    const hits = JSON.parse(mol.get_substruct_matches(query)) as {
+      atoms?: number[];
+      bonds?: number[];
+    }[];
+    const atoms = [...new Set(hits.flatMap((h) => h.atoms ?? []))];
+    const bonds = [...new Set(hits.flatMap((h) => h.bonds ?? []))];
+    return atoms.length ? { atoms, bonds } : {};
+  } catch {
+    return {}; // a query that will not run leaves the structure plain
+  } finally {
+    query.delete();
+  }
+}
+
+/**
  * A SMILES rendered as an SVG.
  *
  * Drawn at 2x and scaled down so it stays crisp on a HiDPI screen, handed to
@@ -46,10 +77,19 @@ export const StructureThumbnail = memo(function StructureThumbnail({
   smiles,
   size = 96,
   className,
+  highlight,
 }: {
   smiles: string;
   size?: number;
   className?: string;
+  /**
+   * A SMARTS whose matching atoms are coloured. This is the difference between a
+   * chemist being told a compound matched and being shown where: a boolean in a
+   * column is an assertion, a coloured ring is evidence they can disagree with.
+   * Ignored when it does not parse or does not match, because a query that is wrong
+   * should leave the structure readable rather than blank it.
+   */
+  highlight?: string;
 }) {
   const [svgUrl, setSvgUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -75,6 +115,7 @@ export const StructureThumbnail = memo(function StructureThumbnail({
             JSON.stringify({
               width: size * 2,
               height: size * 2,
+              ...matched(rdkit, mol, highlight),
               bondLineWidth: 1.6,
               minFontSize: 13,
               addAtomIndices: false,
@@ -99,7 +140,7 @@ export const StructureThumbnail = memo(function StructureThumbnail({
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [smiles, size, isDark]);
+  }, [smiles, size, isDark, highlight]);
 
   if (failed) {
     return (

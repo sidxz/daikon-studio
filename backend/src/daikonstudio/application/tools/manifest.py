@@ -85,6 +85,10 @@ class SlotKind(StrEnum):
     # Predicted absorption, distribution, metabolism, excretion and toxicity
     # values per compound.
     ADMET_TABLE = "admet_table"
+    # Compounds placed in a pocket: one row per pose, with the score that ranked it and
+    # the geometry that produced it. A ranking first and a number second -- the score is
+    # the least reliable thing a structure yields, so what the rows are for is their order.
+    POSES = "poses"
 
 
 # The lane a tool runs in when it asks for nothing special. A lane is a

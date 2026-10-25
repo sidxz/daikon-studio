@@ -20,7 +20,7 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
-from daikonstudio.infrastructure.tools.params import PrepareParams
+from daikonstudio.infrastructure.tools.params import DockParams, PrepareParams
 
 ToolImpl = Callable[[BaseModel | None, Mapping[str, object]], Mapping[str, object]]
 
@@ -503,8 +503,283 @@ def predict_pockets(
     return {"pockets": {"meta": meta, "pockets": pockets}}
 
 
+# The smallest box worth docking in, and the margin left around the lining atoms. A pocket's
+# residues are its *lining*, so their atoms bound the wall rather than the cavity, and a box
+# drawn tight to them clips poses that reach into the opening. The floor matters for a shallow
+# site, where the extent in one axis can be a couple of angstroms and a ligand would not fit.
+BOX_PADDING = 4.0
+BOX_MINIMUM = 12.0
+
+
+def box_for_pocket(
+    text: str, residues: list[Mapping[str, Any]], *, padding: float = BOX_PADDING
+) -> dict[str, Any]:
+    """The search box around a pocket, in angstroms, from its lining residues' atoms.
+
+    A pocket names residues -- chain, name and number -- and carries no coordinates, because
+    what a scientist approves is a site and not a cube. So the box is derived here, from the
+    same structure the pocket was found in, and both are reported: the centre and size a
+    docking program needs, and the count of residues they came from, which is what tells a
+    reader the box describes the site they approved.
+
+    Raises rather than guesses when no atom matches. That means the pocket and the structure
+    are not the same molecule -- a pocket found before the structure was re-prepared, most
+    likely -- and a box computed from the few residues that happened to match would be
+    somewhere arbitrary, which docking would not report as a failure.
+    """
+    wanted = {(str(r.get("chain", "")).strip(), int(r["resseq"])) for r in residues}
+    xs: list[float] = []
+    ys: list[float] = []
+    zs: list[float] = []
+    for line in text.splitlines():
+        if not line.startswith("ATOM") or len(line) < 54:
+            continue
+        if (line[21].strip(), int(line[22:26])) not in wanted:
+            continue
+        xs.append(float(line[30:38]))
+        ys.append(float(line[38:46]))
+        zs.append(float(line[46:54]))
+    if not xs:
+        raise ValueError(
+            f"None of the pocket's {len(wanted)} residues were found in this structure. "
+            "The pocket and the structure are probably not the same molecule."
+        )
+    centre = tuple(round((min(a) + max(a)) / 2, 3) for a in (xs, ys, zs))
+    size = tuple(round(max(max(a) - min(a) + 2 * padding, BOX_MINIMUM), 3) for a in (xs, ys, zs))
+    return {
+        "center_x": centre[0],
+        "center_y": centre[1],
+        "center_z": centre[2],
+        "size_x": size[0],
+        "size_y": size[1],
+        "size_z": size[2],
+        "n_residues": len(wanted),
+        "n_atoms": len(xs),
+        "padding": padding,
+    }
+
+
+def vina_bin() -> str:
+    return tool_binary("STUDIO_VINA_BIN", "vina")
+
+
+def _ligand_pdbqt(smiles: str, seed: int) -> str:
+    """One compound as Vina input: a 3D conformer, minimised, written as PDBQT.
+
+    Meeko and RDKit are imported here, not at module scope, for the reason this module
+    already gives: the chem lane has them and nowhere else needs to.
+    """
+    from meeko import MoleculePreparation, PDBQTWriterLegacy  # type: ignore[import-untyped]
+    from rdkit import Chem
+    from rdkit.Chem import AllChem
+
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        raise ValueError("not a readable structure")
+    mol = Chem.AddHs(mol)
+    # A docking run with no conformer silently docks a flat molecule, so a failed embed is
+    # an error for this compound rather than something to carry on from.
+    # ignore[attr-defined]: rdkit-stubs omit these generated AllChem functions.
+    if AllChem.EmbedMolecule(mol, randomSeed=seed) != 0:  # type: ignore[attr-defined]
+        raise ValueError("no 3D conformer could be generated")
+    AllChem.MMFFOptimizeMolecule(mol)  # type: ignore[attr-defined]
+    text, ok, error = PDBQTWriterLegacy.write_string(MoleculePreparation()(mol)[0])
+    if not ok:
+        raise ValueError(str(error))
+    return str(text)
+
+
+def _scored(text: str) -> list[tuple[float, str]]:
+    """Vina's output file split into poses, each with the affinity it was ranked by."""
+    poses: list[tuple[float, str]] = []
+    affinity: float | None = None
+    lines: list[str] = []
+    for line in text.splitlines():
+        if line.startswith("MODEL"):
+            affinity, lines = None, []
+        elif line.startswith("REMARK VINA RESULT:"):
+            affinity = float(line.split()[3])
+        elif line.startswith("ENDMDL"):
+            if affinity is not None:
+                poses.append((affinity, "\n".join(lines)))
+        else:
+            lines.append(line)
+    return poses
+
+
+def dock_compounds(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[str, Any]:
+    """Dock a table of compounds into the approved pocket with AutoDock Vina.
+
+    The box comes from the pocket rather than from the scientist, because the pocket is
+    the thing they approved and a box typed by hand is the commonest way a docking run
+    answers about the wrong site.
+
+    What this returns is an ordering. A Vina affinity is a score, not a measured binding
+    energy, and in the most recent blind assessment molecular weight correlated with the
+    truth about as well as the best submitted method did. So the number is carried, and
+    the manifest and the note below say what it is not.
+    """
+    import polars as pl
+
+    settings = cast(DockParams, params or DockParams())
+    structure = cast(dict[str, Any], inputs["structure"])
+    pocket = cast(dict[str, Any], inputs["pocket"])
+    frame = cast(pl.DataFrame, inputs["compounds"])
+    text = cast(str, structure["text"])
+    box = box_for_pocket(text, list(pocket.get("residues") or []))
+
+    from daikonstudio.infrastructure.tools.impl.chem import structure_column
+
+    column = structure_column(frame)
+    # Rows are named by whichever identifier the table carries, falling back to the
+    # structure column so a result always says which compound a pose belongs to.
+    named = _name_column(frame) or column
+    names = [str(v) for v in frame[named]]
+    smiles = frame[column].to_list()
+    wanted = min(settings.max_compounds, frame.height)
+
+    rows: list[dict[str, Any]] = []
+    failures: list[dict[str, str]] = []
+    # The receptor as it was actually docked into: ATOM records only, which is what the
+    # preparer was given. Returned beside the poses so a pose can be drawn in the thing it
+    # was docked into rather than beside the deposited entry, which still holds the ligand
+    # and the waters this run stripped.
+    kept_lines = [line for line in text.splitlines() if line.startswith("ATOM")]
+    docked_into = "\n".join(kept_lines) + "\nEND\n"
+    with tempfile.TemporaryDirectory() as tmp:
+        receptor = Path(tmp) / "receptor.pdbqt"
+        receptor.write_text(_receptor_pdbqt(text, tmp))
+        for index in range(wanted):
+            if smiles[index] is None:
+                failures.append({"id": names[index], "why": "no structure"})
+                continue
+            try:
+                ligand = Path(tmp) / "ligand.pdbqt"
+                ligand.write_text(_ligand_pdbqt(str(smiles[index]), settings.seed))
+                out = Path(tmp) / "out.pdbqt"
+                _run(
+                    "vina",
+                    [
+                        vina_bin(),
+                        "--receptor",
+                        str(receptor),
+                        "--ligand",
+                        str(ligand),
+                        "--center_x",
+                        str(box["center_x"]),
+                        "--center_y",
+                        str(box["center_y"]),
+                        "--center_z",
+                        str(box["center_z"]),
+                        "--size_x",
+                        str(box["size_x"]),
+                        "--size_y",
+                        str(box["size_y"]),
+                        "--size_z",
+                        str(box["size_z"]),
+                        "--exhaustiveness",
+                        str(settings.exhaustiveness),
+                        "--num_modes",
+                        str(settings.poses_per_compound),
+                        "--seed",
+                        str(settings.seed),
+                        "--out",
+                        str(out),
+                    ],
+                    tmp,
+                )
+                for rank, (affinity, geometry) in enumerate(_scored(out.read_text()), start=1):
+                    rows.append(
+                        {
+                            "compound": names[index],
+                            "smiles": smiles[index],
+                            "pose_rank": rank,
+                            "affinity_kcal_mol": affinity,
+                            "pose_pdbqt": geometry,
+                        }
+                    )
+            except (ValueError, RuntimeError) as error:
+                failures.append({"id": names[index], "why": str(error)[:120]})
+
+    poses = pl.DataFrame(
+        rows,
+        schema={
+            "compound": pl.String,
+            "smiles": pl.String,
+            "pose_rank": pl.Int64,
+            "affinity_kcal_mol": pl.Float64,
+            "pose_pdbqt": pl.String,
+        },
+    )
+    best = (
+        poses.filter(pl.col("pose_rank") == 1).sort("affinity_kcal_mol").head(25)
+        if poses.height
+        else poses
+    )
+    return {
+        "poses": poses,
+        "receptor": {"text": docked_into, "meta": {"source": "prepared receptor, ATOM records"}},
+        "meta": {
+            "box": box,
+            "n_compounds_docked": wanted - len(failures),
+            "n_compounds_given": frame.height,
+            "n_not_attempted": max(0, frame.height - wanted),
+            "failures": failures[:25],
+            # Named here because a pose table is long and the agent sees fifty rows of it.
+            "best_by_score": [
+                {"compound": c, "affinity_kcal_mol": a}
+                for c, a in zip(
+                    best["compound"].to_list(), best["affinity_kcal_mol"].to_list(), strict=True
+                )
+            ],
+            "note": (
+                "Affinities rank these compounds against each other in this box. They are "
+                "not measured binding energies and should not be quoted as potency."
+            ),
+        },
+    }
+
+
+def _name_column(frame: Any) -> str | None:
+    for candidate in ("compound_id", "id", "name"):
+        if candidate in frame.columns:
+            return candidate
+    return None
+
+
+def _receptor_pdbqt(text: str, tmp: str) -> str:
+    """The receptor as Vina input, via Meeko's preparer.
+
+    Run as a subprocess, the way this module already runs fpocket and p2rank: Meeko's
+    entry point reads `sys.argv` and exits the process when it is unhappy, neither of
+    which a tool running inside the runner can afford.
+
+    Only ATOM records are passed. A pocket's residues were read from ATOM records, so a
+    cofactor or a crystallisation additive left in would become part of the receptor and
+    could block the very site being docked into.
+    """
+    source = Path(tmp) / "receptor.pdb"
+    kept = [line for line in text.splitlines() if line.startswith("ATOM")]
+    source.write_text("\n".join(kept) + "\nEND\n")
+    base = Path(tmp) / "rec"
+    _run(
+        "mk_prepare_receptor",
+        [
+            tool_binary("STUDIO_MK_PREPARE_RECEPTOR_BIN", "mk_prepare_receptor.py"),
+            "--read_pdb",
+            str(source),
+            "-o",
+            str(base),
+            "-p",
+        ],
+        tmp,
+    )
+    return base.with_suffix(".pdbqt").read_text()
+
+
 IMPLEMENTATIONS: dict[str, ToolImpl] = {
     "prepare_structure": prepare_structure,
     "find_pockets": find_pockets,
     "predict_pockets": predict_pockets,
+    "dock_compounds": dock_compounds,
 }

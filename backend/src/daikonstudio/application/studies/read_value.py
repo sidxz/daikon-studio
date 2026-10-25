@@ -43,6 +43,41 @@ def decode_view(kind: str, blob: bytes, *, limit: int | None = 200) -> Any:
     return decoded
 
 
+class ReadValueFile:
+    """A value's coordinates, as a file.
+
+    `decode_view` above strips `text` from every value it serves, deliberately: a page
+    showing twenty rows has no use for a hundred kilobytes of PDB, and the viewer used
+    until now fetched deposited entries from the archive by id. Neither holds for a
+    docked pose. The receptor it was docked into exists nowhere but here -- it is the
+    prepared one, with the ligand and the waters stripped -- so a pose can only be drawn
+    in the right molecule if that text can be fetched. The same route is what lets a
+    chemist open the result in the program they actually work in.
+    """
+
+    def __init__(self, studies: StudyRepository, store: BlobStore) -> None:
+        self._get = GetStudy(studies)
+        self._store = store
+
+    async def __call__(
+        self, study_id: uuid.UUID, value_id: uuid.UUID, auth: AuthContext | None = None
+    ) -> Result[str, DomainError]:
+        found = await self._get(study_id, auth)
+        if not isinstance(found, Success):
+            return found  # type: ignore[return-value]
+        value = next((v for v in found.unwrap().values if v.id == value_id), None)
+        if value is None:
+            return Failure(NotFoundError("Value", str(value_id)))
+        blob = await asyncio.to_thread(self._store.get_bytes, value.blob_key)
+        decoded = codecs.decode(value.kind, blob)
+        text = decoded.get("text") if isinstance(decoded, dict) else None
+        if not isinstance(text, str):
+            # Only values that are a file are served as one. A table is a table; asking
+            # for it here should say so rather than hand back something invented.
+            return Failure(NotFoundError("File for value", str(value_id)))
+        return Success(text)
+
+
 class ReadValue:
     def __init__(self, studies: StudyRepository, store: BlobStore) -> None:
         self._get = GetStudy(studies)

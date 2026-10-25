@@ -259,3 +259,23 @@ export function useApplyProposal(studyId: string) {
     meta: { silent: true },
   });
 }
+
+/**
+ * A value's coordinates as a file.
+ *
+ * Separate from `useStudyValue` because that one is served without any file text, by
+ * design: a page of twenty rows has no use for a hundred kilobytes of PDB. A docked
+ * pose is the case where the molecule itself is the point.
+ */
+export function useStudyValueFile(studyId: string, valueId: string | undefined) {
+  return useQuery({
+    queryKey: [...STUDIES_KEY, studyId, "values", valueId, "file"],
+    queryFn: () =>
+      customInstance<string>({
+        url: `${API_V1}/studies/${studyId}/values/${valueId}/file`,
+        method: "GET",
+      }),
+    enabled: Boolean(valueId),
+    staleTime: STALE_TIME.STATIC,
+  });
+}

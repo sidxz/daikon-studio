@@ -374,3 +374,47 @@ describe("the model fit block", () => {
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
   });
 });
+
+describe("a cell that is a payload rather than a value", () => {
+  it("reports a docked pose's size instead of printing its coordinates", async () => {
+    // A pose is kilobytes of coordinates per row. Printed, it buries every column beside
+    // it and tells the reader nothing; the geometry stays in the value, not in the cell.
+    const pose = "ATOM      1  C   UNL     1      17.229  19.516  10.262\n".repeat(60);
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v9",
+      key: "poses",
+      kind: "poses",
+      summary: { columns: ["compound", "affinity_kcal_mol", "pose_pdbqt"], rows: 1 },
+      data: [{ compound: "indinavir", affinity_kcal_mol: -11.5, pose_pdbqt: pose }],
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v9", key: "poses" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByRole("cell", { name: "indinavir" })).toBeInTheDocument();
+    expect(screen.getByRole("cell", { name: "-11.5" })).toBeInTheDocument();
+    expect(screen.queryByText(/ATOM/)).not.toBeInTheDocument();
+    expect(screen.getByText(/kB, not shown/)).toBeInTheDocument();
+  });
+});
+
+describe("judging a grouping", () => {
+  it("draws clustered compounds grouped, with the centroid marked", async () => {
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v10",
+      key: "compounds",
+      kind: "compound_table",
+      summary: { columns: ["compound_id", "smiles", "cluster", "is_centroid"], rows: 3 },
+      data: [
+        { compound_id: "C1", smiles: "CCO", cluster: 1, is_centroid: true },
+        { compound_id: "C2", smiles: "CCC", cluster: 1, is_centroid: false },
+        { compound_id: "C3", smiles: "c1ccccc1", cluster: 2, is_centroid: true },
+      ],
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v10", key: "compounds" } as never} />, {
+      wrapper: Wrapper,
+    });
+    // Two clusters, the larger one first; a column of integers is not a reviewable answer.
+    expect(await screen.findByText(/Cluster 1 · 2 compounds/)).toBeInTheDocument();
+    expect(screen.getByText(/Cluster 2 · 1 compound$/)).toBeInTheDocument();
+  });
+});

@@ -65,7 +65,7 @@ WORKER_GPU := env STUDIO_RUNNER_TOKEN=drt_dev_gpu $(RUNNER)
 WORKER_CHEM := env STUDIO_RUNNER_TOKEN=drt_dev_chem PATH=$(CURDIR)/backend/.tools/bin:$$PATH $(RUNNER)
 
 .DEFAULT_GOAL := help
-.PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu dev-worker-chem fpocket p2rank stop logs migrate \
+.PHONY: help up down install dev dev-be dev-fe dev-worker dev-worker-gpu dev-worker-chem fpocket p2rank vina stop logs migrate \
         seed-runners backfill-maps register-protocols generate-api test test-api test-all test-fe lint lint-fe nuke \
         image-runner-cpu image-runner-gpu image-runner-chem image-smoke image-frontend security-scan publish-runner-gpu
 
@@ -168,12 +168,36 @@ dev-worker-gpu: ## (Re)start the gpu-lane runner agent only (chemprop; Mac GPU v
 		> $(LOGDIR)/worker-gpu.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-gpu.pid
 	@echo "GPU-lane runner agent (re)started (log $(LOGDIR)/worker-gpu.log)"
 
-dev-worker-chem: ## (Re)start the chem-tools-lane runner agent only (OpenMM, PDBFixer, PROPKA, fpocket, p2rank)
+dev-worker-chem: ## (Re)start the chem-tools-lane runner agent only (OpenMM, PDBFixer, PROPKA, fpocket, p2rank, vina)
 	@mkdir -p $(LOGDIR)
 	@[ -f $(LOGDIR)/worker-chem.pid ] && kill $$(cat $(LOGDIR)/worker-chem.pid) 2>/dev/null || true
 	@nohup sh -c '$(call BUILD_INFO,backend) && $(BACKEND) && $(BE_ENV) && exec $(WORKER_CHEM)' \
 		> $(LOGDIR)/worker-chem.log 2>&1 & echo "$$!" > $(LOGDIR)/worker-chem.pid
 	@echo "Chem-tools-lane runner agent (re)started (log $(LOGDIR)/worker-chem.log)"
+
+# AutoDock Vina 1.2.7, Apache-2.0. One statically linked binary per platform, so unlike
+# fpocket there is nothing to build: the right asset is fetched and checked against its pin.
+# The platform is resolved by make, not by the recipe's shell, so that the pin below can be
+# looked up by name -- a shell `eval` cannot see a make variable.
+VINA_VERSION := 1.2.7
+VINA_HOST := $(shell uname -s)-$(shell uname -m)
+VINA_ASSET_Darwin-arm64   := mac_aarch64
+VINA_ASSET_Darwin-x86_64  := mac_x86_64
+VINA_ASSET_Linux-x86_64   := linux_x86_64
+VINA_ASSET_Linux-aarch64  := linux_aarch64
+VINA_ASSET := $(VINA_ASSET_$(VINA_HOST))
+VINA_SHA256_linux_x86_64 := f31f774f723bba7bbe6e9d1c47577020eea9a8da16424284c043d22593570644
+VINA_SHA256_mac_aarch64  := 823c2bbacf26d72183861322345f0a89736aca66c8e81054c66f93af5ad623f1
+VINA_SHA256 := $(VINA_SHA256_$(VINA_ASSET))
+vina: ## Download the AutoDock Vina binary into backend/.tools/bin (the chem-tools dev runner puts it on PATH)
+	@mkdir -p backend/.tools/bin
+	@[ -n "$(VINA_ASSET)" ] || { echo "No Vina binary is published for $(VINA_HOST)." >&2; exit 1; }
+	@[ -n "$(VINA_SHA256)" ] || { echo "No checksum pinned for $(VINA_ASSET); add one before using it." >&2; exit 1; }
+	@curl -fL -o backend/.tools/bin/vina \
+		https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v$(VINA_VERSION)/vina_$(VINA_VERSION)_$(VINA_ASSET)
+	@echo "$(VINA_SHA256)  backend/.tools/bin/vina" | shasum -a 256 -c
+	@chmod +x backend/.tools/bin/vina
+	@backend/.tools/bin/vina --version
 
 FPOCKET_TAG := 4.2.3
 fpocket: ## Build the fpocket binary into backend/.tools/bin (the chem-tools dev runner puts it on PATH)
