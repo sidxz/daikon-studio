@@ -141,6 +141,13 @@ function Structure({ summary }: { summary: Row }) {
               : "None",
           ],
           ["Kept in the receptor", kept && (kept.join(", ") || "None")],
+          // Named, not counted: whether a gap matters is decided by where it sits.
+          [
+            "Not located in the experiment",
+            Array.isArray(summary.missing_residues)
+              ? (summary.missing_residues as string[]).join(", ") || "None"
+              : null,
+          ],
         ]}
       />
       {/* Mol* loads deposited entries by id; a predicted model has none to load. */}
@@ -300,7 +307,7 @@ function PocketDetail({ pocket, scored }: { pocket: Row; scored: string }) {
             .map((a) =>
               [`${a.type} ${a.start}${a.end === a.start ? "" : `–${a.end}`}`, a.description]
                 .filter(Boolean)
-                .join(" — "),
+                .join(": "),
             )
             .join("; ")}
         </p>

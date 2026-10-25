@@ -56,6 +56,7 @@ def _thread_to_json(t: Thread) -> dict[str, Any]:
                 "role": turn.role,
                 "kind": turn.kind,
                 "say": turn.say,
+                "conclusion": turn.conclusion,
                 "about": _id(turn.about),
                 "questions": [
                     {"ask": q.ask, "why": q.why, "options": list(q.options), "default": q.default}
@@ -67,6 +68,7 @@ def _thread_to_json(t: Thread) -> dict[str, Any]:
                         "at": p.at,
                         "label": p.label,
                         "evidence": p.evidence,
+                        "state": p.state,
                         "cites": list(p.cites),
                     }
                     for p in turn.points
@@ -107,6 +109,7 @@ def _thread_from_json(d: dict[str, Any]) -> Thread:
                 role=t["role"],
                 kind=t.get("kind", ""),
                 say=t["say"],
+                conclusion=t.get("conclusion", ""),
                 about=_uuid(t.get("about")),
                 questions=tuple(
                     Asked(
@@ -123,6 +126,7 @@ def _thread_from_json(d: dict[str, Any]) -> Thread:
                         at=p["at"],
                         label=p["label"],
                         evidence=p["evidence"],
+                        state=p.get("state", ""),
                         cites=tuple(p.get("cites", ())),
                     )
                     for p in t.get("points", [])

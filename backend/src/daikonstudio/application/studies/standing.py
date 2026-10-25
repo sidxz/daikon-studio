@@ -144,7 +144,9 @@ def _plan(study: Study, data: Mapping[uuid.UUID, Any]) -> str:
         made = study.current_outputs_of(step.id)
         if made:
             facts.append("produced: " + ", ".join(one_line(v.kind, v.summary) for v in made))
-        lines.append(f"  {step.position + 1}. {step.name} [{step.tool_id}] — {'; '.join(facts)}")
+        # A colon, not a dash: this is read by the model every turn, and a prompt that
+        # punctuates with dashes while telling it not to teaches the opposite.
+        lines.append(f"  {step.position + 1}. {step.name} [{step.tool_id}]: {'; '.join(facts)}")
         lines += [_described(study, value, data) for value in made]
     return "\n".join(lines)
 
@@ -182,6 +184,35 @@ def _said(study: Study) -> str:
         if detail := _detail(turn, numbers):
             lines.append(f"  {detail}")
     return "\n".join(lines)
+
+
+#: The agent turns that carry an `unresolved` list, and so can close one by leaving it out.
+_READS = frozenset({"observe", "reply"})
+
+
+def _open(study: Study) -> str:
+    """The open items already recorded, so a turn carries them instead of re-saying them.
+
+    Only the latest reading, whether or not it listed anything: the list is rewritten
+    whole each turn, so an earlier one is a stale copy, and skipping an empty one would
+    carry items the turn that wrote it had just closed. Without this the agent sees its
+    own worry only as prose it wrote, reads it as unsaid, and says it again in different
+    words every turn, which no comparison can collapse and the scientist reads as news.
+    """
+    latest = next(
+        (t for t in reversed(study.thread.turns) if t.role == "agent" and t.kind in _READS), None
+    )
+    if latest is None or not (recorded := latest.unresolved):
+        return ""
+    items = "\n".join(f"- {item}" for item in recorded)
+    return (
+        f"Already recorded as open, and on the page beside the turn that recorded it:\n{items}\n"
+        "Keep in `unresolved` each of these that is still open, so the list stays whole. "
+        "Do not put one in `say` again: it is already in front of the scientist, and saying "
+        "it a second time tells them nothing. Write about one only when this result closes "
+        "it or changes what it means. If one of them asks the scientist for something, it "
+        "has been asked; asking again in `say` does not make it more likely to be answered."
+    )
 
 
 def standing(
@@ -222,6 +253,7 @@ def standing(
         f"Where the study stands, as you last wrote it:\n{study.thread.summary}"
         if study.thread.summary
         else "",
+        _open(study),
         _said(study),
     ]
     return "\n\n".join(section for section in sections if section)

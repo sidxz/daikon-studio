@@ -5,7 +5,7 @@ import { Button } from "@/shared/components/ui/button";
 import { cn } from "@/shared/lib/utils";
 import { useApplyProposal, useStudy } from "../hooks/use-studies";
 import type { Study, StudyProposal, StudyStep, Turn } from "../types";
-import { STEPS_REASON_ID } from "../types";
+import { STEPS_REASON_ID, stepAnchor } from "../types";
 import { Fold } from "./fold";
 
 /**
@@ -159,8 +159,23 @@ export function TurnView({
   const dropped =
     turn.dropped > 0 &&
     (turn.kind === "observe"
-      ? `${turn.dropped} ${turn.dropped === 1 ? "claim" : "claims"} dropped, unsupported by this result`
+      ? // Two reasons now, and saying only the first would misreport the second: a claim
+        // about a step that has not run is dropped for having nothing in it, not for
+        // being unsupported.
+        `${turn.dropped} ${turn.dropped === 1 ? "claim" : "claims"} dropped: not supported by this result, or about a step that has not run`
       : `${turn.dropped} of what it tried was refused: claims the result does not support, or edits and proposals the plan cannot carry`);
+  // A point about a check or a stop condition is the standing state of the plan, and the
+  // panel under the steps now holds that, with the criterion's own words beside it. Repeating
+  // it here put the whole criterion in the thread on every turn, including the ones that said
+  // only that a condition had not fired. What reads on the result itself stays.
+  const onResult = turn.points
+    .filter((point) => point.evidence !== "check" && point.evidence !== "stop_condition")
+    // What the step did first, then what was read in it. Left alone, the line summarising
+    // the step landed wherever the model happened to put it, often last and after a
+    // comparison with an earlier step, so the list read as though it changed subject twice.
+    .sort((a, b) => Number(b.evidence === "step") - Number(a.evidence === "step"));
+  /* How this turn's own step is written, so a point that only repeats it can say less. */
+  const ownStep = turn.about ? numbered(steps, turn.about) : null;
   return (
     <div
       className={cn(
@@ -169,7 +184,22 @@ export function TurnView({
       )}
     >
       {turn.about && (
-        <p className="text-xs text-muted-foreground">About {aboutStep(steps, turn.about)}</p>
+        <p className="text-xs text-muted-foreground">
+          About{" "}
+          {/* The thread scrolls in its own column beside the steps, so "step 2" is a place
+              the reader otherwise has to find by hand. */}
+          <button
+            type="button"
+            className="underline underline-offset-2 hover:text-foreground"
+            onClick={() =>
+              document
+                .getElementById(stepAnchor(String(turn.about)))
+                ?.scrollIntoView({ behavior: "smooth", block: "start" })
+            }
+          >
+            {aboutStep(steps, turn.about)}
+          </button>
+        </p>
       )}
       {turn.say && <p className="whitespace-pre-wrap">{turn.say}</p>}
       {/* The thread does not say whether a planning turn carried a plan or edits, so any
@@ -190,21 +220,43 @@ export function TurnView({
           })}
         </ul>
       )}
-      {turn.points.length > 0 && (
-        <ul className="space-y-1">
-          {turn.points.map((point) => (
-            <li key={`${point.step}-${point.at}-${point.label}`}>
-              {[
-                numbered(steps, point.step),
-                point.at,
-                point.label,
-                point.evidence.replace(/_/g, " "),
-                point.cites.join(", "),
-              ]
-                .filter(Boolean)
-                .join(" · ")}
-            </li>
-          ))}
+      {onResult.length > 0 && (
+        /* Ruled off from the prose: above is the argument, here is what it rests on. */
+        <ul className="space-y-1.5 border-t pt-2">
+          {onResult.map((point) => {
+            // Name the step only when it is not the one this turn is about. Half of these
+            // lines used to open with the same "step 5", which pushed the one part worth
+            // reading, the label, into the middle of five identical dot-separated fields.
+            const elsewhere = point.step && point.step !== turn.about;
+            // Not when it only repeats the heading this turn already carries. A point about
+            // the step in hand opened "step 5" above a label that began "5 learned patches",
+            // which read as a stutter and said nothing the heading had not.
+            const here = point.at === ownStep;
+            const where = [elsewhere && numbered(steps, point.step), !here && point.at]
+              .filter(Boolean)
+              .join(" ");
+            // Residues under a claim about residues need no label; a ligand overlap or an
+            // annotated site does, because then the cites are not what you would assume.
+            // A claim about the step cites the step's name, which the heading already gives.
+            const kind =
+              point.evidence === "lining_residues" ? "" : point.evidence.replace(/_/g, " ");
+            const cites = point.evidence === "step" ? "" : point.cites.join(", ");
+            return (
+              <li key={`${point.step}-${point.at}-${point.label}`}>
+                <p>
+                  {where && <span className="text-muted-foreground">{where} </span>}
+                  {point.label}
+                </p>
+                {cites && (
+                  /* Reference, not argument: the residue list is the longest thing on the
+                     line and the least of what the reader is being told. */
+                  <p className="text-xs text-muted-foreground">
+                    {[kind, cites].filter(Boolean).join(": ")}
+                  </p>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       {turn.proposals.length > 0 && (

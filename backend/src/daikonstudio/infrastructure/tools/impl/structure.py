@@ -122,13 +122,15 @@ def prepare_structure(
 
     fixer = PDBFixer(pdbfile=io.StringIO(text))
     fixer.findMissingResidues()
-    gaps = len(fixer.missingResidues)
+    gaps = _unmodelled(text, len(fixer.missingResidues))
     # Record the gaps and leave them open. Building an unobserved loop invents
     # coordinates, and a loop is often disordered precisely because it lines an
-    # open site: on InhA (4TRN) modelling the one gap drops the substrate pocket
-    # from the best candidate in the protein to the twelfth, and promotes a
-    # surface groove in its place. Side chains of residues that are present are
-    # still completed below — that is repair, this would be modelling.
+    # open site, so a cavity found against a built wall is partly the builder's.
+    # Side chains of residues that are present are still completed below — that
+    # is repair, this would be modelling. This said that modelling 4TRN's one gap
+    # moved the substrate pocket from first to twelfth; measured, it moves
+    # nothing (same 14 pockets, same rank 12 at druggability 0.032), because that
+    # gap is MET1. The reason above is the reason, not a ranking.
     fixer.missingResidues = {}
     fixer.findNonstandardResidues()
     replaced = sorted({residue.name for residue, _ in fixer.nonstandardResidues})
@@ -201,6 +203,35 @@ def prepare_structure(
         "pkas": pkas,
     }
     return {"structure": {"format": "pdb", "text": prepared, "meta": meta}}
+
+
+def _unmodelled(text: str, gaps: int) -> list[str]:
+    """Which residues the deposition says were never located, as "MET A1".
+
+    A count alone cannot be acted on: a gap at the N-terminus is harmless and one on a
+    loop that borders a site makes every cavity there suspect, and told only "one residue
+    is missing" a reader has to assume the worse of the two. PDBFixer knows where the gaps
+    are but keys them by position within the chain, which is not a number anyone designs
+    against; REMARK 465 is the deposited record and names them. A file without it, a
+    predicted model or one already prepared, falls back to the count.
+    """
+    named: list[str] = []
+    listing = False
+    for line in text.splitlines():
+        if not line.startswith("REMARK 465"):
+            continue
+        rest = line[10:].strip()
+        if rest.startswith("M RES C SSSEQI"):
+            listing = True
+        elif listing and len(parts := rest.split()) >= 3 and parts[-1][:1].isdigit():
+            # "MET A 1", or "1 MET A 1" when the entry has models. The number is last
+            # either way, with an insertion code stuck to it when there is one.
+            named.append(f"{parts[-3]} {parts[-2]}{parts[-1]}")
+    # Gated on `gaps` so a file that was modelled elsewhere but kept its remarks does not
+    # report residues it now holds.
+    if not gaps:
+        return []
+    return named or [f"{gaps} not named in this entry"]
 
 
 def tool_binary(env: str, name: str) -> str:

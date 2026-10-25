@@ -23,6 +23,7 @@ import type { Provider, Study } from "../types";
 import { PROVIDER_LABELS, RUN_UNDER_WAY, STEPS_REASON_ID } from "../types";
 import { PlanTerms } from "./plan-terms";
 import { MESSAGE_ID, StudyChat } from "./study-chat";
+import { StudyConclusion } from "./study-conclusion";
 import { StudySteps } from "./study-steps";
 import { ValueBlock } from "./value-block";
 
@@ -290,6 +291,10 @@ function StudyView({
           </p>
         </section>
 
+        {/* The goal, then the answer to it. It was below the steps, which put the one thing
+            the scientist came for under five result cards none of them reads to the end. */}
+        <StudyConclusion studyId={study.id} />
+
         <section className="space-y-3">
           <div className="flex flex-wrap items-center gap-3">
             <h2 className="text-sm font-medium">What you brought</h2>
@@ -355,6 +360,7 @@ function StudyView({
         </section>
 
         <PlanTerms
+          studyId={study.id}
           checks={study.checks}
           stopConditions={study.stop_conditions}
           amendedAfterSteps={study.amended_after_steps}

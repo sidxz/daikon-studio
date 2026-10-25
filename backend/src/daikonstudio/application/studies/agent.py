@@ -341,10 +341,18 @@ def check_progress(claims: Sequence[ProgressClaim], study: Study) -> tuple[list[
         "check": list(study.checks),
         "stop_condition": list(study.stop_conditions),
     }
+    # A step that has not run has no progress to report: the page already shows it waiting,
+    # and "still pending" in the thread is a line the reader gains nothing from. Dropped
+    # rather than discouraged, because it costs the turn its more useful claims.
+    ordered = sorted(study.steps, key=lambda s: s.position)
+    unrun = {i for i, step in enumerate(ordered) if step.status is StepStatus.PENDING}
     for claim in claims:
         available = sources[claim.about]
         indexes = [n - 1 for n in dict.fromkeys(claim.refers_to)]
         if not indexes or any(not 0 <= i < len(available) for i in indexes):
+            dropped += 1
+            continue
+        if claim.about == "step" and all(i in unrun for i in indexes):
             dropped += 1
             continue
         named = {available[i].strip().lower() for i in indexes}
@@ -358,6 +366,8 @@ def check_progress(claims: Sequence[ProgressClaim], study: Study) -> tuple[list[
                 at=f"{claim.about.replace('_', ' ')}{'s' if len(indexes) > 1 else ''} {where}",
                 label=claim.label[:120],
                 evidence=claim.about,
+                # A step has no standing to report, whatever the model put there.
+                state="" if claim.about == "step" else claim.state,
                 cites=tuple(claim.cites),
             )
         )
@@ -607,7 +617,12 @@ class StudyAgent:
         known = {manifest.id for manifest in self._tools.manifests()}
         study.replace_steps(to_steps([s for s in steps if s.tool_id in known], self._tools))
         study.restated_goal = plan.restated_goal.strip()
-        study.checks = tuple(plan.checks)
+        # First, and kept apart from the rest only by its place: the criterion that reads on
+        # the scientist's own goal. Asked for as its own field because a list alone fills with
+        # what the tools will hand back, and a study can satisfy all of that and still not
+        # tell the scientist the thing they asked.
+        goal_check = plan.answers_the_goal.strip()
+        study.checks = tuple(dict.fromkeys([*([goal_check] if goal_check else []), *plan.checks]))
         study.stop_conditions = tuple(plan.stop_conditions)
         recheck(study, self._tools)
         return len(steps) - len(study.steps)
@@ -802,11 +817,17 @@ class ObserveStep:
         )
         say = answer.say.strip()
         study.thread.summary = answer.summary.strip()
+        # Only once nothing is left to run. A conclusion written over a half-finished study
+        # is the jumping-ahead the gates exist to prevent, and it would be the first thing
+        # the scientist read. Dropped here rather than asked for, because the model cannot
+        # see which steps the scientist has since inserted or skipped.
+        remaining = any(s.status in (StepStatus.PENDING, StepStatus.RUNNING) for s in study.steps)
         study.say(
             Turn(
                 role="agent",
                 kind="observe",
                 say=say,
+                conclusion="" if remaining else answer.conclusion.strip(),
                 about=step.id,
                 points=tuple(points),
                 proposals=tuple(proposals),

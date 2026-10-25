@@ -90,6 +90,11 @@ class Pointer:
     label: str
     evidence: str
     cites: tuple[str, ...] = ()
+    # Where a criterion stands, in the agent's own word rather than read out of `label` by
+    # whatever is rendering it: "met", "not_met", "not_testable", or "" where it does not
+    # apply. A claim about a result carries no standing; a claim about a check or a stop
+    # condition does, and the panel under the steps shows it.
+    state: str = ""
 
 
 @dataclass(kw_only=True)
@@ -142,6 +147,9 @@ class Turn:
     role: str
     kind: str = ""
     say: str
+    # The answer to the goal, on the turn that could first give it: empty on every turn but
+    # the one that observes the last step. `say` reports a result, this reports the study.
+    conclusion: str = ""
     about: uuid.UUID | None = None
     questions: tuple[Asked, ...] = ()
     points: tuple[Pointer, ...] = ()

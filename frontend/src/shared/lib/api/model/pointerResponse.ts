@@ -10,4 +10,5 @@ export interface PointerResponse {
   label: string;
   evidence: string;
   cites: string[];
+  state?: string;
 }

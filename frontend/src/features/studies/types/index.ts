@@ -48,6 +48,13 @@ export const RUN_UNDER_WAY = "A run is under way. Wait for it to stop.";
 /** The line under the steps heading that says why Start or a run is blocked. */
 export const STEPS_REASON_ID = "steps-reason";
 
+/**
+ * The DOM id of a step's card, so a turn in the thread can scroll to the step it is about.
+ * The thread sits beside the steps and talks about one at a time; without this the reader
+ * matches "step 2" to a card by hand, in a column that scrolls on its own.
+ */
+export const stepAnchor = (stepId: string) => `step-${stepId}`;
+
 export const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
   openai: "OpenAI",

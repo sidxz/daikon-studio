@@ -56,7 +56,8 @@ describe("the study's thread", () => {
                 at: "rank 2",
                 label: "zinc site",
                 evidence: "ligand_overlap",
-                cites: [],
+                // A kept claim always cites: the reader for its kind drops one that does not.
+                cites: ["ZN"],
               },
             ],
             dropped: 2,
@@ -79,10 +80,12 @@ describe("the study's thread", () => {
         /2 of what it tried was refused: claims the result does not support, or edits and proposals the plan cannot carry/,
       ),
     ).toBeInTheDocument();
-    expect(screen.getByText("1 claim dropped, unsupported by this result")).toBeInTheDocument();
-    expect(
-      screen.getByText(/a removed step · rank 2 · zinc site · ligand overlap/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/1 claim dropped: not supported by this result/)).toBeInTheDocument();
+    // The label leads and the step is named only because this point is about another one;
+    // what kind of evidence it is sits under it, with the cites, not in the middle of it.
+    expect(screen.getByText("zinc site")).toBeInTheDocument();
+    expect(screen.getByText("a removed step rank 2")).toBeInTheDocument();
+    expect(screen.getByText("ligand overlap: ZN")).toBeInTheDocument();
     // The summary is folded above the composer, so it never crowds out the thread.
     const folded = screen.getByText("Where this stands").closest("details");
     expect(folded).not.toHaveAttribute("open");

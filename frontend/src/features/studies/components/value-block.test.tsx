@@ -109,6 +109,7 @@ describe("the pockets block", () => {
       id: "1CA2",
       ligands: [{ comp_id: "ZN", chain: "A", resseq: 262, contacts: [] }],
       kept_ligands: [],
+      missing_residues: ["MET A1"],
     };
     vi.mocked(customInstance).mockResolvedValue({
       id: "v3",
@@ -124,6 +125,11 @@ describe("the pockets block", () => {
     expect(await screen.findByText("Kept in the receptor")).toBeInTheDocument();
     expect(screen.getByText("Ligands before preparation")).toBeInTheDocument();
     expect(screen.getByText("Kept in the receptor").nextSibling).toHaveTextContent("None");
+    // Named, not counted: a gap at the N-terminus borders nothing, one on a loop beside a
+    // site makes every cavity there suspect, and a count alone cannot tell them apart.
+    expect(screen.getByText("Not located in the experiment").nextSibling).toHaveTextContent(
+      "MET A1",
+    );
   });
 
   it("names a predicted site's score for what it is and leaves its absent volume blank", async () => {

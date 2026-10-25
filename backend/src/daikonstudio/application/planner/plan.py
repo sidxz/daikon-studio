@@ -161,9 +161,25 @@ class DraftPlan(BaseModel):
         "never a generic checklist.",
     )
     steps: list[Step]
+    answers_the_goal: str = Field(
+        default="",
+        description=(
+            "The one criterion that says whether the scientist got what they asked for, "
+            "written in the words of their goal and not in the vocabulary of the tools. "
+            "If the goal is to know where to aim a series, this says what the study must "
+            "produce for them to be able to aim one. It is the first thing shown, and the "
+            "study can run every step and still fail it."
+        ),
+    )
     checks: list[str] = Field(
         default_factory=list,
-        description="What would count as a result, stated before anything runs.",
+        description=(
+            "What else would count as a result, stated before anything runs. Each one must "
+            "be able to come out either way for a reason about the subject under study: "
+            "that a site is or is not recovered, that an effect does or does not hold. A "
+            "sentence that is false only when a tool is broken or has not run is a test of "
+            "this software, not a criterion for this study, and does not belong here."
+        ),
     )
     stop_conditions: list[str] = Field(
         default_factory=list,

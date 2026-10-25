@@ -250,8 +250,8 @@ export function RunnerList() {
           <>
             This removes the runner from this list for good, with its name, lanes and reported
             build. It cannot be undone. A runner that has already claimed runs cannot be deleted,
-            because its runs name it — revoke that one instead. Revoking stops a runner from working
-            and keeps the record.
+            because its runs name it, so revoke that one instead. Revoking stops a runner from
+            working and keeps the record.
           </>
         }
         confirmLabel={deleteRunner.isPending ? "Deleting…" : "Delete runner"}

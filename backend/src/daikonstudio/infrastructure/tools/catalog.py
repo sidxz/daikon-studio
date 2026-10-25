@@ -421,7 +421,7 @@ _TOOLS: tuple[ToolManifest, ...] = (
             "pH and estimates each titratable residue's pKa. Removes waters and "
             "crystallisation additives. By default every other heterogen stays "
             "in place as deposited, so a cavity a cofactor fills is not reported "
-            "as somewhere to aim a new molecule — set keep_ligands to choose, and "
+            "as somewhere to aim a new molecule. Set keep_ligands to choose, and "
             "to an empty list to strip them all, which is what you want when the "
             "bound ligand is an inhibitor and its site is the question. Runs "
             "before anything else touches a "

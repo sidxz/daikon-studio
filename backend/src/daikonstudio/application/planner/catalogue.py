@@ -200,7 +200,7 @@ def always_runs(manifests: list[ToolManifest]) -> str:
     if settable:
         text += (
             f" These do take parameters: {', '.join(settable)}. When an answer "
-            f"settles one, list that step with the parameters only — its placement "
+            f"settles one, list that step with the parameters only. Its placement "
             f"and the fact that it runs are still ours, not yours."
         )
     return text

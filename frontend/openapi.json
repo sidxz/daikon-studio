@@ -7914,6 +7914,11 @@
             },
             "type": "array",
             "title": "Cites"
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "default": ""
           }
         },
         "type": "object",
@@ -11684,6 +11689,11 @@
           "say": {
             "type": "string",
             "title": "Say"
+          },
+          "conclusion": {
+            "type": "string",
+            "title": "Conclusion",
+            "default": ""
           },
           "about": {
             "anyOf": [

@@ -102,14 +102,13 @@ def test_steps_are_numbered_from_one_and_name_their_outputs_by_kind() -> None:
     assert "     id: 1CA2" in text  # under the step that made it
 
     assert (
-        f"1. {actives.name} [chembl_actives] — done; "
-        "produced: compound table (120 rows, 8 columns)"
+        f"1. {actives.name} [chembl_actives]: done; produced: compound table (120 rows, 8 columns)"
     ) in text
     assert (
-        f"2. {fetch.name} [fetch_pdb] — done; settings pdb_id=1CA2; produced: structure"
+        f"2. {fetch.name} [fetch_pdb]: done; settings pdb_id=1CA2; produced: structure"
     ) in text
     assert (
-        f"3. {pockets.name} [find_pockets] — pending; gated; "
+        f"3. {pockets.name} [find_pockets]: pending; gated; "
         "problem: no structure has been prepared"
     ) in text
 
@@ -184,3 +183,57 @@ def test_index_is_one_line_per_tool_in_catalogue_order() -> None:
     assert REGISTRY.get(lines[0][2:].split(":")[0]).expands_to, (
         "composites come first, as in catalogue()"
     )
+
+
+def test_open_items_are_carried_forward_from_the_latest_list_only() -> None:
+    """The agent rewrites `unresolved` whole each turn, so an older list is a stale copy
+    of the same items. Carried forward, a worry it already recorded reads as recorded
+    rather than as something it still has to say, which is what made it say it again in
+    different words every turn."""
+    study = _study("fetch_pdb")
+    study.say(_read("step 1 is in", "where the gap sits"))
+    study.say(_read("step 2 is in", "no inhibitor here"))
+
+    text = standing(study, REGISTRY)
+
+    assert "- no inhibitor here" in text
+    assert "- where the gap sits" not in text
+    assert "Already recorded as open" in text
+
+
+def test_an_item_the_latest_reading_left_out_is_not_carried_back() -> None:
+    """Leaving an item out of `unresolved` is how a turn closes it. Looking back past an
+    empty list for the newest non-empty one would hand the agent its own closed worry
+    every turn after, which is the repetition this block exists to stop."""
+    study = _study("fetch_pdb")
+    study.say(_read("step 1 is in", "where the gap sits"))
+    study.say(_read("step 2 is in"))
+    # Events and the scientist carry no list of their own and must not reopen one.
+    study.say(Turn(role="event", kind="ran", say="Started a run.", at=_T0))
+
+    assert "Already recorded as open" not in standing(study, REGISTRY)
+
+
+def test_nothing_is_carried_when_nothing_is_open() -> None:
+    study = _study("fetch_pdb")
+    study.say(Turn(role="agent", say="step 1 is in", at=_T0))
+
+    assert "Already recorded as open" not in standing(study, REGISTRY)
+
+
+def _read(say: str, *unresolved: str) -> Turn:
+    """An agent turn of the kind that carries an open-items list."""
+    return Turn(role="agent", kind="observe", say=say, unresolved=unresolved, at=_T0)
+
+
+def test_the_standing_is_written_the_way_it_tells_the_model_to_write() -> None:
+    """The prompts forbid dashes as punctuation, but the standing is prompt too, rebuilt and
+    read on every turn. One in here undoes the rule by example, which is how the planner came
+    to put them in the restated goal, the step purposes and the checks."""
+    study = _study("fetch_pdb", "prepare_structure", checks=("c",), stop_conditions=("s",))
+    study.say(Turn(role="scientist", say="go", at=_T0))
+
+    text = standing(study, REGISTRY)
+
+    assert "\u2014" not in text
+    assert "\u2013" not in text

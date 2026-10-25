@@ -13,6 +13,7 @@ export interface TurnResponse {
   role: string;
   kind: string;
   say: string;
+  conclusion?: string;
   about: TurnResponseAbout;
   questions: QuestionResponse[];
   points: PointerResponse[];

@@ -59,6 +59,8 @@ Evidence = Literal[
     "unmade",
 ]
 About = Literal["step", "check", "stop_condition"]
+#: Where a criterion stands. Empty on a claim about a step, which has none.
+Standing = Literal["", "met", "not_met", "not_testable"]
 
 # What one look may show, however many rows it asks for. Defined here, where the model is told,
 # and re-exported by the readers, which enforce it, so the two cannot drift apart.
@@ -247,7 +249,12 @@ class Look(BaseModel):
 
 
 class ProgressClaim(BaseModel):
-    """One thing the agent says about where the study stands."""
+    """One thing the agent says about where the study stands.
+
+    Only what moved. The page carries each criterion's standing beside the criterion, so a
+    claim that a condition has not fired, that a step has not run, or that a check is still
+    where it was says nothing the reader cannot already see.
+    """
 
     about: About = Field(description="What this is about: a step, a check, or a stop condition.")
     refers_to: list[int] = Field(
@@ -256,7 +263,21 @@ class ProgressClaim(BaseModel):
             "in the plan. A check or a stop condition is its place in its list."
         )
     )
-    label: str = Field(description="What you are saying about them, in a few words.")
+    state: Standing = Field(
+        default="",
+        description=(
+            "For a check or a stop condition, where it now stands: met, not_met, or "
+            "not_testable when nothing run so far can decide it. Leave empty for a step. "
+            "The page marks the criterion from this, so say not_met rather than softening "
+            "it in the label, and say met only when this result shows it met."
+        ),
+    )
+    label: str = Field(
+        description=(
+            "Why it stands there, in a few words, next to the criterion on the page. Not "
+            "a restatement of the criterion, which is already beside it."
+        )
+    )
     cites: list[str] = Field(
         description=(
             "The exact words you are relying on: the step's name, or the check or "
@@ -395,6 +416,17 @@ class ObserveTurn(_Reading):
         description=(
             "When you are driving a run for the scientist: stop it after this step. Say why "
             "in `say`; a pause with nothing in `say` is ignored."
+        ),
+    )
+    conclusion: str = Field(
+        default="",
+        description=(
+            "Two or three sentences answering the scientist's goal in the words they asked "
+            "it in, written only once nothing is left to run. Name what they should act on, "
+            "not how it was computed: the site, the residues, the compounds. Say in the same "
+            "breath what the study does not support, and if it did not answer the question, "
+            "say that instead of the nearest thing it did answer. Leave it empty while any "
+            "step is still to run, and a conclusion written early is dropped."
         ),
     )
     summary: str = Field(description=_SUMMARY)

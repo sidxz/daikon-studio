@@ -261,6 +261,7 @@ async def test_a_plan_reply_expands_composites_and_pins_problems_to_steps() -> N
     plan = DraftPlan(
         restated_goal="Whether potency tracks lipophilicity.",
         steps=[PlanStep(tool_id="check_properties", purpose="Profile the series.", gated=False)],
+        answers_the_goal="You can say whether potency tracks lipophilicity in this series.",
         checks=["Potency does not track clogP."],
         stop_conditions=["Fewer than ten compounds have a potency."],
     )
@@ -286,7 +287,10 @@ async def test_a_plan_reply_expands_composites_and_pins_problems_to_steps() -> N
     assert "activity_column" in (stored.steps[2].problem or "")
     assert len(model.calls) == 2
     assert "could not run as written" in model.calls[1][1]
-    assert (stored.restated_goal, stored.checks) == (plan.restated_goal, tuple(plan.checks))
+    assert stored.restated_goal == plan.restated_goal
+    # The criterion that reads on the goal is asked for in its own field and leads the list,
+    # because a study can satisfy every other one and still not answer what was asked.
+    assert stored.checks == (plan.answers_the_goal, *plan.checks)
 
 
 async def test_a_planning_change_by_actions_needs_no_quote() -> None:
@@ -664,3 +668,30 @@ async def test_a_reply_that_looks_and_names_an_unseen_tool_still_makes_two_calls
     agent, *_ = _agent(study, store, model)
     await agent(_say(study, "Show me."), AUTH)
     assert len(model.calls) == 2 and "- matched_pairs: " in model.calls[1][1]
+
+
+async def test_a_conclusion_is_kept_only_once_nothing_is_left_to_run() -> None:
+    """The study answers its goal in one place, on the turn that sees the last step. Written
+    over a half-finished study it would be a guess sitting where the scientist looks first,
+    so it is dropped rather than shown, whatever the model returned."""
+    store = InMemoryBlobStore()
+    study = _study(*PROTEIN)
+    answer = "Aim at the cleft beside the nicotinamide: Met103, Met161, Ala198, Ile202."
+
+    # The first step of three: two are still pending, so there is nothing to conclude yet.
+    study.start_step(study.steps[0].id)
+    study.finish_step(study.steps[0].id, [])
+    model = ScriptedLanguageModel(ObserveTurn(say="Fetched.", conclusion=answer, summary="s"))
+    observe, studies = _observer(study, store, model)
+    await observe(study.workspace_id, study.id, study.steps[0].id)
+    assert studies.rows[study.id].thread.turns[-1].conclusion == ""
+
+    # The last step of three: now it stands, and survives being stored and read back.
+    study = studies.rows[study.id]
+    study.start_step(study.steps[1].id)
+    study.finish_step(study.steps[1].id, [])
+    _done(study, store, 3, "pocket_candidates", POCKETS)
+    model = ScriptedLanguageModel(ObserveTurn(say="Pockets.", conclusion=answer, summary="s"))
+    observe, studies = _observer(study, store, model)
+    await observe(study.workspace_id, study.id, study.steps[2].id)
+    assert studies.rows[study.id].thread.turns[-1].conclusion == answer

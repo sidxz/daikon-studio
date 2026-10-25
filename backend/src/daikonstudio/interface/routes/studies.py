@@ -223,6 +223,9 @@ class PointerResponse(BaseModel):
     label: str
     evidence: str
     cites: list[str]
+    # Where a criterion stands, as the agent declared it: "met", "not_met", "not_testable",
+    # or "" on a claim about a result, which has no standing to report.
+    state: str = ""
 
 
 class ProposalResponse(BaseModel):
@@ -248,6 +251,9 @@ class TurnResponse(BaseModel):
     # An agent turn's: asking, planning, observe or reply; an event's: what happened.
     kind: str
     say: str
+    # The study's answer to its goal, on the turn that observed the last step; empty
+    # on every other turn.
+    conclusion: str = ""
     # The id of the step the turn is about, if any.
     about: str | None
     questions: list[QuestionResponse]
@@ -270,6 +276,7 @@ class TurnResponse(BaseModel):
             role=t.role,
             kind=t.kind,
             say=t.say,
+            conclusion=t.conclusion,
             about=_str(t.about),
             questions=[
                 QuestionResponse(ask=q.ask, why=q.why, options=list(q.options), default=q.default)
@@ -281,6 +288,7 @@ class TurnResponse(BaseModel):
                     at=p.at,
                     label=p.label,
                     evidence=p.evidence,
+                    state=p.state,
                     cites=list(p.cites),
                 )
                 for p in t.points

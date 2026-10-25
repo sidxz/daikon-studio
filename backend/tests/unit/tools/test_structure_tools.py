@@ -300,3 +300,23 @@ def test_predictions_parse_padded_cells_and_insertion_codes() -> None:
             ],
         }
     ]
+
+
+def test_unmodelled_residues_are_named_so_a_reader_can_judge_where_they_sit() -> None:
+    """A count cannot be acted on. 4TRN's one gap is the initiator methionine, which
+    borders nothing; reported as "one residue is missing" it reads like a gap that could
+    be on the loop bordering the substrate cleft. The entry names it, so we name it."""
+    remarks = (
+        "REMARK 465 MISSING RESIDUES\n"
+        "REMARK 465 THE FOLLOWING RESIDUES WERE NOT LOCATED IN THE\n"
+        "REMARK 465   M RES C SSSEQI\n"
+        "REMARK 465     MET A     1\n"
+        "REMARK 465     GLY B   214A\n"
+        "ATOM      1  N   MET A   2\n"
+    )
+    assert structure._unmodelled(remarks, 2) == ["MET A1", "GLY B214A"]
+    # No remarks to read: say how many rather than inventing where.
+    bare = "ATOM      1  N   MET A   2\n"
+    assert structure._unmodelled(bare, 3) == ["3 not named in this entry"]
+    # Remarks left on a file whose gaps are already modelled describe residues it now has.
+    assert structure._unmodelled(remarks, 0) == []

@@ -7,6 +7,7 @@ import {
   STEP_TONE,
   type StudyStep,
   type ValueSummary,
+  stepAnchor,
 } from "../types";
 import { ValueBlock } from "./value-block";
 
@@ -65,7 +66,7 @@ export function StepCard({
     typeof value.summary.from === "string" &&
     !current.has(value.summary.from);
   return (
-    <li className="min-w-0 space-y-3 rounded-sm border p-3">
+    <li id={stepAnchor(step.id)} className="min-w-0 space-y-3 rounded-sm border p-3 scroll-mt-20">
       <div className="flex items-start gap-2">
         <span className="mt-2">
           {/* Still the running dot while the agent reads: the step is not finished with. */}
