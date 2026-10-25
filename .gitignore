@@ -24,3 +24,6 @@ internal-docs/
 
 # Locally built binaries (make fpocket)
 backend/.tools/
+
+# Editor settings are personal, not the project's.
+.vscode/settings.json
