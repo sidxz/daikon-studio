@@ -103,6 +103,18 @@ class DiverseParams(BaseModel):
     )
 
 
+class InteractionParams(BaseModel):
+    poses_per_compound: int = Field(
+        default=1,
+        ge=1,
+        le=5,
+        description=(
+            "How many poses per compound to analyse, best score first. One is the usual "
+            "question; more is for asking whether the runner-up binds differently"
+        ),
+    )
+
+
 class DockParams(BaseModel):
     exhaustiveness: int = Field(
         default=8,

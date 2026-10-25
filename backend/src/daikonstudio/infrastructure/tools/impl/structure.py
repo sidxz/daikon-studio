@@ -20,7 +20,11 @@ from typing import Any, cast
 
 from pydantic import BaseModel
 
-from daikonstudio.infrastructure.tools.params import DockParams, PrepareParams
+from daikonstudio.infrastructure.tools.params import (
+    DockParams,
+    InteractionParams,
+    PrepareParams,
+)
 
 ToolImpl = Callable[[BaseModel | None, Mapping[str, object]], Mapping[str, object]]
 
@@ -777,9 +781,151 @@ def _receptor_pdbqt(text: str, tmp: str) -> str:
     return base.with_suffix(".pdbqt").read_text()
 
 
+# ProLIF converts the receptor through MDAnalysis, which requires every hydrogen to be
+# explicit. Handed a structure without them it does not raise -- it segfaults, taking the
+# runner process with it. So the hydrogens are counted first and the tool refuses.
+_MIN_HYDROGEN_SHARE = 0.2
+
+
+def _has_hydrogens(text: str) -> bool:
+    atoms = [line for line in text.splitlines() if line.startswith(("ATOM", "HETATM"))]
+    if not atoms:
+        return False
+    # Element is columns 77-78; fall back to the atom name for files that omit it.
+    hydrogens = sum(
+        1
+        for line in atoms
+        if (line[76:78].strip() or line[12:16].strip()[:1]).upper().startswith("H")
+    )
+    return hydrogens / len(atoms) >= _MIN_HYDROGEN_SHARE
+
+
+def _pose_molecule(pose: str, affinity: float, tmp: str) -> Any:
+    """The docked ligand as RDKit sees it, with its bond orders back.
+
+    A pose leaves Vina as PDBQT, which carries coordinates and atom types but no bond
+    orders; read as a plain PDB the ligand comes back as a bag of single bonds and every
+    interaction computed from it is wrong. Meeko rebuilds it, so the molecule analysed is
+    the one that was docked.
+    """
+    from meeko import PDBQTMolecule, RDKitMolCreate
+    from rdkit import Chem
+
+    path = Path(tmp) / "pose.pdbqt"
+    path.write_text(f"MODEL 1\nREMARK VINA RESULT: {affinity} 0.0 0.0\n{pose}\nENDMDL\n")
+    built = RDKitMolCreate.from_pdbqt_mol(PDBQTMolecule.from_file(str(path), skip_typing=True))
+    if not built or built[0] is None:
+        raise ValueError("the pose could not be rebuilt as a molecule")
+    # Non-polar hydrogens are absent from PDBQT and ProLIF needs them to find contacts.
+    return Chem.AddHs(built[0], addCoords=True)
+
+
+def pose_interactions(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[str, Any]:
+    """Which residue each pose touches, and how.
+
+    This is the half of a docking result that can be checked. A score can only be
+    compared with another score, but a contact can be held against what is known about
+    the site: a pose that scores well and never reaches the catalytic residue is a pose
+    to disbelieve, and nothing in the ranking says so.
+    """
+    import polars as pl
+
+    # ignore[attr-defined]: prolif ships a py.typed with no __all__, so mypy sees nothing.
+    import prolif as plf
+
+    settings = cast(InteractionParams, params or InteractionParams())
+    receptor = cast(dict[str, Any], inputs["receptor"])
+    frame = cast(pl.DataFrame, inputs["poses"])
+    text = cast(str, receptor["text"])
+    if not _has_hydrogens(text):
+        raise ValueError(
+            "This receptor has no hydrogens, and interactions cannot be read without "
+            "them. Prepare the structure before docking into it."
+        )
+
+    wanted = frame.filter(pl.col("pose_rank") <= settings.poses_per_compound)
+    rows: list[dict[str, Any]] = []
+    with tempfile.TemporaryDirectory() as tmp:
+        import MDAnalysis as mda  # type: ignore[import-untyped]
+
+        path = Path(tmp) / "receptor.pdb"
+        path.write_text(text)
+        protein = plf.Molecule.from_mda(  # type: ignore[attr-defined]
+            mda.Universe(str(path)).select_atoms("protein")
+        )
+        for record in wanted.iter_rows(named=True):
+            try:
+                ligand = _pose_molecule(
+                    str(record["pose_pdbqt"]), float(record["affinity_kcal_mol"]), tmp
+                )
+            except (ValueError, RuntimeError):
+                continue
+            fingerprint = plf.Fingerprint()  # type: ignore[attr-defined]
+            fingerprint.run_from_iterable(
+                [plf.Molecule(ligand)],  # type: ignore[attr-defined]
+                protein,
+                progress=False,
+            )
+            table = fingerprint.to_dataframe()
+            for column in table.columns:
+                if not table[column].any():
+                    continue
+                _, residue, kind = column
+                name, _, chain = str(residue).partition(".")
+                rows.append(
+                    {
+                        "compound": record["compound"],
+                        "pose_rank": record["pose_rank"],
+                        "residue": name,
+                        "chain": chain,
+                        "interaction": kind,
+                    }
+                )
+
+    interactions = pl.DataFrame(
+        rows,
+        schema={
+            "compound": pl.String,
+            "pose_rank": pl.Int64,
+            "residue": pl.String,
+            "chain": pl.String,
+            "interaction": pl.String,
+        },
+    )
+    kinds = (
+        interactions.group_by("interaction").len().sort("len", descending=True)
+        if interactions.height
+        else interactions
+    )
+    return {
+        "interactions": interactions,
+        "meta": {
+            "n_poses": wanted.height,
+            "n_interactions": interactions.height,
+            # Named here because the table is long and a reader sees fifty rows of it.
+            "by_kind": (
+                {str(k): int(n) for k, n in zip(kinds["interaction"], kinds["len"], strict=True)}
+                if interactions.height
+                else {}
+            ),
+            "residues_contacted": sorted(
+                {
+                    f"{r}.{c}"
+                    for r, c in zip(interactions["residue"], interactions["chain"], strict=True)
+                }
+            )[:40],
+            "note": (
+                "Contacts are geometric: they say the pose is placed to make an "
+                "interaction, not that it does in reality."
+            ),
+        },
+    }
+
+
 IMPLEMENTATIONS: dict[str, ToolImpl] = {
     "prepare_structure": prepare_structure,
     "find_pockets": find_pockets,
     "predict_pockets": predict_pockets,
     "dock_compounds": dock_compounds,
+    "pose_interactions": pose_interactions,
 }

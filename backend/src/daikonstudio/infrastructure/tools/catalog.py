@@ -37,6 +37,7 @@ from daikonstudio.infrastructure.tools.params import (
     FetchAlphafoldParams,
     FetchPdbParams,
     FetchUniprotParams,
+    InteractionParams,
     PrepareParams,
     SimilarityParams,
     SubstructureParams,
@@ -645,6 +646,32 @@ _TOOLS: tuple[ToolManifest, ...] = (
         lane="chem-tools",
         surface=ToolSurface.VIEW,
         params=DockParams,
+    ),
+    ToolManifest(
+        id="pose_interactions",
+        version="1",
+        name="Contacts a pose makes",
+        area=ToolArea.STRUCTURE,
+        description=(
+            "Reads which residue each docked pose touches and how: hydrogen bonds, "
+            "hydrophobic packing, van der Waals contact, salt bridges. This is the half "
+            "of a docking result that can be checked against what is already known about "
+            "a site, because a score can only be compared with another score while a "
+            "contact can be held against the literature. A pose that scores well and "
+            "never reaches the residue the site is named for is a pose to disbelieve. "
+            "Contacts are geometric, so they say a pose is placed to make an interaction "
+            "and not that it makes one. Needs a receptor with hydrogens, which is what "
+            "preparing the structure produces."
+        ),
+        inputs=(
+            _in("poses", SlotKind.POSES, "Poses"),
+            _in("receptor", SlotKind.STRUCTURE, "Receptor"),
+        ),
+        outputs=(_in("interactions", SlotKind.INTERACTIONS, "Interactions"),),
+        library="ProLIF",
+        lane="chem-tools",
+        surface=ToolSurface.VIEW,
+        params=InteractionParams,
     ),
     ToolManifest(
         id="predict_admet",

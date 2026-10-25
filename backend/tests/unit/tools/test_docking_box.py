@@ -91,3 +91,50 @@ def test_docking_is_declared_and_implemented() -> None:
     # The receptor comes back too, so a pose can be drawn in what it was docked into.
     assert [slot.kind for slot in tool.outputs] == ["poses", "structure"]
     assert "dock_compounds" in IMPLEMENTATIONS
+
+
+def test_a_receptor_without_hydrogens_is_refused_not_analysed() -> None:
+    """ProLIF converts the receptor through MDAnalysis, which requires explicit hydrogens.
+    Given none it does not raise: it segfaults, taking the runner with it. So the guard
+    that refuses first is the whole safety of this tool, not a nicety."""
+    import polars as pl
+    import pytest
+
+    from daikonstudio.infrastructure.tools.impl.structure import pose_interactions
+
+    bare = _atom(1, 10, 0.0, 0.0, 0.0)  # a carbon alpha and nothing else
+    poses = pl.DataFrame(
+        {
+            "compound": ["a"],
+            "pose_rank": [1],
+            "affinity_kcal_mol": [-7.0],
+            "pose_pdbqt": ["ATOM      1  C   UNL     1       0.000   0.000   0.000"],
+        }
+    )
+    with pytest.raises(ValueError, match="no hydrogens"):
+        pose_interactions(None, {"poses": poses, "receptor": {"text": bare}})
+
+
+def test_hydrogens_are_counted_by_element_and_by_name() -> None:
+    from daikonstudio.infrastructure.tools.impl.structure import _has_hydrogens
+
+    heavy = "ATOM      1  CA  ALA A   1       0.000   0.000   0.000  1.00  0.00           C"
+    # Element column present.
+    light = "ATOM      2  HA  ALA A   1       1.000   0.000   0.000  1.00  0.00           H"
+    # Element column missing: the atom name has to carry it.
+    unlabelled = "ATOM      3  H   ALA A   1       2.000   0.000   0.000  1.00  0.00"
+    assert not _has_hydrogens(heavy)
+    assert _has_hydrogens("\n".join([heavy, light]))
+    assert _has_hydrogens("\n".join([heavy, unlabelled]))
+    assert not _has_hydrogens("")
+
+
+def test_interactions_are_declared_and_implemented() -> None:
+    from daikonstudio.infrastructure.tools.catalog import default_registry
+    from daikonstudio.infrastructure.tools.runtime import IMPLEMENTATIONS
+
+    tool = default_registry().get("pose_interactions")
+    assert tool.lane == "chem-tools"
+    assert [slot.kind for slot in tool.inputs] == ["poses", "structure"]
+    assert [slot.kind for slot in tool.outputs] == ["interactions"]
+    assert "pose_interactions" in IMPLEMENTATIONS

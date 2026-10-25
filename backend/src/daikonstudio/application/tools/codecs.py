@@ -28,6 +28,7 @@ TABLE_KINDS: frozenset[str] = frozenset(
         "admet_table",
         "series",
         "poses",
+        "interactions",
     }
 )
 

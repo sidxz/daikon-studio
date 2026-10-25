@@ -89,6 +89,10 @@ class SlotKind(StrEnum):
     # the geometry that produced it. A ranking first and a number second -- the score is
     # the least reliable thing a structure yields, so what the rows are for is their order.
     POSES = "poses"
+    # Which residue a pose touches and how: contacts, hydrogen bonds, hydrophobic
+    # packing. The part of a docking result that can be checked against what is known
+    # about a site, unlike the score, which can only be compared with other scores.
+    INTERACTIONS = "interactions"
 
 
 # The lane a tool runs in when it asks for nothing special. A lane is a
