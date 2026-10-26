@@ -66,6 +66,27 @@ function matched(
 }
 
 /**
+ * Lay `mol` out on the shared part of `template`, in place.
+ *
+ * Failure here is not worth reporting: the two may share nothing, the template may not
+ * parse, or the build of RDKit in the browser may not expose the call. Every one of those
+ * leaves the molecule with the coordinates it already had, which is a correct drawing in
+ * a different orientation.
+ */
+function alignTo(rdkit: RDKitModule, mol: JSMol, template: string): void {
+  const pattern = rdkit.get_mol(template);
+  try {
+    if (!pattern?.is_valid()) return;
+    pattern.set_new_coords();
+    mol.generate_aligned_coords(pattern, JSON.stringify({ useCoordGen: true }));
+  } catch {
+    // leave the molecule with the coordinates it already had
+  } finally {
+    pattern?.delete();
+  }
+}
+
+/**
  * A SMILES rendered as an SVG.
  *
  * Drawn at 2x and scaled down so it stays crisp on a HiDPI screen, handed to
@@ -78,6 +99,7 @@ export const StructureThumbnail = memo(function StructureThumbnail({
   size = 96,
   className,
   highlight,
+  align,
 }: {
   smiles: string;
   size?: number;
@@ -90,6 +112,13 @@ export const StructureThumbnail = memo(function StructureThumbnail({
    * should leave the structure readable rather than blank it.
    */
   highlight?: string;
+  /**
+   * Another structure to lay this one out on. Two molecules of a matched pair drawn
+   * independently come out in different orientations, so a reader has to re-parse both
+   * to find the one group that changed; laid out on each other, only that group moves.
+   * Ignored when the two share no substructure, which leaves an ordinary drawing.
+   */
+  align?: string;
 }) {
   const [svgUrl, setSvgUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -111,6 +140,7 @@ export const StructureThumbnail = memo(function StructureThumbnail({
             setFailed(true);
             return;
           }
+          if (align) alignTo(rdkit, mol, align);
           const svg = mol.get_svg_with_highlights(
             JSON.stringify({
               width: size * 2,
@@ -140,7 +170,7 @@ export const StructureThumbnail = memo(function StructureThumbnail({
       cancelled = true;
       if (url) URL.revokeObjectURL(url);
     };
-  }, [smiles, size, isDark, highlight]);
+  }, [smiles, size, isDark, highlight, align]);
 
   if (failed) {
     return (

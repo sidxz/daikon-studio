@@ -241,7 +241,14 @@ def _pair(
 
 
 def _text(value: object) -> str | None:
-    return None if value is None else str(value)
+    """A reading as the card prints it.
+
+    A float formatted by `str` carries every binary artefact it has, and this column is a
+    string, so nothing downstream rounds it: the card showed "18.0 to 0.8000000000000002".
+    """
+    if value is None:
+        return None
+    return f"{value:.4g}" if isinstance(value, float) else str(value)
 
 
 def activity_cliffs(params: CliffParams, inputs: Mapping[str, object]) -> dict[str, Any]:

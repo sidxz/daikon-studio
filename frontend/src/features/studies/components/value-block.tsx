@@ -921,6 +921,9 @@ function Pairs({ rows, columns, total }: { rows: Row[]; columns: string[]; total
                 highlight={
                   typeof row.to_group_smiles === "string" ? row.to_group_smiles : undefined
                 }
+                // Laid out on its partner: everything except the changed group is held
+                // constant in a matched pair, and the drawing should hold it constant too.
+                align={row.from_smiles as string}
               />
               <p className="text-muted-foreground text-xs">{cell(row.id_better)}</p>
             </div>
@@ -936,7 +939,9 @@ function Pairs({ rows, columns, total }: { rows: Row[]; columns: string[]; total
               {row.ordered === false
                 ? " \u00b7 which of the two is better is not established"
                 : row.fold
-                  ? ` \u00b7 ${cell(row.fold)}`
+                  ? // A bare "20x" does not say which way it runs, and the pair is drawn
+                    // from the worse compound to the better one, so the word is the fact.
+                    ` \u00b7 ${cell(row.fold)} better`
                   : ""}
             </p>
           </div>
@@ -1006,6 +1011,10 @@ function SpaceMap({ rows, meta }: { rows: Row[]; meta: Row }) {
 
   // The sequential ramp, pale to saturated: a magnitude has an order, and lightness
   // within one hue is the only encoding of order that survives being printed.
+  // Which end of the column is the good end. Shading the weak compounds darkest puts the
+  // visual weight on the compounds nobody is looking for, and on an IC50 column that is
+  // what a ramp following the raw numbers does.
+  const betterIsHigher = meta.better_is_higher !== false;
   const colors = useMemo(() => {
     if (!theme) return null;
     const [pale, deep] = [parseColor(theme.sequential[0]), parseColor(theme.sequential[1])];
@@ -1013,8 +1022,9 @@ function SpaceMap({ rows, meta }: { rows: Row[]; meta: Row }) {
     // reads on a chart's filled area and disappears as a three-pixel dot on a white
     // background. The band still has to be seen before its order can matter.
     const mix = (t: number) => pale.map((c, i) => c + (deep[i] - c) * t) as typeof pale;
-    return [mix(0.3), mix(0.65), deep, deep, deep];
-  }, [theme]);
+    const ramp = [mix(0.3), mix(0.65), deep];
+    return [...(betterIsHigher ? ramp : [...ramp].reverse()), deep, deep];
+  }, [theme, betterIsHigher]);
 
   const identifier = useMemo(
     () => Object.keys(rows[0] ?? {}).find((c) => /^(compound_)?id$|^name$/i.test(c)),
@@ -1060,9 +1070,9 @@ function SpaceMap({ rows, meta }: { rows: Row[]; meta: Row }) {
       {bands && colouredBy && colors && (
         <ul className="flex flex-wrap gap-x-5 gap-y-1 text-muted-foreground text-xs">
           {[
-            [`${colouredBy} at or below ${bands.cuts[0]}`, 0],
-            [`${colouredBy} to ${bands.cuts[1]}`, 1],
-            [`${colouredBy} above ${bands.cuts[1]}`, 2],
+            [`${colouredBy} at or below ${cell(bands.cuts[0])}`, 0],
+            [`${colouredBy} to ${cell(bands.cuts[1])}`, 1],
+            [`${colouredBy} above ${cell(bands.cuts[1])}`, 2],
           ].map(([label, style]) => (
             <li key={String(label)} className="inline-flex items-center gap-1.5">
               <span

@@ -482,11 +482,16 @@ def decompose_rgroups(params: BaseModel | None, inputs: Mapping[str, object]) ->
         .with_columns(pl.col("id").cast(pl.Utf8))
         .join(decomposed, on="id", how="left")
         .with_columns(pl.col("decomposed", "ambiguous").fill_null(False))
-        # The naming step rewrites R columns in place, so the fragment SMILES is
-        # kept beside each one or naming could not be undone or repeated.
+        # Naming rewrites R columns in place, so the fragment SMILES is kept beside
+        # each one or naming could not be undone or repeated.
         .with_columns(pl.col(c).alias(f"{c}_smiles") for c in r_columns)
     )
-    return {"table": out}
+    # Named here rather than left to a step of its own. A table whose cells read
+    # `CO[*:2]` is not an SAR table a chemist can use, and a separate naming step is one
+    # a plan can lose: in two observed runs the planner removed it and left the promise
+    # of names in the step description. `name_substituents` still exists and still works
+    # on this table; it is now a repeat rather than the only chance to get a name.
+    return {"table": cast(pl.DataFrame, name_substituents(None, {"table": out})["table"])}
 
 
 # ---------------------------------------------------------------------------

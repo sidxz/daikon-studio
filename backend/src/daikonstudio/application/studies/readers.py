@@ -345,9 +345,29 @@ def _withheld(columns: Sequence[str], summary: Mapping[str, Any]) -> set[str]:
     return {c for c in columns if WITHHELD_COLUMNS.search(c)} | set(summary.get("withheld") or ())
 
 
+#: Significant figures a number is read and quoted at. Binary floating point renders
+#: 3.90072 as 3.9007200000000024, and a reader that is handed that quotes it back:
+#: a chemist seeing clogP to thirteen places stops believing the other numbers too.
+#: Four figures is past the precision of anything measured here.
+_FIGURES = 4
+
+
+def round_floats(value: Any) -> Any:
+    """The same structure with its floats cut to a readable number of figures."""
+    if isinstance(value, bool) or not isinstance(value, float):
+        if isinstance(value, Mapping):
+            return {k: round_floats(v) for k, v in value.items()}
+        if isinstance(value, list | tuple):
+            return [round_floats(v) for v in value]
+        return value
+    if value != value or value in (float("inf"), float("-inf")):  # NaN and the infinities
+        return value
+    return float(f"{value:.{_FIGURES}g}")
+
+
 def _cell(value: Any) -> str:
     """A value on one short line, as the agent reads it and as a claim must spell it."""
-    text = " ".join(str(value).split())
+    text = " ".join(str(round_floats(value)).split())
     return text if len(text) <= _CELL_MAX else text[: _CELL_MAX - 3] + "..."
 
 
@@ -369,7 +389,7 @@ def summarize_table(data: Any, summary: Mapping[str, Any]) -> str:
     # which rows matched, how many were left out and why, or what the tool refused --
     # none of which a fifty-row look at the top of a long table would reach.
     if isinstance(meta := summary.get("meta"), Mapping) and meta:
-        lines.append(f"What the tool reported: {json.dumps(meta, default=str)}")
+        lines.append(f"What the tool reported: {json.dumps(round_floats(meta), default=str)}")
     key = identifier_column(columns, withheld) if columns else None
     if key is not None and key not in withheld:
         lines.append(f"Rows are named by the values of {key}.")

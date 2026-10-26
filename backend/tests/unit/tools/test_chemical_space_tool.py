@@ -59,3 +59,22 @@ def test_an_unparseable_structure_is_a_row_without_coordinates_not_a_crash() -> 
     assert placed.height == 30 and out["meta"]["n_unparsed"] == 1
     assert placed["x"][1] is None and placed["y"][1] is None
     assert placed["x"].null_count() == 1
+
+
+def test_the_map_says_which_end_of_the_colour_column_is_the_good_end() -> None:
+    """Shading the weak compounds darkest puts the visual weight on the compounds nobody is
+    looking for, which is what a ramp following the raw numbers does on an IC50 column."""
+    out = chemical_space(
+        MapParams(colour_by="IC50"), {"compounds": _table(30).rename({"IC50": "IC50"})}
+    )
+    assert out["meta"]["better_is_higher"] is False
+    assert "ic50" in out["meta"]["better_is_higher_from"]
+
+
+def test_a_column_the_hint_table_does_not_know_is_left_alone() -> None:
+    frame = _table(30).rename({"IC50": "readout"})
+    out = chemical_space(MapParams(colour_by="readout"), {"compounds": frame})
+    # Left as it is, and the meta says the direction was assumed rather than read, so
+    # nobody reads the shading as a statement about the assay.
+    assert out["meta"]["better_is_higher"] is True
+    assert "could not tell" in out["meta"]["better_is_higher_from"]

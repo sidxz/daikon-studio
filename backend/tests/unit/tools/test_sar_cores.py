@@ -86,7 +86,10 @@ def test_decomposition_keeps_misses_hydrogens_and_geminal_pairs() -> None:
     r_cols = [c for c in table.columns if re.fullmatch(r"R\d+", c)]
     assert len(r_cols) >= 2  # the gem-disubstituted benzylic carbon gets two columns
     a = table.filter(pl.col("id") == "a")
-    assert any("[H]" in str(a[c][0]) for c in r_cols)  # hydrogen is a value, not a blank
+    # Hydrogen is a value, not a blank. The decomposition now names its own groups, so
+    # the fragment lives in the _smiles column and the cell holds the word for it.
+    assert any("[H]" in str(a[f"{c}_smiles"][0]) for c in r_cols)
+    assert any(str(a[c][0]) == "H" for c in r_cols)
     assert all(f"{c}_smiles" in table.columns for c in r_cols)
 
 
@@ -166,7 +169,7 @@ def test_an_uploaded_rgroup_column_does_not_shadow_the_decomposition() -> None:
     )
     table = decompose_rgroups(None, {"compounds": frame, "core": TOLUENE})["table"]
     assert table["R1_input"].to_list() == frame["R1"].to_list()
-    assert all("[" in str(v) for v in table["R1"].to_list())  # the fragment SMILES
+    assert all("[" in str(v) for v in table["R1_smiles"].to_list())  # the fragment SMILES
 
 
 def test_a_structure_that_did_not_parse_is_not_counted_as_covered() -> None:
@@ -201,7 +204,7 @@ def test_a_column_set_aside_twice_still_does_not_shadow_the_decomposition() -> N
     )
     table = decompose_rgroups(None, {"compounds": frame, "core": TOLUENE})["table"]
     assert "R1_right" not in table.columns
-    assert all("[" in str(v) for v in table["R1"].to_list())  # the fragment SMILES
+    assert all("[" in str(v) for v in table["R1_smiles"].to_list())  # the fragment SMILES
     kept = {v for c in table.columns for v in table[c].to_list()}
     assert set(frame["R1"].to_list()) <= kept and set(frame["R1_input"].to_list()) <= kept
 
@@ -282,3 +285,16 @@ def test_an_uploaded_series_column_is_kept_under_its_own_name() -> None:
     out = cluster_series(None, {"compounds": frame})["series"]
     assert out["series_input"].unique().to_list() == ["the chemist's own grouping"]
     assert out["series"].dtype == pl.Int64
+
+
+def test_the_sar_table_arrives_with_its_groups_already_named() -> None:
+    """`CO[*:2]` is not a substituent name, and a separate naming step is one a plan can
+    lose: in two observed runs the planner removed it and left the promise of names in the
+    step description. Naming is part of building the table, and the fragment stays beside
+    the word so nothing is one-way."""
+    frame = pl.DataFrame(
+        {"id": ["a", "b", "c"], "SMILES": ["Cc1ccccc1", "COc1ccccc1", "FC(F)(F)c1ccccc1"]}
+    )
+    table = decompose_rgroups(None, {"compounds": frame, "core": {"smarts": "c1ccccc1"}})["table"]
+    assert table["R1"].to_list() == ["Me", "OMe", "CF3"]
+    assert all("*" in str(v) for v in table["R1_smiles"].to_list())

@@ -428,12 +428,22 @@ def chemical_space(params: MapParams, inputs: Mapping[str, object]) -> dict[str,
     ]
     out = frame.with_columns(columns)
     colour = params.colour_by if params.colour_by in frame.columns else None
+    # Which end of the colour column is the good end, so the shading can put its weight on
+    # the compounds somebody is looking for. Read from the column's name by the same hint
+    # table the cliff finder uses, and left alone when that table does not recognise it.
+    from daikonstudio.infrastructure.tools.vendor.sar import sar_cliffs
+
+    detected = sar_cliffs.detect_activity(colour) if colour else {}
     return {
         "map": out,
         "meta": {
             "n_placed": len(usable),
             "n_unparsed": frame.height - len(usable),
             "coloured_by": colour,
+            "better_is_higher": (
+                bool(detected["higher_is_better"]) if detected.get("confident") else True
+            ),
+            "better_is_higher_from": detected.get("why") or "not read from the column name",
             "requested_colour_by": params.colour_by if colour is None else None,
             **layout.describe(),
             "seed": params.seed,

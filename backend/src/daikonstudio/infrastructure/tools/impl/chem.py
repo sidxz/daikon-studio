@@ -171,9 +171,14 @@ def _spread(values: list[float]) -> tuple[float, str]:
 
 def _middle(values: list[float]) -> float:
     """The middle reading, geometric where that is the one that can be wrong by a factor."""
+    # Cut to six figures on the way out. Combining 6.4 and 0.1 through logs lands on
+    # 0.8000000000000002, and a reading that arrives in a table like that is one a chemist
+    # stops trusting, however right it is.
     if min(values) > 0:
-        return float(math.exp(statistics.median([math.log(v) for v in values])))
-    return float(statistics.median(values))
+        middle = math.exp(statistics.median([math.log(v) for v in values]))
+    else:
+        middle = float(statistics.median(values))
+    return float(f"{middle:.6g}")
 
 
 def _merge_replicates(

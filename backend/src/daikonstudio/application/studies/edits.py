@@ -341,7 +341,12 @@ def _insert(study: Study, registry: ToolRegistry, named: _Named) -> _Do | None:
             PlannedStep(
                 tool_id=part.id,
                 name=part.name,
-                purpose=action.purpose or manifest.description,
+                # Each part says what it does. Handing every part the composite's one
+                # purpose printed the same paragraph under three different steps, and a
+                # plan nobody can read step by step is a plan nobody reviews.
+                purpose=part.description
+                if len(parts) > 1
+                else (action.purpose or part.description),
                 # A tool that returns candidates stops for a person to choose between them; the
                 # gate asked for is a stop after the last part.
                 gated=part.judgment or (index == len(parts) - 1 and action.gated),

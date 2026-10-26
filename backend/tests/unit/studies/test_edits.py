@@ -214,7 +214,13 @@ def test_insert_places_the_step_and_an_automatic_one_after_it() -> None:
         ("check_properties", False),
         ("check_properties", True),
     ]
-    assert {s.purpose for s in added} == {"Whether potency tracks lipophilicity"}
+    # Each part of a composite says what it does. One purpose repeated under every part
+    # printed the same paragraph three times in a row, and a plan nobody reads step by
+    # step is a plan nobody reviews.
+    assert [s.purpose for s in added] == [
+        REGISTRY.get("property_profile").description,
+        REGISTRY.get("property_confound").description,
+    ]
     # Each part takes only the settings it declares: the scale of the column belongs to
     # the profile, which converts, and not to the confound check, which does not.
     assert [s.params for s in added] == [
