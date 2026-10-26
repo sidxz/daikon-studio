@@ -568,6 +568,44 @@ describe("a matched pair", () => {
   });
 });
 
+describe("the chemical space of a study's compounds", () => {
+  it("bands the points by tertile and prints the cuts, so a shade means something exact", async () => {
+    // WebGL is not available in the test environment, so the map itself falls back to a
+    // sentence. What is asserted here is the reading around it: the bands, their cuts, and
+    // the warning about the compounds that are not on the map at all.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v14",
+      key: "map",
+      kind: "map",
+      summary: {
+        columns: ["compound_id", "smiles", "IC50", "x", "y"],
+        rows: 4,
+        meta: {
+          coloured_by: "IC50",
+          n_placed: 3,
+          n_unparsed: 1,
+          note: "The axes have no units and no meaning apart from each other.",
+        },
+      },
+      data: [
+        { compound_id: "a", smiles: "CCO", IC50: 1, x: 0.1, y: 0.2 },
+        { compound_id: "b", smiles: "CCN", IC50: 5, x: 0.5, y: 0.5 },
+        { compound_id: "c", smiles: "CCC", IC50: 9, x: 0.9, y: 0.8 },
+        { compound_id: "d", smiles: "nope", IC50: 3, x: null, y: null },
+      ],
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v14", key: "map" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByText("IC50 at or below 5")).toBeInTheDocument();
+    expect(screen.getByText("IC50 above 9")).toBeInTheDocument();
+    expect(
+      screen.getByText(/1 compound could not be read and is not on the map/),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("judging a grouping", () => {
   it("draws clustered compounds grouped, with the centroid marked", async () => {
     vi.mocked(customInstance).mockResolvedValue({

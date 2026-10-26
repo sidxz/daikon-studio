@@ -2,6 +2,12 @@
 
 import { StructureViewer } from "@/features/pages/components/renderers/structure-viewer";
 import { ForestChart } from "@/shared/components/charts";
+import { useChartTheme } from "@/shared/components/charts";
+import {
+  ChemicalSpaceMap,
+  type MapHit,
+} from "@/shared/components/chemical-space/chemical-space-map";
+import { parseColor } from "@/shared/components/chemical-space/color";
 import { StructureThumbnail } from "@/shared/components/chemistry/structure-thumbnail";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
@@ -947,6 +953,145 @@ function Pairs({ rows, columns, total }: { rows: Row[]; columns: string[]; total
   );
 }
 
+/**
+ * Three bands of a value, by tertile, and the two cuts between them.
+ *
+ * A sequential ramp over a continuous value would be prettier and would say less: on a
+ * few hundred points nobody reads a shade back to a number. Three bands can be read, and
+ * the cuts are printed so the bands mean something exact.
+ */
+function tertiles(values: number[]): { cuts: [number, number] } | null {
+  const sorted = [...values].sort((a, b) => a - b);
+  if (sorted.length < 3) return null;
+  const low = sorted[Math.floor(sorted.length / 3)];
+  const high = sorted[Math.floor((2 * sorted.length) / 3)];
+  return low === high ? null : { cuts: [low, high] };
+}
+
+/**
+ * Where each compound sits in a layout of the set's own chemistry.
+ *
+ * The map answers what a table cannot: whether this is one chemotype or six, where the
+ * active compounds sit relative to everything else, which region was never sampled. It
+ * answers none of them precisely, which is why the note below is not optional: the axes
+ * have no units, and only which points landed together can be read off it.
+ */
+function SpaceMap({ rows, meta }: { rows: Row[]; meta: Row }) {
+  const theme = useChartTheme();
+  const colouredBy = typeof meta.coloured_by === "string" ? meta.coloured_by : null;
+  const placed = useMemo(
+    () => rows.filter((row) => typeof row.x === "number" && typeof row.y === "number"),
+    [rows],
+  );
+  const bands = useMemo(() => {
+    if (!colouredBy) return null;
+    const values = placed
+      .map((row) => row[colouredBy])
+      .filter((value): value is number => typeof value === "number");
+    return values.length === placed.length ? tertiles(values) : null;
+  }, [placed, colouredBy]);
+
+  const base = useMemo(
+    () => ({
+      x: placed.map((row) => row.x as number),
+      y: placed.map((row) => row.y as number),
+      style: placed.map((row) => {
+        if (!bands || !colouredBy) return 0;
+        const value = row[colouredBy] as number;
+        return value <= bands.cuts[0] ? 0 : value <= bands.cuts[1] ? 1 : 2;
+      }),
+    }),
+    [placed, bands, colouredBy],
+  );
+
+  // The sequential ramp, pale to saturated: a magnitude has an order, and lightness
+  // within one hue is the only encoding of order that survives being printed.
+  const colors = useMemo(() => {
+    if (!theme) return null;
+    const [pale, deep] = [parseColor(theme.sequential[0]), parseColor(theme.sequential[1])];
+    // Not the pale end itself: the light end of a sequential ramp is near-white, which
+    // reads on a chart's filled area and disappears as a three-pixel dot on a white
+    // background. The band still has to be seen before its order can matter.
+    const mix = (t: number) => pale.map((c, i) => c + (deep[i] - c) * t) as typeof pale;
+    return [mix(0.3), mix(0.65), deep, deep, deep];
+  }, [theme]);
+
+  const identifier = useMemo(
+    () => Object.keys(rows[0] ?? {}).find((c) => /^(compound_)?id$|^name$/i.test(c)),
+    [rows],
+  );
+  const structure = useMemo(
+    () => Object.keys(rows[0] ?? {}).find((c) => STRUCTURE_COLUMN.test(c)),
+    [rows],
+  );
+
+  function hit(at: MapHit): ReactNode {
+    const row = placed[at.index];
+    if (!row) return null;
+    return (
+      <div className="space-y-1.5">
+        {structure && typeof row[structure] === "string" && (
+          <StructureThumbnail smiles={row[structure] as string} size={96} />
+        )}
+        {identifier && <p className="font-medium">{cell(row[identifier])}</p>}
+        {colouredBy && (
+          <p>
+            <span className="text-muted-foreground">{colouredBy}</span> {cell(row[colouredBy])}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <ChemicalSpaceMap
+        base={base}
+        colors={colors}
+        pickBase
+        tooltip={hit}
+        label={`${placed.length} compounds laid out by chemical similarity${
+          colouredBy ? `, shaded by ${colouredBy}` : ""
+        }`}
+        // A layout has no preferred direction, so the canvas should not either: a wide
+        // strip stretches one axis of something whose axes mean nothing.
+        className="aspect-[3/2] max-w-2xl"
+      />
+      {bands && colouredBy && colors && (
+        <ul className="flex flex-wrap gap-x-5 gap-y-1 text-muted-foreground text-xs">
+          {[
+            [`${colouredBy} at or below ${bands.cuts[0]}`, 0],
+            [`${colouredBy} to ${bands.cuts[1]}`, 1],
+            [`${colouredBy} above ${bands.cuts[1]}`, 2],
+          ].map(([label, style]) => (
+            <li key={String(label)} className="inline-flex items-center gap-1.5">
+              <span
+                aria-hidden="true"
+                className="size-3 shrink-0 rounded-full"
+                style={{
+                  background: `rgba(${colors[style as number]
+                    .slice(0, 3)
+                    .map((c) => Math.round(c * 255))
+                    .join(",")},1)`,
+                }}
+              />
+              {label}
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-muted-foreground text-xs">
+        {typeof meta.note === "string" ? meta.note : null}
+        {typeof meta.n_unparsed === "number" && meta.n_unparsed > 0
+          ? ` ${meta.n_unparsed} compound${meta.n_unparsed === 1 ? "" : "s"} could not be read and ${
+              meta.n_unparsed === 1 ? "is" : "are"
+            } not on the map.`
+          : ""}
+      </p>
+    </div>
+  );
+}
+
 function ModelFit({ data }: { data: Row }) {
   const meta = asRecord(data.meta);
   if (meta.ok === false) {
@@ -1295,6 +1440,8 @@ export function ValueBlock({
     read.data.length > 0
   ) {
     body = <Pairs rows={read.data} columns={columns} total={total} />;
+  } else if (read.kind === "map" && isRows(read.data) && read.data.length > 0) {
+    body = <SpaceMap rows={read.data} meta={asRecord(read.summary.meta)} />;
   } else if (read.kind === "interactions" && isRows(read.data) && read.data.length > 0) {
     body = <Interactions rows={read.data} columns={columns} total={total} />;
   } else if (read.kind === "effects" && isRows(read.data) && read.data.length > 0) {

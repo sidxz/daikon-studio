@@ -115,6 +115,23 @@ class InteractionParams(BaseModel):
     )
 
 
+class MapParams(BaseModel):
+    colour_by: str | None = Field(
+        default=None,
+        description=(
+            "A numeric column to colour the points by, usually the activity. Left out, "
+            "the map shows where the compounds sit and not how they behave"
+        ),
+    )
+    seed: int = Field(
+        default=42,
+        description=(
+            "The seed the layout is fitted with. A different seed gives a different "
+            "picture of the same chemistry, so it is reported with the result"
+        ),
+    )
+
+
 class ValidityParams(BaseModel):
     keep_invalid: bool = Field(
         default=False,

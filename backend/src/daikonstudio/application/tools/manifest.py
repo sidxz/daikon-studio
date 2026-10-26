@@ -89,6 +89,10 @@ class SlotKind(StrEnum):
     # the geometry that produced it. A ranking first and a number second -- the score is
     # the least reliable thing a structure yields, so what the rows are for is their order.
     POSES = "poses"
+    # Where each compound sits in a two-dimensional layout of the set's own chemistry.
+    # Coordinates with no units and no meaning apart from each other: what is readable
+    # is which compounds landed together, never how far apart two points are.
+    MAP = "map"
     # Which residue a pose touches and how: contacts, hydrogen bonds, hydrophobic
     # packing. The part of a docking result that can be checked against what is known
     # about a site, unlike the score, which can only be compared with other scores.

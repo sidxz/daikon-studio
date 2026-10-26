@@ -43,6 +43,7 @@ from daikonstudio.infrastructure.tools.impl.chem import ToolImpl, _frame, struct
 from daikonstudio.infrastructure.tools.params import (
     ClusterParams,
     DiverseParams,
+    MapParams,
     SimilarityParams,
     SubstructureParams,
 )
@@ -384,10 +385,72 @@ def synthetic_accessibility(
     }
 
 
+# Below this a layout is not a map. UMAP's neighbourhood is fifteen points by default,
+# and fitted on fewer than a couple of dozen it draws the seed rather than the chemistry:
+# the picture changes shape when the seed changes, and a reader cannot tell that by
+# looking. The clustering tool answers "what groups are in here" on a small set and
+# answers it with a number anyone can check, so the refusal names it.
+MAP_FLOOR = 25
+
+
+def chemical_space(params: MapParams, inputs: Mapping[str, object]) -> dict[str, Any]:
+    """Lay the set out in two dimensions, so coverage and clustering can be seen at once.
+
+    A map answers questions a table cannot: whether a library is one chemotype or six,
+    where a hit sits relative to everything else tried, which region was never sampled.
+    It answers none of them precisely. The axes have no units, distance between two
+    distant points means nothing, and the whole picture is one of many the same
+    compounds could have produced, so the seed is part of the result.
+    """
+    from daikonstudio.application.ports.chemical_space_layout import TooFewCompounds
+    from daikonstudio.infrastructure.chem.chemical_space import UmapLayout
+
+    frame = _frame(inputs)
+    column, molecules = _molecules(frame)
+    usable = [row for row, mol in enumerate(molecules) if mol is not None]
+    if len(usable) < MAP_FLOOR:
+        raise ValueError(
+            f"{len(usable)} compounds can be laid out, and a map needs at least "
+            f"{MAP_FLOOR}. Below that the layout shows the seed rather than the "
+            f"chemistry. Cluster the compounds instead: on a set this size the groups "
+            f"are the answer, and they come with sizes you can check."
+        )
+    layout = UmapLayout()
+    try:
+        xs, ys = layout.layout([str(frame[column][row]) for row in usable], params.seed)
+    except TooFewCompounds as error:  # pragma: no cover - the floor above is stricter
+        raise ValueError(str(error)) from error
+
+    placed = dict(zip(usable, zip(xs, ys, strict=True), strict=True))
+    columns = [
+        pl.Series("x", [placed.get(i, (None, None))[0] for i in range(frame.height)], pl.Float64),
+        pl.Series("y", [placed.get(i, (None, None))[1] for i in range(frame.height)], pl.Float64),
+    ]
+    out = frame.with_columns(columns)
+    colour = params.colour_by if params.colour_by in frame.columns else None
+    return {
+        "map": out,
+        "meta": {
+            "n_placed": len(usable),
+            "n_unparsed": frame.height - len(usable),
+            "coloured_by": colour,
+            "requested_colour_by": params.colour_by if colour is None else None,
+            **layout.describe(),
+            "seed": params.seed,
+            "note": (
+                "The axes have no units and no meaning apart from each other. Which "
+                "compounds landed together is readable; how far apart two points are is "
+                "not. A different seed draws a different picture of the same set."
+            ),
+        },
+    }
+
+
 IMPLEMENTATIONS: dict[str, ToolImpl] = {
     "substructure_search": lambda p, i: substructure_search(cast(SubstructureParams, p), i),
     "similarity_search": lambda p, i: similarity_search(cast(SimilarityParams, p), i),
     "cluster_compounds": lambda p, i: cluster_compounds(cast(ClusterParams, p), i),
+    "chemical_space": lambda p, i: chemical_space(cast(MapParams, p), i),
     "pick_diverse_subset": lambda p, i: pick_diverse_subset(cast(DiverseParams, p), i),
     "murcko_scaffolds": murcko_scaffolds,
     "synthetic_accessibility": synthetic_accessibility,

@@ -38,6 +38,7 @@ from daikonstudio.infrastructure.tools.params import (
     FetchPdbParams,
     FetchUniprotParams,
     InteractionParams,
+    MapParams,
     PrepareParams,
     SimilarityParams,
     SubstructureParams,
@@ -301,6 +302,28 @@ _TOOLS: tuple[ToolManifest, ...] = (
         library="rdkit.ML.Cluster.Butina",
         surface=ToolSurface.VIEW,
         params=ClusterParams,
+    ),
+    ToolManifest(
+        id="chemical_space",
+        version="1",
+        area=ToolArea.DATA,
+        name="Map the chemical space",
+        description=(
+            "Lays the set out in two dimensions so its shape can be seen at once: whether "
+            "a library is one chemotype or six, where the active compounds sit relative to "
+            "everything else tried, and which region was never sampled. The axes have no "
+            "units and nothing apart from each other to mean: which compounds landed "
+            "together is readable, how far apart two points are is not, and another seed "
+            "draws another picture of the same set. It refuses a small set rather than "
+            "drawing one, because a layout fitted on a couple of dozen compounds shows the "
+            "seed and not the chemistry; clustering answers that question with a number "
+            "instead."
+        ),
+        inputs=(_COMPOUNDS,),
+        outputs=(_in("map", SlotKind.MAP, "Chemical space"),),
+        library="umap-learn over ECFP4, Jaccard distance",
+        surface=ToolSurface.VIEW,
+        params=MapParams,
     ),
     ToolManifest(
         id="pick_diverse_subset",

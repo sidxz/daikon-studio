@@ -29,6 +29,7 @@ TABLE_KINDS: frozenset[str] = frozenset(
         "series",
         "poses",
         "interactions",
+        "map",
     }
 )
 
