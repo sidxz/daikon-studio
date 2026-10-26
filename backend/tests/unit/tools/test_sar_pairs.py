@@ -251,3 +251,34 @@ def test_a_compound_with_a_null_position_is_left_out_rather_than_grouped_as_none
     fit = free_wilson(PIC50, {"table": table})["fit"]
     assert fit["meta"]["ok"] and fit["meta"]["n_excluded_incomplete"] == 1
     assert "ax" not in {fitted["id"] for fitted in fit["fitted"]}
+
+
+def test_a_pair_carries_both_molecules_and_the_two_fragments_that_differ() -> None:
+    """A change from one word to another says nothing to anyone who does not already know
+    what the words draw as. The molecules are what a reader looks at, and the fragments are
+    what tells them where to look; the fragments alone would draw the wrong picture."""
+    t = _table(
+        ["a", "b"],
+        ["C[*:1]", "Cl[*:1]"],
+        ["C[*:2]"] * 2,
+        ["8", "2"],
+        extra={"canonical_smiles": pl.Series(["Cc1ccccc1C", "Clc1ccccc1C"])},
+    )
+    pairs = matched_pairs(MIC, {"table": t})["pairs"]
+    row = pairs.row(0, named=True)
+    # b is the better compound, so it is the to-side and a is the from-side.
+    assert (row["from_smiles"], row["to_smiles"]) == ("Cc1ccccc1C", "Clc1ccccc1C")
+    assert (row["from_group_smiles"], row["to_group_smiles"]) == ("C[*:1]", "Cl[*:1]")
+
+
+def test_without_a_named_structure_column_a_pair_draws_nothing_rather_than_a_fragment() -> None:
+    """`structure_column` takes the first column that parses, which on a decomposed table is
+    R1. A fragment parses as readily as a molecule, so guessing here would draw a picture
+    that is wrong in a way nobody would question."""
+    pairs = matched_pairs(
+        MIC, {"table": _table(["a", "b"], ["C[*:1]", "Cl[*:1]"], ["C[*:2]"] * 2, ["8", "2"])}
+    )["pairs"]
+    row = pairs.row(0, named=True)
+    assert row["from_smiles"] is None and row["to_smiles"] is None
+    # The fragments still come through: they are the tool's own output, not a guess.
+    assert row["from_group_smiles"] == "C[*:1]"

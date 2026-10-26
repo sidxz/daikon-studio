@@ -47,6 +47,14 @@ _PAIR_SCHEMA: dict[str, Any] = {
     "activity_worse": pl.Utf8,
     "measurements_better": pl.Int64,
     "measurements_worse": pl.Int64,
+    # The two molecules and the two fragments that differ between them. Carried so a
+    # pair can be looked at rather than read: a change from one word to another says
+    # nothing to anyone who does not already know what the words draw as. All four are
+    # withheld from the agent by name and the ids beside them say which row is which.
+    "from_smiles": pl.Utf8,
+    "to_smiles": pl.Utf8,
+    "from_group_smiles": pl.Utf8,
+    "to_group_smiles": pl.Utf8,
 }
 
 _EFFECT_SCHEMA: dict[str, Any] = {
@@ -154,12 +162,40 @@ def matched_pairs(params: AssayParams, inputs: Mapping[str, object]) -> dict[str
         id_col="id",
         **semantics,
     )
-    out = [_pair(pair, semantics, measurements) for pair in found["cliffs"]]
+    out = [_pair(pair, semantics, measurements, _structures(table)) for pair in found["cliffs"]]
     return {"pairs": pl.DataFrame(out, schema=_PAIR_SCHEMA)}
 
 
+def _structures(table: pl.DataFrame) -> dict[str, str]:
+    """Each row's whole molecule, by id, for drawing a pair side by side.
+
+    The decomposition keeps the columns it was given, so the structure the series
+    arrived with is still here; the fragments alone cannot be drawn as the compounds
+    anybody made.
+
+    Found by name rather than by `structure_column`, which takes the first column that
+    parses and on a decomposed table would take `R1`: a fragment parses as readily as a
+    molecule, and a pair drawn from fragments would be wrong in a way nobody would
+    question. A table with neither name draws nothing, which is the honest outcome.
+    """
+    identifier = table.columns[0]
+    column = next(
+        (c for c in ("canonical_smiles", "smiles", "SMILES") if c in table.columns), None
+    )
+    if column is None:
+        return {}
+    return {
+        str(i): str(smiles)
+        for i, smiles in zip(table[identifier], table[column], strict=True)
+        if smiles is not None
+    }
+
+
 def _pair(
-    pair: Mapping[str, Any], semantics: Mapping[str, Any], measurements: Mapping[str, int]
+    pair: Mapping[str, Any],
+    semantics: Mapping[str, Any],
+    measurements: Mapping[str, int],
+    structures: Mapping[str, str],
 ) -> dict[str, Any]:
     better = sar.sar_cliffs.to_interval(pair["activity_better"], semantics)
     worse = sar.sar_cliffs.to_interval(pair["activity_worse"], semantics)
@@ -195,6 +231,12 @@ def _pair(
         "activity_worse": _text(pair[f"activity_{low}"]),
         "measurements_better": measurements.get(id_high),
         "measurements_worse": measurements.get(id_low),
+        # Keyed on the same side as `from` and `to`, so the pair reads left to right
+        # whether or not the ordering means anything.
+        "from_smiles": structures.get(str(id_low)),
+        "to_smiles": structures.get(str(id_high)),
+        "from_group_smiles": pair.get(f"smiles_{low}") or None,
+        "to_group_smiles": pair.get(f"smiles_{high}") or None,
     }
 
 

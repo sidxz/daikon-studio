@@ -483,6 +483,91 @@ describe("reading a prepared structure before docking into it", () => {
   });
 });
 
+describe("a matched pair", () => {
+  it("draws both compounds, and says nothing about direction when there is none", async () => {
+    // Everything except one group is held constant: that is a claim about two structures,
+    // so the structures are what the block shows. The second pair has an open bound on
+    // both sides, where which compound is better is not established.
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v12",
+      key: "pairs",
+      kind: "pairs",
+      summary: { columns: ["id", "position", "from", "to", "fold"], rows: 2 },
+      data: [
+        {
+          id: "a>b",
+          position: "R1",
+          from: "Me",
+          to: "Cl",
+          fold: "4.0x",
+          ordered: true,
+          id_worse: "a",
+          id_better: "b",
+          activity_worse: "8",
+          activity_better: "2",
+          from_smiles: "Cc1ccccc1C",
+          to_smiles: "Clc1ccccc1C",
+          from_group_smiles: "C[*:1]",
+          to_group_smiles: "Cl[*:1]",
+        },
+        {
+          id: "c|d",
+          position: "R1",
+          from: "F",
+          to: "Br",
+          fold: null,
+          ordered: false,
+          id_worse: "c",
+          id_better: "d",
+          activity_worse: ">64",
+          activity_better: ">64",
+          from_smiles: "Fc1ccccc1C",
+          to_smiles: "Brc1ccccc1C",
+          from_group_smiles: "F[*:1]",
+          to_group_smiles: "Br[*:1]",
+        },
+      ],
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v12", key: "pairs" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByText("R1: Me to Cl")).toBeInTheDocument();
+    expect(screen.getByText(/8 to 2/)).toHaveTextContent("4.0x");
+    expect(screen.getByText(/which of the two is better is not established/)).toBeInTheDocument();
+  });
+
+  it("leaves out a pair it cannot draw rather than drawing half of it", async () => {
+    // A series that never passed through a named structure column has fragments and no
+    // molecules. The table still carries every pair; the gallery simply has nothing to show.
+    vi.mocked(customInstance).mockResolvedValue({
+      id: "v13",
+      key: "pairs",
+      kind: "pairs",
+      summary: { columns: ["id", "position", "from", "to"], rows: 1 },
+      data: [
+        {
+          id: "a>b",
+          position: "R1",
+          from: "Me",
+          to: "Cl",
+          ordered: true,
+          id_worse: "a",
+          id_better: "b",
+          from_smiles: null,
+          to_smiles: null,
+          from_group_smiles: "C[*:1]",
+          to_group_smiles: "Cl[*:1]",
+        },
+      ],
+    });
+    render(<ValueBlock studyId="s1" value={{ id: "v13", key: "pairs" } as never} />, {
+      wrapper: Wrapper,
+    });
+    expect(await screen.findByRole("cell", { name: "a>b" })).toBeInTheDocument();
+    expect(screen.queryByText("R1: Me to Cl")).not.toBeInTheDocument();
+  });
+});
+
 describe("judging a grouping", () => {
   it("draws clustered compounds grouped, with the centroid marked", async () => {
     vi.mocked(customInstance).mockResolvedValue({

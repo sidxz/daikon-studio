@@ -873,6 +873,80 @@ function Interactions({
   );
 }
 
+/** How many pairs are drawn before the table takes over. */
+const SHOWN_PAIRS = 8;
+
+/**
+ * A matched pair as the two compounds it is, with the group that changed picked out.
+ *
+ * "R2: Me to Cl, 1.2 log units" is a sentence only a reader who already knows what those
+ * words draw as can check. The point of a matched pair is that everything except one
+ * group is held constant, and that is a claim about two structures, so the structures are
+ * what this shows. The fragment at the changing position is used as the highlight query,
+ * which picks out that group and the atom it hangs from; a fragment that will not parse
+ * leaves the structure drawn plain rather than dropping the pair.
+ */
+function Pairs({ rows, columns, total }: { rows: Row[]; columns: string[]; total?: number }) {
+  const drawable = rows.filter(
+    (row) => typeof row.from_smiles === "string" && typeof row.to_smiles === "string",
+  );
+  return (
+    <div className="space-y-2">
+      {drawable.slice(0, SHOWN_PAIRS).map((row, index) => (
+        // A pair is its row: two of them may share a position and a change.
+        // biome-ignore lint/suspicious/noArrayIndexKey: a pair is its position
+        <div key={index} className="flex flex-wrap items-center gap-3 rounded-sm border p-2">
+          <div className="flex items-center gap-2">
+            <div className="text-center">
+              <StructureThumbnail
+                smiles={row.from_smiles as string}
+                size={88}
+                highlight={
+                  typeof row.from_group_smiles === "string" ? row.from_group_smiles : undefined
+                }
+              />
+              <p className="text-muted-foreground text-xs">{cell(row.id_worse)}</p>
+            </div>
+            <span className="text-muted-foreground text-sm">to</span>
+            <div className="text-center">
+              <StructureThumbnail
+                smiles={row.to_smiles as string}
+                size={88}
+                highlight={
+                  typeof row.to_group_smiles === "string" ? row.to_group_smiles : undefined
+                }
+              />
+              <p className="text-muted-foreground text-xs">{cell(row.id_better)}</p>
+            </div>
+          </div>
+          <div className="min-w-0 flex-1 space-y-0.5 text-sm">
+            <p className="font-medium">
+              {cell(row.position)}: {cell(row.from)} to {cell(row.to)}
+            </p>
+            <p className="text-muted-foreground">
+              {cell(row.activity_worse)} to {cell(row.activity_better)}
+              {/* An unordered pair is one where an open bound could run either way, and
+                  nothing on the row may suggest a direction it does not have. */}
+              {row.ordered === false
+                ? " \u00b7 which of the two is better is not established"
+                : row.fold
+                  ? ` \u00b7 ${cell(row.fold)}`
+                  : ""}
+            </p>
+          </div>
+        </div>
+      ))}
+      {drawable.length > SHOWN_PAIRS && (
+        <p className="text-muted-foreground text-xs">
+          The first {SHOWN_PAIRS} pairs in the order this step returned them. The rest are in the
+          table.
+        </p>
+      )}
+      <RowsTable rows={rows} columns={columns} total={total} />
+    </div>
+  );
+}
+
 function ModelFit({ data }: { data: Row }) {
   const meta = asRecord(data.meta);
   if (meta.ok === false) {
@@ -1215,6 +1289,12 @@ export function ValueBlock({
     body = <ModelFit data={asRecord(read.data)} />;
   } else if (read.kind === "poses" && isRows(read.data) && read.data.length > 0) {
     body = <Poses rows={read.data} columns={columns} total={total} receptor={receptor} />;
+  } else if (
+    (read.kind === "pairs" || read.kind === "cliffs") &&
+    isRows(read.data) &&
+    read.data.length > 0
+  ) {
+    body = <Pairs rows={read.data} columns={columns} total={total} />;
   } else if (read.kind === "interactions" && isRows(read.data) && read.data.length > 0) {
     body = <Interactions rows={read.data} columns={columns} total={total} />;
   } else if (read.kind === "effects" && isRows(read.data) && read.data.length > 0) {
