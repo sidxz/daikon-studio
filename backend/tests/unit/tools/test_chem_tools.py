@@ -63,9 +63,9 @@ def test_standardize_collapses_duplicates() -> None:
 
 
 def test_property_profile() -> None:
-    out = property_profile(ActivityParams(activity_column="pIC50"), {"compounds": FRAME})[
-        "properties"
-    ]
+    out = property_profile(
+        ActivityParams(activity_column="pIC50", kind="log"), {"compounds": FRAME}
+    )["properties"]
     a = out.row(0, named=True)
     assert a["heavy_atoms"] == 15
     assert abs(a["lipophilic_efficiency"] - (6.5 - a["logp"])) < 1e-6
@@ -130,3 +130,41 @@ def test_structural_alerts() -> None:
 def test_structure_column_decides_on_a_sample() -> None:
     frame = pl.DataFrame({"notes": ["a remark"] * 300, "SMILES": ["CCO"] * 300})
     assert structure_column(frame) == "SMILES"
+
+
+def test_an_efficiency_is_refused_rather_than_computed_on_the_wrong_scale() -> None:
+    """A ligand efficiency is read against remembered numbers -- around 0.3 is usual -- so
+    one computed from a raw micromolar column is not approximate, it is meaningless, and it
+    arrives looking exactly like a result. A column must say which scale it is on."""
+    import pytest
+
+    from daikonstudio.infrastructure.tools.impl.chem import property_profile
+
+    with pytest.raises(ValueError, match="kind"):
+        ActivityParams(activity_column="pIC50")
+
+    # Named as a concentration but with no unit: nothing to convert with, so nothing drawn.
+    bare = property_profile(
+        ActivityParams(activity_column="pIC50", kind="concentration"), {"compounds": FRAME}
+    )
+    assert "ligand_efficiency" not in bare["properties"].columns
+    assert "unit" in bare["meta"]["efficiencies"]
+
+
+def test_a_concentration_becomes_a_log_potency_and_its_bound_turns_over() -> None:
+    """Converting a dose to a potency turns the scale upside down: an IC50 recorded as
+    greater than 64 uM is a potency *less* than the matching value. A relation left alone
+    through that conversion says a weak compound is strong."""
+    import polars as pl
+
+    from daikonstudio.infrastructure.tools.impl.chem import property_profile
+
+    frame = pl.DataFrame({"SMILES": ["O=C(Nc1ccccc1)c1ccccc1"] * 2, "IC50": ["1.0", ">64"]})
+    out = property_profile(
+        ActivityParams(activity_column="IC50", kind="concentration", unit="uM"),
+        {"compounds": frame},
+    )
+    rows = out["properties"]
+    # 1 uM is pIC50 6; the efficiency lands where a chemist expects to read one.
+    assert abs(rows["ligand_efficiency"][0] - 1.37 * 6.0 / 15) < 1e-6
+    assert rows["IC50_relation"].to_list() == ["=", "<"]

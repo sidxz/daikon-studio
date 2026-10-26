@@ -202,7 +202,7 @@ def test_insert_places_the_step_and_an_automatic_one_after_it() -> None:
             does="insert",
             tool_id="check_properties",
             purpose="Whether potency tracks lipophilicity",
-            settings=[_setting("activity_column", "pIC50")],
+            settings=[_setting("activity_column", "pIC50"), _setting("kind", "log")],
             gated=True,
         ),
         Action(does="insert", tool_id="standardize"),
@@ -215,13 +215,18 @@ def test_insert_places_the_step_and_an_automatic_one_after_it() -> None:
         ("check_properties", True),
     ]
     assert {s.purpose for s in added} == {"Whether potency tracks lipophilicity"}
-    assert [s.params for s in added] == [{"activity_column": "pIC50"}] * 2
+    # Each part takes only the settings it declares: the scale of the column belongs to
+    # the profile, which converts, and not to the confound check, which does not.
+    assert [s.params for s in added] == [
+        {"activity_column": "pIC50", "kind": "log"},
+        {"activity_column": "pIC50"},
+    ]
     assert all(s.problem is None for s in study.steps)
     assert [(a.step, a.detail) for a in applied.acted] == [
         (
             added[0].id,
             "Added Check the properties as step 2 (Physicochemical properties), "
-            "step 3 (Property confound check): activity_column=pIC50.",
+            "step 3 (Property confound check): activity_column=pIC50, kind=log.",
         )
     ]
 
@@ -243,7 +248,7 @@ def test_insert_places_the_step_and_an_automatic_one_after_it() -> None:
             does="insert",
             tool_id="check_properties",
             before=2,
-            settings=[_setting("activity_column", "pIC50")],
+            settings=[_setting("activity_column", "pIC50"), _setting("kind", "log")],
         ),
     )
     assert applied.dropped == 0 and len(applied.acted) == 3

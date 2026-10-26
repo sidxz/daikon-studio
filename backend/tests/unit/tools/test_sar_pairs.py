@@ -282,3 +282,32 @@ def test_without_a_named_structure_column_a_pair_draws_nothing_rather_than_a_fra
     assert row["from_smiles"] is None and row["to_smiles"] is None
     # The fragments still come through: they are the tool's own output, not a guess.
     assert row["from_group_smiles"] == "C[*:1]"
+
+
+def test_a_direction_the_column_name_contradicts_is_refused() -> None:
+    """The failure this exists for: a column named IC50_uM accepted as higher-is-better,
+    which marked the weakest compound in the set as the better member of every pair.
+    Nothing downstream notices, because every conclusion is reversed together."""
+    import pytest
+
+    from daikonstudio.infrastructure.tools.params import AssayParams
+
+    with pytest.raises(ValueError, match="lower is better"):
+        AssayParams(
+            activity_column="IC50_uM", kind="concentration", higher_is_better=True, unit="uM"
+        )
+
+
+def test_a_selectivity_index_may_be_a_concentration_where_bigger_is_better() -> None:
+    """The contradiction cannot be read off `kind` alone. A selectivity index is a ratio of
+    concentrations and bigger is plainly better, so a rule keyed on `kind` would refuse the
+    one case that is right."""
+    from daikonstudio.infrastructure.tools.params import AssayParams
+
+    params = AssayParams(
+        activity_column="selectivity_index", kind="concentration", higher_is_better=True
+    )
+    assert params.higher_is_better is True
+    # And a header the hint table does not recognise is left entirely to the scientist.
+    free = AssayParams(activity_column="thermal shift", kind="linear", higher_is_better=False)
+    assert free.higher_is_better is False

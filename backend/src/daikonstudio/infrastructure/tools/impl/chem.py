@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import math
+import statistics
 from collections import Counter
 from collections.abc import Callable, Mapping
 from functools import cache
@@ -111,7 +113,7 @@ def standardize(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[
         pl.Series("changed", changed, dtype=pl.Boolean),
         pl.Series("parse_error", errors, dtype=pl.Utf8),
     )
-    # Rows sharing a canonical structure collapse to the first; unparseable rows stay.
+    # Rows sharing a canonical structure collapse to one; unparseable rows stay.
     counts = Counter(s for s in canonical if s is not None)
     seen: set[str] = set()
     keep: list[bool] = []
@@ -119,10 +121,124 @@ def standardize(params: BaseModel | None, inputs: Mapping[str, object]) -> dict[
         keep.append(s is None or s not in seen)
         if s is not None:
             seen.add(s)
+    groups: dict[str, list[int]] = {}
+    for row, s in enumerate(canonical):
+        if s is not None and counts[s] > 1:
+            groups.setdefault(s, []).append(row)
     out_frame = out_frame.with_columns(
         pl.Series("duplicates", [counts.get(s, 1) if s else 1 for s in canonical], dtype=pl.Int64)
-    ).filter(pl.Series(keep))
-    return {"compounds": out_frame}
+    )
+    merged, spreads = _merge_replicates(out_frame, groups)
+    out_frame = merged.filter(pl.Series(keep))
+    return {
+        "compounds": out_frame,
+        "meta": {
+            "n_rows_in": frame.height,
+            "n_structures_out": out_frame.height,
+            "n_structures_with_replicates": len(groups),
+            "n_rows_merged": sum(len(rows) - 1 for rows in groups.values()),
+            "replicate_rule": (
+                "Rows that standardize to the same structure are one compound. Their "
+                "numeric readings are replaced by the median across the copies, which is "
+                "the same compound whether the column is a concentration or a log "
+                "potency; text columns keep the first copy's value."
+            ),
+            # The spread between copies of one compound is the assay's own reproducibility,
+            # measured on this very plate. It bounds every difference the study goes on to
+            # call real, so it is reported here rather than left for anyone to notice.
+            "replicate_spread": spreads[:_SPREAD_SHOWN],
+            "widest_spread": spreads[0]["spread"] if spreads else None,
+        },
+    }
+
+
+#: How many replicate groups are named in `meta`, worst first.
+_SPREAD_SHOWN = 25
+
+
+def _spread(values: list[float]) -> tuple[float, str]:
+    """How far apart the copies of one reading are, and how that distance is written.
+
+    A fold change for readings that are all positive, which is how an assay's
+    reproducibility is quoted; a plain difference otherwise, since a fold change across
+    zero is meaningless.
+    """
+    low, high = min(values), max(values)
+    if low > 0:
+        return high / low, "fold"
+    return high - low, "difference"
+
+
+def _middle(values: list[float]) -> float:
+    """The middle reading, geometric where that is the one that can be wrong by a factor."""
+    if min(values) > 0:
+        return float(math.exp(statistics.median([math.log(v) for v in values])))
+    return float(statistics.median(values))
+
+
+def _merge_replicates(
+    frame: pl.DataFrame, groups: Mapping[str, list[int]]
+) -> tuple[pl.DataFrame, list[dict[str, Any]]]:
+    """One row per structure, with numeric readings taken as the median of the copies.
+
+    The median, not the first copy and not the arithmetic mean. Taking the first silently
+    keeps one arbitrary measurement and throws the rest away, which can move the most
+    potent compound in a set.
+
+    The median is taken in log space whenever every copy is positive, which makes it the
+    geometric mean of the middle two when there is an even number of them. This step is
+    not told whether it is holding a concentration or a log potency, and the two mistakes
+    are not the same size: two IC50 readings of 2.31 and 0.1 uM combine to 0.48
+    geometrically and to 1.205 arithmetically, a factor of 2.5 and the difference between
+    a hit and a miss, while two pIC50 readings of 7.0 and 8.0 combine to 7.483 and 7.5, a
+    difference of no consequence. So the rule that is catastrophic for one scale and
+    harmless for the other is the one that is not used. With an odd number of copies both
+    rules return the same observed reading.
+    """
+    if not groups:
+        return frame, []
+    numeric = [name for name, dtype in frame.schema.items() if dtype in (pl.Float64, pl.Int64)]
+    numeric = [name for name in numeric if name != "duplicates"]
+    identifier = next((c for c in frame.columns if _IDENTIFIER.match(c)), None)
+    updates: dict[str, dict[int, float]] = {name: {} for name in numeric}
+    spreads: list[dict[str, Any]] = []
+    for rows in groups.values():
+        first = rows[0]
+        for name in numeric:
+            values = [v for v in (frame[name][row] for row in rows) if v is not None]
+            if not values:
+                continue
+            floats = [float(v) for v in values]
+            updates[name][first] = _middle(floats)
+            if len(set(floats)) > 1:
+                size, how = _spread(floats)
+                spreads.append(
+                    {
+                        "id": str(frame[identifier][first]) if identifier else f"row {first + 1}",
+                        "merged": [
+                            str(frame[identifier][row]) if identifier else f"row {row + 1}"
+                            for row in rows
+                        ],
+                        "column": name,
+                        "values": floats,
+                        "kept": updates[name][first],
+                        "spread": round(size, 3),
+                        "spread_is": how,
+                    }
+                )
+    for name in numeric:
+        if not updates[name]:
+            continue
+        column = frame[name]
+        values = [updates[name].get(row, column[row]) for row in range(frame.height)]
+        # Back to the column's own type: a median of whole numbers may land between two
+        # of them, and a reading column that arrived as integers stays integers.
+        series = pl.Series(name, values, dtype=pl.Float64)
+        frame = frame.with_columns(
+            series.round(0).cast(pl.Int64) if column.dtype == pl.Int64 else series
+        )
+    spreads.sort(key=lambda s: s["spread"], reverse=True)
+    return frame, spreads
 
 
 def property_profile(params: ActivityParams, inputs: Mapping[str, object]) -> dict[str, Any]:
@@ -136,18 +252,66 @@ def property_profile(params: ActivityParams, inputs: Mapping[str, object]) -> di
         pl.Series(name, [r[i] for r in rows], dtype=pl.Float64)
         for i, name in enumerate(PROPERTY_COLUMNS)
     ).with_columns(pl.col("heavy_atoms").cast(pl.Int64))
+    meta: dict[str, Any] = {"n_rows": frame.height}
     if params.activity_column:
         # A censored reading ('>64') keeps its bound instead of becoming a null. Both
-        # efficiencies are monotone in activity -- one multiplies by a positive constant,
-        # the other subtracts logp -- so a bound on the activity is a bound on them in
+        # efficiencies are monotone in the log potency -- one multiplies by a positive
+        # constant, the other subtracts logp -- so a bound on it is a bound on them in
         # the same direction, and the relation column describes all three.
         readings = read_measurements(frame[params.activity_column])
-        activity = pl.lit(readings.values)
-        out = out.with_columns(readings.relations).with_columns(
-            (1.37 * activity / pl.col("heavy_atoms")).alias("ligand_efficiency"),
-            (activity - pl.col("logp")).alias("lipophilic_efficiency"),
-        )
-    return {"properties": out}
+        potency, relations, note = _log_potency(params, readings)
+        meta["activity_column"] = params.activity_column
+        meta["activity_read_as"] = note
+        if potency is None:
+            # Refused rather than computed on the wrong scale. An efficiency is a number
+            # a chemist compares against remembered ones -- 0.3 is good, 0.5 is unusual --
+            # so one computed from micromolar is not approximate, it is meaningless, and
+            # it looks like a result.
+            meta["efficiencies"] = (
+                "Not computed. A concentration column must say its unit before it can be "
+                "turned into a log potency, and an efficiency on the raw concentration "
+                "would be a number of the right shape and no meaning."
+            )
+        else:
+            out = out.with_columns(relations).with_columns(
+                (1.37 * pl.lit(potency) / pl.col("heavy_atoms")).alias("ligand_efficiency"),
+                (pl.lit(potency) - pl.col("logp")).alias("lipophilic_efficiency"),
+            )
+            meta["efficiencies"] = (
+                "Ligand efficiency is 1.37 x log potency / heavy atoms, and lipophilic "
+                "efficiency is log potency - logP. Both are read against remembered "
+                "values: around 0.3 is a usual ligand efficiency."
+            )
+    return {"properties": out, "meta": meta}
+
+
+#: How many of a unit there are in one molar. A log potency is -log10 of the
+#: concentration in molar, so the unit is not decoration: getting it wrong moves every
+#: efficiency by a whole number of log units.
+_PER_MOLAR = {"m": 1.0, "mm": 1e-3, "um": 1e-6, "µm": 1e-6, "nm": 1e-9, "pm": 1e-12}
+
+
+def _log_potency(params: ActivityParams, readings: Any) -> tuple[pl.Series | None, pl.Series, str]:
+    """The activity as a log potency, with the relations that still hold on it.
+
+    A concentration is converted; a column that is already a log potency is used as it
+    stands. The conversion turns the scale upside down, so a reading recorded as greater
+    than 64 micromolar is a log potency *less* than the matching value, and the relation
+    has to turn over with it. Left alone it would say a weak compound is strong.
+    """
+    if params.kind == "log":
+        return readings.values, readings.relations, "a log potency, as given"
+    factor = _PER_MOLAR.get((params.unit or "").strip().lower())
+    if factor is None:
+        return None, readings.relations, f"a concentration in an unstated unit ({params.unit})"
+    potency = (readings.values.cast(pl.Float64) * factor).log10() * -1.0
+    flipped = {">": "<", "<": ">", ">=": "<=", "<=": ">="}
+    relations = pl.Series(
+        readings.relations.name,
+        [flipped.get(r, r) for r in readings.relations.to_list()],
+        dtype=pl.String,
+    )
+    return potency, relations, f"a concentration in {params.unit}, converted to a log potency"
 
 
 def property_confound(params: ConfoundParams, inputs: Mapping[str, object]) -> dict[str, Any]:

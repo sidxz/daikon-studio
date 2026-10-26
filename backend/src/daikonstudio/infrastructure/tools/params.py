@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class FetchPdbParams(BaseModel):
@@ -45,8 +45,42 @@ class FetchAlphafoldParams(BaseModel):
 class ActivityParams(BaseModel):
     activity_column: str | None = Field(
         default=None,
-        description="Column holding a log potency, for ligand efficiency; omit if there is none",
+        description=(
+            "Column holding the activity, for ligand efficiency and lipophilic "
+            "efficiency; omit if there is none"
+        ),
     )
+    kind: Literal["log", "concentration"] | None = Field(
+        default=None,
+        description=(
+            "What the column's numbers are, required whenever a column is named. log: "
+            "already a log potency (pIC50, pEC50, pKi). concentration: a dose (IC50, "
+            "EC50, Ki), which is converted to a log potency first and needs the unit below"
+        ),
+    )
+    unit: str | None = Field(
+        default=None,
+        description=(
+            "Unit of a concentration column (M, mM, uM, nM, pM). Required when kind is "
+            "concentration, because an efficiency computed on the wrong scale is not "
+            "wrong by a little"
+        ),
+    )
+
+    @model_validator(mode="after")
+    def _scale_is_stated(self) -> ActivityParams:
+        """A named column must say what scale it is on.
+
+        Defaulting to "a log potency" is what produced ligand efficiencies of 1.45 from a
+        micromolar column: every value of this field is plausible, nothing downstream can
+        tell which was meant, and the number that comes out looks like a result.
+        """
+        if self.activity_column and self.kind is None:
+            raise ValueError(
+                "Say what the activity column holds: kind 'log' for a pIC50-style "
+                "potency, or kind 'concentration' with a unit for an IC50-style dose."
+            )
+        return self
 
 
 class ConfoundParams(BaseModel):
@@ -225,9 +259,12 @@ class AssayParams(BaseModel):
     )
     higher_is_better: bool = Field(
         description=(
-            "Whether a larger value of the activity (after the kind's own conversion) "
-            "is the better result, from what the assay measures. Getting this wrong "
-            "reverses every conclusion the study draws, so it is asked, not guessed"
+            "Whether a larger number **in the column as the scientist wrote it** is the "
+            "better compound. An IC50, EC50, Ki or MIC in a concentration unit is false: "
+            "2 nM beats 200 nM. A pIC50 is true. A selectivity index is true even though "
+            "it is a ratio of concentrations. This is about the column on the page and "
+            "never about any scale the tools convert to afterwards. Getting it wrong "
+            "reverses every conclusion the study draws"
         )
     )
     unit: str | None = Field(
@@ -246,6 +283,36 @@ class AssayParams(BaseModel):
             if text in ("false", "no"):
                 return False
         return value
+
+    @model_validator(mode="after")
+    def _direction_matches_the_column(self) -> AssayParams:
+        """Refuse a direction the column's own name contradicts.
+
+        A concentration where bigger is better is not nonsense -- a selectivity index is
+        exactly that -- so the contradiction cannot be found from `kind` alone. It can be
+        found from the header, and the hint table that reads headers is already here for
+        the cliff finder, with a confidence flag saying when it actually recognised the
+        assay. So this rejects only the cases that table is sure about.
+
+        The failure this exists for: a column named IC50_uM accepted as higher-is-better,
+        which marked the weakest compound in the set as the better member of every matched
+        pair. Nothing downstream can notice, because every conclusion is consistently
+        reversed.
+        """
+        from daikonstudio.infrastructure.tools.vendor.sar import sar_cliffs
+
+        detected = sar_cliffs.detect_activity(self.activity_column)
+        if not detected.get("confident") or detected["higher_is_better"] == self.higher_is_better:
+            return self
+        wanted = "higher is better" if detected["higher_is_better"] else "lower is better"
+        raise ValueError(
+            f"{self.activity_column!r} reads as an assay where {wanted} "
+            f"({detected['why']}), and this says the opposite. `higher_is_better` is "
+            f"about the number as written in the column, not about any scale it is "
+            f"converted to later: an IC50 in a concentration unit is lower-is-better. "
+            f"Set it to {str(detected['higher_is_better']).lower()}, or rename the column "
+            f"if it is not that assay."
+        )
 
 
 class CoreParams(BaseModel):
