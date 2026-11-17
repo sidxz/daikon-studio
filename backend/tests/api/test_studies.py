@@ -61,7 +61,12 @@ COMPOUNDS = PlanningTurn(
                 tool_id="property_profile",
                 purpose="Profile them against pIC50.",
                 gated=False,
-                settings=[Setting(name="activity_column", value="pIC50")],
+                settings=[
+                    Setting(name="activity_column", value="pIC50"),
+                    # A named activity column must say what scale it is on, or the plan
+                    # cannot start: see ActivityParams._scale_is_stated.
+                    Setting(name="kind", value="log"),
+                ],
             ),
         ],
         checks=["An effect counts only over at least four compounds."],
