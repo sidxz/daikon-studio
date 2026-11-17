@@ -292,16 +292,21 @@ GPU_DOCKER  := docker --context $(GPU_CONTEXT)
 # login it sends, is this machine's, and the ghcr login lives on atlantic (RELEASING.md).
 GPU_SSH      = ssh $(patsubst ssh://%,%,$(shell docker context inspect $(GPU_CONTEXT) --format '{{.Endpoints.docker.Host}}'))
 
+# Busts only the apt layer, and only when asked: `publish-runner-gpu` passes the date so a
+# release re-reads Ubuntu's archive, while a dev build keeps the default and the cache.
+APT_EPOCH ?= cached
+
 image-runner-gpu: ## Build the CUDA runner image on atlantic as daikon-runner:gpu (backend/Dockerfile.gpu)
 	$(call BUILD_INFO,backend) && $(GPU_DOCKER) build -f backend/Dockerfile.gpu -t daikon-runner:gpu \
-		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE backend
+		--build-arg APP_VERSION --build-arg APP_GIT_SHA --build-arg APP_BUILD_DATE \
+		--build-arg APT_EPOCH=$(APT_EPOCH) backend
 
 # ponytail: the scan runs Trivy in a container on atlantic, which cannot see a local
 # .trivyignore (there is none yet); mount or copy it in once one exists.
 publish-runner-gpu: ## Backend release: build the CUDA runner on atlantic, test it on the GPU, Trivy-scan it, push to ghcr
 	@git describe --exact-match --tags --match 'backend-v*' HEAD >/dev/null 2>&1 && git diff --quiet HEAD \
 	  || { echo "publish-runner-gpu: check out a backend-v* tag, with a clean tree, first (RELEASING.md)"; exit 1; }
-	$(MAKE) image-runner-gpu
+	$(MAKE) image-runner-gpu APT_EPOCH=$$(date -u +%Y-%m-%d)
 	$(GPU_DOCKER) run --rm --gpus all daikon-runner:gpu python -c "import torch, chemprop; \
 		assert torch.cuda.is_available(), 'torch cannot see the GPU: host driver too old for this torch build?'; \
 		x = torch.ones(1024, 1024, device='cuda'); print(torch.__version__, torch.cuda.get_device_name(0), float((x @ x).sum()))"

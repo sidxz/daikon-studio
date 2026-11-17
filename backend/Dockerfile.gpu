@@ -45,7 +45,18 @@ FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 # a small C launcher the first time it runs. Without a compiler every MoLFormer fit dies with
 # "RuntimeError: Failed to find C compiler" -- found 2026-10-04 by the first MoLFormer run on
 # atlantic; a Mac never takes this path (MPS has no Triton).
-RUN rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
+#
+# APT_EPOCH exists because `apt-get upgrade` and a layer cache are a bad pair. atlantic
+# keeps a lasting cache on purpose -- it is what took a GPU publish from eleven minutes to
+# about one -- and it served this layer unchanged for a month, so the upgrade ran against
+# package lists from October. backend-v0.10.0's first scan found 226 fixable HIGH/CRITICAL
+# findings with linux-libc-dev pinned at 5.15.0-198.208 while Ubuntu had 5.15.0-203.213.
+# The build was green every time; nothing was upgrading. `publish-runner-gpu` passes
+# today's date, so a published image never carries packages older than the day it was
+# built, and a plain `make image-runner-gpu` keeps the default and stays cached.
+ARG APT_EPOCH=cached
+RUN echo "apt epoch: $APT_EPOCH" \
+ && rm -f /etc/apt/sources.list.d/cuda*.list /etc/apt/sources.list.d/nvidia*.list \
  && apt-get update \
  && apt-get upgrade -y --no-install-recommends \
  && apt-get install -y --no-install-recommends libxrender1 libxext6 libexpat1 libgomp1 gcc libc6-dev \
