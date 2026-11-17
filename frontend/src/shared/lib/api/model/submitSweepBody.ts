@@ -5,6 +5,7 @@
 import type { SweepConfigBody } from './sweepConfigBody';
 import type { SubmitSweepBodyBaselineEngineId } from './submitSweepBodyBaselineEngineId';
 import type { SubmitSweepBodyBaselineConditions } from './submitSweepBodyBaselineConditions';
+import type { SubmitSweepBodySubsetColumn } from './submitSweepBodySubsetColumn';
 
 export interface SubmitSweepBody {
   /**
@@ -21,4 +22,12 @@ export interface SubmitSweepBody {
   baseline_engine_id?: SubmitSweepBodyBaselineEngineId;
   baseline_conditions?: SubmitSweepBodyBaselineConditions;
   tune_cutoffs?: boolean;
+  run_baseline?: boolean;
+  optimism_gap?: boolean;
+  /**
+   * @minimum 0
+   * @maximum 10
+   */
+  split_replicates?: number;
+  subset_column?: SubmitSweepBodySubsetColumn;
 }

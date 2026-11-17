@@ -370,6 +370,7 @@ export * from './studyResponseStartedAt';
 export * from './submitSweepBody';
 export * from './submitSweepBodyBaselineConditions';
 export * from './submitSweepBodyBaselineEngineId';
+export * from './submitSweepBodySubsetColumn';
 export * from './substitutionResponse';
 export * from './swapRequest';
 export * from './sweepConfigBody';

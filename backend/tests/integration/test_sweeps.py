@@ -529,3 +529,56 @@ async def test_a_joint_engine_in_the_last_config_on_a_mixed_dataset_creates_no_r
     )
     assert isinstance(result, Failure)
     assert await runs_repository.sweep_summaries(auth.workspace_id) == []
+
+
+@pytest.mark.asyncio
+async def test_the_evaluation_options_reach_every_run_in_the_sweep(
+    submit_sweep, dataset, auth
+) -> None:
+    """A sweep is several protocols measured against one another, so the options that
+    decide how each is measured belong to the sweep rather than to its configs. Turning
+    the baseline and the random split off is also what makes a sweep one fit per
+    configuration instead of three, which is the difference between sweeping a setting
+    and sweeping it overnight."""
+    result = await submit_sweep(
+        SubmitSweepCommand(
+            name="quick read",
+            dataset_id=dataset.id,
+            configs=[
+                SweepConfig(engine_id="ecfp4-randomforest", conditions={}),
+                SweepConfig(engine_id="ecfp4-xgboost", conditions={}),
+            ],
+            run_baseline=False,
+            optimism_gap=False,
+            subset_column="hard",
+        ),
+        auth=auth,
+    )
+
+    runs = result.unwrap().runs
+    assert len(runs) == 2
+    for run in runs:
+        assert run.params["run_baseline"] is False
+        assert run.params["optimism_gap"] is False
+        assert run.params["subset_column"] == "hard"
+
+
+@pytest.mark.asyncio
+async def test_a_sweep_left_alone_still_runs_its_baseline_and_random_split(
+    submit_sweep, dataset, auth
+) -> None:
+    """The defaults are what make a sweep's ranking mean something; the options above
+    are an opt-out, not the new normal."""
+    result = await submit_sweep(
+        SubmitSweepCommand(
+            name="full comparison",
+            dataset_id=dataset.id,
+            configs=[SweepConfig(engine_id="ecfp4-randomforest", conditions={})],
+        ),
+        auth=auth,
+    )
+
+    params = result.unwrap().runs[0].params
+    assert params["run_baseline"] is True
+    assert params["optimism_gap"] is True
+    assert params["subset_column"] is None

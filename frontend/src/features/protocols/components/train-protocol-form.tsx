@@ -21,7 +21,6 @@ import { QueryError } from "@/shared/components/query-error";
 import { Badge } from "@/shared/components/ui/badge";
 import { Button } from "@/shared/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/components/ui/card";
-import { Checkbox } from "@/shared/components/ui/checkbox";
 import {
   Collapsible,
   CollapsibleContent,
@@ -54,6 +53,12 @@ import {
 } from "../lib/conditions";
 import { DatasetPicker } from "./dataset-picker";
 import { EnginePicker, computeLabel } from "./engine-picker";
+import {
+  DEFAULT_EVALUATION_OPTIONS,
+  type EvaluationOptions,
+  EvaluationOptionsFields,
+  evaluationOptionsChanged,
+} from "./evaluation-options-fields";
 import { TrainingSettings, changedSettings, settingValue } from "./training-settings";
 import { TuneCutoffsField } from "./tune-cutoffs-field";
 
@@ -129,20 +134,16 @@ export function TrainProtocolForm() {
   const [baselineEngineId, setBaselineEngineId] = useState("");
   const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
   const [tuneCutoffs, setTuneCutoffs] = useState(false);
-  // Both on by default: they are what makes a number evidence rather than a number.
-  // Off is for reproducing a published protocol, which ran neither.
-  const [runBaseline, setRunBaseline] = useState(true);
-  const [optimismGap, setOptimismGap] = useState(true);
-  // How many extra draws of the split to train on, to measure how much the score
-  // depends on which compounds landed in the test set. Off by default: each draw is
-  // another full training run.
-  const [replicates, setReplicates] = useState(0);
-  // A column whose true rows get their own number on the scorecard, for comparing
-  // against a published figure measured over part of a test set.
-  const [subsetColumn, setSubsetColumn] = useState<string>("");
+  // The baseline and the random split are on by default: they are what makes a number
+  // evidence rather than a number. Off is for reproducing a published protocol, which
+  // ran neither, and for a quick read on a setting whose reference you already know.
+  const [evaluation, setEvaluation] = useState<EvaluationOptions>(DEFAULT_EVALUATION_OPTIONS);
+  const { runBaseline, optimismGap, splitReplicates: replicates, subsetColumn } = evaluation;
+  const patchEvaluation = (patch: Partial<EvaluationOptions>) =>
+    setEvaluation((prev) => ({ ...prev, ...patch }));
   const [reproductionOpen, setReproductionOpen] = useState(false);
   // Shown on the collapsed trigger, so a changed setting is never invisible.
-  const reproductionChanged = !runBaseline || !optimismGap || subsetColumn !== "" || replicates > 0;
+  const reproductionChanged = evaluationOptionsChanged(evaluation);
   const [runId, setRunId] = useState<string | undefined>();
   const [datasetSearch, setDatasetSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -769,96 +770,12 @@ export function TrainProtocolForm() {
                   <p className="text-xs text-muted-foreground">
                     Adjust these evaluation settings to match the methods used in a published study.
                   </p>
-                  {datasetColumns != null && datasetColumns.length > 0 && (
-                    <div className="space-y-1.5 rounded-lg border p-4">
-                      <Label htmlFor="subset-column" className="font-normal">
-                        Report a separate metric for one group of compounds
-                      </Label>
-                      <Select value={subsetColumn} onValueChange={setSubsetColumn}>
-                        <SelectTrigger id="subset-column">
-                          <SelectValue placeholder="None" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="">None</SelectItem>
-                          {datasetColumns.map((column) => (
-                            <SelectItem key={column} value={column}>
-                              {column}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        Rows where this column is true are measured again on their own. Use it when
-                        the number you are comparing against was reported over part of a test set
-                        rather than all of it.
-                      </p>
-                    </div>
-                  )}
-                  <div className="space-y-3 rounded-lg border p-4">
-                    <div className="space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          id="run-baseline"
-                          checked={runBaseline}
-                          onCheckedChange={(value) => setRunBaseline(value !== false)}
-                        />
-                        <Label htmlFor="run-baseline" className="font-normal">
-                          Compare against a baseline model
-                        </Label>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        On by default. Fits a reference model for the scorecard comparison. Turning
-                        it off removes the baseline comparison and verdict.
-                      </p>
-                    </div>
-                    {dataset != null && hasRandomComparison(dataset.split.strategy) && (
-                      <div className="space-y-1.5 border-t pt-3">
-                        <div className="flex items-center gap-2">
-                          <Checkbox
-                            id="optimism-gap"
-                            checked={optimismGap}
-                            onCheckedChange={(value) => setOptimismGap(value !== false)}
-                          />
-                          <Label htmlFor="optimism-gap" className="font-normal">
-                            Also train on a random split
-                          </Label>
-                        </div>
-                        <p className="text-xs text-muted-foreground">
-                          On by default. Adds training on a random split so the scorecard can report
-                          the optimism gap. Turning it off reduces training time and removes that
-                          comparison.
-                        </p>
-                      </div>
-                    )}
-                    {dataset != null && isReplicableSplit(dataset.split.strategy) && (
-                      <div className="space-y-1.5 border-t pt-3">
-                        <Label htmlFor="split-replicates" className="font-normal">
-                          Extra draws of the split
-                        </Label>
-                        <Input
-                          id="split-replicates"
-                          type="number"
-                          min={0}
-                          max={10}
-                          value={replicates}
-                          onChange={(event) =>
-                            // Clamped here as well as on the server, so the badge can never
-                            // promise work the request would be refused for.
-                            setReplicates(
-                              Math.max(0, Math.min(10, Number(event.target.value) || 0)),
-                            )
-                          }
-                          className="w-24"
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          None by default. Each draw creates another training and test split of the
-                          same compounds and adds a full training run. The scorecard reports score
-                          variation across splits to help assess whether a lead over the baseline is
-                          consistent.
-                        </p>
-                      </div>
-                    )}
-                  </div>
+                  <EvaluationOptionsFields
+                    value={evaluation}
+                    onChange={patchEvaluation}
+                    columns={datasetColumns ?? undefined}
+                    splitStrategy={dataset?.split.strategy}
+                  />
                 </CollapsibleContent>
               </Collapsible>
               {dataset != null && hasRandomComparison(dataset.split.strategy) && (

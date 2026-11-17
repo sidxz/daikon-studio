@@ -11037,6 +11037,34 @@
             "type": "boolean",
             "title": "Tune Cutoffs",
             "default": false
+          },
+          "run_baseline": {
+            "type": "boolean",
+            "title": "Run Baseline",
+            "default": true
+          },
+          "optimism_gap": {
+            "type": "boolean",
+            "title": "Optimism Gap",
+            "default": true
+          },
+          "split_replicates": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Split Replicates",
+            "default": 0
+          },
+          "subset_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Column"
           }
         },
         "type": "object",

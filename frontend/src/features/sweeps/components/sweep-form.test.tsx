@@ -65,6 +65,7 @@ vi.mock("@/features/datasets", () => ({
       split: { strategy: "scaffold" },
     },
   }),
+  useDatasetColumns: () => ({ data: { columns: ["cliff_mol"] } }),
 }));
 
 vi.mock("@/features/engines", async () => {
