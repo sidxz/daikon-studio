@@ -102,6 +102,10 @@ def test_a_receptor_without_hydrogens_is_refused_not_analysed() -> None:
 
     from daikonstudio.infrastructure.tools.impl.structure import pose_interactions
 
+    # ProLIF arrives with the chem-tools extra, which only that lane installs: not CI,
+    # not the API tier. The guard under test lives behind its import.
+    pytest.importorskip("prolif")
+
     bare = _atom(1, 10, 0.0, 0.0, 0.0)  # a carbon alpha and nothing else
     poses = pl.DataFrame(
         {
@@ -143,7 +147,9 @@ def test_interactions_are_declared_and_implemented() -> None:
 def test_a_pose_fails_on_anything_that_is_not_true() -> None:
     """A check that could not run reads as a failure: a pose that cannot be judged is
     not a pose to trust. The names come back so the reader knows what to disbelieve."""
-    import pandas as pd
+    # pandas comes in with the chem-tools extra (posebusters reports through it), so it is
+    # absent wherever that extra is not installed -- CI included.
+    pd = pytest.importorskip("pandas")
 
     from daikonstudio.infrastructure.tools.impl.structure import _verdict
 
