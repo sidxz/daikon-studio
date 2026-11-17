@@ -331,8 +331,14 @@ security-scan: image-runner-cpu image-frontend image-runner-chem ## Trivy gate b
 	# the yaml form, and the yaml form is the one that carries a reason and an expiry.
 	# Named on every call so a suppression cannot apply to one image and silently not
 	# another.
+	# The three nested ones need **/: trivy matches a skip pattern against the path from
+	# the scan root, so bare `node_modules`, `.venv` and `.next` never matched
+	# frontend/node_modules, backend/.venv or frontend/.next, and all three were scanned
+	# every time. Harmless until the Anthropic SDK arrived, whose docstrings carry
+	# placeholder keys the secret scanner reported as four leaked GCP service accounts.
+	# The rest sit at the root, where a bare name does match.
 	trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --ignorefile .trivyignore.yaml \
-	  --skip-dirs node_modules,.venv,.next,.claude,.logs,.blobs,.superpowers,docs,internal-docs .
+	  --skip-dirs '**/node_modules,**/.venv,**/.next,.claude,.logs,.blobs,.superpowers,docs,internal-docs' .
 	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 daikon-runner:cpu
 	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 daikon-frontend:local
 	# The chem image ships p2rank, whose bundled jars are not ours to upgrade. It was left
