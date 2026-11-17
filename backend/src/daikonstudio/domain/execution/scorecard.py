@@ -301,6 +301,14 @@ class Scorecard:
     subset_count: int | None = None
     subset_total: int | None = None
     subset_metric: float | None = None
+    #: The baseline's score over the same rows, and the 95% interval of the difference
+    #: between the two, by the same paired resampling the overall verdict uses. Both None
+    #: when there is no baseline to compare against, when the model is its own baseline,
+    #: and for every Scorecard built before the baseline was measured over the subset --
+    #: where `subset_metric` alone said how the model did on those rows but not whether
+    #: that was better than the reference, which is the only reason to report a subset.
+    baseline_subset_metric: float | None = None
+    subset_difference_ci: tuple[float, float] | None = None
     #: The decision cutoffs MCC and balanced accuracy were measured at, for this model
     #: and for its baseline; None means 0.5. `cutoff_note` is why a requested tuning
     #: did not happen (too few validation compounds of a class, say), and None when it

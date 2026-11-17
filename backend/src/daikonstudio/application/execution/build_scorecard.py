@@ -420,6 +420,36 @@ def build_scorecard(
         else None
     )
 
+    # The same two numbers over the flagged rows alone. A published subset score -- a
+    # cliff RMSE, say -- is a claim about those rows, so the model's number over them
+    # only answers it beside the reference's, measured the same way.
+    # ponytail: a third bootstrap of `_CI_RESAMPLES`, and a Scorecard is rebuilt on every
+    # read. Only runs when a subset was asked for; cache the card if subset reads get slow.
+    subset_rows = (
+        [index for index, flagged in enumerate(subset) if flagged] if subset is not None else []
+    )
+    comparable_subset = (
+        subset_rows
+        and baseline_predicted is not None
+        and baseline_metrics is not None
+        and not baseline_is_self
+        and len(subset or []) == len(actual) == len(baseline_predicted)
+    )
+    subset_differences = (
+        _paired_difference_scores(
+            task,
+            [actual[index] for index in subset_rows],
+            [predicted[index] for index in subset_rows],
+            [baseline_predicted[index] for index in subset_rows],
+            cutoff=decision_cutoff,
+            inclusive=inclusive,
+            baseline_cutoff=baseline_cutoff if baseline_cutoff is not None else 0.5,
+            baseline_inclusive=baseline_inclusive,
+        )
+        if comparable_subset and baseline_predicted is not None
+        else None
+    )
+
     similarities = chemistry.similarities
     applicability_coverage = (
         sum(1 for s in similarities if s >= _APPLICABILITY_THRESHOLD) / len(similarities)
@@ -514,6 +544,19 @@ def build_scorecard(
             if subset is not None
             else None
         ),
+        baseline_subset_metric=(
+            subset_metric(
+                task,
+                actual,
+                baseline_predicted,
+                subset=subset,
+                cutoff=baseline_cutoff if baseline_cutoff is not None else 0.5,
+                inclusive=baseline_inclusive,
+            )
+            if comparable_subset and subset is not None and baseline_predicted is not None
+            else None
+        ),
+        subset_difference_ci=_interval(subset_differences),
         cutoff=cutoff,
         baseline_cutoff=baseline_cutoff,
         cutoff_note=cutoff_note,

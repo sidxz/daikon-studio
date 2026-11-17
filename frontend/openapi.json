@@ -10273,6 +10273,31 @@
             ],
             "title": "Subset Metric"
           },
+          "baseline_subset_metric": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Subset Metric"
+          },
+          "subset_difference_ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Difference Ci"
+          },
           "cutoff": {
             "anyOf": [
               {
