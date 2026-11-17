@@ -4736,6 +4736,58 @@
         }
       }
     },
+    "/api/v1/studies/{study_id}/values/{value_id}/file": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Read Value File",
+        "description": "The coordinates behind a value, as a file.\n\nEverything else about a value is served without its text, which is right for a page\nof twenty rows and wrong for the two cases that need the molecule itself: drawing a\ndocked pose in the receptor it was docked into, and opening a result in whatever\nprogram the chemist actually works in.",
+        "operationId": "read_value_file_api_v1_studies__study_id__values__value_id__file_get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "value_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Value Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sweeps": {
       "post": {
         "tags": [

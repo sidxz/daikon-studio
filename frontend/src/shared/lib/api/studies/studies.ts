@@ -1134,3 +1134,108 @@ export function useReadValueApiV1StudiesStudyIdValuesValueIdGet<TData = Awaited<
 
 
 
+/**
+ * The coordinates behind a value, as a file.
+
+Everything else about a value is served without its text, which is right for a page
+of twenty rows and wrong for the two cases that need the molecule itself: drawing a
+docked pose in the receptor it was docked into, and opening a result in whatever
+program the chemist actually works in.
+ * @summary Read Value File
+ */
+export const readValueFileApiV1StudiesStudyIdValuesValueIdFileGet = (
+    studyId: string,
+    valueId: string,
+ signal?: AbortSignal
+) => {
+      
+      
+      return customInstance<unknown>(
+      {url: `/api/v1/studies/${studyId}/values/${valueId}/file`, method: 'GET', signal
+    },
+      );
+    }
+  
+
+
+
+export const getReadValueFileApiV1StudiesStudyIdValuesValueIdFileGetQueryKey = (studyId?: string,
+    valueId?: string,) => {
+    return [
+    `/api/v1/studies/${studyId}/values/${valueId}/file`
+    ] as const;
+    }
+
+    
+export const getReadValueFileApiV1StudiesStudyIdValuesValueIdFileGetQueryOptions = <TData = Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError = HTTPValidationError>(studyId: string,
+    valueId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError, TData>>, }
+) => {
+
+const {query: queryOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getReadValueFileApiV1StudiesStudyIdValuesValueIdFileGetQueryKey(studyId,valueId);
+
+  
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>> = ({ signal }) => readValueFileApiV1StudiesStudyIdValuesValueIdFileGet(studyId,valueId, signal);
+
+      
+
+      
+
+   return  { queryKey, queryFn, enabled: !!(studyId && valueId), ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError, TData> & { queryKey: DataTag<QueryKey, TData, TError> }
+}
+
+export type ReadValueFileApiV1StudiesStudyIdValuesValueIdFileGetQueryResult = NonNullable<Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>>
+export type ReadValueFileApiV1StudiesStudyIdValuesValueIdFileGetQueryError = HTTPValidationError
+
+
+export function useReadValueFileApiV1StudiesStudyIdValuesValueIdFileGet<TData = Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError = HTTPValidationError>(
+ studyId: string,
+    valueId: string, options: { query:Partial<UseQueryOptions<Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError, TData>> & Pick<
+        DefinedInitialDataOptions<
+          Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>,
+          TError,
+          Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  DefinedUseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useReadValueFileApiV1StudiesStudyIdValuesValueIdFileGet<TData = Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError = HTTPValidationError>(
+ studyId: string,
+    valueId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError, TData>> & Pick<
+        UndefinedInitialDataOptions<
+          Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>,
+          TError,
+          Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>
+        > , 'initialData'
+      >, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+export function useReadValueFileApiV1StudiesStudyIdValuesValueIdFileGet<TData = Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError = HTTPValidationError>(
+ studyId: string,
+    valueId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError, TData>>, }
+ , queryClient?: QueryClient
+  ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> }
+/**
+ * @summary Read Value File
+ */
+
+export function useReadValueFileApiV1StudiesStudyIdValuesValueIdFileGet<TData = Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError = HTTPValidationError>(
+ studyId: string,
+    valueId: string, options?: { query?:Partial<UseQueryOptions<Awaited<ReturnType<typeof readValueFileApiV1StudiesStudyIdValuesValueIdFileGet>>, TError, TData>>, }
+ , queryClient?: QueryClient 
+ ):  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> } {
+
+  const queryOptions = getReadValueFileApiV1StudiesStudyIdValuesValueIdFileGetQueryOptions(studyId,valueId,options)
+
+  const query = useQuery(queryOptions, queryClient) as  UseQueryResult<TData, TError> & { queryKey: DataTag<QueryKey, TData, TError> };
+
+  query.queryKey = queryOptions.queryKey ;
+
+  return query;
+}
+
+
+
+
