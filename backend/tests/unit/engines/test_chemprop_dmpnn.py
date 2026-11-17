@@ -1023,3 +1023,79 @@ def test_every_epoch_is_recorded_with_validation_scores() -> None:
     assert set(points[-1].scores) == {"auroc", "auprc", "mcc"}
     # Kept by the default `epoch_selection`, and reported with every point.
     assert all(point.kept_by == "auprc" and point.kept_epoch in (1, 2) for point in points)
+
+
+_CLIFF_AWARE = {**_FAST, "cliff_awareness": True, "cliff_strength": 1.0}
+
+
+def test_a_cliff_aware_fit_saves_a_checkpoint_that_predicts_like_any_other() -> None:
+    """The claim that lets `predict` stay untouched: cliff awareness changes the class of
+    the model that trains but adds nothing to its saved hyperparameters, so the artifact
+    loads as a plain MPNN. If that were wrong this would fail at load, not at training --
+    which is to say, on the scientist's prediction rather than on their run."""
+    frame = _frame([float(i) for i in range(20)])
+    engine = ChempropDMPNN()
+
+    result = engine.train(
+        replace(_train_context(frame, TaskType.REGRESSION), conditions=_CLIFF_AWARE)
+    )
+
+    predictions = engine.predict(
+        PredictContext(
+            frame=frame,
+            structure_column="smiles",
+            artifact=result.artifact,
+            conditions={},
+            target_columns=("y",),
+        )
+    )
+    assert predictions.height == frame.height
+    assert predictions["value"].null_count() == 0
+    assert "rmse" in result.metrics["y"]
+
+
+def test_cliff_awareness_actually_reaches_the_loss() -> None:
+    """A training option that silently does nothing is the failure this guards against:
+    the term is added inside `training_step`, where no result above it would notice its
+    absence. Trained on the same data with the same seed, the term's weight must move the
+    fitted weights."""
+    import io
+
+    import torch
+
+    frame = _frame([float(i) for i in range(20)])
+    context = _train_context(frame, TaskType.REGRESSION)
+
+    def weights(conditions: dict[str, Any]) -> Any:
+        artifact = ChempropDMPNN().train(replace(context, conditions=conditions)).artifact
+        saved = torch.load(io.BytesIO(artifact), map_location="cpu", weights_only=False)
+        return torch.cat(
+            [
+                value.flatten()
+                for value in saved["state_dict"].values()
+                if value.is_floating_point()
+            ]
+        )
+
+    without = weights({**_CLIFF_AWARE, "cliff_strength": 0.0})
+    assert not torch.allclose(weights(_CLIFF_AWARE), without)
+
+
+def test_cliff_awareness_refuses_a_fit_it_cannot_honour() -> None:
+    """Two measured targets leave `|y_a - y_b|` undefined, so there is no one activity
+    difference to mine cliffs by. Refused with a reason, rather than quietly mining the
+    first target and reporting both."""
+    frame = _frame([float(i) for i in range(20)]).with_columns(
+        (pl.col("y") * 2.0 + 1.0).alias("z")
+    )
+
+    with pytest.raises(Exception, match="one measured target at a time"):
+        ChempropDMPNN().train(
+            TrainContext(
+                frame=frame,
+                targets={"y": TaskType.REGRESSION, "z": TaskType.REGRESSION},
+                structure_column="smiles",
+                conditions=_CLIFF_AWARE,
+                seed=13,
+            )
+        )

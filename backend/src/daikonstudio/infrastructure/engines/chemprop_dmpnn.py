@@ -147,6 +147,59 @@ _MANIFEST = EngineManifest(
         EPOCH_SELECTION,
         RDKIT_DESCRIPTORS,
         ConditionSpec(
+            key="cliff_awareness",
+            label="Cliff awareness",
+            type=ConditionType.BOOL,
+            default=False,
+            tasks=(TaskType.REGRESSION,),
+            help="Adds a term to the training loss that separates compounds which look "
+            "alike but differ sharply in activity. Left to itself the network assumes "
+            "that similar structures behave similarly, which is the assumption an "
+            "activity cliff breaks, and it tends to split the difference and get both "
+            "compounds wrong. Published results report better accuracy on datasets that "
+            "contain cliffs, on the ordinary compounds as well as the cliffs themselves. "
+            "Applies to a single measured target at a time.",
+        ),
+        ConditionSpec(
+            key="cliff_same_activity",
+            label="Same-activity window",
+            type=ConditionType.NUMBER,
+            default=0.2,
+            minimum=0.0,
+            maximum=10.0,
+            tasks=(TaskType.REGRESSION,),
+            help="Two compounds count as having the same activity when their measured "
+            "values differ by no more than this, in the target's own units. For a "
+            "potency on a log scale, one unit is a ten-fold change. Only used when cliff "
+            "awareness is on.",
+        ),
+        ConditionSpec(
+            key="cliff_gap",
+            label="Cliff difference",
+            type=ConditionType.NUMBER,
+            default=1.0,
+            minimum=0.0,
+            maximum=20.0,
+            tasks=(TaskType.REGRESSION,),
+            help="Two compounds count as differing sharply when their measured values "
+            "differ by at least this much, in the target's own units. It must be at "
+            "least the same-activity window; leaving a gap between the two keeps the "
+            "borderline pairs, which are the ones a measurement error can flip, out of "
+            "the comparison. Only used when cliff awareness is on.",
+        ),
+        ConditionSpec(
+            key="cliff_strength",
+            label="Cliff awareness strength",
+            type=ConditionType.NUMBER,
+            default=0.1,
+            minimum=0.0,
+            maximum=10.0,
+            tasks=(TaskType.REGRESSION,),
+            help="How much the cliff term weighs against fitting the measured values. "
+            "Higher values reshape what the network learns more forcefully, at the cost "
+            "of fitting the numbers. Only used when cliff awareness is on.",
+        ),
+        ConditionSpec(
             key=ENSEMBLE_SIZE,
             label="Ensemble size",
             type=ConditionType.INTEGER,
@@ -364,6 +417,47 @@ def _restored_model(state: Checkpoints) -> Any:
         return None
 
 
+def _cliff_awareness(conditions: dict[str, Any], columns: Sequence[str], scaler: Any) -> Any:
+    """The cliff-awareness settings in the units the loss sees, or None when it is off.
+
+    The thresholds are entered in the target's own units and the loss sees standardized
+    ones, so each is divided by the scaler's scale -- the same `scale_[0]` the epoch
+    charts use to report the loss in real units.
+
+    ponytail: one target only. The generalization is a triplet term per target, each
+    mined and scaled on its own labels and averaged; refusing is what keeps an untested
+    one out of a published number. Raised here rather than at enqueue because this is
+    where the target count and the engine's own settings are both in hand -- the run
+    fails immediately, before any training.
+    """
+    if not bool(conditions["cliff_awareness"]):
+        return None
+
+    from daikonstudio.infrastructure.engines._chemprop_aca import CliffAwareness
+
+    lower = float(conditions["cliff_same_activity"])
+    upper = float(conditions["cliff_gap"])
+    if lower > upper:
+        raise ValidationError(
+            f"The same-activity window ({lower:g}) cannot be larger than the cliff "
+            f"difference ({upper:g}): no pair of compounds could satisfy both."
+        )
+    if scaler is None:
+        raise ValidationError(
+            "Cliff awareness compares how far apart two compounds' measured values are, "
+            "so it applies to continuous targets only."
+        )
+    if len(columns) != 1:
+        raise ValidationError(
+            "Cliff awareness trains on one measured target at a time, and this dataset "
+            f"has {len(columns)}. Train each target separately, or turn it off."
+        )
+    scale = float(scaler.scale_[0])
+    return CliffAwareness(
+        lower=lower / scale, upper=upper / scale, weight=float(conditions["cliff_strength"])
+    )
+
+
 def _build_model(
     *,
     pretrained: str,
@@ -377,6 +471,7 @@ def _build_model(
     n_descriptors: int = 0,
     x_d_transform: Any = None,
     learning_rate: float = 1e-3,
+    cliff: Any = None,
 ) -> Any:
     """The network, before any data touches it.
 
@@ -389,6 +484,9 @@ def _build_model(
     `criterion` replaces the classification head's stock BCE (None keeps it);
     `n_descriptors` widens the predictor's input by that many molecule-level features
     concatenated onto the graph embedding, and `x_d_transform` standardizes them.
+    `cliff` adds the cliff-awareness term to the training loss (None leaves the loss as
+    chemprop's own), which is the one argument that changes the class of the returned
+    model rather than how it is configured.
     `learning_rate` is the schedule's peak; it starts and ends at a tenth of that, the
     ratio of chemprop's own defaults (1e-4, 1e-3, 1e-4), so 1e-3 trains exactly as an
     unset one did.
@@ -436,7 +534,12 @@ def _build_model(
         if is_classification
         else RegressionFFN(input_dim=input_dim, n_tasks=n_tasks, output_transform=output_transform)
     )
-    return MPNN(
+    model_class = MPNN
+    if cliff is not None:
+        from daikonstudio.infrastructure.engines._chemprop_aca import CliffAwareMPNN
+
+        model_class = CliffAwareMPNN
+    model = model_class(
         message_passing=message_passing,
         # CheMeleon requires mean aggregation, which is also what this engine
         # has always used -- so there is nothing to branch on.
@@ -455,6 +558,11 @@ def _build_model(
         if is_classification
         else [RMSE(), MAE(), R2Score()],
     )
+    # After construction, not through it: an argument would land in the saved
+    # hyperparameters and `MPNN.load_from_file` could not rebuild the checkpoint.
+    if cliff is not None:
+        model.cliff = cliff
+    return model
 
 
 class ChempropDMPNN:
@@ -541,6 +649,10 @@ class ChempropDMPNN:
         # puts predictions back into real units, and scaling the truth as well would
         # cancel out silently.
 
+        # Before anything expensive: a fit this engine will refuse should fail in
+        # seconds, not after featurizing the dataset.
+        cliff = _cliff_awareness(conditions, columns, target_scaler)
+
         x_d_scaler = None
         if use_descriptors:
             # Scale the TRAINING set only. ScaleTransform is a no-op in train mode and
@@ -593,6 +705,7 @@ class ChempropDMPNN:
                 if x_d_scaler is None
                 else ScaleTransform.from_standard_scaler(x_d_scaler),
                 learning_rate=learning_rate,
+                cliff=cliff,
             )
 
         def fit(index: int) -> tuple[Any, Any]:
