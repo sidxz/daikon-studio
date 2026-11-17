@@ -10,10 +10,14 @@ version, and publishes a changelog + GitHub Release.
 |-----------|-------------------|------------------------------------------------|
 | Backend   | `backend-vX.Y.Z`  | `ghcr.io/sidxz/daikon-studio/api:X.Y.Z`        |
 | Frontend  | `frontend-vX.Y.Z` | `ghcr.io/sidxz/daikon-studio/frontend:X.Y.Z`   |
+| Chem runner | `backend-vX.Y.Z` | `ghcr.io/sidxz/daikon-studio/runner-chem:X.Y.Z` |
 | GPU runner | `backend-vX.Y.Z` | `ghcr.io/sidxz/daikon-studio/runner-gpu:X.Y.Z` (step 6, not CI) |
 
 The backend image is both the API and the default-lane (CPU) runner, so a
-backend release versions both. Pushing a tag in one namespace builds, tags, and
+backend release versions both. The chem-tools and GPU runners carry the same
+backend code against different system dependencies, so a backend tag versions
+all four; only the GPU one is published outside CI, because of its size and the
+GPU it has to be tested on. Pushing a tag in one namespace builds, tags, and
 releases **only** that component, and moves its `:latest`. Pushes to `main` and pull
 requests run the tests only and build no images.
 
