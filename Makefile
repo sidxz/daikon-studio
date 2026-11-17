@@ -337,8 +337,14 @@ security-scan: image-runner-cpu image-frontend image-runner-chem ## Trivy gate b
 	# every time. Harmless until the Anthropic SDK arrived, whose docstrings carry
 	# placeholder keys the secret scanner reported as four leaked GCP service accounts.
 	# The rest sit at the root, where a bare name does match.
+	# A local .env is skipped (Sid, 2026-11-17) because this gate measures what ships, and
+	# an untracked file does not ship. What keeps it untracked is `.gitignore` plus the
+	# gitleaks pre-commit hook, which reads staged content on every commit; neither is
+	# this scan. Left in, the gate was red on the developer's own keys every release,
+	# which is the fastest way to teach everyone to read past a red scan.
 	trivy fs --scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 --ignorefile .trivyignore.yaml \
-	  --skip-dirs '**/node_modules,**/.venv,**/.next,.claude,.logs,.blobs,.superpowers,docs,internal-docs' .
+	  --skip-dirs '**/node_modules,**/.venv,**/.next,.claude,.logs,.blobs,.superpowers,docs,internal-docs' \
+	  --skip-files '**/.env' .
 	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 daikon-runner:cpu
 	trivy image --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --ignorefile .trivyignore.yaml --exit-code 1 daikon-frontend:local
 	# The chem image ships p2rank, whose bundled jars are not ours to upgrade. It was left

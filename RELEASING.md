@@ -61,13 +61,18 @@ changes at once rather than each fix as it lands.
    or years old, because it does not detect them. Scan the built image. A zero from a
    directory scan means the scanner did not look, not that there is nothing there.
 
-### The p2rank findings, open as of 2026-10-25
+### The p2rank findings, ten as of 2026-11-17
 
-The chem image is **red on eight findings and must not be published** until someone
-decides what to do about them. All eight are in jars that ship inside p2rank 2.5.1:
-`jackson-core` 2.13.4 (CVE-2025-52999, CVE-2026-68494, CVE-2026-89425),
-`jackson-databind` 2.13.4.2 (CVE-2026-54512, CVE-2026-54513, CVE-2026-91776,
-CVE-2026-91777) and `msgpack-core` 0.8.24 (CVE-2026-21452).
+All ten are in jars that ship inside p2rank 2.5.1: `jackson-core` 2.13.4
+(CVE-2025-52999, CVE-2026-68494, CVE-2026-89425), `jackson-databind` 2.13.4.2
+(CVE-2026-54512, CVE-2026-54513, CVE-2026-91776, CVE-2026-91777), `msgpack-core` 0.8.24
+(CVE-2026-21452), and — found on 2026-11-17, when the chem image was scanned for the
+release that first publishes it — `guava` 33.4.8-jre (CVE-2026-102554) and `zt-zip` 1.17
+(CVE-2026-63436).
+
+Eight to ten in three weeks, with the tarball pinned the whole time. The count moves
+because advisories are published against a fixed artefact, which is the argument for an
+expiry rather than a permanent entry.
 
 We do not build those jars. p2rank is fetched as a released tarball pinned by
 checksum, and `bin/lib` is its own. Upgrading does not help: 2.6-alpha scanned as an
@@ -77,9 +82,9 @@ faithful substitute, for what that is worth later: on 1HSG and 1CA2 it returns t
 same rank 1, the same score and probability, the same centre and the same lining
 residues as 2.5.1.
 
-**Decided 2026-10-25: option 2.** The eight ids are suppressed in
-`.trivyignore.yaml` with the reasoning above and an expiry of 2026-12-31, so the gate
-passes and the expiry forces the question again rather than letting it rot. The three
+**Decided 2026-10-25: option 2**, and again on 2026-11-17 for the two new ids, on the
+same reasoning and the same expiry. All ten are suppressed in `.trivyignore.yaml`, so the
+gate passes and the expiry forces the question again rather than letting it rot. The three
 options, kept for whoever revisits:
 
 1. Wait for a stable p2rank after 2.5.1 that bundles current jackson.
