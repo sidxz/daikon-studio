@@ -216,11 +216,11 @@ function SplitHonestySection({
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-base">Is this split a real test?</CardTitle>
+        <CardTitle className="text-base">Test-to-training similarity</CardTitle>
         <p className="text-sm text-muted-foreground">
-          Tanimoto similarity of each test compound to its nearest training compound: an
-          applicability-domain check before training. A test set close to the training set inflates
-          scores for any engine.
+          Tanimoto similarity of each test compound to its nearest training compound. High
+          similarity can make test performance less representative of predictions on unfamiliar
+          compounds.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
@@ -243,7 +243,7 @@ function SplitHonestySection({
                 tone={similarity.near_duplicates > 0 ? "warning" : undefined}
                 detail={
                   similarity.near_duplicates > 0
-                    ? `Test compounds with Tanimoto similarity ≥ ${similarity.near_duplicate_threshold} to a training compound. These are effectively seen in training and inflate every metric.`
+                    ? `Test compounds with Tanimoto similarity ≥ ${similarity.near_duplicate_threshold} to a training compound. These close matches can make test performance less representative of predictions on unfamiliar compounds.`
                     : `No test compound has Tanimoto similarity ≥ ${similarity.near_duplicate_threshold} to a training compound.`
                 }
               />
@@ -269,7 +269,7 @@ function SplitHonestySection({
               at: similarity.within_domain_threshold,
               label: "Domain threshold",
             }}
-            caption="Mass to the right indicates a test set similar to the training set, so the benchmark is easier than it appears. Mass to the left indicates extrapolation, where a lower score is more informative."
+            caption="Values to the right indicate test compounds more similar to training compounds. Values to the left indicate less similar compounds."
           />
         )}
         <Explainer id="split" durationMs={SPLIT_MS} caption={splitCaption(strategy)}>

@@ -98,6 +98,7 @@ from daikonstudio.application.ports.chemcellar import ChemCellar
 from daikonstudio.application.ports.dataset_build_repository import DatasetBuildRepository
 from daikonstudio.application.ports.dataset_repository import DatasetRepository
 from daikonstudio.application.ports.folder_repository import FolderRepository
+from daikonstudio.application.ports.llm import LanguageModels
 from daikonstudio.application.ports.page_repository import PageRepository
 from daikonstudio.application.ports.profile_computer import ProfileComputer
 from daikonstudio.application.ports.protocol_access import ProtocolAccess
@@ -107,12 +108,24 @@ from daikonstudio.application.ports.run_repository import RunRepository
 from daikonstudio.application.ports.runner_repository import RunnerRepository
 from daikonstudio.application.ports.sequence_clusterer import SequenceClusterer
 from daikonstudio.application.ports.structure_normalizer import StructureNormalizer
+from daikonstudio.application.ports.study_repository import StudyRepository
+from daikonstudio.application.ports.table_profiler import TableProfiler
+from daikonstudio.application.ports.tool_executor import ToolExecutor
 from daikonstudio.application.runners.manage import (
     CreateRunner,
     DeleteRunner,
     ListRunners,
     RevokeRunner,
 )
+from daikonstudio.application.studies.advance_study import AdvanceStudy
+from daikonstudio.application.studies.agent import ObserveStep, StudyAgent
+from daikonstudio.application.studies.apply_proposal import ApplyProposal
+from daikonstudio.application.studies.get_study import GetStudy, ListStudies
+from daikonstudio.application.studies.open_study import AttachFiles, OpenStudy
+from daikonstudio.application.studies.read_value import ReadValue
+from daikonstudio.application.studies.scientist_actions import ApproveCandidate, SwapTool
+from daikonstudio.application.studies.start_study import StartStudy
+from daikonstudio.application.tools.registry import ToolRegistry
 from daikonstudio.infrastructure.chem.normalizer import RdkitStructureNormalizer
 from daikonstudio.infrastructure.chem.profile import ChildProcessProfileComputer
 from daikonstudio.infrastructure.chemcellar.client import HttpChemCellar
@@ -120,6 +133,9 @@ from daikonstudio.infrastructure.duar.auth import get_duar
 from daikonstudio.infrastructure.duar.protocol_access import DuarProtocolAccess
 from daikonstudio.infrastructure.engines.registry import default_registry
 from daikonstudio.infrastructure.jobs import DbEnqueuer, InlineEnqueuer
+from daikonstudio.infrastructure.llm.anthropic import AnthropicLanguageModel
+from daikonstudio.infrastructure.llm.openai import OpenAILanguageModel
+from daikonstudio.infrastructure.llm.registry import ConfiguredLanguageModels
 from daikonstudio.infrastructure.persistence.session import create_session_factory
 from daikonstudio.infrastructure.persistence.sqlalchemy.catalog.repository import (
     SqlAlchemyProtocolRepository,
@@ -142,8 +158,15 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.pages import SqlAlchemyP
 from daikonstudio.infrastructure.persistence.sqlalchemy.runners.repository import (
     SqlAlchemyRunnerRepository,
 )
+from daikonstudio.infrastructure.persistence.sqlalchemy.studies.repository import (
+    SqlAlchemyStudyRepository,
+)
 from daikonstudio.infrastructure.protein.cluster import Mmseqs2Clusterer
 from daikonstudio.infrastructure.storage.fsspec_blob_store import FsspecBlobStore
+from daikonstudio.infrastructure.tables.profiler import PolarsTableProfiler
+from daikonstudio.infrastructure.tools.catalog import default_registry as default_tool_registry
+from daikonstudio.infrastructure.tools.lane_executor import LaneToolExecutor
+from daikonstudio.infrastructure.tools.runtime import ChildProcessToolExecutor
 from daikonstudio.settings import Settings
 
 
@@ -185,6 +208,38 @@ def create_container(settings: Settings | None = None) -> Container:
     # overridden per test/request, so caching carries none of the JobEnqueuer
     # risk below.
     container.define(EngineRegistry, Singleton(default_registry))
+    # Safe as a Singleton: the catalogue is a module-level tuple of frozen manifests,
+    # so it touches no session factory and nothing can mutate it between tests.
+    container.define(ToolRegistry, Singleton(default_tool_registry))
+    # Singletons, like the ChemCellar client and for the same reason: each holds a
+    # pooled HTTP client it creates lazily on first use. Neither touches the
+    # network at construction, and neither reaches an async_sessionmaker, which is
+    # the thing a Singleton must never capture.
+    container.define(
+        LanguageModels,  # type: ignore[type-abstract]
+        Singleton(
+            lambda: ConfiguredLanguageModels(
+                models={
+                    "anthropic": AnthropicLanguageModel(
+                        api_key=resolved.anthropic_api_key, model=resolved.anthropic_model
+                    ),
+                    "openai": OpenAILanguageModel(
+                        api_key=resolved.openai_api_key, model=resolved.openai_model
+                    ),
+                },
+                configured=frozenset(
+                    name
+                    for name, key in (
+                        ("anthropic", resolved.anthropic_api_key),
+                        ("openai", resolved.openai_api_key),
+                    )
+                    if key
+                ),
+                default=resolved.planner_provider,
+            )
+        ),
+    )
+    container.define(TableProfiler, Singleton(PolarsTableProfiler))  # type: ignore[type-abstract]
 
     def _datasets(c: Container) -> SqlAlchemyDatasetRepository:
         return SqlAlchemyDatasetRepository(c[async_sessionmaker])
@@ -201,12 +256,54 @@ def create_container(settings: Settings | None = None) -> Container:
     def _runs(c: Container) -> SqlAlchemyRunRepository:
         return SqlAlchemyRunRepository(c[async_sessionmaker])
 
+    def _studies(c: Container) -> SqlAlchemyStudyRepository:
+        return SqlAlchemyStudyRepository(c[async_sessionmaker])
+
     # Bound as container keys (not just the private helpers above) so the
     # runner-protocol routes -- which resolve every collaborator through the
     # container rather than constructing one in a route, like every other
     # route -- can depend on `RunRepository`/`DatasetRepository`/
     # `ProtocolRepository` directly (`interface/routes/runner_api.py`).
     container.define(RunRepository, lambda c: _runs(c))  # type: ignore[type-abstract]
+    container.define(StudyRepository, lambda c: _studies(c))  # type: ignore[type-abstract]
+    container.define(
+        ObserveStep,
+        lambda c: ObserveStep(_studies(c), c[ToolRegistry], c[LanguageModels], c[BlobStore]),
+    )
+    container.define(
+        AdvanceStudy,
+        lambda c: AdvanceStudy(
+            _studies(c), c[ToolRegistry], c[ToolExecutor], c[BlobStore], c[ObserveStep]
+        ),
+    )
+    container.define(
+        StudyAgent,
+        lambda c: StudyAgent(
+            _studies(c), c[ToolRegistry], c[LanguageModels], c[BlobStore], c[AdvanceStudy]
+        ),
+    )
+    container.define(
+        OpenStudy,
+        lambda c: OpenStudy(
+            _studies(c), c[BlobStore], c[TableProfiler], c[StudyAgent], c[LanguageModels]
+        ),
+    )
+    container.define(
+        AttachFiles,
+        lambda c: AttachFiles(_studies(c), c[BlobStore], c[TableProfiler], c[ToolRegistry]),
+    )
+    container.define(StartStudy, lambda c: StartStudy(_studies(c), c[ToolRegistry]))
+    container.define(SwapTool, lambda c: SwapTool(_studies(c), c[ToolRegistry]))
+    container.define(
+        ApproveCandidate, lambda c: ApproveCandidate(_studies(c), c[ToolRegistry], c[BlobStore])
+    )
+    container.define(
+        ApplyProposal,
+        lambda c: ApplyProposal(_studies(c), c[ToolRegistry], c[BlobStore], c[AdvanceStudy]),
+    )
+    container.define(GetStudy, lambda c: GetStudy(_studies(c)))
+    container.define(ListStudies, lambda c: ListStudies(_studies(c)))
+    container.define(ReadValue, lambda c: ReadValue(_studies(c), c[BlobStore]))
     container.define(DatasetRepository, lambda c: _datasets(c))  # type: ignore[type-abstract]
     container.define(ProtocolRepository, lambda c: _protocols(c))  # type: ignore[type-abstract]
 
@@ -331,6 +428,19 @@ def create_container(settings: Settings | None = None) -> Container:
     container.define(
         RunnerRepository,  # type: ignore[type-abstract]
         lambda c: SqlAlchemyRunnerRepository(c[async_sessionmaker]),
+    )
+    # A default-lane tool runs in a child process here; any other lane is a queued
+    # TOOL run. Plain factory: it reaches the session factory, like the enqueuer.
+    container.define(
+        ToolExecutor,  # type: ignore[type-abstract]
+        lambda c: LaneToolExecutor(
+            c[ToolRegistry],
+            ChildProcessToolExecutor(c[BlobStore]),
+            _runs(c),
+            c[JobEnqueuer],
+            c[RunnerRepository],
+            c[BlobStore],
+        ),
     )
     # Resolved settings, for interface dependencies that need config values
     # directly rather than through a use case (e.g. lease-extension seconds).

@@ -56,10 +56,10 @@ _MANIFEST = EngineManifest(
     name="Site-mean fitness",
     description=(
         "Predicts the average measured value of the training variants that mutate the "
-        "same residue, ignoring which residue replaced it. The floor a variant-effect "
-        "model has to clear to have learned anything beyond which positions matter — "
-        "published models often do not. Under a mutated-position holdout it reduces to "
-        "the training average, which is the honest comparison."
+        "same position, regardless of the replacement residue. Use it as a comparison "
+        "baseline to assess what a model learns beyond position-specific effects. "
+        "When test positions are held out of training, it predicts the overall "
+        "training average."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(),

@@ -171,5 +171,12 @@ export const customInstance = async <T>({
     return undefined as T;
   }
 
+  // Not everything this API returns is JSON. A value's coordinates come back as a file,
+  // and parsing a PDB as JSON throws on its first line rather than failing usefully.
+  const type = response.headers.get("content-type") ?? "";
+  if (!type.includes("json")) {
+    return (await response.text()) as T;
+  }
+
   return response.json() as Promise<T>;
 };

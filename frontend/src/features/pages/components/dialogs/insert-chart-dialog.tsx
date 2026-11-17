@@ -185,7 +185,7 @@ export function InsertChartDialog({
       open={open}
       onClose={() => onOpenChange(false)}
       title={editing ? "Edit chart" : seed ? `Insert ${seed.label.toLowerCase()}` : "Insert chart"}
-      description={seed ? seed.hint : "Paste a small table — the first row is the column headers."}
+      description={seed ? seed.hint : "Paste a table with column headers in the first row."}
       confirmLabel={editing ? "Save changes" : "Insert chart"}
       canConfirm={hasData}
       onConfirm={confirm}
@@ -233,7 +233,7 @@ export function InsertChartDialog({
                 <p className="px-2 text-center">Paste a table to preview the chart</p>
               ) : !hasData ? (
                 <p className="px-2 text-center">
-                  No numeric column to plot yet — check the header row and the data.
+                  No numeric column found. Check the header row and the data.
                 </p>
               ) : (
                 // The chart keeps its own 16:9 aspect, so it needs a width to

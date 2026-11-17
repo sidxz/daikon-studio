@@ -5,7 +5,9 @@ import {
   ProtocolsIcon,
   RunnersIcon,
   RunsIcon,
+  StudiesIcon,
   SweepsIcon,
+  ToolsIcon,
 } from "@/shared/components/icons/nav-icons";
 import { LayoutDashboard } from "lucide-react";
 import type { ComponentType } from "react";
@@ -48,6 +50,12 @@ export const navigation: NavGroup[] = [
     label: "Curate",
     items: [
       {
+        title: "Studies",
+        href: "/studies",
+        icon: StudiesIcon,
+        iconClassName: "text-icon-studies",
+      },
+      {
         title: "Datasets",
         href: "/datasets",
         icon: DatasetsIcon,
@@ -78,6 +86,7 @@ export const navigation: NavGroup[] = [
     label: "Catalog",
     items: [
       { title: "Engines", href: "/engines", icon: EnginesIcon, iconClassName: "text-icon-engines" },
+      { title: "Tools", href: "/tools", icon: ToolsIcon, iconClassName: "text-icon-tools" },
       { title: "Runners", href: "/runners", icon: RunnersIcon, iconClassName: "text-icon-runners" },
     ],
   },

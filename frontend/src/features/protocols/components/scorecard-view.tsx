@@ -415,25 +415,85 @@ function SubsetMetric({ scorecard }: { scorecard: ScorecardResponse }) {
               : `${metricLabel(scorecard.primary_metric)} is undefined on these rows: every flagged compound has the same label.`}
           </p>
         ) : (
-          <dl className="flex items-baseline gap-3">
-            <dt className="text-sm text-muted-foreground">
-              {metricLabel(scorecard.primary_metric)}
-            </dt>
-            <dd>
-              <ReadoutValue
-                value={scorecard.subset_metric}
-                /* Same rule as MetricTable: the "higher is better" metrics are
-                   unitless, and a binary target carrying a unit would otherwise
-                   render "MCC 0.432 nM". */
-                unit={higherIsBetter(scorecard.primary_metric) ? undefined : scorecard.unit}
-                precision={3}
-                className="text-xl font-semibold"
-              />
-            </dd>
-          </dl>
+          <div className="space-y-3">
+            <dl className="flex items-baseline gap-3">
+              <dt className="text-sm text-muted-foreground">
+                {metricLabel(scorecard.primary_metric)}
+              </dt>
+              <dd>
+                <ReadoutValue
+                  value={scorecard.subset_metric}
+                  /* Same rule as MetricTable: the "higher is better" metrics are
+                     unitless, and a binary target carrying a unit would otherwise
+                     render "MCC 0.432 nM". */
+                  unit={higherIsBetter(scorecard.primary_metric) ? undefined : scorecard.unit}
+                  precision={3}
+                  className="text-xl font-semibold"
+                />
+              </dd>
+              {scorecard.baseline_subset_metric != null && (
+                <>
+                  <dt className="text-sm text-muted-foreground">baseline</dt>
+                  <dd>
+                    <ReadoutValue
+                      value={scorecard.baseline_subset_metric}
+                      unit={higherIsBetter(scorecard.primary_metric) ? undefined : scorecard.unit}
+                      precision={3}
+                      className="text-xl font-semibold text-muted-foreground"
+                    />
+                  </dd>
+                </>
+              )}
+            </dl>
+            <SubsetDifference scorecard={scorecard} />
+          </div>
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Whether the model's lead over the baseline on the flagged rows survives resampling
+ * them.
+ *
+ * Separate from the overall verdict on purpose: a method aimed at one kind of compound
+ * can win on those rows and lose overall, or the reverse, and a reader comparing against
+ * a published subset number is asking about these rows only. The wording matches the
+ * overall verdict so the two read as the same measurement on different rows.
+ */
+function SubsetDifference({ scorecard }: { scorecard: ScorecardResponse }) {
+  const interval = scorecard.subset_difference_ci;
+  const metric = scorecard.subset_metric;
+  const baseline = scorecard.baseline_subset_metric;
+  if (interval == null || metric == null || baseline == null) return null;
+  const [low, high] = interval;
+  // Lower is better for an error metric, so a model ahead of its baseline has a negative
+  // difference there and a positive one where the metric is a score.
+  const better = higherIsBetter(scorecard.primary_metric) ? low > 0 : high < 0;
+  const worse = higherIsBetter(scorecard.primary_metric) ? high < 0 : low > 0;
+  return (
+    <div className="space-y-1 border-t pt-3">
+      <p className="text-sm">
+        <span className="font-medium">
+          {better
+            ? "Ahead of the baseline on these rows"
+            : worse
+              ? "Behind the baseline on these rows"
+              : "No better than the baseline on these rows"}
+        </span>{" "}
+        <span className="text-muted-foreground">
+          {signed(metric - baseline)}, 95% interval for the difference: {signed(low)} to{" "}
+          {signed(high)}.
+        </span>
+      </p>
+      {!better && !worse && (
+        <p className="text-xs text-muted-foreground">
+          Zero is inside the interval, so this test cannot tell which model is better on these
+          compounds.
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -564,7 +624,7 @@ export function ScorecardView({
       <ScorecardDiagnostics scorecard={scorecard} mode="overview" />
       <ScorecardSection
         title="Where does the model struggle?"
-        description="Explore how performance changes with training similarity and chemical family."
+        description="Performance by training similarity and chemical family."
       >
         <ScorecardSimilarity
           key={scorecard.target}

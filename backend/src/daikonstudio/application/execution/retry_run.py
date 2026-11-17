@@ -95,6 +95,8 @@ class RetryRun:
         return Success(run)
 
     async def _lane(self, run: Run, auth: AuthContext) -> str:
+        if run.kind is RunKind.TOOL:
+            return str(run.params["lane"])
         try:
             if run.kind is RunKind.TRAINING:
                 return training_lane(

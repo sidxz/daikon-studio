@@ -59,6 +59,12 @@ class SubmitSweepBody(BaseModel):
     # Applies to every config in the sweep: configs measured at different cutoffs are
     # not a comparison.
     tune_cutoffs: bool = False
+    # Likewise for the evaluation options a single Protocol offers. Turning the baseline
+    # and the random split off is what makes a sweep one fit per config.
+    run_baseline: bool = True
+    optimism_gap: bool = True
+    split_replicates: int = Field(default=0, ge=0, le=10)
+    subset_column: str | None = None
 
 
 class SweepRunResponse(BaseModel):
@@ -160,6 +166,10 @@ async def submit_sweep(
         baseline_engine_id=body.baseline_engine_id,
         baseline_conditions=body.baseline_conditions,
         tune_cutoffs=body.tune_cutoffs,
+        run_baseline=body.run_baseline,
+        optimism_gap=body.optimism_gap,
+        split_replicates=body.split_replicates,
+        subset_column=body.subset_column,
     )
     sweep = result_to_response(await service(command, auth=auth))
     return SweepDetailResponse.from_runs(sweep.sweep_id, sweep.runs)

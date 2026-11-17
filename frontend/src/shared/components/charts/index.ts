@@ -1,6 +1,7 @@
 export {
   BinnedCurveChart,
   CoverageCurveChart,
+  ForestChart,
   HistogramChart,
   HorizontalBarChart,
   ParityChart,

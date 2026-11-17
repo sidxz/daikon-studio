@@ -4,5 +4,9 @@ services:
     environment: {POSTGRES_USER: studio, POSTGRES_PASSWORD: studio, POSTGRES_DB: studio}
     ports: ["127.0.0.1:5437:5432"]
     volumes: ["studio_pgdata:/var/lib/postgresql/data"]
+    # Docker keeps a container's log forever by default. A full disk makes Postgres
+    # PANIC on checkpoint and crash-loop, and an uncapped log then spends what is
+    # left of the disk describing it -- so the cure needs the cap more than anything.
+    logging: {driver: json-file, options: {max-size: "10m", max-file: "3"}}
 volumes:
   studio_pgdata:

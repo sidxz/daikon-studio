@@ -41,8 +41,8 @@ _MANIFEST = EngineManifest(
     version="1.0.0",
     name="ECFP4 + Random Forest",
     description=(
-        "Morgan fingerprints with a random forest. Fast, robust, and the required "
-        "baseline every model on this platform is measured against."
+        "Morgan fingerprints with a random forest. The default comparison baseline "
+        "for small-molecule models."
     ),
     tasks=(TaskType.REGRESSION, TaskType.BINARY_CLASSIFICATION),
     conditions=(

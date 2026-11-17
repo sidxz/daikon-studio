@@ -58,6 +58,7 @@ async def test_seed_runs_when_inline_jobs_is_set(_migrated_engine: AsyncEngine) 
     )
     names = await seed_module.seed(settings)
     assert set(names) == set(_DEV_RUNNER_NAMES)
+    assert ("dev-local-chem", ["chem-tools"], "drt_dev_chem") in seed_module._DEV_RUNNERS
 
 
 async def test_seed_does_not_resurrect_a_revoked_dev_runner(_migrated_engine: AsyncEngine) -> None:

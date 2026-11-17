@@ -23,6 +23,7 @@ here rather than carried on `ctx`.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -44,6 +45,7 @@ from daikonstudio.application.ports.protocol_access import ProtocolAccess
 from daikonstudio.application.ports.protocol_repository import ProtocolRepository
 from daikonstudio.application.ports.run_queue import RunQueue
 from daikonstudio.application.ports.run_repository import RunRepository
+from daikonstudio.application.tools.tool_run import ToolRunParams, execute_tool_run
 from daikonstudio.domain.execution.run import Run, RunKind, RunStatus
 from daikonstudio.domain.shared.errors import ConflictError
 from daikonstudio.infrastructure.chem.chemical_space import UmapLayout
@@ -58,6 +60,7 @@ from daikonstudio.infrastructure.persistence.sqlalchemy.data.repository import (
 from daikonstudio.infrastructure.persistence.sqlalchemy.execution.repository import (
     SqlAlchemyRunRepository,
 )
+from daikonstudio.infrastructure.tools.runtime import run_tool
 
 _logger = structlog.get_logger(__name__)
 
@@ -117,7 +120,18 @@ async def _predict(ctx: dict[str, Any], run: Run) -> str:
     )(run)
 
 
-_HANDLERS: dict[RunKind, JobHandler] = {RunKind.TRAINING: _train, RunKind.PREDICTION: _predict}
+async def _tool(ctx: dict[str, Any], run: Run) -> str:
+    """One tool step, in this process: a runner is already a process of its own."""
+    run.report_progress(0.0, phase=f"running {ToolRunParams.from_params(run.params).tool_id}")
+    await ctx["runs"].update(run)
+    return await asyncio.to_thread(execute_tool_run, run, ctx["store"], run_tool)
+
+
+_HANDLERS: dict[RunKind, JobHandler] = {
+    RunKind.TRAINING: _train,
+    RunKind.PREDICTION: _predict,
+    RunKind.TOOL: _tool,
+}
 
 
 async def _load(ctx: dict[str, Any], run_id: uuid.UUID) -> Run:

@@ -439,6 +439,10 @@ class ScorecardResponse(BaseModel):
     subset_count: int | None = None
     subset_total: int | None = None
     subset_metric: float | None = None
+    # The baseline over the same rows, and the 95% interval of the difference. Both null
+    # when there was no baseline to compare against, or the card predates them.
+    baseline_subset_metric: float | None = None
+    subset_difference_ci: list[float] | None = None
     # The decision cutoffs MCC and balanced accuracy were measured at, for the model and
     # its baseline. Null means 0.5. `cutoff_note` says why a requested tuning did not
     # happen; null when it did or was not requested.
@@ -537,6 +541,10 @@ class ScorecardResponse(BaseModel):
             subset_count=card.subset_count,
             subset_total=card.subset_total,
             subset_metric=card.subset_metric,
+            baseline_subset_metric=card.baseline_subset_metric,
+            subset_difference_ci=(
+                list(card.subset_difference_ci) if card.subset_difference_ci else None
+            ),
             cutoff=card.cutoff,
             baseline_cutoff=card.baseline_cutoff,
             cutoff_note=card.cutoff_note,

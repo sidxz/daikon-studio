@@ -1,0 +1,84 @@
+# syntax=docker/dockerfile:1
+# The chem-tools lane runner: OpenMM, PDBFixer, PROPKA, the fpocket and vina binaries and
+# p2rank. CPU only.
+# fpocket is not an apt package on Debian trixie, so it is built from source in a
+# throwaway stage (the CC flag: fpocket 4.2.3 predates GCC 14, which makes its pointer-type
+# mismatches hard errors) and only the binary is copied across.
+FROM python:3.13-slim AS fpocket
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential git ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+RUN git clone --depth 1 --branch 4.2.3 https://github.com/Discngine/fpocket.git /src \
+ && make -C /src ARCH=LINUXAMD64 CC="gcc -Wno-error=incompatible-pointer-types" \
+ && install -m 0755 /src/bin/fpocket /usr/local/bin/fpocket
+
+# p2rank 2.5.1, MIT (Radoslav Krivák et al.), the second pocket finder. BuildKit fetches
+# the tarball and checks it against the pin; it is unpacked here so the 275 MB archive
+# stays out of the runtime image's layers.
+FROM python:3.13-slim AS p2rank
+ADD --checksum=sha256:d243f2d9036ac053fefb9407b5fe1c85f4fe077c519fd975ac585e995feab274 \
+    https://github.com/rdk/p2rank/releases/download/2.5.1/p2rank_2.5.1.tar.gz /opt/p2rank.tar.gz
+RUN mkdir -p /opt/p2rank && tar -xzf /opt/p2rank.tar.gz -C /opt/p2rank
+
+# AutoDock Vina 1.2.7, Apache-2.0 (Scripps). A statically linked 4 MB binary, so unlike
+# fpocket it needs no build stage: BuildKit fetches it and checks it against the pin.
+FROM python:3.13-slim AS vina
+ADD --checksum=sha256:f31f774f723bba7bbe6e9d1c47577020eea9a8da16424284c043d22593570644 \
+    https://github.com/ccsb-scripps/AutoDock-Vina/releases/download/v1.2.7/vina_1.2.7_linux_x86_64 \
+    /usr/local/bin/vina
+
+FROM python:3.13-slim
+
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
+WORKDIR /app
+
+# libgomp1: same OpenMP runtime trap as Dockerfile. The JRE runs p2rank.
+# The X11 and font libraries are prolif's doing, not ours: it imports rdkit.Chem.Draw at
+# package load, and that module links against the whole 2D drawing stack whether or not
+# anything is ever drawn. Without them the lane dies on import, which a laptop never shows
+# because a desktop has them already. Listed together rather than added one failed build
+# at a time: libXrender and libXext for the canvas, expat and the font pair beneath it.
+RUN apt-get update \
+ && apt-get upgrade -y --no-install-recommends \
+ && apt-get install -y --no-install-recommends libgomp1 openjdk-21-jre-headless ca-certificates \
+    libxrender1 libxext6 libexpat1 libfreetype6 libfontconfig1 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=fpocket /usr/local/bin/fpocket /usr/local/bin/fpocket
+# ADD does not preserve the execute bit, so it is set here rather than in the fetch stage.
+COPY --from=vina /usr/local/bin/vina /usr/local/bin/vina
+RUN chmod 0755 /usr/local/bin/vina
+
+# p2rank is a Java program; the same JRE is what OPSIN would need if substituent naming
+# ever wants the name check. A wrapper, not a symlink: the launcher finds its jars beside
+# itself, and through a symlink it looks in /usr/local/bin.
+COPY --from=p2rank /opt/p2rank /opt/p2rank
+RUN printf '#!/bin/sh\nexec /opt/p2rank/p2rank_2.5.1/prank "$@"\n' > /usr/local/bin/prank \
+ && chmod +x /usr/local/bin/prank
+
+RUN python -m pip uninstall -y pip \
+ && rm -rf /usr/local/lib/python3.13/ensurepip /root/.cache/pip
+
+RUN useradd --create-home --uid 10001 studio \
+ && mkdir -p /data/blobs \
+ && chown studio /app \
+ && chown -R studio /data
+
+COPY pyproject.toml uv.lock ./
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra s3 --extra chem-tools --no-install-project
+
+COPY src ./src
+COPY alembic.ini ./
+COPY alembic ./alembic
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --frozen --no-dev --extra s3 --extra chem-tools
+
+ENV PATH="/app/.venv/bin:$PATH"
+ENV OMP_NUM_THREADS=1
+
+ARG APP_VERSION=0.0.0+dev
+ARG APP_GIT_SHA=unknown
+ARG APP_BUILD_DATE=unknown
+ENV APP_VERSION=$APP_VERSION APP_GIT_SHA=$APP_GIT_SHA APP_BUILD_DATE=$APP_BUILD_DATE
+
+USER studio
+
+CMD ["python", "-m", "daikonstudio.infrastructure.runner"]

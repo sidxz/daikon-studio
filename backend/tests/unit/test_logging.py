@@ -2,8 +2,10 @@
 
 import json
 import logging
+import sys
+import time
 
-from daikonstudio.logging import DropNoisyAccess, configure_logging
+from daikonstudio.logging import DropNoisyAccess, ThrottleRepeats, configure_logging
 
 
 def _access(message: str) -> logging.LogRecord:
@@ -78,3 +80,59 @@ def test_json_format_carries_the_traceback(capsys):
     assert record["event"] == "job failed"
     assert "ValueError: boom" in record["exception"]
     assert "Traceback" in record["exception"]
+
+
+def _failure(error: type[Exception] = ConnectionError) -> logging.LogRecord:
+    try:
+        raise error("connection was closed in the middle of operation")
+    except error:
+        return logging.LogRecord(
+            "daikonstudio.test",
+            logging.ERROR,
+            __file__,
+            1,
+            "unhandled error",
+            None,
+            sys.exc_info(),
+        )
+
+
+def test_a_repeating_traceback_is_logged_once_per_window():
+    """A crash-looping database wrote 5.1 GB of one traceback and pinned a core
+    rendering it, so the API stopped answering. The first copy is the news."""
+    throttle = ThrottleRepeats(window=60.0)
+    assert throttle.filter(_failure())
+    assert not throttle.filter(_failure())
+    assert not throttle.filter(_failure())
+    # A different failure arriving mid-loop is still news.
+    assert throttle.filter(_failure(TimeoutError))
+    # And a line with no exception is cheap, so it passes untouched.
+    plain = logging.LogRecord("x", logging.INFO, __file__, 1, "job claimed", None, None)
+    assert throttle.filter(plain)
+
+
+def test_the_copy_that_gets_through_says_how_many_it_stands_for(monkeypatch):
+    clock = iter([0.0, 1.0, 2.0, 100.0])
+    monkeypatch.setattr(time, "monotonic", lambda: next(clock))
+    throttle = ThrottleRepeats(window=60.0)
+    assert throttle.filter(_failure())
+    assert not throttle.filter(_failure())
+    assert not throttle.filter(_failure())
+    record = _failure()
+    assert throttle.filter(record)
+    assert "2 more since" in record.getMessage()
+
+
+def test_a_console_traceback_does_not_dump_local_variables(capsys):
+    """structlog reaches for rich's formatter whenever rich is importable, and its
+    `show_locals` defaults to True: asyncpg's frames then put the database
+    password in the log on every error, at kilobytes a copy."""
+    configure_logging(level="INFO", fmt="console")
+    try:
+        password = "studio"  # noqa: F841 -- the point is that it must not be logged
+        raise ValueError("boom")
+    except ValueError:
+        logging.getLogger("daikonstudio.test").exception("unhandled error")
+    written = capsys.readouterr().err
+    assert "ValueError: boom" in written
+    assert "password" not in written

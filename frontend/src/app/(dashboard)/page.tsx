@@ -4,6 +4,7 @@ import { DatasetCard } from "@/features/datasets/components/dataset-list";
 import { useDatasets } from "@/features/datasets/hooks/use-datasets";
 import { useProtocols } from "@/features/protocols/hooks/use-protocols";
 import { useRuns } from "@/features/runs/hooks/use-runs";
+import { ProtocolsIcon, RunsIcon } from "@/shared/components/icons/nav-icons";
 import { ItemCard } from "@/shared/components/item-card";
 import { PageHeader } from "@/shared/components/page-header";
 import { QueryError } from "@/shared/components/query-error";
@@ -44,15 +45,21 @@ export default function DashboardPage() {
           <>
             <Button asChild variant="outline" size="sm">
               <Link href="/datasets/new">
-                <Plus className="size-3.5" />
+                <Plus className="size-3.5" aria-hidden="true" />
                 New dataset
               </Link>
             </Button>
             <Button asChild variant="outline" size="sm">
-              <Link href="/protocols/new">Train a protocol</Link>
+              <Link href="/protocols/new">
+                <ProtocolsIcon className="size-3.5" />
+                Train a protocol
+              </Link>
             </Button>
             <Button asChild size="sm">
-              <Link href="/runs/new">Run predictions</Link>
+              <Link href="/runs/new">
+                <RunsIcon className="size-3.5" />
+                Run predictions
+              </Link>
             </Button>
           </>
         }

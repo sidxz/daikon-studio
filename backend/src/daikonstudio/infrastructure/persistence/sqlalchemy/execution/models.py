@@ -71,7 +71,7 @@ class RunModel(Base, EntityModelMixin, WorkspaceIdMixin, VersionMixin):
             "status IN ('pending','running','ready','failed','cancelled')",
             name="ck_runs_status",
         ),
-        CheckConstraint("kind IN ('training','prediction')", name="ck_runs_kind"),
+        CheckConstraint("kind IN ('training','prediction','tool')", name="ck_runs_kind"),
         # Backs Task 17's cache lookup: same workspace, same cache_key means
         # identical work already has (or is getting) a result.
         Index("ix_runs_workspace_cache_key", "workspace_id", "cache_key"),

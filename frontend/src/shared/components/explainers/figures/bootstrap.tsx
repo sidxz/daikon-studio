@@ -207,12 +207,12 @@ export function BootstrapFigure({ t, data }: { t: number; data: BootstrapData })
         {diff
           ? inside
             ? "Zero is inside the likely range of the difference, so this test can't tell which model is better."
-            : `Every likely difference favors the ${modelAhead ? "model" : "baseline"}, so its lead holds up when the test compounds are reshuffled.`
+            : `The 95% interval for the score difference excludes zero and favors the ${modelAhead ? "model" : "baseline"} on this test set.`
           : inside
             ? `The baseline (${fmt(baseline)}) is inside the model's likely range, so this test can't tell which model is better.`
             : modelAhead
-              ? `The baseline (${fmt(baseline)}) is outside the model's likely range, so the model is genuinely better, not just lucky with the test compounds.`
-              : `The baseline (${fmt(baseline)}) is outside the model's likely range, so the baseline is genuinely better, not just lucky with the test compounds.`}
+              ? `The baseline (${fmt(baseline)}) is outside the model's 95% interval. The observed score favors the model on this test set.`
+              : `The baseline (${fmt(baseline)}) is outside the model's 95% interval. The observed score favors the baseline on this test set.`}
       </p>
     </div>
   );
@@ -228,8 +228,8 @@ export function BootstrapExplainer({ data }: { data: BootstrapData }) {
       durationMs={BOOTSTRAP_MS}
       caption={
         data.mode === "difference"
-          ? `A model's score depends partly on which compounds happened to be in the test set. To see how much, Studio makes ${total} reshuffled tests. Each one picks compounds at random from the real test set, so some appear twice and others not at all, and scores both models on the same picks. The pile of dots shows how far apart the two scores were each time. If zero falls outside the shaded range, one model stays ahead however the test compounds are reshuffled.`
-          : `A model's score depends partly on which compounds happened to be in the test set. To see how much, Studio makes ${total} reshuffled tests. Each one picks compounds at random from the real test set, so some appear twice and others not at all. The pile of dots shows the model's score on each. If the baseline falls outside the shaded range, the difference between the two models is real.`
+          ? `Studio resamples the test set ${total} times, allowing compounds to appear more than once, and scores both models on each sample. Each dot shows the score difference for one sample. The shaded range is the 95% interval. If it excludes zero, the interval favors one model on this test set. This does not guarantee better performance on new data.`
+          : `Studio resamples the test set ${total} times, allowing compounds to appear more than once. Each dot shows the model's score for one sample. The shaded range is the model's 95% interval; the baseline score is shown for comparison. This interval measures variation in the model's score, without accounting for variation in the baseline score.`
       }
     >
       {(t) => <BootstrapFigure t={t} data={data} />}

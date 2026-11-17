@@ -4063,6 +4063,731 @@
         }
       }
     },
+    "/api/v1/studies/providers": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "List Providers",
+        "description": "The model providers this deployment can actually reach.\n\nA provider with no key is left out rather than listed and broken, so a client can offer\nthe choice honestly. An empty list means no agent is configured. Declared before\n`/{study_id}`, which would otherwise take \"providers\" for an id.",
+        "operationId": "list_providers_api_v1_studies_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProviderResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Providers Api V1 Studies Providers Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "List Studies",
+        "description": "Your studies in this workspace, drafts included, newest first.",
+        "operationId": "list_studies_api_v1_studies_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StudyResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Studies Api V1 Studies Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Open Study",
+        "description": "Open a study on the scientist's first message, with whatever files came with it.\n\nThe agent's first turn is taken before this answers, so the thread already holds the goal\nas understood and what it needs to ask. Multipart, because the files travel with the\nmessage.",
+        "operationId": "open_study_api_v1_studies_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_open_study_api_v1_studies_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Get Study",
+        "operationId": "get_study_api_v1_studies__study_id__get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/chat": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Read Thread",
+        "description": "The study's one conversation, from the agent's first turn on.",
+        "operationId": "read_thread_api_v1_studies__study_id__chat_get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Say",
+        "description": "Say something to the study's agent, or send the answers to its questions.\n\nIt answers in the turn the study's phase calls for: before Start it writes and edits the\nplan; after, it replies, and does what the message asks only on the message's own words.\nA POST because it costs a model call, and because what was said is kept with the study.",
+        "operationId": "say_api_v1_studies__study_id__chat_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SayRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ThreadResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/files": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Attach Files",
+        "description": "Bring more files to a study, a draft or started, one of each kind.",
+        "operationId": "attach_files_api_v1_studies__study_id__files_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_attach_files_api_v1_studies__study_id__files_post"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/start": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Start Study",
+        "description": "End the draft, if its plan can go ahead as it stands. Runs nothing.",
+        "operationId": "start_study_api_v1_studies__study_id__start_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/steps/{step_id}/run": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Run Step",
+        "description": "Run one step alone in the background, whatever its gate says, and stop.\n\nRe-running a finished step adds newer values, which later steps then read; it does not\nreset those later steps. Does nothing while the study is already running.",
+        "operationId": "run_step_api_v1_studies__study_id__steps__step_id__run_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "step_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Step Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/run": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Run Study",
+        "description": "Run the steps in the background from `start` to `until`, a gate, a failure, a pause\nthe agent asks for, or the end.\n\nRe-runs a failed step. Does nothing while the study is already running.",
+        "operationId": "run_study_api_v1_studies__study_id__run_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/steps/{step_id}/tool": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Swap Tool",
+        "description": "Point a step at one of its alternatives; the thread records the change.",
+        "operationId": "swap_tool_api_v1_studies__study_id__steps__step_id__tool_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "step_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Step Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SwapRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/steps/{step_id}/approve": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Approve Candidate",
+        "description": "Choose one of the candidates a finished step reported, as the scientist's own value.\n\nThe thread records the choice, and the value names who made it.",
+        "operationId": "approve_candidate_api_v1_studies__study_id__steps__step_id__approve_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "step_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Step Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ApproveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/proposals/{proposal_id}/apply": {
+      "post": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Apply Proposal",
+        "description": "Make a change an agent proposed, now that the scientist has pressed its button.\n\nAn edit changes the plan and leaves the step for its play control. A proposal to run\nstarts the run its button names, in the background, and the study comes back as it was\nsaved before the run began.",
+        "operationId": "apply_proposal_api_v1_studies__study_id__proposals__proposal_id__apply_post",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "proposal_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Proposal Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudyResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/values/{value_id}": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Read Value",
+        "description": "One value, as much as a page shows: the first rows of a table, or a document\nwithout its raw text.",
+        "operationId": "read_value_api_v1_studies__study_id__values__value_id__get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "value_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Value Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ValueResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/studies/{study_id}/values/{value_id}/file": {
+      "get": {
+        "tags": [
+          "studies"
+        ],
+        "summary": "Read Value File",
+        "description": "The coordinates behind a value, as a file.\n\nEverything else about a value is served without its text, which is right for a page\nof twenty rows and wrong for the two cases that need the molecule itself: drawing a\ndocked pose in the receptor it was docked into, and opening a result in whatever\nprogram the chemist actually works in.",
+        "operationId": "read_value_file_api_v1_studies__study_id__values__value_id__file_get",
+        "parameters": [
+          {
+            "name": "study_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Study Id"
+            }
+          },
+          {
+            "name": "value_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Value Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/sweeps": {
       "post": {
         "tags": [
@@ -4223,10 +4948,114 @@
           }
         }
       }
+    },
+    "/api/v1/tools": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "List Tools",
+        "description": "Every tool this server offers, in the order a chemist would perform them.",
+        "operationId": "list_tools_api_v1_tools_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ToolManifestResponse"
+                  },
+                  "type": "array",
+                  "title": "Response List Tools Api V1 Tools Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/tools/{tool_id}": {
+      "get": {
+        "tags": [
+          "tools"
+        ],
+        "summary": "Get Tool",
+        "description": "One tool by id. An unknown id is a 404, through `UnknownToolError`.",
+        "operationId": "get_tool_api_v1_tools__tool_id__get",
+        "parameters": [
+          {
+            "name": "tool_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tool Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ToolManifestResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "ActedResponse": {
+        "properties": {
+          "does": {
+            "type": "string",
+            "title": "Does"
+          },
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          },
+          "quoting": {
+            "type": "string",
+            "title": "Quoting"
+          }
+        },
+        "type": "object",
+        "required": [
+          "does",
+          "step",
+          "detail",
+          "quoting"
+        ],
+        "title": "ActedResponse"
+      },
       "ActivityCliffResponse": {
         "properties": {
           "left_structure": {
@@ -4264,6 +5093,75 @@
           "delta"
         ],
         "title": "ActivityCliffResponse"
+      },
+      "AlternativeResponse": {
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "title": "Tool Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tool_id",
+          "name"
+        ],
+        "title": "AlternativeResponse"
+      },
+      "AnswerRequest": {
+        "properties": {
+          "ask": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Ask"
+          },
+          "answer": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Answer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ask",
+          "answer"
+        ],
+        "title": "AnswerRequest"
+      },
+      "AnswerResponse": {
+        "properties": {
+          "ask": {
+            "type": "string",
+            "title": "Ask"
+          },
+          "answer": {
+            "type": "string",
+            "title": "Answer"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ask",
+          "answer"
+        ],
+        "title": "AnswerResponse"
+      },
+      "ApproveRequest": {
+        "properties": {
+          "candidate": {
+            "type": "integer",
+            "title": "Candidate"
+          }
+        },
+        "type": "object",
+        "required": [
+          "candidate"
+        ],
+        "title": "ApproveRequest"
       },
       "ArchivePageBody": {
         "properties": {
@@ -4319,6 +5217,58 @@
           "uri"
         ],
         "title": "BlobPutResponse"
+      },
+      "Body_attach_files_api_v1_studies__study_id__files_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files"
+          }
+        },
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "title": "Body_attach_files_api_v1_studies__study_id__files_post"
+      },
+      "Body_open_study_api_v1_studies_post": {
+        "properties": {
+          "message": {
+            "type": "string",
+            "maxLength": 4000,
+            "title": "Message"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          },
+          "files": {
+            "items": {
+              "type": "string",
+              "contentMediaType": "application/octet-stream"
+            },
+            "type": "array",
+            "title": "Files",
+            "default": []
+          }
+        },
+        "type": "object",
+        "required": [
+          "message"
+        ],
+        "title": "Body_open_study_api_v1_studies_post"
       },
       "Body_upload_dataset_file_api_v1_datasets_uploads_post": {
         "properties": {
@@ -6985,6 +7935,54 @@
         ],
         "title": "ParityPointResponse"
       },
+      "PointerResponse": {
+        "properties": {
+          "step": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Step"
+          },
+          "at": {
+            "type": "string",
+            "title": "At"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "evidence": {
+            "type": "string",
+            "title": "Evidence"
+          },
+          "cites": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Cites"
+          },
+          "state": {
+            "type": "string",
+            "title": "State",
+            "default": ""
+          }
+        },
+        "type": "object",
+        "required": [
+          "step",
+          "at",
+          "label",
+          "evidence",
+          "cites"
+        ],
+        "title": "PointerResponse"
+      },
       "PredictBody": {
         "properties": {
           "protocol_id": {
@@ -7199,6 +8197,43 @@
         ],
         "title": "ProfileComputingResponse",
         "description": "202 while the profile is computed in the background. Poll the same URL;\nevery request joins the one computation, so polling never starts another."
+      },
+      "ProposalResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "action": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Action"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why"
+          },
+          "applied_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Applied At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "action",
+          "why",
+          "applied_at"
+        ],
+        "title": "ProposalResponse"
       },
       "ProtocolEnvelope": {
         "properties": {
@@ -7526,6 +8561,62 @@
           "note"
         ],
         "title": "ProvenanceResponse"
+      },
+      "ProviderResponse": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model": {
+            "type": "string",
+            "title": "Model"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "model"
+        ],
+        "title": "ProviderResponse"
+      },
+      "QuestionResponse": {
+        "properties": {
+          "ask": {
+            "type": "string",
+            "title": "Ask"
+          },
+          "why": {
+            "type": "string",
+            "title": "Why"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Options"
+          },
+          "default": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Default"
+          }
+        },
+        "type": "object",
+        "required": [
+          "ask",
+          "why",
+          "options",
+          "default"
+        ],
+        "title": "QuestionResponse"
       },
       "RankedPredictionResponse": {
         "properties": {
@@ -8061,7 +9152,8 @@
         "type": "string",
         "enum": [
           "training",
-          "prediction"
+          "prediction",
+          "tool"
         ],
         "title": "RunKind"
       },
@@ -8246,6 +9338,36 @@
         ],
         "title": "RunMetricsWire",
         "description": "Mirrors exactly what `Run.record_metrics` writes (`domain/execution/run.py`):\none headline per target -- the only shape a runner-reported training `metrics`\npayload may take.\n\nA free `dict[str, Any]` here would let a self-hosted runner store\narbitrary JSON verbatim in the `runs.metrics` column, inside the same\nsecurity boundary the module docstring calls out. Pinning the shape\nmeans a malformed payload is a 422 at the edge, not a write."
+      },
+      "RunRequest": {
+        "properties": {
+          "start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Start"
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Until"
+          }
+        },
+        "type": "object",
+        "title": "RunRequest"
       },
       "RunResponse": {
         "properties": {
@@ -8653,6 +9775,55 @@
           "build_date"
         ],
         "title": "RunnerResponse"
+      },
+      "SayRequest": {
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 4000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerRequest"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "title": "Answers"
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "About"
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider"
+          }
+        },
+        "type": "object",
+        "title": "SayRequest"
       },
       "ScaffoldEntryResponse": {
         "properties": {
@@ -9102,6 +10273,31 @@
             ],
             "title": "Subset Metric"
           },
+          "baseline_subset_metric": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Subset Metric"
+          },
+          "subset_difference_ci": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "number"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Difference Ci"
+          },
           "cutoff": {
             "anyOf": [
               {
@@ -9369,6 +10565,35 @@
         ],
         "title": "SimilarityProfileResponse"
       },
+      "SlotResponse": {
+        "properties": {
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "optional": {
+            "type": "boolean",
+            "title": "Optional"
+          }
+        },
+        "type": "object",
+        "required": [
+          "key",
+          "kind",
+          "label",
+          "optional"
+        ],
+        "title": "SlotResponse",
+        "description": "One thing a tool consumes or produces. `kind` is the vocabulary a plan is\nwritten in: a planner chains two tools by matching one's output kind to the\nother's input kind."
+      },
       "SplitBody": {
         "properties": {
           "strategy": {
@@ -9518,6 +10743,258 @@
         ],
         "title": "SplitStrategy"
       },
+      "StepStateResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "position": {
+            "type": "integer",
+            "title": "Position"
+          },
+          "tool_id": {
+            "type": "string",
+            "title": "Tool Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "purpose": {
+            "type": "string",
+            "title": "Purpose"
+          },
+          "params": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Params"
+          },
+          "gated": {
+            "type": "boolean",
+            "title": "Gated"
+          },
+          "always": {
+            "type": "boolean",
+            "title": "Always"
+          },
+          "expanded_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expanded From"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "problem": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Problem"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/ValueSummaryResponse"
+            },
+            "type": "array",
+            "title": "Outputs"
+          },
+          "judgment": {
+            "type": "boolean",
+            "title": "Judgment"
+          },
+          "alternatives": {
+            "items": {
+              "$ref": "#/components/schemas/AlternativeResponse"
+            },
+            "type": "array",
+            "title": "Alternatives"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "position",
+          "tool_id",
+          "name",
+          "purpose",
+          "params",
+          "gated",
+          "always",
+          "expanded_from",
+          "status",
+          "error",
+          "problem",
+          "started_at",
+          "finished_at",
+          "outputs",
+          "judgment",
+          "alternatives"
+        ],
+        "title": "StepStateResponse"
+      },
+      "StudyResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "goal": {
+            "type": "string",
+            "title": "Goal"
+          },
+          "restated_goal": {
+            "type": "string",
+            "title": "Restated Goal"
+          },
+          "checks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Checks"
+          },
+          "stop_conditions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Stop Conditions"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "running": {
+            "type": "boolean",
+            "title": "Running"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At"
+          },
+          "mode": {
+            "type": "string",
+            "title": "Mode"
+          },
+          "amended_after_steps": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Amended After Steps"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/StepStateResponse"
+            },
+            "type": "array",
+            "title": "Steps"
+          },
+          "brought": {
+            "items": {
+              "$ref": "#/components/schemas/ValueSummaryResponse"
+            },
+            "type": "array",
+            "title": "Brought"
+          },
+          "answers": {
+            "items": {
+              "$ref": "#/components/schemas/AnswerResponse"
+            },
+            "type": "array",
+            "title": "Answers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "goal",
+          "restated_goal",
+          "checks",
+          "stop_conditions",
+          "status",
+          "running",
+          "started_at",
+          "mode",
+          "amended_after_steps",
+          "updated_at",
+          "created_at",
+          "steps",
+          "brought",
+          "answers"
+        ],
+        "title": "StudyResponse"
+      },
       "SubmitSweepBody": {
         "properties": {
           "name": {
@@ -9560,6 +11037,34 @@
             "type": "boolean",
             "title": "Tune Cutoffs",
             "default": false
+          },
+          "run_baseline": {
+            "type": "boolean",
+            "title": "Run Baseline",
+            "default": true
+          },
+          "optimism_gap": {
+            "type": "boolean",
+            "title": "Optimism Gap",
+            "default": true
+          },
+          "split_replicates": {
+            "type": "integer",
+            "maximum": 10.0,
+            "minimum": 0.0,
+            "title": "Split Replicates",
+            "default": 0
+          },
+          "subset_column": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subset Column"
           }
         },
         "type": "object",
@@ -9602,6 +11107,19 @@
           "split"
         ],
         "title": "SubstitutionResponse"
+      },
+      "SwapRequest": {
+        "properties": {
+          "tool_id": {
+            "type": "string",
+            "title": "Tool Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tool_id"
+        ],
+        "title": "SwapRequest"
       },
       "SweepConfigBody": {
         "properties": {
@@ -10038,6 +11556,27 @@
         "title": "TargetSpecWire",
         "description": "Mirrors `TargetSpec` (`domain/data/target.py`)."
       },
+      "ThreadResponse": {
+        "properties": {
+          "summary": {
+            "type": "string",
+            "title": "Summary"
+          },
+          "turns": {
+            "items": {
+              "$ref": "#/components/schemas/TurnResponse"
+            },
+            "type": "array",
+            "title": "Turns"
+          }
+        },
+        "type": "object",
+        "required": [
+          "summary",
+          "turns"
+        ],
+        "title": "ThreadResponse"
+      },
       "ToleranceBinResponse": {
         "properties": {
           "lower": {
@@ -10065,6 +11604,101 @@
           "within_count"
         ],
         "title": "ToleranceBinResponse"
+      },
+      "ToolManifestResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "area": {
+            "type": "string",
+            "title": "Area"
+          },
+          "inputs": {
+            "items": {
+              "$ref": "#/components/schemas/SlotResponse"
+            },
+            "type": "array",
+            "title": "Inputs"
+          },
+          "outputs": {
+            "items": {
+              "$ref": "#/components/schemas/SlotResponse"
+            },
+            "type": "array",
+            "title": "Outputs"
+          },
+          "library": {
+            "type": "string",
+            "title": "Library"
+          },
+          "judgment": {
+            "type": "boolean",
+            "title": "Judgment"
+          },
+          "resolves_to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolves To"
+          },
+          "surface": {
+            "type": "string",
+            "title": "Surface"
+          },
+          "external": {
+            "type": "boolean",
+            "title": "External"
+          },
+          "expands_to": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Expands To"
+          },
+          "lane": {
+            "type": "string",
+            "title": "Lane"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version",
+          "name",
+          "description",
+          "area",
+          "inputs",
+          "outputs",
+          "library",
+          "judgment",
+          "resolves_to",
+          "surface",
+          "external",
+          "expands_to",
+          "lane"
+        ],
+        "title": "ToolManifestResponse",
+        "description": "A tool's manifest: what it does, what it needs, what it gives back."
       },
       "TrainProtocolBody": {
         "properties": {
@@ -10146,6 +11780,122 @@
           "conditions"
         ],
         "title": "TrainProtocolBody"
+      },
+      "TurnResponse": {
+        "properties": {
+          "role": {
+            "type": "string",
+            "title": "Role"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "say": {
+            "type": "string",
+            "title": "Say"
+          },
+          "conclusion": {
+            "type": "string",
+            "title": "Conclusion",
+            "default": ""
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "About"
+          },
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/QuestionResponse"
+            },
+            "type": "array",
+            "title": "Questions"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/PointerResponse"
+            },
+            "type": "array",
+            "title": "Points"
+          },
+          "proposals": {
+            "items": {
+              "$ref": "#/components/schemas/ProposalResponse"
+            },
+            "type": "array",
+            "title": "Proposals"
+          },
+          "unresolved": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Unresolved"
+          },
+          "actions": {
+            "items": {
+              "$ref": "#/components/schemas/ActedResponse"
+            },
+            "type": "array",
+            "title": "Actions"
+          },
+          "looked": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Looked"
+          },
+          "dropped": {
+            "type": "integer",
+            "title": "Dropped"
+          },
+          "silent": {
+            "type": "boolean",
+            "title": "Silent"
+          },
+          "written_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Written By"
+          },
+          "at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "role",
+          "kind",
+          "say",
+          "about",
+          "questions",
+          "points",
+          "proposals",
+          "unresolved",
+          "actions",
+          "looked",
+          "dropped",
+          "silent",
+          "written_by",
+          "at"
+        ],
+        "title": "TurnResponse"
       },
       "UploadResponse": {
         "properties": {
@@ -10330,6 +12080,92 @@
         ],
         "title": "ValidationReportWire",
         "description": "Mirrors `ValidationReport` (`domain/data/validation.py`).\n\n`invalid`/`conflicting` type straight to the domain's own `InvalidRow`/\n`ConflictRow` frozen dataclasses -- pydantic validates and serializes\nplain dataclasses natively, so a dedicated wire mirror for each would be\npure duplication of fields that carry no enum and need no cast."
+      },
+      "ValueResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary"
+          },
+          "data": {
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "kind",
+          "summary",
+          "data"
+        ],
+        "title": "ValueResponse"
+      },
+      "ValueSummaryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "key": {
+            "type": "string",
+            "title": "Key"
+          },
+          "kind": {
+            "type": "string",
+            "title": "Kind"
+          },
+          "summary": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Summary"
+          },
+          "produced_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Produced By"
+          },
+          "asserted_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Asserted By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "key",
+          "kind",
+          "summary",
+          "produced_by",
+          "asserted_by"
+        ],
+        "title": "ValueSummaryResponse"
       },
       "VariantPositionResponse": {
         "properties": {

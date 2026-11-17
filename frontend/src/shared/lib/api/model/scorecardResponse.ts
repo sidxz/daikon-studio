@@ -28,6 +28,8 @@ import type { ScorecardResponseSubsetColumn } from './scorecardResponseSubsetCol
 import type { ScorecardResponseSubsetCount } from './scorecardResponseSubsetCount';
 import type { ScorecardResponseSubsetTotal } from './scorecardResponseSubsetTotal';
 import type { ScorecardResponseSubsetMetric } from './scorecardResponseSubsetMetric';
+import type { ScorecardResponseBaselineSubsetMetric } from './scorecardResponseBaselineSubsetMetric';
+import type { ScorecardResponseSubsetDifferenceCi } from './scorecardResponseSubsetDifferenceCi';
 import type { ScorecardResponseCutoff } from './scorecardResponseCutoff';
 import type { ScorecardResponseBaselineCutoff } from './scorecardResponseBaselineCutoff';
 import type { ScorecardResponseCutoffNote } from './scorecardResponseCutoffNote';
@@ -102,6 +104,8 @@ export interface ScorecardResponse {
   subset_count?: ScorecardResponseSubsetCount;
   subset_total?: ScorecardResponseSubsetTotal;
   subset_metric?: ScorecardResponseSubsetMetric;
+  baseline_subset_metric?: ScorecardResponseBaselineSubsetMetric;
+  subset_difference_ci?: ScorecardResponseSubsetDifferenceCi;
   cutoff: ScorecardResponseCutoff;
   baseline_cutoff: ScorecardResponseBaselineCutoff;
   cutoff_note: ScorecardResponseCutoffNote;

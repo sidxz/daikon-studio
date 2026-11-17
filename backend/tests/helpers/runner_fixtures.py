@@ -42,8 +42,10 @@ async def seed_run(
     lane: str | None = "default",
     params: dict[str, Any] | None = None,
     requested_by: uuid.UUID | None = None,
+    id: uuid.UUID | None = None,
 ) -> Run:
     run = Run(
+        id=id,
         kind=kind,
         workspace_id=workspace_id,
         requested_by=requested_by or uuid.uuid4(),

@@ -12,10 +12,11 @@ export type CreatedRunner = CreatedRunnerResponse;
  * (`backend/src/daikonstudio/application/engines/manifest.py`). Add a lane here
  * the day a third one ships.
  */
-export const KNOWN_LANES = ["default", "gpu"] as const;
+export const KNOWN_LANES = ["default", "gpu", "chem-tools"] as const;
 export type Lane = (typeof KNOWN_LANES)[number];
 
 export const LANE_LABELS: Record<string, string> = {
   default: "Default",
   gpu: "GPU",
+  "chem-tools": "Chemistry tools",
 };

@@ -1,0 +1,17 @@
+ID,SMILES,scaffold,pIC50
+BZ-001,[nH]1c(C)cc2cc(Cl)ccc12,indole,5.19
+BZ-002,[nH]1c(CC)cc2cc(OC)ccc12,indole,4.98
+BZ-003,[nH]1c(c3ccccc3)cc2cc(F)ccc12,indole,5.58
+BZ-004,[nH]1c(C(F)(F)F)cc2cc(C#N)ccc12,indole,6.19
+BZ-005,[nH]1c(C)nc2cc(Cl)ccc12,benzimidazole,5.84
+BZ-006,[nH]1c(CC)nc2cc(OC)ccc12,benzimidazole,5.64
+BZ-007,[nH]1c(c3ccccc3)nc2cc(F)ccc12,benzimidazole,5.27
+BZ-008,[nH]1c(C(F)(F)F)nc2cc(C#N)ccc12,benzimidazole,0.25
+BZ-009,s1c(C)nc2cc(Cl)ccc12,benzothiazole,6.84
+BZ-010,s1c(CC)nc2cc(OC)ccc12,benzothiazole,7.32
+BZ-011,s1c(c3ccccc3)nc2cc(F)ccc12,benzothiazole,6.88
+BZ-012,s1c(C(F)(F)F)nc2cc(C#N)ccc12,benzothiazole,8.21
+BZ-013,o1c(C)nc2cc(Cl)ccc12,benzoxazole,7.31
+BZ-014,o1c(CC)nc2cc(OC)ccc12,benzoxazole,7.79
+BZ-015,o1c(c3ccccc3)nc2cc(F)ccc12,benzoxazole,6.95
+BZ-016,o1c(C(F)(F)F)nc2cc(C#N)ccc12,benzoxazole,8.37

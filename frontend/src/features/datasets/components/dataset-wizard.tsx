@@ -202,7 +202,7 @@ export function DatasetWizard() {
       invalidateReview();
       await adopt(workbook.source, sheet);
       setMappingNotice(
-        `Now reading the sheet "${sheet}". Check the column roles again — a different sheet can hold different columns.`,
+        `Now reading the sheet "${sheet}". Check the column roles again. This sheet may have different columns.`,
       );
     } catch (error) {
       setFileError(error instanceof Error ? error.message : "Could not read that sheet.");
@@ -452,7 +452,7 @@ export function DatasetWizard() {
                       : "Drop a CSV or Excel file here, or choose one"}
                   </span>
                   <span className="max-w-sm text-sm text-muted-foreground">
-                    A structure column — SMILES or an amino-acid sequence — and at least one
+                    A structure column containing SMILES or amino-acid sequences, and at least one
                     measured target. CSV up to 100 MB, Excel (.xlsx, .xlsm, .xls) up to 25 MB.
                   </span>
                 </button>

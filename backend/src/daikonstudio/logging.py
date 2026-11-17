@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import re
 import sys
+import time
 
 import structlog
 
@@ -26,6 +27,55 @@ _SUCCESS = re.compile(r'" (200|204)(\s|$)')
 
 #: How `configure_logging` recognises the handler it installed on a previous call.
 _HANDLER_NAME = "daikonstudio"
+
+#: How long one repeating traceback keeps its silence. The first copy carries the
+#: news; the thousandth carries the same news at the price of a disk.
+THROTTLE_WINDOW_SECONDS = 60.0
+
+#: Distinct error signatures remembered at once -- a bound, so that a loop whose
+#: messages vary cannot grow this dict instead of growing the log.
+_THROTTLE_LIMIT = 512
+
+
+class ThrottleRepeats(logging.Filter):
+    """One copy of a repeating traceback per window, then a count of the rest.
+
+    On 2026-10-22 a full Docker disk made Postgres crash-loop, which turned every
+    runner poll into an `unhandled error` traceback: 5.1 GB written in nine hours,
+    and rendering them saturated a core until the API answered nothing at all. The
+    outage was caused by reporting the outage, so the report is what is bounded
+    here.
+
+    Only records carrying an exception are throttled: those are the expensive ones
+    -- kilobytes where a line is bytes -- and a crash loop is what repeats them.
+    The key holds the logger, the message and the exception type, so a *different*
+    failure arriving mid-loop is still news and still gets through.
+    """
+
+    def __init__(self, window: float = THROTTLE_WINDOW_SECONDS) -> None:
+        super().__init__()
+        self._window = window
+        self._seen: dict[tuple[str, str, str], tuple[float, int]] = {}
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        exception = record.exc_info[0] if record.exc_info else None
+        if exception is None:
+            return True
+        key = (record.name, record.getMessage(), exception.__name__)
+        now = time.monotonic()
+        spoke_at, held = self._seen.get(key, (None, 0))
+        if spoke_at is not None and now - spoke_at < self._window:
+            self._seen[key] = (spoke_at, held + 1)
+            return False
+        if len(self._seen) >= _THROTTLE_LIMIT:
+            self._seen.clear()
+        self._seen[key] = (now, 0)
+        if held:
+            # Carried by the copy that gets through, so a reader learns the rate
+            # and not merely that the thing happened again.
+            record.msg = f"{record.getMessage()} [{held} more since]"
+            record.args = None
+        return True
 
 
 class DropNoisyAccess(logging.Filter):
@@ -46,7 +96,14 @@ def configure_logging(*, level: str = "INFO", fmt: str = "console") -> None:
     renderer: structlog.types.Processor = (
         structlog.processors.JSONRenderer()
         if fmt == "json"
-        else structlog.dev.ConsoleRenderer(colors=sys.stderr.isatty())
+        # Named explicitly because structlog's default is rich's formatter whenever
+        # rich is importable -- and its `show_locals` defaults to True, so every
+        # traceback dumped every frame's variables. asyncpg's include two full
+        # connection-parameter reprs, password and all, which put the database
+        # password in the log as often as the error.
+        else structlog.dev.ConsoleRenderer(
+            colors=sys.stderr.isatty(), exception_formatter=structlog.dev.plain_traceback
+        )
     )
     structlog.configure(
         processors=[*shared, structlog.stdlib.ProcessorFormatter.wrap_for_formatter],
@@ -65,6 +122,7 @@ def configure_logging(*, level: str = "INFO", fmt: str = "console") -> None:
     formatting.append(renderer)
     handler = logging.StreamHandler(sys.stderr)
     handler.name = _HANDLER_NAME
+    handler.addFilter(ThrottleRepeats())
     handler.setFormatter(
         structlog.stdlib.ProcessorFormatter(foreign_pre_chain=shared, processors=formatting)
     )

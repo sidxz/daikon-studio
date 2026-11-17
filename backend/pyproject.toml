@@ -40,6 +40,14 @@ dependencies = [
     "openpyxl>=3.1",
     "umap-learn>=0.5.12",
     "threadpoolctl>=3.1",
+    # The planner's two model providers. Both are the vendors' own SDKs rather than
+    # one OpenAI-compatible shim pointed at both: the shim loses Anthropic's typed
+    # parse helper and quietly diverges on anything beyond plain chat.
+    # Core dependencies, not an extra: CI syncs only `--extra s3`, so an import
+    # guarded by another extra is how main went red unnoticed for three pushes.
+    # Both MIT, both pure-Python wrappers over httpx.
+    "anthropic>=0.40",
+    "openai>=1.60",
 ]
 
 [project.optional-dependencies]
@@ -49,6 +57,18 @@ azure = ["adlfs>=2024.7"]
 # The GPU lane. chemprop pulls torch, lightning and rdkit itself and owns their floors;
 # torch is listed bare, with no version, only so [tool.uv.sources] below can pick its
 # build (uv applies sources to direct dependencies only).
+# The chem-tools lane: structure prep, pockets and docking. fpocket, p2rank and vina are
+# binaries, not wheels (make fpocket, make p2rank, make vina). meeko writes the PDBQT both
+# sides of a docking run need; it is LGPL-2.1, imported rather than linked, and pulls gemmi.
+chem-tools = [
+    "openmm>=8.6",
+    "pdbfixer>=1.12",
+    "propka>=3.5",
+    "meeko>=0.8",
+    "gemmi>=0.7",
+    "prolif>=2.2",
+    "posebusters>=0.6.5",
+]
 gpu = ["chemprop>=2.2,<3", "transformers>=5.16", "peft>=0.21", "torch"]
 
 [dependency-groups]
@@ -76,6 +96,9 @@ packages = ["src/daikonstudio"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
+# `live` tests spend money at a provider; run them on purpose with `pytest -m live`.
+addopts = "-m 'not live'"
+markers = ["live: calls a paid provider with the key in backend/.env; skipped without one"]
 filterwarnings = [
     # ponytail: fastapi.testclient.TestClient (the standard FastAPI test tool) wraps
     # httpx's sync API, which starlette flags as deprecated pending a hypothetical

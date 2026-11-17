@@ -120,8 +120,8 @@ _MANIFEST = EngineManifest(
     version="1.0.0",
     name="ESM-2 embeddings + Gaussian process",
     description=(
-        "A Gaussian process on frozen ESM-2 650M protein embeddings, suited to the small "
-        "datasets protein engineering actually produces (tens to a few thousand "
+        "A Gaussian process on frozen ESM-2 650M protein embeddings, suited to small "
+        "protein-engineering datasets (tens to a few thousand "
         "sequences). Its uncertainty is a posterior standard deviation in the target's "
         "own units rather than a spread across an ensemble. The protein model is used as "
         "a fixed featurizer and is not retrained. Cost grows cubically with training-set "

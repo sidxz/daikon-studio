@@ -74,6 +74,15 @@ class SubmitSweepCommand:
     baseline_engine_id: str | None = None
     baseline_conditions: dict[str, object] = field(default_factory=dict)
     tune_cutoffs: bool = False
+    #: The evaluation options a single Protocol already offers, declared once for the
+    #: whole sweep for the same reason the dataset and the baseline are: configs scored
+    #: different ways are not a comparison. Turning the baseline and the random split off
+    #: is what makes a sweep a quick read on the configs themselves rather than three
+    #: fits apiece.
+    run_baseline: bool = True
+    optimism_gap: bool = True
+    split_replicates: int = 0
+    subset_column: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -184,6 +193,10 @@ class SubmitSweep:
                     baseline_conditions=command.baseline_conditions,
                     sweep_name=command.name,
                     tune_cutoffs=command.tune_cutoffs,
+                    run_baseline=command.run_baseline,
+                    optimism_gap=command.optimism_gap,
+                    split_replicates=command.split_replicates,
+                    subset_column=command.subset_column,
                 ),
                 auth=auth,
                 sweep_id=sweep_id,

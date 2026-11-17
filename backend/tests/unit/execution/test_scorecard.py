@@ -583,3 +583,95 @@ def test_a_target_measured_on_nothing_reports_zero_not_a_blank():
     card = regression_card(actual=[], predicted=[], structures=[])
 
     assert card.labelled_test_rows == 0
+
+
+def _cliff_card(flagged: int, **overrides):
+    """A card whose flagged rows the model predicts exactly and the baseline misses by
+    one, and whose unflagged rows are the other way round. A subset comparison that
+    quietly scored the whole test set would come out the opposite way, which is what the
+    reversal is here to catch."""
+    rows = flagged + 6
+    actual = [float(index) for index in range(rows)]
+    return regression_card(
+        actual=actual,
+        predicted=[
+            value if index < flagged else value + 3.0 for index, value in enumerate(actual)
+        ],
+        baseline_predicted=[
+            value + 1.0 if index < flagged else value for index, value in enumerate(actual)
+        ],
+        structures=["CCO"] * rows,
+        subset_column="cliff_mol",
+        subset=[index < flagged for index in range(rows)],
+        **overrides,
+    )
+
+
+def test_a_subset_is_measured_for_the_baseline_too_and_paired_over_those_rows():
+    """A published subset score -- MoleculeACE's cliff RMSE -- is a claim about those
+    rows, and the model's number over them says nothing on its own. So the baseline is
+    measured the same way, and the difference is resampled over the flagged rows alone:
+    a method aimed at one kind of compound is judged on that kind of compound."""
+    card = _cliff_card(flagged=24)
+
+    assert card.subset_count == 24
+    assert card.subset_metric == 0.0
+    assert card.baseline_subset_metric == 1.0
+    # Every redraw of those rows has the model at zero error and the baseline at one, so
+    # the interval is the difference itself: ahead, on the rows that were claimed, while
+    # the overall metrics say the baseline is the better model.
+    assert card.subset_difference_ci == (-1.0, -1.0)
+
+
+def test_too_few_flagged_rows_get_the_score_but_no_interval():
+    """The same floor the overall verdict keeps. A subset is usually a small part of a
+    test set, so this is the ordinary case rather than an edge one, and an interval over
+    four compounds would read as evidence while being a statement about resampling."""
+    card = _cliff_card(flagged=4)
+
+    assert card.subset_metric == 0.0
+    assert card.baseline_subset_metric == 1.0
+    assert card.subset_difference_ci is None
+
+
+def test_a_subset_has_no_baseline_number_when_there_is_no_baseline_to_compare():
+    """`subset_metric` still stands alone -- it is the model's own score. The pair and
+    the interval are what need a second model, and inventing them from a self-comparison
+    would print an interval of zeros as if it were a measurement."""
+    card = regression_card(
+        subset_column="cliff_mol",
+        subset=[True, True, False],
+        baseline_is_self=True,
+    )
+
+    assert card.subset_metric is not None
+    assert card.baseline_subset_metric is None
+    assert card.subset_difference_ci is None
+
+
+def test_a_subset_thresholds_each_side_at_its_own_operating_point():
+    """The classification counterpart of the subset comparison, and the way it would go
+    quietly wrong: the model here is a neural engine tuned to 0.3 and the baseline a
+    forest left at 0.5, which puts an exact 0.5 in class 0. Both are perfect on the
+    flagged rows at their own operating point. Scoring the baseline at the model's
+    cutoff instead would call every negative positive and report the reference as
+    useless on exactly the compounds the subset exists to ask about."""
+    card = regression_card(
+        task=TaskType.BINARY_CLASSIFICATION,
+        metrics={"mcc": 1.0},
+        baseline_metrics={"mcc": 1.0},
+        engine_id="chemprop-dmpnn",
+        baseline_engine_id="ecfp4-randomforest",
+        cutoff=0.3,
+        baseline_cutoff=None,
+        actual=[1.0, 0.0] * 20,
+        predicted=[0.35, 0.2] * 20,
+        baseline_predicted=[0.9, 0.5] * 20,
+        structures=["CCO"] * 40,
+        subset_column="cliff_mol",
+        subset=[index < 24 for index in range(40)],
+    )
+
+    assert card.subset_metric == 1.0
+    assert card.baseline_subset_metric == 1.0
+    assert card.subset_difference_ci == (0.0, 0.0)

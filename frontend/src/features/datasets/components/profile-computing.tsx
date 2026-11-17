@@ -45,7 +45,7 @@ export function ProfileComputing({
           {structureKind === "sequence"
             ? "Reading the target distribution and working out which residue positions vary."
             : "Computing physicochemical descriptors, Bemis–Murcko scaffolds, test-to-training similarity, and activity cliffs."}{" "}
-          This runs once per dataset; the result is saved, and later visits open instantly.
+          This runs once per dataset. Results are saved for later visits.
         </p>
       </CardHeader>
       <CardContent className="space-y-2 text-sm">

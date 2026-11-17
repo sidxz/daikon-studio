@@ -151,8 +151,7 @@ export function ScorecardAggregate({ scorecards }: { scorecards: ScorecardRespon
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Each target on its own</CardTitle>
           <p className="text-sm text-muted-foreground">
-            Weakest first. An average is only as useful as its worst target, and this is where to
-            find it.
+            Targets are sorted from weakest to strongest performance on the selected metric.
           </p>
         </CardHeader>
         <CardContent className="overflow-x-auto">
@@ -194,9 +193,9 @@ export function ScorecardAggregate({ scorecards }: { scorecards: ScorecardRespon
             <div className="mt-4 border-t pt-3">
               <p className="text-sm">
                 <span className="font-medium">
-                  {skipped.length} target{skipped.length === 1 ? "" : "s"} left out of the average
+                  {skipped.length} target{skipped.length === 1 ? "" : "s"} left out of the average.
                 </span>{" "}
-                — the average above is over {scored.length} of {scored.length + skipped.length}.
+                The average includes {scored.length} of {scored.length + skipped.length} targets.
               </p>
               <ul className="mt-2 space-y-1 text-sm text-muted-foreground">
                 {skipped.map((entry) => (

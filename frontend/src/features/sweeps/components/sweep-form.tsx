@@ -1,9 +1,12 @@
 "use client";
 
-import { useDataset, useDatasets } from "@/features/datasets";
+import { useDataset, useDatasetColumns, useDatasets } from "@/features/datasets";
 import { TargetsHint, enginesForTargets, tasksForTargets, useEngines } from "@/features/engines";
 import {
   ConditionFields,
+  DEFAULT_EVALUATION_OPTIONS,
+  type EvaluationOptions,
+  EvaluationOptionsFields,
   TuneCutoffsField,
   conditionsValid,
   resolveConditions,
@@ -22,6 +25,7 @@ import {
   SelectValue,
 } from "@/shared/components/ui/select";
 import { Skeleton } from "@/shared/components/ui/skeleton";
+import { hasRandomComparison, isReplicableSplit } from "@/shared/lib/split";
 import { XIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -45,10 +49,14 @@ export function SweepForm() {
   const [baselineConditions, setBaselineConditions] = useState<Record<string, unknown>>({});
   const [configs, setConfigs] = useState<ConfigRow[]>(() => [emptyRow()]);
   const [tuneCutoffs, setTuneCutoffs] = useState(false);
+  // Declared once for the sweep, like the dataset and the baseline: configs evaluated
+  // differently are not a comparison.
+  const [evaluation, setEvaluation] = useState<EvaluationOptions>(DEFAULT_EVALUATION_OPTIONS);
 
   const datasets = useDatasets(undefined, 200);
   const engines = useEngines();
   const { data: dataset } = useDataset(datasetId || undefined);
+  const datasetColumns = useDatasetColumns(datasetId, Boolean(datasetId)).data?.columns;
   const submit = useSubmitSweep();
 
   // Every row and the baseline pick from the same dataset, so the eligible
@@ -91,6 +99,18 @@ export function SweepForm() {
         // Not just the checkbox: it may have been ticked before the dataset
         // changed to one with no active/inactive target.
         tune_cutoffs: canTuneCutoffs && tuneCutoffs,
+        run_baseline: evaluation.runBaseline,
+        // Same guard as the cutoffs above, for the two options whose control hides
+        // itself on a split that cannot support them.
+        optimism_gap:
+          dataset != null && hasRandomComparison(dataset.split.strategy)
+            ? evaluation.optimismGap
+            : true,
+        split_replicates:
+          dataset != null && isReplicableSplit(dataset.split.strategy)
+            ? evaluation.splitReplicates
+            : 0,
+        subset_column: evaluation.subsetColumn || null,
       });
       router.push(`/sweeps/${response.sweep_id}`);
     } catch {
@@ -185,6 +205,19 @@ export function SweepForm() {
             {canTuneCutoffs && (
               <div className="border-t pt-4">
                 <TuneCutoffsField checked={tuneCutoffs} onChange={setTuneCutoffs} />
+              </div>
+            )}
+
+            {dataset && (
+              <div className="space-y-3 border-t pt-4">
+                <p className="text-sm font-medium">How every configuration is evaluated</p>
+                <EvaluationOptionsFields
+                  value={evaluation}
+                  onChange={(patch) => setEvaluation((prev) => ({ ...prev, ...patch }))}
+                  columns={datasetColumns}
+                  splitStrategy={dataset.split.strategy}
+                  idPrefix="sweep-evaluation"
+                />
               </div>
             )}
           </CardContent>

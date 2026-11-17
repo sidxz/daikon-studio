@@ -15,6 +15,12 @@ export { PROTOCOLS_KEY, PROTOCOL_KEY, SCORECARD_KEY } from "./hooks/query-keys";
 export { appliesToTasks, conditionsValid, withoutInapplicable } from "./lib/conditions";
 export { formatCutoff } from "./lib/format-cutoff";
 export { ConditionFields } from "./components/condition-fields";
+export {
+  DEFAULT_EVALUATION_OPTIONS,
+  type EvaluationOptions,
+  EvaluationOptionsFields,
+  evaluationOptionsChanged,
+} from "./components/evaluation-options-fields";
 export { MapCompoundTooltip } from "./components/protocol-chemical-space";
 export { ProtocolDetail } from "./components/protocol-detail";
 export { ProtocolList } from "./components/protocol-list";

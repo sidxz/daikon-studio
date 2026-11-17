@@ -56,7 +56,7 @@ export function PageHistory({ page, onExit }: { page: PageViewData; onExit: () =
           toast.success(`Restored Version ${selected ? ordinal(selected) : ""}`.trim());
           onExit();
         },
-        onError: () => toast.error("Could not restore — the page changed underneath you"),
+        onError: () => toast.error("Could not restore this version. Reload and try again."),
       },
     );
   };
@@ -70,7 +70,7 @@ export function PageHistory({ page, onExit }: { page: PageViewData; onExit: () =
   if (revs.length === 0) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
-        No saved versions yet — save the page once to start its history.
+        No saved versions yet. Save the page to start its history.
       </div>
     );
   }
@@ -99,7 +99,7 @@ export function PageHistory({ page, onExit }: { page: PageViewData; onExit: () =
             {!isCurrent && selected && !page.archived && (
               <div className="mx-4 mt-3 flex flex-wrap items-center gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm">
                 <span>
-                  Viewing Version {ordinal(selected)} — current is Version{" "}
+                  Viewing Version {ordinal(selected)}. Current version:{" "}
                   {current ? ordinal(current) : "?"}
                 </span>
                 <Button size="sm" onClick={() => setConfirmRestore(true)} disabled={!content}>
@@ -169,7 +169,7 @@ export function PageHistory({ page, onExit }: { page: PageViewData; onExit: () =
         open={confirmRestore}
         onOpenChange={setConfirmRestore}
         title={`Restore Version ${selected ? ordinal(selected) : ""}?`}
-        description="The current version stays in the history — restoring adds this older content as a new version on top."
+        description="Restoring saves this content as a new version. All previous versions remain in the history."
         confirmLabel="Restore"
         destructive={false}
         onConfirm={() => {

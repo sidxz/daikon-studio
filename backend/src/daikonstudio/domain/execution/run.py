@@ -31,6 +31,7 @@ from daikonstudio.domain.shared.errors import ConflictError
 class RunKind(StrEnum):
     TRAINING = "training"
     PREDICTION = "prediction"
+    TOOL = "tool"
 
 
 class RunStatus(StrEnum):

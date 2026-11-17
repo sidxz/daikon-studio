@@ -108,8 +108,7 @@ COUNT_FINGERPRINTS = ConditionSpec(
     default=False,
     help=(
         "Records how many times each substructure occurs instead of only whether it is "
-        "present. Usually a small gain, and largest where a structure repeats itself — "
-        "peptides, polymers and long chains."
+        "present. Captures repeated substructures in peptides, polymers and long chains."
     ),
 )
 

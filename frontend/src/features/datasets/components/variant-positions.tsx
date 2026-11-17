@@ -84,7 +84,7 @@ export function VariantPositions({ profile }: { profile: DatasetProfile }) {
           variant.{" "}
           {held > 0
             ? `${held} ${held === 1 ? "position is" : "positions are"} absent from training, which is what the test score is measured on.`
-            : "Every position with a variant also appears in training, so the test set asks nothing new of the model."}
+            : "All positions with variants are represented in training. This split does not assess predictions at unseen positions."}
           {variants.multi_mutant_rows > 0 &&
             ` ${variants.multi_mutant_rows} rows change more than one position.`}
         </p>
